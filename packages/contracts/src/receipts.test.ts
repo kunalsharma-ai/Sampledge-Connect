@@ -6,7 +6,9 @@ describe('deriveConfirmedStatus', () => {
   it('is sent until every recipient delivered', () => {
     expect(
       deriveConfirmedStatus({
-        serverSequence: 5, senderId: 'a', memberIds: members,
+        serverSequence: 5,
+        senderId: 'a',
+        memberIds: members,
         receipts: [{ userId: 'b', deliveredUpTo: 5, readUpTo: 0 }],
       }),
     ).toBe('sent');
@@ -16,20 +18,28 @@ describe('deriveConfirmedStatus', () => {
       { userId: 'b', deliveredUpTo: 9, readUpTo: 9 },
       { userId: 'c', deliveredUpTo: 5, readUpTo: 0 },
     ];
-    expect(deriveConfirmedStatus({ serverSequence: 5, senderId: 'a', memberIds: members, receipts: r })).toBe('delivered');
+    expect(
+      deriveConfirmedStatus({ serverSequence: 5, senderId: 'a', memberIds: members, receipts: r }),
+    ).toBe('delivered');
     r[1]!.readUpTo = 6;
-    expect(deriveConfirmedStatus({ serverSequence: 5, senderId: 'a', memberIds: members, receipts: r })).toBe('read');
+    expect(
+      deriveConfirmedStatus({ serverSequence: 5, senderId: 'a', memberIds: members, receipts: r }),
+    ).toBe('read');
   });
   it('treats read as implying delivered', () => {
     expect(
       deriveConfirmedStatus({
-        serverSequence: 2, senderId: 'a', memberIds: ['a', 'b'],
+        serverSequence: 2,
+        senderId: 'a',
+        memberIds: ['a', 'b'],
         receipts: [{ userId: 'b', deliveredUpTo: 0, readUpTo: 3 }],
       }),
     ).toBe('read');
   });
   it('does not track large conversations', () => {
     const many = Array.from({ length: 40 }, (_, i) => `u${i}`);
-    expect(deriveConfirmedStatus({ serverSequence: 1, senderId: 'u0', memberIds: many, receipts: [] })).toBe('sent');
+    expect(
+      deriveConfirmedStatus({ serverSequence: 1, senderId: 'u0', memberIds: many, receipts: [] }),
+    ).toBe('sent');
   });
 });

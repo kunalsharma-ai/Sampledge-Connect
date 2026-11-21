@@ -1,0 +1,42 @@
+# MongoDB data model
+
+Every tenant-owned document carries `tenantId` and every index on a tenant collection starts with `tenantId`. Migrations live in `apps/api/src/database/migrations/` and create collections with `$jsonSchema` validators and indexes; applied migrations are tracked in `_migrations`.
+
+## Phase 1 collections (Built)
+
+| Collection             | Key fields                                                                                                                                                                                                       | Indexes                                                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`              | `_id`, `slug`, `name`, `status`, `plan` (`trial`), `branding`, `dataPlacement` (`shared`)                                                                                                                        | `slug` unique                                                                                                                                             |
+| `users`                | `tenantId`, `email`, `passwordHash`, `displayName`, `title`, `status`                                                                                                                                            | `(tenantId, email)` unique                                                                                                                                |
+| `memberships`          | `tenantId`, `userId`, `workspaceId`, `role`                                                                                                                                                                      | `(tenantId, userId, workspaceId)` unique, `(tenantId, workspaceId, role)`                                                                                 |
+| `workspaces`           | `tenantId`, `name`, `slug`, `isDefault`                                                                                                                                                                          | `(tenantId, slug)` unique                                                                                                                                 |
+| `conversations`        | `tenantId`, `workspaceId`, `kind`, `name`, `topic`, `dmKey`, `createdBy`, `lastChangeSequence`, `lastMessageAt`, `archivedAt`                                                                                    | `(tenantId, dmKey)` unique partial (DMs), `(tenantId, workspaceId, kind, name)`, `(tenantId, lastMessageAt)`                                              |
+| `conversation_members` | `tenantId`, `conversationId`, `userId`, `role`, `joinedAt`                                                                                                                                                       | `(tenantId, conversationId, userId)` unique, `(tenantId, userId)`                                                                                         |
+| `messages`             | `tenantId`, `conversationId`, `clientMessageId`, `senderId`, `messageType`, `content`, `attachmentIds`, `replyToMessageId`, `serverSequence`, `changeSequence`, `createdAt`, `editedAt`, `deletedAt`, `metadata` | `(tenantId, clientMessageId)` **unique** (idempotency), `(tenantId, conversationId, serverSequence)` unique, `(tenantId, conversationId, changeSequence)` |
+| `message_receipts`     | `tenantId`, `conversationId`, `userId`, `deliveredUpTo`, `readUpTo`, `updatedAt`                                                                                                                                 | `(tenantId, conversationId, userId)` unique                                                                                                               |
+| `devices`              | `tenantId`, `userId`, `deviceId`, `name`, `platform`, `refreshTokenHash`, `refreshFamily`, `revokedAt`, `lastSeenAt`                                                                                             | `(tenantId, userId, deviceId)` unique, `refreshTokenHash` unique                                                                                          |
+| `sync_checkpoints`     | `tenantId`, `userId`, `deviceId`, `lastSyncAt`                                                                                                                                                                   | `(tenantId, userId, deviceId)` unique                                                                                                                     |
+| `audit_logs`           | `tenantId`, `actorId`, `action`, `target`, `ip`, `userAgent`, `at`, `metadata`                                                                                                                                   | `(tenantId, at desc)`, `(tenantId, action, at)`                                                                                                           |
+
+`messageId` on the wire is the Mongo `_id` hex. The conversation's `lastChangeSequence` is the per-conversation counter (allocated with an atomic `$inc`); there is no separate counters collection.
+
+`sync_checkpoints` is server-side bookkeeping (last sync per device, used by the device management screen); the authoritative cursors are on the client.
+
+## Retention and pagination
+
+- History: `serverSequence` keyset pagination (`before` cursor), never `skip`.
+- Retention (Planned, worker): per-tenant policy in `retention_policies` deletes or tombstones messages older than N days, skipping legal holds.
+
+## Planned collections
+
+| Collection                                                         | Phase | Notes                                                                                                               |
+| ------------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------- |
+| `attachments`                                                      | 1b    | Nextcloud path, size, mime, scan status, upload session for resume                                                  |
+| `notifications`                                                    | 1b    | Per-user inbox, routing source (module), read state                                                                 |
+| `retention_policies`                                               | 1b    | Per tenant / per conversation kind; legal hold flags                                                                |
+| `projects`, `linked_records`                                       | 2     | Links from conversations to Samptrek/SampForce/... records                                                          |
+| `tasks`, `approvals`                                               | 2     | Conversation-to-action                                                                                              |
+| `integrations`                                                     | 2–3   | Tenant integration configs; secrets referenced by id, stored encrypted                                              |
+| `external_accounts`, `external_conversations`, `external_messages` | 3     | Connector gateway identity and delivery mapping                                                                     |
+| `subscriptions`, `usage_records`                                   | 4     | Billing; pricing not hardcoded                                                                                      |
+| `channels`                                                         | n/a   | Channels are `conversations` with kind `channel_*`; a separate collection would duplicate membership and sequencing |

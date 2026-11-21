@@ -104,16 +104,27 @@ const WRITE_PERMISSIONS: ReadonlySet<ConversationPermission> = new Set([
  * Conversation-level authorization. Tenant admins may moderate any conversation
  * in their tenant, but only see private conversations they belong to.
  */
-export function conversationCan(access: ConversationAccess, permission: ConversationPermission): boolean {
+export function conversationCan(
+  access: ConversationAccess,
+  permission: ConversationPermission,
+): boolean {
   if (access.archived && WRITE_PERMISSIONS.has(permission)) return false;
   if (access.conversationRole) {
     if (CONVERSATION_ROLE_GRANTS[access.conversationRole].includes(permission)) return true;
   }
   const isTenantAdmin = access.tenantRole === 'owner' || access.tenantRole === 'admin';
-  if (permission === 'conversation.read' && access.isPublicChannel && access.tenantRole !== 'guest') {
+  if (
+    permission === 'conversation.read' &&
+    access.isPublicChannel &&
+    access.tenantRole !== 'guest'
+  ) {
     return true;
   }
-  if (isTenantAdmin && access.conversationRole && (permission === 'message.delete.any' || permission === 'conversation.archive')) {
+  if (
+    isTenantAdmin &&
+    access.conversationRole &&
+    (permission === 'message.delete.any' || permission === 'conversation.archive')
+  ) {
     return true;
   }
   return false;

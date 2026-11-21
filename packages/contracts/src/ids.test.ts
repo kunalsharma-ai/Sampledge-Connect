@@ -27,8 +27,26 @@ describe('backoffDelay', () => {
 
 describe('SendMessageRequestSchema', () => {
   it('rejects empty text and non-UUID ids', () => {
-    expect(SendMessageRequestSchema.safeParse({ conversationId: 'c', clientMessageId: 'x', content: { text: 'hi' } }).success).toBe(false);
-    expect(SendMessageRequestSchema.safeParse({ conversationId: 'c', clientMessageId: uuidv7(), content: { text: '   ' } }).success).toBe(false);
-    expect(SendMessageRequestSchema.safeParse({ conversationId: 'c', clientMessageId: uuidv7(), content: { text: 'hi' } }).success).toBe(true);
+    expect(
+      SendMessageRequestSchema.safeParse({
+        conversationId: 'c',
+        clientMessageId: 'x',
+        content: { text: 'hi' },
+      }).success,
+    ).toBe(false);
+    expect(
+      SendMessageRequestSchema.safeParse({
+        conversationId: 'c',
+        clientMessageId: uuidv7(),
+        content: { text: '   ' },
+      }).success,
+    ).toBe(false);
+    expect(
+      SendMessageRequestSchema.safeParse({
+        conversationId: 'c',
+        clientMessageId: uuidv7(),
+        content: { text: 'hi' },
+      }).success,
+    ).toBe(true);
   });
 });

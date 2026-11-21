@@ -41,7 +41,8 @@ export function deriveConfirmedStatus(params: {
   receipts: readonly Pick<Receipt, 'userId' | 'deliveredUpTo' | 'readUpTo'>[];
 }): Extract<MessageStatus, 'sent' | 'delivered' | 'read'> {
   const recipients = params.memberIds.filter((id) => id !== params.senderId);
-  if (recipients.length === 0 || params.memberIds.length > RECEIPT_TRACKING_MAX_MEMBERS) return 'sent';
+  if (recipients.length === 0 || params.memberIds.length > RECEIPT_TRACKING_MAX_MEMBERS)
+    return 'sent';
   const byUser = new Map(params.receipts.map((r) => [r.userId, r]));
   let allRead = true;
   for (const id of recipients) {

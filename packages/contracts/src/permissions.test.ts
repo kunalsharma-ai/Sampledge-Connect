@@ -18,7 +18,10 @@ describe('conversation permissions', () => {
   it('non-members cannot read private conversations, even tenant admins', () => {
     expect(conversationCan({ ...base, conversationRole: null }, 'conversation.read')).toBe(false);
     expect(
-      conversationCan({ ...base, tenantRole: 'admin', conversationRole: null }, 'conversation.read'),
+      conversationCan(
+        { ...base, tenantRole: 'admin', conversationRole: null },
+        'conversation.read',
+      ),
     ).toBe(false);
   });
   it('public channels are readable by members but not guests', () => {
@@ -28,8 +31,12 @@ describe('conversation permissions', () => {
     expect(conversationCan(pub, 'message.send')).toBe(false);
   });
   it('members cannot moderate; moderators can', () => {
-    expect(conversationCan({ ...base, conversationRole: 'member' }, 'message.delete.any')).toBe(false);
-    expect(conversationCan({ ...base, conversationRole: 'moderator' }, 'message.delete.any')).toBe(true);
+    expect(conversationCan({ ...base, conversationRole: 'member' }, 'message.delete.any')).toBe(
+      false,
+    );
+    expect(conversationCan({ ...base, conversationRole: 'moderator' }, 'message.delete.any')).toBe(
+      true,
+    );
   });
   it('archived conversations are read-only', () => {
     const a = { ...base, archived: true, conversationRole: 'owner' as const };
