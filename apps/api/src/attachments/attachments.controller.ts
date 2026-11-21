@@ -54,27 +54,54 @@ export class AttachmentsController {
     return this.attachments.signedUrl(ctx, id);
   }
 
-  /** Signed download. Images, PDFs and plain text render inline; everything else downloads. */
+  /**
+   * Signed download. Images, PDFs, plain text, audio and video render inline; everything else
+   * downloads. `download=1` forces a download (backups). Supports single byte ranges so audio
+   * and video can seek (Safari requires it).
+   */
   @Get('files/:tenantId/:id')
   async download(
     @Param('tenantId') tenantId: string,
     @Param('id') id: string,
     @Query('exp') exp: string,
     @Query('sig') sig: string,
+    @Query('download') download: string | undefined,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     const f = await this.attachments.openSigned(tenantId, id, exp, sig);
+    const size = f.size;
+    let range: { start: number; end: number } | undefined;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (m && (m[1] || m[2])) {
+      const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+      if (start > end || start >= size) {
+        res.status(416).setHeader('Content-Range', `bytes */${size}`).end();
+        return;
+      }
+      range = { start, end };
+    }
+    const inline = f.inline && download !== '1';
     res.setHeader('Content-Type', f.inline ? f.mimeType : 'application/octet-stream');
-    res.setHeader('Content-Length', String(f.size));
+    res.setHeader('Accept-Ranges', 'bytes');
+    if (range) {
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+      res.setHeader('Content-Length', String(range.end - range.start + 1));
+    } else {
+      res.setHeader('Content-Length', String(size));
+    }
     res.setHeader(
       'Content-Disposition',
-      `${f.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.fileName)}`,
+      `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.fileName)}`,
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Cache-Control', 'private, max-age=600');
-    f.stream.on('error', () => res.destroy());
-    f.stream.pipe(res);
+    const stream = f.open(range);
+    stream.on('error', () => res.destroy());
+    stream.pipe(res);
   }
 }

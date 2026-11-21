@@ -15,7 +15,8 @@ export interface FileStorage {
     meta: { tenantId: string; contentType: string },
     transforms?: Transform[],
   ): Promise<void>;
-  get(key: string): Readable;
+  /** Streams the bytes; `range` is inclusive [start, end] for HTTP Range requests (media seeking). */
+  get(key: string, range?: { start: number; end: number }): Readable;
   delete(key: string): Promise<void>;
 }
 
@@ -45,8 +46,11 @@ export class GridFsStorage implements FileStorage {
       throw e;
     }
   }
-  get(key: string): Readable {
-    return this.bucket.openDownloadStreamByName(key);
+  get(key: string, range?: { start: number; end: number }): Readable {
+    return this.bucket.openDownloadStreamByName(
+      key,
+      range ? { start: range.start, end: range.end + 1 } : undefined,
+    );
   }
   async delete(key: string) {
     for await (const f of this.bucket.find({ filename: key }, { projection: { _id: 1 } })) {

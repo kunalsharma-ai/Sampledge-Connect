@@ -3,6 +3,7 @@ import type {
   ConversationRole,
   MessageContent,
   MessageType,
+  RecordingKind,
   TenantRole,
 } from '@sampledge/contracts';
 
@@ -86,6 +87,9 @@ export interface AttachmentSnapshot {
   width: number | null;
   height: number | null;
   createdAt: Date;
+  recording?: RecordingKind | null;
+  durationMs?: number | null;
+  deletedAt?: Date | null;
 }
 
 export interface MessageDoc extends TenantOwned {
@@ -173,6 +177,14 @@ export interface AttachmentDoc extends TenantOwned {
   messageId: string | null;
   createdAt: Date;
   completedAt: Date | null;
+  /** Recording kind; absent/null for ordinary files. */
+  recording?: RecordingKind | null;
+  durationMs?: number | null;
+  /** Call recordings: the call they came from. */
+  callId?: string | null;
+  /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
 }
 
 export interface NotificationDoc extends TenantOwned {
@@ -209,6 +221,25 @@ export interface CallDoc extends TenantOwned {
   messageId: string | null;
   /** Last join/leave/heartbeat. A live call with nobody joined for a while is closed. */
   lastActivityAt: Date;
+  /** The recording in progress (one at a time), or null. */
+  recording?: CallRecordingDoc | null;
+}
+
+export interface CallRecordingDoc {
+  egressId: string | null;
+  status: 'starting' | 'active' | 'stopping';
+  startedBy: string;
+  startedAt: Date;
+  audioOnly: boolean;
+  /** File name inside the recordings spool directory (we choose it; never taken from a webhook). */
+  fileName: string;
+}
+
+export interface TenantSettingsDoc extends TenantOwned {
+  recordingRetentionDays: number | null;
+  callRecordingEnabled: boolean;
+  updatedAt: Date;
+  updatedBy: string | null;
 }
 
 export interface MeetingDoc extends TenantOwned {
@@ -257,4 +288,5 @@ export interface TenantCollections {
   calls: CallDoc;
   meetings: MeetingDoc;
   user_settings: UserSettingsDoc;
+  tenant_settings: TenantSettingsDoc;
 }

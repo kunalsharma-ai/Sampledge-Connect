@@ -26,6 +26,18 @@ export const BLOCKED_EXTENSIONS = [
   'apk',
 ] as const;
 
+/**
+ * Recordings are attachments with a `recording` kind. voice/video/screen are clips people
+ * record in the composer; call is a call or meeting recording made by the server (SFU egress).
+ */
+export const RECORDING_KINDS = ['voice', 'video', 'screen', 'call'] as const;
+export const RecordingKindSchema = z.enum(RECORDING_KINDS);
+export type RecordingKind = z.infer<typeof RecordingKindSchema>;
+/** Kinds a client may upload itself (call recordings are made by the server). */
+export const CLIENT_RECORDING_KINDS = ['voice', 'video', 'screen'] as const;
+/** Chat clips are capped at 30 minutes. */
+export const MAX_CLIP_DURATION_MS = 30 * 60_000;
+
 export const ATTACHMENT_STATUSES = ['pending', 'ready'] as const;
 export type AttachmentStatus = (typeof ATTACHMENT_STATUSES)[number];
 
@@ -57,6 +69,9 @@ export const CreateUploadRequestSchema = z.object({
     .optional(),
   width: z.number().int().positive().max(20000).optional(),
   height: z.number().int().positive().max(20000).optional(),
+  /** Set for a clip recorded in the app (voice message, video message, screen recording). */
+  recording: z.enum(CLIENT_RECORDING_KINDS).optional(),
+  durationMs: z.number().int().positive().max(MAX_CLIP_DURATION_MS).optional(),
 });
 export type CreateUploadRequest = z.input<typeof CreateUploadRequestSchema>;
 
@@ -71,6 +86,11 @@ export const AttachmentSchema = z.object({
   height: z.number().int().nullable(),
   status: z.enum(ATTACHMENT_STATUSES),
   createdAt: z.string().datetime(),
+  /** Recording kind, or null for an ordinary file. Absent on data cached by older clients. */
+  recording: RecordingKindSchema.nullable().optional(),
+  durationMs: z.number().int().nonnegative().nullable().optional(),
+  /** Set once the file was deleted (by a person or by the retention policy). Bytes are gone. */
+  deletedAt: z.string().datetime().nullable().optional(),
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
@@ -101,3 +121,17 @@ export type AttachmentUrl = z.infer<typeof AttachmentUrlSchema>;
 
 export const isImageAttachment = (a: Pick<Attachment, 'mimeType'>) =>
   /^image\/(png|jpe?g|gif|webp|avif)$/.test(a.mimeType);
+
+export const isAudioAttachment = (a: Pick<Attachment, 'mimeType'>) =>
+  /^audio\/(webm|ogg|mpeg|mp4|aac|x-m4a|m4a|wav)$/.test(a.mimeType);
+export const isVideoAttachment = (a: Pick<Attachment, 'mimeType'>) =>
+  /^video\/(webm|mp4|quicktime)$/.test(a.mimeType);
+
+/** "1:05" or "1:02:03". */
+export function formatClipDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = (total % 60).toString().padStart(2, '0');
+  return h ? `${h}:${m.toString().padStart(2, '0')}:${s}` : `${m}:${s}`;
+}

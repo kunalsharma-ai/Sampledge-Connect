@@ -16,7 +16,7 @@ import {
 } from '@sampledge/contracts';
 import { AppError, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { MessageDoc } from '../database/documents.js';
+import type { AttachmentSnapshot, MessageDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -126,6 +126,8 @@ export class MessagesService {
             width: f.width,
             height: f.height,
             createdAt: f.createdAt,
+            recording: f.recording ?? null,
+            durationMs: f.durationMs ?? null,
           })),
           replyToMessageId: req.replyToMessageId ?? null,
           serverSequence: seq,
@@ -220,6 +222,7 @@ export class MessagesService {
     senderId: string,
     text: string,
     metadata: Record<string, unknown>,
+    attachments: AttachmentSnapshot[] = [],
   ): Promise<Message> {
     const t = this.db.for(tenantId);
     const doc = await withLock(this.redis, this.lockKey(tenantId, conversationId), async () => {
@@ -231,7 +234,8 @@ export class MessagesService {
         senderDeviceId: 'server',
         messageType: 'system',
         content: { text, mentions: [] },
-        attachmentIds: [],
+        attachmentIds: attachments.map((a) => a.attachmentId),
+        ...(attachments.length ? { attachments } : {}),
         replyToMessageId: null,
         serverSequence: seq,
         changeSequence: seq,
@@ -264,6 +268,37 @@ export class MessagesService {
         return t.messages.findOneAndUpdate(
           { _id: messageId, deletedAt: null },
           { $set: { content: { text, mentions: [] }, metadata, changeSequence: seq } },
+          { returnDocument: 'after' },
+        );
+      },
+    );
+    if (!updated) return null;
+    const dto = toMessage(updated);
+    this.realtime.toConversation(tenantId, m.conversationId, 'message:updated', dto);
+    return dto;
+  }
+
+  /**
+   * Marks one attachment on a message as deleted (its bytes are gone) so every device shows
+   * "deleted" instead of a broken player. Bumps changeSequence so it syncs offline.
+   */
+  async markAttachmentDeleted(
+    tenantId: string,
+    messageId: string,
+    attachmentId: string,
+    at: Date,
+  ): Promise<Message | null> {
+    const t = this.db.for(tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m) return null;
+    const updated = await withLock(
+      this.redis,
+      this.lockKey(tenantId, m.conversationId),
+      async () => {
+        const seq = await this.nextSequence(tenantId, m.conversationId, false);
+        return t.messages.findOneAndUpdate(
+          { _id: messageId, 'attachments.attachmentId': attachmentId },
+          { $set: { 'attachments.$.deletedAt': at, changeSequence: seq } },
           { returnDocument: 'after' },
         );
       },
