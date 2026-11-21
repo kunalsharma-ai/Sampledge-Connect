@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   HttpCode,
-  Inject,
   Param,
   Post,
   Put,
@@ -14,8 +13,7 @@ import { TestIntegrationRequestSchema, tenantCan } from '@sampledge/contracts';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { forbidden, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { TenantDb } from '../database/tenant-db.js';
+import { PlatformAdmins } from '../common/platform-admins.js';
 import { IntegrationSettingsService } from './integration-settings.service.js';
 
 /** Tenant-level integrations: owners and admins (`integrations.manage`). */
@@ -56,24 +54,13 @@ export class TenantIntegrationsController {
 @Controller('v1/platform/integrations')
 @UseGuards(AuthGuard)
 export class PlatformIntegrationsController {
-  private readonly admins: Set<string>;
   constructor(
     private readonly settings: IntegrationSettingsService,
-    private readonly db: TenantDb,
-    @Inject(APP_CONFIG) cfg: AppConfig,
-  ) {
-    this.admins = new Set(
-      cfg.PLATFORM_ADMIN_EMAILS.split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean),
-    );
-  }
+    private readonly operators: PlatformAdmins,
+  ) {}
 
   private async guard(ctx: TenantContext) {
-    const u = await this.db
-      .for(ctx.tenantId)
-      .users.findOne({ _id: ctx.userId }, { projection: { email: 1 } });
-    if (!u || !this.admins.has(u.email.toLowerCase())) throw forbidden();
+    await this.operators.assert(ctx);
     return { tenantId: null };
   }
 

@@ -40,6 +40,7 @@ export const INTEGRATION_CATEGORIES = [
   'storage',
   'ai',
   'identity',
+  'billing',
   'sampledge',
   'connectors',
 ] as const;
@@ -50,6 +51,7 @@ export const INTEGRATION_CATEGORY_LABELS: Record<IntegrationCategory, string> = 
   storage: 'Files & storage',
   ai: 'AI',
   identity: 'Sign-in & identity',
+  billing: 'Billing & payments',
   sampledge: 'Sampledge modules',
   connectors: 'External messaging',
 };
