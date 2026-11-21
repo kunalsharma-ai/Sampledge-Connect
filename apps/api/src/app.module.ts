@@ -66,6 +66,7 @@ import { WorkController } from './work/work.controller.js';
 import { AiController } from './ai/ai.controller.js';
 import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
+import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
 
@@ -137,6 +138,7 @@ export class AppModule {
         ProjectsService,
         AiService,
         AiIntegration,
+        TranscriptsService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

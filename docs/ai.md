@@ -37,7 +37,7 @@ All under `/v1/ai`, all authenticated, rate limited per user (`ai`: 40 per minut
 | On/off for the organization      | `PUT /settings` `{enabled}`                             | `ai.manage` (owners, admins); audited                                       |
 | Conversation summary             | `POST /conversations/:id/summary` `{range}`             | `unread`, `day`, `week`, `recent`; cached per message range                 |
 | Suggested replies                | `POST /conversations/:id/replies`                       | Put into the composer; the person still presses send                        |
-| Meeting summary                  | `POST /meetings/:id/summary`                            | Agenda + meeting chat. Recordings are not transcribed yet (Planned)         |
+| Meeting summary                  | `POST /meetings/:id/summary`                            | Agenda, meeting chat and call recording transcripts                         |
 | Semantic search                  | `POST /search` `{query, conversationId?}`               | Over every conversation the caller can read                                 |
 | Ask                              | `POST /ask` `{question, history}`                       | Answer with numbered sources; history is client-held, never stored          |
 | Translation                      | `POST /translate` `{messageId, targetLanguage}`         | Needs a model; `text: null` in built-in mode                                |
@@ -45,6 +45,41 @@ All under `/v1/ai`, all authenticated, rate limited per user (`ai`: 40 per minut
 | Duplicate detection              | `POST /duplicates` `{text}`                             | "Has this been asked already?"                                              |
 | Notification priority            | `GET /notifications/priority`                           | Rules: mention, DM, urgency words, questions, age                           |
 | Drafts                           | `POST /proposals`, `/proposals/:id/confirm`, `/dismiss` | See below                                                                   |
+| Transcript of a recording        | `GET /transcripts/:attachmentId`, `POST` to queue       | Same access as playing the recording; see Transcripts below                 |
+
+## Transcripts
+
+Call recordings, voice messages and recorded video can be transcribed by the organization's own
+speech-to-text server. Audio never goes anywhere else. Configure it in **Administration ›
+Integrations › Speech-to-text server** (integration id `ai.transcription`, stored in the
+database, API key encrypted): server URL, model, optional language, and whether call recordings
+(default on) and voice messages (default off) are transcribed automatically. **Test connection**
+sends 0.4 s of silence.
+
+Any server with the OpenAI-compatible `POST /v1/audio/transcriptions` works:
+
+| Server                                | Example                                                                                                                                                   |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Speaches (faster-whisper), CPU or GPU | `docker run -d --name speaches --network <net> ghcr.io/speaches-ai/speaches:latest-cpu`, URL `http://speaches:8000`, model `Systran/faster-whisper-small` |
+| whisper.cpp server                    | `whisper-server -m ggml-small.bin --host 0.0.0.0 --port 8080 --inference-path /v1/audio/transcriptions`, URL `http://whisper:8080`                        |
+| LocalAI                               | URL `http://localai:8080`, model `whisper-1` (as named in LocalAI)                                                                                        |
+
+How it works:
+
+- A worker in the API checks every 20 seconds. It queues recent call recordings (and voice
+  messages when enabled), sends each file to the server (`verbose_json`, up to 200 MB, two jobs
+  per organization at a time), and stores the text and timed segments in `ai_transcripts`.
+  People can press **Transcript** under any recording to queue it or read it.
+- A failed job is retried up to three times, then shows the reason ("Speech-to-text server
+  returned HTTP 500") with **Try again**. Server error bodies are never shown.
+- Finished transcripts feed conversation and meeting summaries (decisions, action items, open
+  questions), the status digest, semantic search and ask. Search results from a transcript are
+  marked **Transcript** and show the matching sentence.
+- Deleting a recording (by a person or the retention policy) deletes its transcript and removes
+  it from search.
+- Transcripts have no speaker labels yet: lines are attributed to the person who started the
+  recording.
+- Sizing: faster-whisper `small` on 4 CPU cores runs at roughly real time; a GPU is 10–30× faster.
 
 ## Access rules
 
@@ -94,7 +129,7 @@ behind the same `vectorSearch` method.
 
 ## Planned
 
-- Call and meeting transcripts (self-hosted speech-to-text such as Whisper), then transcript summaries.
+- Speaker labels (diarization) in transcripts, and live captions during calls.
 - Create tasks from suggested tasks (Tasks & Approvals, Phase 2) and project status from linked
   Samptrek projects (Phase 2).
 - AI on mobile (the API above is ready; the mobile app adds the screens).

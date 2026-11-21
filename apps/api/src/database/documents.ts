@@ -410,6 +410,25 @@ export interface AiProposalDoc extends TenantOwned {
   confirmedAt: Date | null;
 }
 
+/** One transcript per recording or voice message, from the tenant's own speech-to-text server. */
+export interface AiTranscriptDoc extends TenantOwned {
+  attachmentId: string;
+  conversationId: string;
+  messageId: string | null;
+  kind: string | null;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  text: string | null;
+  segments: { startMs: number; endMs: number; text: string }[];
+  language: string | null;
+  model: string | null;
+  error: string | null;
+  attempts: number;
+  /** null when queued automatically (call recordings). */
+  requestedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -433,4 +452,5 @@ export interface TenantCollections {
   ai_index_state: AiIndexStateDoc;
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
+  ai_transcripts: AiTranscriptDoc;
 }
