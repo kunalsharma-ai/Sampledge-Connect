@@ -6,6 +6,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { toMessage } from '../messages/message.mapper.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 /** Private, per-user saved messages. Nobody else can see what you saved. */
 @Injectable()
@@ -13,6 +14,7 @@ export class BookmarksService {
   constructor(
     private readonly db: TenantDb,
     private readonly conversations: ConversationsService,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async add(ctx: TenantContext, messageId: string): Promise<{ saved: true }> {
@@ -36,11 +38,13 @@ export class BookmarksService {
     } catch (e) {
       if (!(e instanceof MongoServerError && e.code === 11000)) throw e; // already saved
     }
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', { messageId, saved: true });
     return { saved: true };
   }
 
   async remove(ctx: TenantContext, messageId: string): Promise<void> {
     await this.db.for(ctx.tenantId).bookmarks.deleteMany({ userId: ctx.userId, messageId });
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', { messageId, saved: false });
   }
 
   /** Newest first. Messages in conversations the caller can no longer read are left out. */

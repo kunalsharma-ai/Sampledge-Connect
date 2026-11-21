@@ -68,9 +68,20 @@ export interface ServerToClientEvents {
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
+  /** You saved or unsaved a message on another device. */
+  'bookmark:updated': (e: { messageId: string; saved: boolean }) => void;
+  /** Someone in the organization joined, changed role or status, or edited their profile. */
+  'directory:updated': (e: { userId: string }) => void;
+  /** An organization-wide setting changed; refetch that area. */
+  'tenant:updated': (e: { area: TenantArea }) => void;
+  /** A project was created or changed; refetch it (the list endpoint applies visibility). */
+  'project:changed': (e: { projectId: string }) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
+
+export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
+export type TenantArea = (typeof TENANT_AREAS)[number];
 
 /** Typing state expires server-side if not refreshed. */
 export const TYPING_TTL_MS = 6000;
