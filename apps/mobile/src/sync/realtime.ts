@@ -17,6 +17,7 @@ import type {
   Task,
   Approval,
   TenantArea,
+  BookingPage,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -56,6 +57,8 @@ type RealtimeEvents = {
   tenant: { area: TenantArea };
   /** A project was created or changed. */
   project: { projectId: string };
+  /** A booking page you host was created, changed or deleted (page is null when deleted). */
+  booking: { bookingPageId: string; page: BookingPage | null };
 };
 
 /**
@@ -133,6 +136,7 @@ export class RealtimeClient {
     socket.on('directory:updated', (e) => this.events.emit('directory', e));
     socket.on('tenant:updated', (e) => this.events.emit('tenant', e));
     socket.on('project:changed', (e) => this.events.emit('project', e));
+    socket.on('booking:changed', (e) => this.events.emit('booking', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

@@ -53,6 +53,9 @@ import {
   type Conversation,
   type CreateConversationRequest,
   type CreateMeetingRequest,
+  type BookingPage,
+  type CreateBookingPageRequest,
+  type UpdateBookingPageRequest,
   type FindTimesRequest,
   type FindTimesResponse,
   type Meeting,
@@ -209,6 +212,10 @@ export interface ApiTransport {
   createApproval(req: CreateApprovalRequest): Promise<Approval>;
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
+  listBookingPages(): Promise<BookingPage[]>;
+  createBookingPage(req: CreateBookingPageRequest): Promise<BookingPage>;
+  updateBookingPage(id: string, req: UpdateBookingPageRequest): Promise<BookingPage>;
+  deleteBookingPage(id: string): Promise<{ deleted: true }>;
   getBranding(): Promise<BrandingView>;
   adminOverview(): Promise<AdminOverview>;
   auditLog(q: AuditQuery): Promise<AuditPage>;
@@ -638,6 +645,22 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', `/v1/approvals?${workQuery(q)}`, undefined);
   }
 
+  listBookingPages(): Promise<BookingPage[]> {
+    return this.request('GET', '/v1/booking-pages', undefined);
+  }
+
+  createBookingPage(req: CreateBookingPageRequest): Promise<BookingPage> {
+    return this.request('POST', '/v1/booking-pages', req);
+  }
+
+  updateBookingPage(id: string, req: UpdateBookingPageRequest): Promise<BookingPage> {
+    return this.request('PATCH', `/v1/booking-pages/${encodeURIComponent(id)}`, req);
+  }
+
+  deleteBookingPage(id: string): Promise<{ deleted: true }> {
+    return this.request('DELETE', `/v1/booking-pages/${encodeURIComponent(id)}`, undefined);
+  }
+
   getApproval(approvalId: string): Promise<Approval> {
     return this.request('GET', `/v1/approvals/${encodeURIComponent(approvalId)}`, undefined);
   }
@@ -981,6 +1004,10 @@ export class NoServerTransport implements ApiTransport {
   createApproval = async (): Promise<Approval> => this.fail();
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
+  listBookingPages = async (): Promise<BookingPage[]> => this.fail();
+  createBookingPage = async (): Promise<BookingPage> => this.fail();
+  updateBookingPage = async (): Promise<BookingPage> => this.fail();
+  deleteBookingPage = async (): Promise<{ deleted: true }> => this.fail();
   getBranding = async (): Promise<BrandingView> => this.fail();
   adminOverview = async (): Promise<AdminOverview> => this.fail();
   auditLog = async (): Promise<AuditPage> => this.fail();

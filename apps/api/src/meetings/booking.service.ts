@@ -43,10 +43,15 @@ export class BookingService {
     private readonly realtime: RealtimePublisher,
   ) {}
 
-  /** Every host (old and new) refetches their booking pages on all of their devices. */
-  private changed(tenantId: string, ...hostLists: string[][]) {
-    for (const id of new Set(hostLists.flat()))
-      this.realtime.toUser(tenantId, id, 'meetings:changed', { area: 'booking_pages' });
+  /**
+   * Every host (old and new, on all of their devices) sees the change live: web refetches on
+   * meetings:changed, mobile applies the page carried by booking:changed.
+   */
+  private announce(tenantId: string, id: string, page: BookingPage | null, hosts: string[]) {
+    for (const userId of new Set(hosts)) {
+      this.realtime.toUser(tenantId, userId, 'meetings:changed', { area: 'booking_pages' });
+      this.realtime.toUser(tenantId, userId, 'booking:changed', { bookingPageId: id, page });
+    }
   }
 
   private url(slug: string) {
@@ -118,8 +123,9 @@ export class BookingService {
         updatedAt: now,
       })
       .catch((e) => this.slugTaken(e));
-    this.changed(ctx.tenantId, hostIds);
-    return this.toDto(doc);
+    const page = this.toDto(doc);
+    this.announce(ctx.tenantId, page.bookingPageId, page, hostIds);
+    return page;
   }
 
   private async mine(ctx: TenantContext, id: string) {
@@ -147,14 +153,15 @@ export class BookingService {
         { returnDocument: 'after' },
       )
       .catch((e) => this.slugTaken(e));
-    this.changed(ctx.tenantId, before.hostIds, updated!.hostIds);
-    return this.toDto(updated!);
+    const page = this.toDto(updated!);
+    this.announce(ctx.tenantId, id, page, [...before.hostIds, ...page.hostIds]);
+    return page;
   }
 
   async remove(ctx: TenantContext, id: string): Promise<{ deleted: true }> {
-    const p = await this.mine(ctx, id);
+    const before = await this.mine(ctx, id);
     await this.db.for(ctx.tenantId).booking_pages.deleteMany({ _id: id });
-    this.changed(ctx.tenantId, p.hostIds);
+    this.announce(ctx.tenantId, id, null, before.hostIds);
     return { deleted: true };
   }
 
