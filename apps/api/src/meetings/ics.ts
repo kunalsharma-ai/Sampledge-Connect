@@ -100,7 +100,7 @@ export function buildCalendar(c: {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Sampledge//Sampledge Connect//EN',
+    'PRODID:-//Sampledge//SampConnect//EN',
     'CALSCALE:GREGORIAN',
     `METHOD:${c.method}`,
     ...(tz

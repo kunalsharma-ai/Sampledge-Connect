@@ -1,6 +1,6 @@
-# Sampledge Connect mobile (`@sampledge/mobile`)
+# SampConnect mobile (`@sampledge/mobile`)
 
-Native iOS and Android app for Sampledge Connect, built with Expo SDK 58, React Native 0.88,
+Native iOS and Android app for SampConnect, built with Expo SDK 58, React Native 0.88,
 Expo Router and TypeScript. It shares wire contracts with the web app and API through
 `@sampledge/contracts`, and is offline-first: every action is written to an encrypted on-device
 SQLite database before the network is touched.

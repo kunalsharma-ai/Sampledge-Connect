@@ -11,7 +11,7 @@ always available. An organization can also keep its files in its own Nextcloud, 
 | Nextcloud address | e.g. `https://cloud.example.com`                                             |
 | User name         | The Nextcloud account that owns the files (a dedicated service user is best) |
 | App password      | Settings → Security → Devices & sessions. Encrypted at rest, never returned  |
-| Folder            | Default `Sampledge Connect`; created if missing, one subfolder per tenant    |
+| Folder            | Default `SampConnect`; created if missing, one subfolder per tenant          |
 | Mode              | `test` (default) or `live`                                                   |
 
 **Test connection** writes a small file, reads it back, deletes it, and reports how many files

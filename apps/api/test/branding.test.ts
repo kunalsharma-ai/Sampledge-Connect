@@ -29,7 +29,7 @@ describe('white-label branding', () => {
   it('starts with the product name and default colors', async () => {
     const r = await api<BrandingView>(h, 'GET', '/v1/branding', { token: owner.accessToken });
     expect(r.body).toMatchObject({
-      displayName: 'Sampledge Connect',
+      displayName: 'SampConnect',
       appName: null,
       logo: null,
       organizationName: 'Northwind Research',

@@ -35,6 +35,7 @@ export const NEXTCLOUD_PROVIDER: IntegrationProviderDef = {
       key: 'folder',
       label: 'Folder',
       type: 'string',
+      // Kept from before the SampConnect rename so existing setups keep finding their files.
       default: 'Sampledge Connect',
       help: 'Created if it does not exist. Each organization gets its own subfolder.',
     },
@@ -183,7 +184,7 @@ export class NextcloudClient {
   /** Write, read back and delete a small file. Proves address, credentials and permissions. */
   async roundTrip(): Promise<string> {
     const name = `.connect-test-${randomBytes(6).toString('hex')}.txt`;
-    const payload = `Sampledge Connect connection test ${new Date().toISOString()}`;
+    const payload = `SampConnect connection test ${new Date().toISOString()}`;
     await this.ensureFolder();
     const put = await this.req('PUT', this.url(name), {
       body: payload,

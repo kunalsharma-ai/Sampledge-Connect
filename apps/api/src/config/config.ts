@@ -88,7 +88,7 @@ const EnvSchema = z.object({
     .transform((v) => v === 'true'),
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASSWORD: z.string().min(1).optional(),
-  /** Sender, e.g. "Sampledge Connect <meetings@example.com>". */
+  /** Sender, e.g. "SampConnect <meetings@example.com>". */
   SMTP_FROM: z.string().min(3).optional(),
   /**
    * Master key for integration secrets stored in the database (32 bytes, base64).

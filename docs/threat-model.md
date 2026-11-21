@@ -40,5 +40,5 @@ Message content and history; identities and credentials; tenant configuration; l
 
 ## Explicit non-claims
 
-- Sampledge Connect does **not** provide end-to-end encryption. Data is encrypted in transit (TLS, terminated at the reverse proxy) and at rest only if MongoDB/disk encryption is configured by the operator.
+- SampConnect does **not** provide end-to-end encryption. Data is encrypted in transit (TLS, terminated at the reverse proxy) and at rest only if MongoDB/disk encryption is configured by the operator.
 - No guarantee of delivery without a network path.

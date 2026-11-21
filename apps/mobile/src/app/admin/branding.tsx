@@ -290,7 +290,7 @@ export default function Branding() {
                 ['enforceTheme', 'Always use this theme', 'People cannot change it.'],
                 [
                   'hidePoweredBy',
-                  'Hide “with Sampledge Connect”',
+                  'Hide “with SampConnect”',
                   'On the sign-in screen and in emails.',
                 ],
               ] as const
