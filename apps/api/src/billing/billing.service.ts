@@ -237,6 +237,19 @@ export class BillingService implements OnModuleInit {
     return { url: r.url };
   }
 
+  /** For the Administration home. */
+  async summary(tenantId: string) {
+    const sub = await this.subscription(tenantId);
+    const plan = sub.planId ? await this.plan(sub.planId) : null;
+    const usage = await this.usage(tenantId);
+    return { planName: plan?.name ?? null, status: sub.status, storageBytes: usage.storageBytes };
+  }
+
+  /** Public pricing (marketing page): public, active plans only. */
+  async publicPlans(): Promise<BillingPlan[]> {
+    return (await this.catalog(false)).filter((p) => p.public);
+  }
+
   /** Seat limit for adding people. Guests don't use a seat. */
   async assertSeatAvailable(tenantId: string) {
     const sub = await this.subscription(tenantId);
