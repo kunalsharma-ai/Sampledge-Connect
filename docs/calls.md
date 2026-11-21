@@ -68,5 +68,19 @@ screen share (with tab audio), raise hand, mute/camera, active speaker, end for 
 incoming-call push data, reconnect handling, multi-replica safe sweeper.
 
 Also built: scheduled meetings (`meetings.md`), external guests with a lobby (`guests.md`) and recordings
-(`recordings.md`). Planned next: in-call chat panel, device picker, background blur, live captions. Mobile call screen
+(`recordings.md`), and chat inside calls (`guests.md`). Planned next: live captions. Mobile call screen
 (`@livekit/react-native`, needs an Expo dev build).
+
+## Devices and background blur
+
+The settings button in a call (members and guests) picks the microphone, camera and speaker, and turns
+background blur on or off. Switching happens mid-call without dropping. The choice is saved on that
+device (browser storage) and used for the next call; a guest's lobby preview uses the saved camera too.
+Speaker choice shows only in browsers that can route audio (Chrome, Edge).
+
+Background blur runs entirely in the browser: MediaPipe selfie segmentation (Apache 2.0) over WebGL,
+through `@livekit/track-processors`. The model (`public/vision/selfie_segmenter.tflite`, 250 KB) is in
+the repository and the WebAssembly runtime is copied from `node_modules` into `public/vision` when the
+web app builds (`scripts/copy-vision-assets.mjs`), so nothing loads from a CDN. The web CSP allows
+`'wasm-unsafe-eval'` for this, which permits compiling WebAssembly only. Blur stays on when the camera
+is turned off and on again. Browsers without WebGL or insertable streams show "Not supported".
