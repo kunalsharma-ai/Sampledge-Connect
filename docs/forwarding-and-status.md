@@ -18,6 +18,12 @@
   (403 "Forwarding is turned off in that conversation"). Public channels and DMs always allow it.
 - **Offline:** each forward goes through the outbox like any send. It shows straight away with
   the original quoted and is sent on reconnect. Push previews read "Forwarded: …".
+- **Mobile:** Forward is in a message's action sheet (long press). The picker lists your
+  conversations (only the same one when forwarding is off there), takes up to 10 and an optional
+  comment, and queues one send per target with the snapshot stored locally, so the quoted card
+  shows at once, offline too. Tapping the card opens the original at its message. Owners and
+  moderators of private channels and groups get an "Allow forwarding" switch in the
+  conversation's details.
 
 ## Availability, custom status, quiet hours
 

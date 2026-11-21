@@ -241,6 +241,12 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       ALTER TABLE meetings ADD COLUMN rsvp_seq INTEGER;
     `);
   },
+  // v14: private channels and groups can stop messages being forwarded out.
+  async (tx) => {
+    await tx.exec(
+      'ALTER TABLE conversations ADD COLUMN allow_forwarding INTEGER NOT NULL DEFAULT 1;',
+    );
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

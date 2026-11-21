@@ -238,6 +238,8 @@ export interface ApiTransport {
   cancelScheduled(id: string): Promise<ScheduledMessage>;
   sendScheduledNow(id: string): Promise<ScheduledMessage>;
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation>;
+  /** PUT /v1/conversations/:id/forwarding (private channels and groups). */
+  setForwarding(conversationId: string, allowed: boolean): Promise<Conversation>;
   listTasks(q: TaskQuery): Promise<Task[]>;
   getTask(taskId: string): Promise<Task>;
   createTask(req: CreateTaskRequest): Promise<Task>;
@@ -892,6 +894,14 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  setForwarding(conversationId: string, allowed: boolean): Promise<Conversation> {
+    return this.request(
+      'PUT',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/forwarding`,
+      { allowed },
+    );
+  }
+
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -1110,6 +1120,7 @@ export class NoServerTransport implements ApiTransport {
   cancelScheduled = async (): Promise<ScheduledMessage> => this.fail();
   sendScheduledNow = async (): Promise<ScheduledMessage> => this.fail();
   setPostingPolicy = async (): Promise<Conversation> => this.fail();
+  setForwarding = async (): Promise<Conversation> => this.fail();
   listTasks = async (): Promise<Task[]> => this.fail();
   getTask = async (): Promise<Task> => this.fail();
   createTask = async (): Promise<Task> => this.fail();

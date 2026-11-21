@@ -1,4 +1,5 @@
 import {
+  MAX_FORWARD_TARGETS,
   uuidv7,
   backoffDelay,
   type CreateConversationRequest,
@@ -90,6 +91,7 @@ import {
   type QueuedAction,
 } from '../db/work';
 import { Emitter } from '../lib/emitter';
+import { forwardSnapshot } from '../lib/forward';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
 import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
 import { OutboxProcessor } from '../sync/outbox';
@@ -1395,6 +1397,13 @@ export class ConnectEngine {
     return this.serverAction(() => this.api.aiTranscript(attachmentId, queue));
   }
 
+  /** Forwarding out of a private channel or group on or off (owners and moderators). */
+  setForwarding(conversationId: string, allowed: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([await this.api.setForwarding(conversationId, allowed)]);
+    });
+  }
+
   /** Announcement channel on or off (channel owners and moderators). */
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<void> {
     return this.serverAction(async () => {
@@ -1624,6 +1633,30 @@ export class ConnectEngine {
     } = {},
   ): Promise<void> {
     await this.store.enqueueSend({ conversationId, text, ...opts });
+    void this.outbox.kick();
+  }
+
+  /**
+   * Forwards a message to up to {@link MAX_FORWARD_TARGETS} conversations, each with the same
+   * optional comment. Each is an ordinary queued send, so it shows at once and works offline.
+   */
+  async forward(
+    source: LocalMessage,
+    targets: readonly string[],
+    comment: string,
+    from: string | null,
+  ): Promise<void> {
+    if (!source.messageId) throw new Error('This message has not been sent yet');
+    if (targets.length === 0) throw new Error('Pick where to forward it');
+    if (targets.length > MAX_FORWARD_TARGETS)
+      throw new Error(`You can forward to at most ${MAX_FORWARD_TARGETS} conversations at once`);
+    const snapshot = forwardSnapshot(source, from);
+    for (const conversationId of targets)
+      await this.store.enqueueSend({
+        conversationId,
+        text: comment,
+        forward: { of: source.messageId, snapshot },
+      });
     void this.outbox.kick();
   }
 
