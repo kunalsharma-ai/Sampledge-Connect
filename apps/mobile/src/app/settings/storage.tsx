@@ -6,8 +6,17 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { DEFAULT_QUOTA } from '../../db/store';
 import { useApp, useWorkspace } from '../../state/AppProvider';
+import type { Connectivity } from '../../state/engine';
 import { radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+
+const CONNECTION_LABEL: Record<Connectivity, string> = {
+  online: 'Live',
+  connecting: 'Reconnecting',
+  offline: 'Offline',
+  sessionExpired: 'Signed out',
+  noServer: 'Demo, no server',
+};
 
 export default function Storage() {
   const { theme } = useTheme();
@@ -23,7 +32,7 @@ export default function Storage() {
   }, [store, load]);
 
   const rows: [string, string][] = [
-    ['Connection', engineState?.connectivity ?? 'offline'],
+    ['Connection', CONNECTION_LABEL[engineState?.connectivity ?? 'offline']],
     ['Conversations on device', String(stats.conversations)],
     [
       'Messages cached',

@@ -26,6 +26,16 @@ pnpm --filter @sampledge/mobile test        # offline engine tests (Vitest, real
 pnpm --filter @sampledge/mobile typecheck
 ```
 
+## Screenshots (web preview)
+
+The app also builds for the web, only to preview it and take screenshots (it is not shipped to users there:
+no SQLCipher in browsers, and tokens use localStorage via `*.web.ts` files). Phone-size screenshots of
+the demo workspace:
+
+```bash
+pnpm web:export && pnpm screenshots   # needs Playwright with Chromium; writes screenshots/*.png
+```
+
 ## How offline-first works
 
 | Piece              | File                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                           |

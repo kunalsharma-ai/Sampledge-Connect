@@ -24,12 +24,18 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textSubtle,
-        tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
+        tabBarLabelStyle: {
+          fontFamily: fonts.medium,
+          fontSize: 11,
+          lineHeight: 14,
+          paddingBottom: 2,
+        },
         tabBarStyle: {
           position: 'absolute',
           borderTopColor: theme.colors.border,
           backgroundColor: Platform.OS === 'ios' ? 'transparent' : theme.colors.surface,
           elevation: 0,
+          ...(Platform.OS === 'web' ? { height: 64, paddingBottom: 8 } : null),
         },
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
