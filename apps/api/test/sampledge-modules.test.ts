@@ -337,6 +337,46 @@ describe('Samptrek adapter', () => {
     expect(p.openTasks).toBe(1);
   });
 
+  it('members see linked records change live (record:changed to the conversation)', async () => {
+    const sock = await connect(h, ravi.accessToken);
+    const linked = nextEvent(
+      sock,
+      'record:changed',
+      (e) => e.conversationId === projectConv && e.reason === 'linked',
+    );
+    await sendEvent(samptrek, {
+      eventId: 'evt-live-1',
+      type: 'milestone.reached',
+      record: { type: 'milestone', id: 'MS-LIVE', title: 'Live sync check' },
+      parent: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1' },
+      data: {},
+    });
+    const e = await linked;
+    const records = (
+      await api<{ linkId: string; externalId: string }[]>(
+        h,
+        'GET',
+        `/v1/integrations/records?conversationId=${projectConv}`,
+        { token: ravi.accessToken },
+      )
+    ).body;
+    expect(records.find((r) => r.linkId === e.linkId)?.externalId).toBe('MS-LIVE');
+
+    const updated = nextEvent(
+      sock,
+      'record:changed',
+      (x) => x.conversationId === projectConv && x.reason === 'updated',
+    );
+    await sendEvent(samptrek, {
+      eventId: 'evt-live-2',
+      type: 'project.updated',
+      record: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1' },
+      data: { status: 'at_risk' },
+    });
+    await updated;
+    sock.disconnect();
+  });
+
   it('chat-to-task in a project channel links the task and records the Samptrek push (test mode)', async () => {
     const send = await api<{ message: Message }>(
       h,
