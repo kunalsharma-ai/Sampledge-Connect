@@ -1,3 +1,4 @@
+import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
 import type { Meeting, MeetingReminderEvent } from './meetings.js';
@@ -49,6 +50,8 @@ export interface ServerToClientEvents {
   'conversation:revoked': (e: { conversationId: string }) => void;
   /** A new in-app notification for the caller (all of their devices). */
   'notification:new': (notification: Notification) => void;
+  /** One of the caller's scheduled messages changed (sent, failed, edited, cancelled). */
+  'scheduled:updated': (scheduled: ScheduledMessage) => void;
   /** Notifications were marked read on another device; refetch the unread count. */
   'notification:read': (e: { unreadCount: number }) => void;
   /** You are invited to a call (sent to each invitee's devices). Stop ringing at expiresAt. */

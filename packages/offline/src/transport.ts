@@ -2,6 +2,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   ERROR_CODES,
   type Ack,
+  type ScheduledMessage,
   type Call,
   type CallRingingEvent,
   type Approval,
@@ -50,6 +51,8 @@ export interface RealtimeHandlers {
   onCall?(e: CallEvent): void;
   /** Meeting invites/changes and reminders (optional for transports that lack them). */
   onMeeting?(e: MeetingEvent): void;
+  /** One of the caller's scheduled messages changed. */
+  onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
 }
@@ -232,6 +235,7 @@ export class HttpSocketTransport implements Transport {
     s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
     s.on('meeting:upsert', (meeting) => this.handlers?.onMeeting?.({ type: 'upsert', meeting }));
     s.on('meeting:reminder', (r) => this.handlers?.onMeeting?.({ type: 'reminder', reminder: r }));
+    s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     this.socket = s;

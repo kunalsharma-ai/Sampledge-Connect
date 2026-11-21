@@ -142,6 +142,7 @@ export class TenantDb {
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
       bookmarks: c('bookmarks'),
+      scheduled_messages: c('scheduled_messages'),
       ai_embeddings: c('ai_embeddings'),
       ai_index_state: c('ai_index_state'),
       ai_summaries: c('ai_summaries'),

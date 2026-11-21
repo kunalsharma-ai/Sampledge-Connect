@@ -3,6 +3,9 @@ import { MongoServerError } from 'mongodb';
 import type { Redis } from 'ioredis';
 import {
   AckReceiptRequestSchema,
+  CreatePollRequestSchema,
+  PollVoteRequestSchema,
+  type MyPollVote,
   EditMessageRequestSchema,
   ListMessagesQuerySchema,
   MAX_PINS_PER_CONVERSATION,
@@ -24,7 +27,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
-import { toMessage, toReceipt } from './message.mapper.js';
+import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 
 @Injectable()
@@ -194,6 +197,8 @@ export class MessagesService {
     await this.conversations.authorize(ctx, m.conversationId, 'message.edit.own');
     if (m.senderId !== ctx.userId || m.messageType === 'system')
       throw new AppError('FORBIDDEN', 'You can only edit your own messages');
+    if (m.poll)
+      throw new AppError('CONFLICT', 'Polls can’t be edited. Close it and start a new one.');
     if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
     const updated = await withLock(
       this.redis,
@@ -443,6 +448,150 @@ export class MessagesService {
     if (result.changed) {
       this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
     }
+    return dto;
+  }
+
+  // ---------- polls ----------
+
+  /** Post a poll. Idempotent on clientMessageId, like an ordinary send. */
+  async createPoll(ctx: TenantContext, conversationId: string, input: unknown): Promise<Message> {
+    const req = parse(CreatePollRequestSchema, input);
+    const t = this.db.for(ctx.tenantId);
+    const existing = await t.messages.findOne({ clientMessageId: req.clientMessageId });
+    if (existing) return this.duplicateAck(ctx, existing, conversationId).message;
+    await this.rateLimit.consume('message_send', `${ctx.tenantId}:${ctx.userId}`);
+    await this.conversations.authorize(ctx, conversationId, 'message.send');
+    const closesAt = req.closesAt ? new Date(req.closesAt) : null;
+    if (closesAt && closesAt.getTime() < Date.now() + 60_000)
+      throw new AppError('VALIDATION_FAILED', 'The closing time must be at least a minute away');
+    let doc: MessageDoc;
+    try {
+      doc = await withLock(this.redis, this.lockKey(ctx.tenantId, conversationId), async () => {
+        const seq = await this.nextSequence(ctx.tenantId, conversationId, true);
+        return t.messages.insertOne({
+          conversationId,
+          clientMessageId: req.clientMessageId,
+          senderId: ctx.userId,
+          senderDeviceId: ctx.deviceId,
+          messageType: 'text',
+          // Older clients render the question as plain text.
+          content: { text: `📊 ${req.question}`, mentions: [] },
+          attachmentIds: [],
+          replyToMessageId: null,
+          serverSequence: seq,
+          changeSequence: seq,
+          createdAt: new Date(),
+          editedAt: null,
+          deletedAt: null,
+          metadata: {},
+          poll: {
+            question: req.question,
+            options: req.options.map((text, i) => ({ optionId: `o${i + 1}`, text })),
+            multiple: req.multiple,
+            anonymous: req.anonymous,
+            closesAt,
+            closedAt: null,
+            closedBy: null,
+            votes: [],
+          },
+        });
+      });
+    } catch (e) {
+      if (e instanceof MongoServerError && e.code === 11000) {
+        const winner = await t.messages.findOne({ clientMessageId: req.clientMessageId });
+        if (winner) return this.duplicateAck(ctx, winner, conversationId).message;
+      }
+      throw e;
+    }
+    const message = toMessage(doc);
+    this.realtime.toConversation(ctx.tenantId, conversationId, 'message:new', message);
+    try {
+      await this.notifications.onMessageCreated(ctx.tenantId, doc, null);
+    } catch (e) {
+      this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
+    }
+    return message;
+  }
+
+  /** Replace the caller's vote. An empty list withdraws it. */
+  async votePoll(ctx: TenantContext, messageId: string, input: unknown): Promise<Message> {
+    const req = parse(PollVoteRequestSchema, input);
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m?.poll) throw notFound('Poll');
+    await this.conversations.authorize(ctx, m.conversationId, 'message.react');
+    const optionIds = [...new Set(req.optionIds)];
+    if (optionIds.some((id) => !m.poll!.options.some((o) => o.optionId === id)))
+      throw new AppError('VALIDATION_FAILED', 'Unknown poll option');
+    if (!m.poll.multiple && optionIds.length > 1)
+      throw new AppError('VALIDATION_FAILED', 'This poll allows one choice');
+    return this.mutatePoll(ctx, m, (poll) => {
+      if (pollClosedAt(poll)) throw new AppError('CONFLICT', 'This poll is closed');
+      const mine = poll.votes.find((v) => v.userId === ctx.userId);
+      if (mine && mine.optionIds.join() === optionIds.join()) return false;
+      poll.votes = optionIds.length
+        ? mine
+          ? poll.votes.map((v) => (v.userId === ctx.userId ? { ...v, optionIds } : v))
+          : [...poll.votes, { userId: ctx.userId, optionIds, at: new Date() }]
+        : poll.votes.filter((v) => v.userId !== ctx.userId);
+      return true;
+    });
+  }
+
+  /** Close voting. The author or a moderator can close. */
+  async closePoll(ctx: TenantContext, messageId: string): Promise<Message> {
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m?.poll) throw notFound('Poll');
+    if (m.senderId === ctx.userId)
+      await this.conversations.authorize(ctx, m.conversationId, 'message.react');
+    else await this.conversations.authorize(ctx, m.conversationId, 'message.delete.any');
+    return this.mutatePoll(ctx, m, (poll) => {
+      if (pollClosedAt(poll)) return false;
+      poll.closedAt = new Date();
+      poll.closedBy = ctx.userId;
+      return true;
+    });
+  }
+
+  /** The caller's own choice; the only way to see it in an anonymous poll. */
+  async myPollVote(ctx: TenantContext, messageId: string): Promise<MyPollVote> {
+    const m = await this.db.for(ctx.tenantId).messages.findOne({ _id: messageId });
+    if (!m?.poll) throw notFound('Poll');
+    await this.conversations.authorize(ctx, m.conversationId, 'conversation.read');
+    return {
+      messageId,
+      optionIds: m.poll.votes.find((v) => v.userId === ctx.userId)?.optionIds ?? [],
+    };
+  }
+
+  private async mutatePoll(
+    ctx: TenantContext,
+    m: MessageDoc,
+    change: (poll: NonNullable<MessageDoc['poll']>) => boolean,
+  ): Promise<Message> {
+    const t = this.db.for(ctx.tenantId);
+    if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    const result = await withLock(
+      this.redis,
+      this.lockKey(ctx.tenantId, m.conversationId),
+      async () => {
+        const cur = await t.messages.findOne({ _id: m._id });
+        if (!cur?.poll || cur.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+        const poll = { ...cur.poll, votes: [...cur.poll.votes] };
+        if (!change(poll)) return { doc: cur, changed: false };
+        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        const doc = await t.messages.findOneAndUpdate(
+          { _id: m._id },
+          { $set: { poll, changeSequence: seq } },
+          { returnDocument: 'after' },
+        );
+        return { doc: doc!, changed: true };
+      },
+    );
+    const dto = toMessage(result.doc);
+    if (result.changed)
+      this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
     return dto;
   }
 

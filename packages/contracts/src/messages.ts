@@ -73,6 +73,66 @@ export const SetReactionRequestSchema = z.object({
 });
 export type SetReactionRequest = z.input<typeof SetReactionRequestSchema>;
 
+/** Most options a poll can offer. */
+export const MAX_POLL_OPTIONS = 10;
+
+export const PollOptionSchema = z.object({
+  optionId: z.string().min(1).max(32),
+  text: z.string().min(1).max(200),
+  count: z.number().int().nonnegative(),
+  /** Who voted for it, oldest first. Always empty in anonymous polls. */
+  voterIds: z.array(ServerIdSchema),
+});
+export type PollOption = z.infer<typeof PollOptionSchema>;
+
+/**
+ * A poll rides on its message (like reactions): votes bump changeSequence and broadcast
+ * `message:updated`, so offline clients catch up through ordinary sync.
+ */
+export const PollSchema = z.object({
+  question: z.string().min(1).max(300),
+  options: z.array(PollOptionSchema).min(2).max(MAX_POLL_OPTIONS),
+  /** Voters may choose more than one option. */
+  multiple: z.boolean(),
+  /** Counts only; who voted is never shown, not even to admins. */
+  anonymous: z.boolean(),
+  /** People who voted at least once. */
+  totalVoters: z.number().int().nonnegative(),
+  /** Closes on its own at this time (null = until someone closes it). */
+  closesAt: z.string().datetime().nullable(),
+  closedAt: z.string().datetime().nullable(),
+  closedBy: ServerIdSchema.nullable(),
+});
+export type Poll = z.infer<typeof PollSchema>;
+
+/** POST /v1/conversations/:id/polls — creates a poll message. Idempotent on clientMessageId. */
+export const CreatePollRequestSchema = z.object({
+  clientMessageId: ClientIdSchema,
+  question: z.string().trim().min(1).max(300),
+  options: z
+    .array(z.string().trim().min(1).max(200))
+    .min(2)
+    .max(MAX_POLL_OPTIONS)
+    .refine((o) => new Set(o.map((x) => x.toLowerCase())).size === o.length, 'options must differ'),
+  multiple: z.boolean().default(false),
+  anonymous: z.boolean().default(false),
+  closesAt: z.string().datetime().nullable().default(null),
+});
+export type CreatePollRequest = z.input<typeof CreatePollRequestSchema>;
+
+/** PUT /v1/messages/:id/poll/vote — replaces the caller's choice; [] withdraws it. */
+export const PollVoteRequestSchema = z.object({
+  optionIds: z.array(z.string().min(1).max(32)).max(MAX_POLL_OPTIONS),
+});
+export type PollVoteRequest = z.input<typeof PollVoteRequestSchema>;
+
+/** The caller's own choice (needed for anonymous polls, where voterIds is empty). */
+export const MyPollVoteSchema = z.object({
+  messageId: ServerIdSchema,
+  optionIds: z.array(z.string()),
+});
+export type MyPollVote = z.infer<typeof MyPollVoteSchema>;
+
 /** Message as stored and returned by the server. */
 export const MessageSchema = z.object({
   messageId: ServerIdSchema,
@@ -104,6 +164,8 @@ export const MessageSchema = z.object({
     .object({ pinnedBy: ServerIdSchema, pinnedAt: z.string().datetime() })
     .nullable()
     .default(null),
+  /** Set on poll messages. Optional so older payloads and fixtures stay valid. */
+  poll: PollSchema.nullable().optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
