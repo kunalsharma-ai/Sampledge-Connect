@@ -6,10 +6,11 @@ import type {
   FindTimesResponse,
   Meeting,
   MeetingReminderEvent,
+  SeriesScope,
   UpdateMeetingRequest,
   WorkingHours,
 } from '@sampledge/contracts';
-import { apiRequest } from './api';
+import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
 import { useEngine } from './engine';
 
@@ -42,9 +43,13 @@ export function useMeetingsApi() {
       create: (body: CreateMeetingRequest) => req<Meeting>('POST', '/v1/meetings', body),
       update: (id: string, body: UpdateMeetingRequest) =>
         req<Meeting>('PATCH', `/v1/meetings/${id}`, body),
-      cancel: (id: string) => req<Meeting>('POST', `/v1/meetings/${id}/cancel`),
-      rsvp: (id: string, response: 'accepted' | 'tentative' | 'declined') =>
-        req<Meeting>('POST', `/v1/meetings/${id}/rsvp`, { response }),
+      cancel: (id: string, scope: SeriesScope = 'occurrence') =>
+        req<Meeting>('POST', `/v1/meetings/${id}/cancel`, { scope }),
+      rsvp: (
+        id: string,
+        response: 'accepted' | 'tentative' | 'declined',
+        scope: SeriesScope = 'occurrence',
+      ) => req<Meeting>('POST', `/v1/meetings/${id}/rsvp`, { response, scope }),
       guestLink: (id: string, guestId: string) =>
         req<{ url: string }>('GET', `/v1/meetings/${id}/guests/${guestId}/link`),
       resendGuest: (id: string, guestId: string) =>
@@ -129,6 +134,102 @@ export function useMeetings(from: Date, to: Date) {
   );
 
   return { items, error, refresh, upsertLocal, online };
+}
+
+// ---------- offline RSVPs ----------
+
+const RSVP_QUEUE_KEY = 'meetings.rsvpQueue';
+export interface QueuedRsvp {
+  meetingId: string;
+  response: 'accepted' | 'tentative' | 'declined';
+  scope: SeriesScope;
+  at: string;
+}
+
+type MetaDb = ReturnType<typeof useEngine>['db'];
+const queueListeners = new Set<() => void>();
+const queueChanged = () => queueListeners.forEach((fn) => fn());
+
+async function readQueue(db: MetaDb): Promise<QueuedRsvp[]> {
+  return ((await db.meta.get(RSVP_QUEUE_KEY))?.value as QueuedRsvp[] | undefined) ?? [];
+}
+
+/**
+ * Keeps an RSVP made while offline on this device (the latest answer per meeting wins) and
+ * applies it to the cached calendar right away. `useMeetingOutbox` sends it on reconnect.
+ */
+export async function queueRsvp(db: MetaDb, q: Omit<QueuedRsvp, 'at'>, me: string) {
+  const list = (await readQueue(db)).filter((x) => x.meetingId !== q.meetingId);
+  await db.meta.put({
+    key: RSVP_QUEUE_KEY,
+    value: [...list, { ...q, at: new Date().toISOString() }],
+  });
+  queueChanged();
+  const cached = ((await db.meta.get(CACHE_KEY))?.value as Meeting[] | undefined) ?? [];
+  const target = cached.find((m) => m.meetingId === q.meetingId);
+  const applies = (m: Meeting) =>
+    m.meetingId === q.meetingId ||
+    (q.scope === 'series' &&
+      !!target?.series &&
+      m.series?.seriesId === target.series.seriesId &&
+      m.startsAt >= target.startsAt);
+  const next = cached.map((m) =>
+    applies(m)
+      ? {
+          ...m,
+          attendees: m.attendees.map((a) => (a.userId === me ? { ...a, response: q.response } : a)),
+        }
+      : m,
+  );
+  await db.meta.put({ key: CACHE_KEY, value: next });
+  return next.filter(applies);
+}
+
+/** RSVPs waiting on this device for a connection. */
+export function usePendingRsvps() {
+  const { db } = useEngine();
+  const [pending, setPending] = React.useState<QueuedRsvp[]>([]);
+  const load = React.useCallback(() => void readQueue(db).then(setPending), [db]);
+  React.useEffect(() => {
+    load();
+    queueListeners.add(load);
+    return () => void queueListeners.delete(load);
+  }, [load]);
+  return { pending, reload: load };
+}
+
+/**
+ * Sends RSVPs queued offline once the connection is back, oldest first. Answers the server
+ * refuses (meeting cancelled, no longer invited) are dropped; network failures stay queued.
+ * Mounted once for the whole workspace, so it runs whichever screen is open.
+ */
+export function useMeetingOutbox() {
+  const { db, state } = useEngine();
+  const api = useMeetingsApi();
+  const online = state.connectivity === 'online';
+  const running = React.useRef(false);
+  React.useEffect(() => {
+    if (!online || running.current) return;
+    running.current = true;
+    void (async () => {
+      try {
+        for (const q of await readQueue(db)) {
+          try {
+            await api.rsvp(q.meetingId, q.response, q.scope);
+          } catch (e) {
+            if (e instanceof ApiFailure && e.status === 0) return; // offline again
+          }
+          const rest = (await readQueue(db)).filter(
+            (x) => !(x.meetingId === q.meetingId && x.at === q.at),
+          );
+          await db.meta.put({ key: RSVP_QUEUE_KEY, value: rest });
+          queueChanged();
+        }
+      } finally {
+        running.current = false;
+      }
+    })();
+  }, [online, db, api]);
 }
 
 /** The latest meeting reminder for this user, cleared after a while. */

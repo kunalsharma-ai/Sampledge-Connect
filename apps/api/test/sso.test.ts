@@ -57,11 +57,17 @@ const save = (values: Record<string, unknown>, enabled = true) =>
   });
 
 /** Plays the browser: start → provider → callback. Returns where Connect sent the browser. */
-async function signInAs(email: string, claims: object = {}, mangle?: (state: string) => string) {
-  const start = await fetch(
-    `${h.url}/v1/auth/sso/${slug}/start?returnTo=${encodeURIComponent(`${WEB}/login`)}&deviceId=dev-${randomBytes(4).toString('hex')}`,
-    { redirect: 'manual' },
-  );
+async function signInAs(
+  email: string,
+  claims: object = {},
+  mangle?: (state: string) => string,
+  startQuery: Record<string, string> = { returnTo: `${WEB}/login` },
+) {
+  const qs = new URLSearchParams({
+    deviceId: `dev-${randomBytes(4).toString('hex')}`,
+    ...startQuery,
+  });
+  const start = await fetch(`${h.url}/v1/auth/sso/${slug}/start?${qs}`, { redirect: 'manual' });
   expect(start.status).toBe(302);
   const auth = new URL(start.headers.get('location')!);
   expect(auth.origin + auth.pathname).toBe(`${issuer}/authorize`);
@@ -246,5 +252,67 @@ describe('single sign-on (OIDC)', () => {
       redirect: 'manual',
     });
     expect(cb.headers.get('location')!.startsWith(`${WEB}/login#sso_error=`)).toBe(true);
+  });
+});
+
+describe('single sign-on from the mobile app', () => {
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const app = (extra: Record<string, string> = {}) => ({
+    returnTo: 'sampledge://sso',
+    platform: 'ios',
+    deviceName: 'iPhone 17',
+    codeChallenge: challenge,
+    ...extra,
+  });
+  const mobileExchange = (code: string, codeVerifier?: string) =>
+    api<Session>(h, 'POST', '/v1/auth/sso/exchange', { body: { code, codeVerifier } });
+
+  beforeAll(async () => {
+    await save({ allowPasswordLogin: true, createUsers: false, allowedDomains: '' });
+  });
+
+  it('returns to the app scheme and needs the app’s verifier to exchange', async () => {
+    const r = await signInAs(ravi.user.email, {}, undefined, app());
+    expect(r.location).toMatch(/^sampledge:\/\/sso#sso=/);
+    const s = await mobileExchange(hashParam(r.location, 'sso')!, verifier);
+    expect(s.status).toBe(200);
+    expect(s.body.user.userId).toBe(ravi.user.userId);
+    // The session works and is registered as an iPhone.
+    const devices = await api<{ name: string; platform: string; current: boolean }[]>(
+      h,
+      'GET',
+      '/v1/devices',
+      { token: s.body.accessToken },
+    );
+    expect(devices.body.find((d) => d.current)).toMatchObject({
+      name: 'iPhone 17',
+      platform: 'ios',
+    });
+  });
+
+  it('an intercepted code is useless without the verifier, and the session is revoked', async () => {
+    const r = await signInAs(ravi.user.email, {}, undefined, app());
+    const code = hashParam(r.location, 'sso')!;
+    const wrong = randomBytes(32).toString('base64url');
+    expect((await mobileExchange(code, wrong)).status).toBe(401);
+    expect((await mobileExchange(code, verifier)).status).toBe(401); // single use
+    const missing = await signInAs(ravi.user.email, {}, undefined, app());
+    expect((await mobileExchange(hashParam(missing.location, 'sso')!)).status).toBe(401);
+  });
+
+  it('refuses an app return without a challenge, and other schemes', async () => {
+    const noChallenge = await fetch(
+      `${h.url}/v1/auth/sso/${slug}/start?returnTo=${encodeURIComponent('sampledge://sso')}`,
+      { redirect: 'manual' },
+    );
+    expect(noChallenge.status).toBe(400);
+    const r = await signInAs(ravi.user.email, {}, undefined, app({ returnTo: 'evilapp://sso' }));
+    expect(r.location.startsWith(`${WEB}/login#sso=`)).toBe(true);
+  });
+
+  it('sends errors back to the app too', async () => {
+    const r = await signInAs('someone@elsewhere.test', {}, undefined, app());
+    expect(r.location).toMatch(/^sampledge:\/\/sso#sso_error=/);
   });
 });

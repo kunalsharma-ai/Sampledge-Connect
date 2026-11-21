@@ -1,5 +1,10 @@
 import {
   ERROR_CODES,
+  type AdminOverview,
+  type AuditPage,
+  type AuditQuery,
+  type InviteMemberRequest,
+  type UserSummary,
   type BrandingInput,
   type BrandingView,
   type AiAskRequest,
@@ -205,6 +210,15 @@ export interface ApiTransport {
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
   getBranding(): Promise<BrandingView>;
+  adminOverview(): Promise<AdminOverview>;
+  auditLog(q: AuditQuery): Promise<AuditPage>;
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary>;
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary>;
+  resetMemberMfa(userId: string): Promise<void>;
+  listAllDevices(): Promise<DeviceSession[]>;
   saveBranding(input: BrandingInput): Promise<BrandingView>;
   aiStatus(): Promise<AiStatus>;
   setAiEnabled(enabled: boolean): Promise<AiStatus>;
@@ -644,6 +658,35 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', '/v1/branding', undefined);
   }
 
+  adminOverview(): Promise<AdminOverview> {
+    return this.request('GET', '/v1/admin/overview', undefined);
+  }
+
+  auditLog(q: AuditQuery): Promise<AuditPage> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v));
+    return this.request('GET', `/v1/admin/audit?${p.toString()}`, undefined);
+  }
+
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary> {
+    return this.request('POST', '/v1/users', req);
+  }
+
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary> {
+    return this.request('PATCH', `/v1/users/${encodeURIComponent(userId)}`, patch);
+  }
+
+  resetMemberMfa(userId: string): Promise<void> {
+    return this.request('POST', `/v1/users/${encodeURIComponent(userId)}/mfa/reset`, {});
+  }
+
+  listAllDevices(): Promise<DeviceSession[]> {
+    return this.request('GET', '/v1/devices?all=true', undefined);
+  }
+
   saveBranding(input: BrandingInput): Promise<BrandingView> {
     return this.request('PUT', '/v1/branding', input);
   }
@@ -939,6 +982,12 @@ export class NoServerTransport implements ApiTransport {
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
   getBranding = async (): Promise<BrandingView> => this.fail();
+  adminOverview = async (): Promise<AdminOverview> => this.fail();
+  auditLog = async (): Promise<AuditPage> => this.fail();
+  inviteMember = async (): Promise<UserSummary> => this.fail();
+  updateMember = async (): Promise<UserSummary> => this.fail();
+  resetMemberMfa = async (): Promise<void> => this.fail();
+  listAllDevices = async (): Promise<DeviceSession[]> => this.fail();
   saveBranding = async (): Promise<BrandingView> => this.fail();
   aiStatus = async (): Promise<AiStatus> => this.fail();
   setAiEnabled = async (): Promise<AiStatus> => this.fail();

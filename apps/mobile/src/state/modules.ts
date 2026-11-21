@@ -157,8 +157,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'admin',
     title: 'Administration',
     icon: 'shield-checkmark-outline',
-    status: 'planned',
-    summary: 'Members, roles, retention and security policies.',
+    status: 'available',
+    href: '/admin',
+    summary:
+      'For owners and admins: the organization at a glance, members and roles, two-step resets, every signed-in device, and the audit log.',
   },
   {
     key: 'settings',

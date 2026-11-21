@@ -9,6 +9,7 @@ import {
   FolderKanban,
   Hash,
   Lock,
+  Menu,
   MessageSquarePlus,
   Palette,
   PanelRightClose,
@@ -825,6 +826,7 @@ export function Workspace() {
           onSelect={selectModule}
           unreadTotal={unreadTotal}
           notificationCount={notifications.unreadCount}
+          isAdmin={isAdmin}
         />
 
         <NewConversationDialog
@@ -908,50 +910,105 @@ export function Workspace() {
   );
 }
 
-const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications', 'settings'];
+const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications'];
 
+/** Phone layout: four main tabs and a More sheet with every other module (admin ones too). */
 function MobileNav({
   active,
   onSelect,
   unreadTotal,
   notificationCount,
+  isAdmin,
 }: {
   active: ModuleId;
   onSelect: (m: ModuleId) => void;
   unreadTotal: number;
   notificationCount: number;
+  isAdmin: boolean;
 }) {
+  const [more, setMore] = React.useState(false);
+  const rest = MODULES.filter(
+    (m) => !MOBILE.includes(m.id) && m.built && (!m.adminOnly || isAdmin),
+  );
+  const moreActive = !MOBILE.includes(active);
+  const tab = (on: boolean) =>
+    cn(
+      'relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px]',
+      on ? 'text-accent' : 'text-text-muted',
+    );
   return (
-    <nav
-      aria-label="Modules"
-      className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-border bg-surface-glass backdrop-blur-xl md:hidden"
-    >
-      {MOBILE.map((id) => {
-        const m = MODULES.find((x) => x.id === id)!;
-        const on = active === id;
-        return (
-          <button
-            key={id}
-            onClick={() => onSelect(id)}
-            aria-current={on ? 'page' : undefined}
-            className={cn(
-              'relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px]',
-              on ? 'text-accent' : 'text-text-muted',
-            )}
+    <>
+      {more && (
+        <div className="fixed inset-0 z-30 md:hidden" onClick={() => setMore(false)}>
+          <div className="absolute inset-0 bg-black/40" aria-hidden />
+          <nav
+            aria-label="More modules"
+            id="mobile-more"
+            className="absolute inset-x-2 bottom-[72px] grid max-h-[70dvh] grid-cols-3 gap-1 overflow-y-auto rounded-xl border border-border bg-surface-raised p-2 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
           >
-            <m.icon className="size-5" />
-            {m.label.split(' ')[0]}
-            {id === 'messages' && unreadTotal > 0 ? (
-              <span className="absolute right-[calc(50%-18px)] top-2 size-2 rounded-full bg-accent" />
-            ) : null}
-            {id === 'notifications' && notificationCount > 0 ? (
-              <span className="absolute left-[calc(50%+4px)] top-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-semibold leading-4 text-accent-fg">
-                {notificationCount > 99 ? '99+' : notificationCount}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </nav>
+            {rest.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setMore(false);
+                  onSelect(m.id);
+                }}
+                aria-current={active === m.id ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-lg px-1 text-center text-[12px]',
+                  active === m.id
+                    ? 'bg-accent-soft font-semibold text-text ring-1 ring-accent'
+                    : 'text-text hover:bg-surface',
+                )}
+              >
+                <m.icon className="size-5" aria-hidden />
+                {m.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
+      <nav
+        aria-label="Modules"
+        className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-border bg-surface-glass backdrop-blur-xl md:hidden"
+      >
+        {MOBILE.map((id) => {
+          const m = MODULES.find((x) => x.id === id)!;
+          const on = active === id;
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                setMore(false);
+                onSelect(id);
+              }}
+              aria-current={on ? 'page' : undefined}
+              className={tab(on)}
+            >
+              <m.icon className="size-5" />
+              {m.label.split(' ')[0]}
+              {id === 'messages' && unreadTotal > 0 ? (
+                <span className="absolute right-[calc(50%-18px)] top-2 size-2 rounded-full bg-accent" />
+              ) : null}
+              {id === 'notifications' && notificationCount > 0 ? (
+                <span className="absolute left-[calc(50%+4px)] top-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-semibold leading-4 text-accent-fg">
+                  {notificationCount > 99 ? '99+' : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setMore((v) => !v)}
+          aria-expanded={more}
+          aria-controls="mobile-more"
+          className={tab(more || moreActive)}
+        >
+          <Menu className="size-5" />
+          More
+        </button>
+      </nav>
+    </>
   );
 }

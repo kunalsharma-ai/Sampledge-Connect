@@ -26,6 +26,11 @@ import {
   type ScheduledMessage,
   type Task,
   type Approval,
+  type AdminOverview,
+  type AuditPage,
+  type AuditQuery,
+  type InviteMemberRequest,
+  type UserSummary,
   type BrandingInput,
   type BrandingView,
   type AiAskRequest,
@@ -75,6 +80,7 @@ import {
   TransportError,
   type ApiTransport,
   type DeviceSession,
+  type DirectoryUser,
   type ApprovalQuery,
   type RecordingsQuery,
   type TaskQuery,
@@ -120,6 +126,8 @@ export class ConnectEngine {
     /** The server refused a change made on this device (shown briefly; server state wins). */
     actionRefused: { kind: ActionKind; reason: string };
     branding: BrandingView;
+    /** An admin added or changed a member on this device (other devices see it on sync). */
+    members: UserSummary;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -959,6 +967,56 @@ export class ConnectEngine {
       }
     })();
     return this.workRun;
+  }
+
+  // ------------------------------------------------------------ administration (owners, admins)
+
+  /** Everyone in the organization with role and status (fresh from the server). */
+  listMembers(): Promise<DirectoryUser[]> {
+    return this.serverAction(() => this.api.listUsers());
+  }
+
+  adminOverview(): Promise<AdminOverview> {
+    return this.serverAction(() => this.api.adminOverview());
+  }
+
+  auditLog(q: AuditQuery): Promise<AuditPage> {
+    return this.serverAction(() => this.api.auditLog(q));
+  }
+
+  /** Adds a member; the plan's seat limit can refuse it (409 with the reason). */
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary> {
+    return this.serverAction(async () => {
+      const u = await this.api.inviteMember(req);
+      this.events.emit('members', u);
+      void this.runSync();
+      return u;
+    });
+  }
+
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary> {
+    return this.serverAction(async () => {
+      const u = await this.api.updateMember(userId, patch);
+      this.events.emit('members', u);
+      void this.runSync();
+      return u;
+    });
+  }
+
+  resetMemberMfa(userId: string): Promise<void> {
+    return this.serverAction(() => this.api.resetMemberMfa(userId));
+  }
+
+  listAllDevices(): Promise<DeviceSession[]> {
+    return this.serverAction(() => this.api.listAllDevices());
+  }
+
+  /** Sign any device out (admins); the server checks. */
+  revokeAnyDevice(sessionId: string): Promise<void> {
+    return this.serverAction(() => this.api.revokeDevice(sessionId));
   }
 
   // ------------------------------------------------------------ white-label branding

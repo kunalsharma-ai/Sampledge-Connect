@@ -74,7 +74,8 @@ export function ConversationList({
           <button
             onClick={onOpenPalette}
             className="hidden sm:block"
-            aria-label="Open command palette"
+            aria-label="⌘K Open command palette"
+            title="Open command palette"
           >
             <Kbd>⌘K</Kbd>
           </button>

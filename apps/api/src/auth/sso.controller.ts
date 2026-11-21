@@ -35,7 +35,8 @@ export class SsoController {
   @HttpCode(200)
   async exchange(@Body() body: unknown, @Req() req: Request) {
     await this.rateLimit.consume('login_ip', req.ip ?? 'unknown');
-    return this.sso.exchange(parse(SsoExchangeRequestSchema, body).code);
+    const x = parse(SsoExchangeRequestSchema, body);
+    return this.sso.exchange(x.code, x.codeVerifier);
   }
 
   @Get(':slug')
@@ -59,6 +60,7 @@ export class SsoController {
         deviceId: str(q.deviceId),
         deviceName: str(q.deviceName),
         platform: str(q.platform),
+        codeChallenge: str(q.codeChallenge),
       },
       `${req.protocol}://${req.get('host')}`,
     );

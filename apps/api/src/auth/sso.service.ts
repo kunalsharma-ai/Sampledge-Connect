@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Redis } from 'ioredis';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose';
 import { ClientIdSchema, DeviceInfoSchema, type Session, type SsoInfo } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError } from '../common/errors.js';
@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { BillingService } from '../billing/billing.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { ARGON2_OPTIONS, AuthService, type RequestMeta } from './auth.service.js';
+import { SessionService } from './session.service.js';
 import { OIDC_PROVIDER, readOidcSettings, type OidcSettings } from './sso-settings.js';
 
 interface Discovery {
@@ -27,8 +28,20 @@ interface PendingSso {
   nonce: string;
   redirectUri: string;
   returnTo: string;
+  /** Set when returning to the mobile app: S256 of the app's own verifier. */
+  appChallenge?: string;
   device: { deviceId: string; name: string; platform: string };
 }
+
+/**
+ * Mobile apps get the one-time code through a custom URL scheme, which another app on the
+ * phone could also register. So an app return needs app-side PKCE: the app sends a
+ * challenge on start and must prove the verifier on exchange.
+ */
+export const APP_RETURN_SCHEMES = ['sampledge:'];
+/** Expo Go during development (`exp://192.168.1.5:8081/--/sso`). Never in production. */
+const DEV_APP_RETURN_SCHEMES = ['exp:'];
+const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
 
 const STATE_TTL_S = 600;
 const EXCHANGE_TTL_S = 60;
@@ -51,6 +64,7 @@ export class SsoService implements OnModuleInit {
     private readonly auth: AuthService,
     private readonly audit: AuditService,
     private readonly billing: BillingService,
+    private readonly sessions: SessionService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
@@ -79,10 +93,22 @@ export class SsoService implements OnModuleInit {
   /** Builds the provider's authorization URL and remembers the attempt. */
   async start(
     slug: string,
-    q: { returnTo?: string; deviceId?: string; deviceName?: string; platform?: string },
+    q: {
+      returnTo?: string;
+      deviceId?: string;
+      deviceName?: string;
+      platform?: string;
+      codeChallenge?: string;
+    },
     requestOrigin: string,
   ): Promise<string> {
-    const returnTo = this.safeReturn(q.returnTo);
+    const appReturn = this.appReturn(q.returnTo);
+    if (appReturn && !CHALLENGE_RE.test(q.codeChallenge ?? ''))
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Returning to the app needs codeChallenge (S256 of a code verifier, base64url)',
+      );
+    const returnTo = appReturn ?? this.safeReturn(q.returnTo);
     const tenant = await this.db.tenants.findOne({ slug, status: 'active' });
     const s = tenant ? await this.config(tenant._id) : null;
     if (!tenant || !s)
@@ -98,6 +124,7 @@ export class SsoService implements OnModuleInit {
       nonce,
       redirectUri,
       returnTo,
+      ...(appReturn ? { appChallenge: q.codeChallenge } : {}),
       device: {
         deviceId: ClientIdSchema.safeParse(q.deviceId).success ? q.deviceId! : randomUUID(),
         name: (q.deviceName ?? 'Web browser').slice(0, 120),
@@ -143,7 +170,12 @@ export class SsoService implements OnModuleInit {
       const claims = await this.exchangeCode(s, p, q.code);
       const session = await this.signIn(p, s, claims, meta);
       const code = b64url(randomBytes(24));
-      await this.redis.set(`sso:x:${code}`, JSON.stringify(session), 'EX', EXCHANGE_TTL_S);
+      await this.redis.set(
+        `sso:x:${code}`,
+        JSON.stringify({ session, appChallenge: p.appChallenge ?? null }),
+        'EX',
+        EXCHANGE_TTL_S,
+      );
       return `${p.returnTo}#sso=${code}`;
     } catch (e) {
       const msg = e instanceof AppError ? e.message : 'Single sign-on failed. Try again.';
@@ -160,10 +192,23 @@ export class SsoService implements OnModuleInit {
   }
 
   /** Swaps the one-time code from the redirect for the session. */
-  async exchange(code: string): Promise<Session> {
+  async exchange(code: string, codeVerifier?: string): Promise<Session> {
     const raw = await this.redis.getdel(`sso:x:${code}`);
     if (!raw) throw new AppError('UNAUTHENTICATED', 'This sign-in expired. Try again.');
-    return JSON.parse(raw) as Session;
+    const x = JSON.parse(raw) as { session: Session; appChallenge: string | null };
+    if (x.appChallenge) {
+      const proof = codeVerifier ? b64url(createHash('sha256').update(codeVerifier).digest()) : '';
+      const a = Buffer.from(proof);
+      const b = Buffer.from(x.appChallenge);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        // Revoke the session we minted: whoever holds this code is not the app that started.
+        const sid = decodeJwt(x.session.accessToken).sid;
+        if (typeof sid === 'string')
+          await this.sessions.revoke(x.session.tenant.tenantId, sid, 'sso_pkce_failed');
+        throw new AppError('UNAUTHENTICATED', 'This sign-in could not be verified. Try again.');
+      }
+    }
+    return x.session;
   }
 
   // ---------- internals ----------
@@ -321,6 +366,21 @@ export class SsoService implements OnModuleInit {
   private redirectUri(requestOrigin: string | null) {
     const base = this.cfg.PUBLIC_API_URL ?? requestOrigin ?? 'https://<your-api-host>';
     return `${base.replace(/\/+$/, '')}/v1/auth/sso/callback`;
+  }
+
+  /** A mobile app return URI (`sampledge://sso`), or null for anything else. */
+  private appReturn(returnTo: string | undefined): string | null {
+    if (!returnTo) return null;
+    try {
+      const u = new URL(returnTo);
+      const schemes =
+        this.cfg.NODE_ENV === 'production'
+          ? APP_RETURN_SCHEMES
+          : [...APP_RETURN_SCHEMES, ...DEV_APP_RETURN_SCHEMES];
+      return schemes.includes(u.protocol) ? `${u.protocol}//${u.host}${u.pathname}` : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Only send people back to the web app's own origins. */

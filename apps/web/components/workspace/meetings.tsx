@@ -14,6 +14,8 @@ import {
   Mail,
   MailWarning,
   MessagesSquare,
+  Pencil,
+  Repeat,
   RotateCw,
   UserPlus,
   Settings2,
@@ -28,7 +30,9 @@ import type {
   Meeting,
   MeetingGuest,
   MeetingSystemMetadata,
+  RecurrenceInput,
   RsvpResponse,
+  SeriesScope,
   WorkingHours,
 } from '@sampledge/contracts';
 import type { LocalMessage } from '@sampledge/offline';
@@ -54,12 +58,16 @@ import {
   fmtRange,
   fmtTime,
   startOfWeek,
+  queueRsvp,
+  useMeetingOutbox,
   useMeetingReminder,
   useMeetings,
   useMeetingsApi,
+  usePendingRsvps,
 } from '@/lib/meetings';
 import { nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
+import { RepeatPicker } from './repeat-picker';
 
 const HOUR_PX = 56;
 const FIRST_HOUR = 7;
@@ -159,7 +167,12 @@ export function MeetingsScreen({
         >
           <Settings2 /> <span className="hidden md:inline">Working hours</span>
         </Button>
-        <Button size="sm" onClick={() => setCreating({})} disabled={!online}>
+        <Button
+          size="sm"
+          onClick={() => setCreating({})}
+          disabled={!online}
+          aria-label="New meeting"
+        >
           <CalendarPlus /> <span className="hidden sm:inline">New meeting</span>
         </Button>
       </header>
@@ -196,7 +209,11 @@ export function MeetingsScreen({
               conversation={conversations.find((c) => c.conversationId === sel.conversationId)}
               online={online}
               onClose={() => setSelected(null)}
-              onChanged={upsertLocal}
+              onChanged={(m) => {
+                upsertLocal(m);
+                // Changing a series' time recreates its meetings, so follow the new one.
+                setSelected(m.meetingId);
+              }}
               onOpenConversation={onOpenConversation}
             />
           ) : null}
@@ -264,7 +281,12 @@ function AgendaList({
                 className={cn('h-10 w-1 rounded-full', joinable(m) ? 'bg-success' : 'bg-accent')}
               />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-label text-text">{m.title}</span>
+                <span className="flex items-center gap-1 truncate text-label text-text">
+                  {m.series ? (
+                    <Repeat className="size-3 shrink-0 text-text-subtle" aria-label="Repeats" />
+                  ) : null}
+                  <span className="truncate">{m.title}</span>
+                </span>
                 <span className="block text-meta text-text-subtle">
                   {fmtTime(m.startsAt)} – {fmtTime(m.endsAt)} · {m.attendees.length} people
                   {mine === 'pending' ? ' · reply needed' : ''}
@@ -414,6 +436,12 @@ function WeekGrid({
                           mine === 'declined' && 'line-through',
                         )}
                       >
+                        {m.series ? (
+                          <Repeat
+                            className="mr-1 inline size-3 align-[-2px] text-text-muted"
+                            aria-label="Repeats"
+                          />
+                        ) : null}
                         {m.title}
                       </p>
                       {height > 36 ? (
@@ -461,6 +489,11 @@ function MeetingDetails({
   const reduce = useReducedMotion();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState(false);
+  const [wholeSeries, setWholeSeries] = React.useState(false);
+  const { db } = useEngine();
+  const { pending } = usePendingRsvps();
+  const queued = pending.some((q) => q.meetingId === m.meetingId);
   const organizer = m.organizerId === me;
   const mine = m.attendees.find((a) => a.userId === me);
   const live = calls.live.get(m.conversationId);
@@ -501,10 +534,29 @@ function MeetingDetails({
           <p className="mt-0.5 text-label font-normal text-text-muted">
             {fmtRange(m.startsAt, m.endsAt)}
           </p>
+          {m.series ? (
+            <p
+              className="mt-0.5 flex items-center gap-1 text-meta text-text-muted"
+              data-testid="meeting-repeats"
+            >
+              <Repeat className="size-3.5" /> {m.series.summary}
+              {m.series.detached ? ' · this one was changed' : ''}
+            </p>
+          ) : null}
           {m.timeZone !== LOCAL_TZ ? (
             <p className="text-meta text-text-subtle">Organizer’s time zone: {m.timeZone}</p>
           ) : null}
         </div>
+        {organizer && m.status === 'scheduled' ? (
+          <button
+            onClick={() => setEditing(true)}
+            aria-label="Edit meeting"
+            disabled={!online}
+            className="rounded-sm p-1 text-text-subtle hover:bg-surface-raised disabled:opacity-40"
+          >
+            <Pencil className="size-4" />
+          </button>
+        ) : null}
         <button
           onClick={onClose}
           aria-label="Close details"
@@ -544,15 +596,41 @@ function MeetingDetails({
                   key={r}
                   size="sm"
                   variant={mine.response === r ? 'primary' : 'secondary'}
-                  disabled={busy || !online}
+                  disabled={busy}
                   aria-pressed={mine.response === r}
-                  onClick={() => void run(() => api.rsvp(m.meetingId, r))}
+                  onClick={() => {
+                    const scope = m.series && wholeSeries ? 'series' : 'occurrence';
+                    if (!online) {
+                      // Saved on this device and sent when the connection is back.
+                      void queueRsvp(db, { meetingId: m.meetingId, response: r, scope }, me).then(
+                        (changed) => changed.forEach(onChanged),
+                      );
+                      return;
+                    }
+                    void run(() => api.rsvp(m.meetingId, r, scope));
+                  }}
                 >
                   {r === 'accepted' ? <Check /> : r === 'tentative' ? <HelpCircle /> : <X />}
                   {responseLabel[r]}
                 </Button>
               ))}
             </div>
+            {queued ? (
+              <p className="mt-2 text-meta text-warning" data-testid="rsvp-queued">
+                You’re offline. Your answer is saved on this device and sends when you reconnect.
+              </p>
+            ) : null}
+            {m.series ? (
+              <label className="mt-2 flex items-center gap-2 text-meta text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={wholeSeries}
+                  onChange={(e) => setWholeSeries(e.target.checked)}
+                  className="size-4 accent-[var(--color-accent)]"
+                />
+                Answer for every upcoming meeting in the series
+              </label>
+            ) : null}
           </div>
         ) : null}
 
@@ -623,18 +701,39 @@ function MeetingDetails({
         </p>
 
         {err ? <p className="text-meta text-danger">{err}</p> : null}
-        {organizer ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-danger hover:bg-danger/10 hover:text-danger"
-            disabled={busy || !online}
-            onClick={() => void run(() => api.cancel(m.meetingId))}
-          >
-            Cancel meeting
-          </Button>
+        {organizer && m.status === 'scheduled' ? (
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-danger hover:bg-danger/10 hover:text-danger"
+              disabled={busy || !online}
+              onClick={() => void run(() => api.cancel(m.meetingId))}
+            >
+              {m.series ? 'Cancel this meeting' : 'Cancel meeting'}
+            </Button>
+            {m.series ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:bg-danger/10 hover:text-danger"
+                disabled={busy || !online}
+                onClick={() => void run(() => api.cancel(m.meetingId, 'series'))}
+              >
+                Cancel the series
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
+      <NewMeetingDialog
+        open={editing}
+        onOpenChange={setEditing}
+        me={me}
+        directory={directory}
+        editing={m}
+        onCreated={onChanged}
+      />
     </motion.aside>
   );
 }
@@ -661,6 +760,7 @@ export function NewMeetingDialog({
   onCreated,
   conversationId,
   presetAttendees,
+  editing,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -671,8 +771,12 @@ export function NewMeetingDialog({
   /** Schedule inside this conversation (its members are invited). */
   conversationId?: string;
   presetAttendees?: string[];
+  /** Edit this meeting instead of creating one (organizer). */
+  editing?: Meeting;
 }) {
   const api = useMeetingsApi();
+  const [recurrence, setRecurrence] = React.useState<RecurrenceInput | null>(null);
+  const [scope, setScope] = React.useState<SeriesScope>('occurrence');
   const [title, setTitle] = React.useState('');
   const [agenda, setAgenda] = React.useState('');
   const [date, setDate] = React.useState('');
@@ -689,19 +793,27 @@ export function NewMeetingDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    const start = initialStart ?? nextHalfHour();
-    setTitle('');
-    setAgenda('');
+    const start = editing ? new Date(editing.startsAt) : (initialStart ?? nextHalfHour());
+    setTitle(editing?.title ?? '');
+    setAgenda(editing?.agenda ?? '');
     setDate(toDateInput(start));
     setTime(toTimeInput(start));
-    setDuration(30);
-    setRemind(10);
-    setPicked(presetAttendees ?? []);
+    setDuration(
+      editing ? (Date.parse(editing.endsAt) - Date.parse(editing.startsAt)) / 60_000 : 30,
+    );
+    setRemind(editing ? (editing.remindMinutes.at(-1) ?? -1) : 10);
+    setPicked(
+      editing
+        ? editing.attendees.map((a) => a.userId).filter((id) => id !== me)
+        : (presetAttendees ?? []),
+    );
     setGuests([]);
     setQ('');
     setSlots(null);
     setError(null);
-  }, [open, initialStart, presetAttendees]);
+    setRecurrence(editing?.series?.recurrence ?? null);
+    setScope('occurrence');
+  }, [open, initialStart, presetAttendees, editing, me]);
 
   // Suggested times for the chosen day (re-run when people, day or length change).
   React.useEffect(() => {
@@ -719,6 +831,7 @@ export function NewMeetingDialog({
           to: addDays(day, 1).toISOString(),
           stepMinutes: 30,
           limit: 8,
+          ...(editing ? { ignoreMeetingId: editing.meetingId } : {}),
         })
         .then((r) => live && setSlots(r))
         .catch(() => live && setSlots(null))
@@ -728,7 +841,7 @@ export function NewMeetingDialog({
       live = false;
       clearTimeout(h);
     };
-  }, [open, date, duration, picked, api]);
+  }, [open, date, duration, picked, api, editing]);
 
   const people = [...directory.values()].filter(
     (u) =>
@@ -750,12 +863,33 @@ export function NewMeetingDialog({
     title.trim().length > 0 &&
     !Number.isNaN(start.getTime()) &&
     end.getTime() > Date.now() &&
-    (picked.length > 0 || guests.length > 0 || !!conversationId);
+    (picked.length > 0 || guests.length > 0 || !!conversationId || !!editing);
+  const existing = new Set(editing?.attendees.map((a) => a.userId) ?? []);
+  const seriesEdit = !!editing?.series && scope === 'series';
 
   async function submit() {
     setPending(true);
     setError(null);
     try {
+      if (editing) {
+        const ruleChanged =
+          seriesEdit &&
+          recurrence &&
+          JSON.stringify(recurrence) !== JSON.stringify(editing.series!.recurrence);
+        const m = await api.update(editing.meetingId, {
+          scope,
+          title: title.trim(),
+          agenda: agenda.trim(),
+          startsAt: start.toISOString(),
+          endsAt: end.toISOString(),
+          remindMinutes: remind < 0 ? [] : [remind],
+          addAttendeeIds: picked.filter((id) => !existing.has(id)),
+          ...(ruleChanged ? { recurrence: recurrence! } : {}),
+        });
+        onCreated(m);
+        onOpenChange(false);
+        return;
+      }
       const m = await api.create({
         title: title.trim(),
         agenda: agenda.trim(),
@@ -766,6 +900,7 @@ export function NewMeetingDialog({
         guests,
         remindMinutes: remind < 0 ? [] : [remind],
         ...(conversationId ? { conversationId } : {}),
+        ...(recurrence ? { recurrence } : {}),
       });
       onCreated(m);
       onOpenChange(false);
@@ -779,11 +914,46 @@ export function NewMeetingDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="New meeting"
-        description="Pick people and Connect suggests times when everyone is free and inside their working hours."
+        title={editing ? 'Edit meeting' : 'New meeting'}
+        description={
+          editing
+            ? 'Changing the time asks everyone to answer again.'
+            : 'Pick people and Connect suggests times when everyone is free and inside their working hours.'
+        }
         className="w-[min(640px,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
         <div className="space-y-4">
+          {editing?.series ? (
+            <div
+              role="radiogroup"
+              aria-label="What to change"
+              className="flex gap-1 rounded-lg border border-border bg-surface-sunken p-1"
+              data-testid="edit-scope"
+            >
+              {(
+                [
+                  ['occurrence', 'This meeting'],
+                  ['series', 'All upcoming meetings in the series'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={scope === v}
+                  onClick={() => setScope(v)}
+                  className={cn(
+                    'flex-1 rounded-md px-3 py-1.5 text-label transition-colors',
+                    scope === v
+                      ? 'bg-surface text-text shadow-sm'
+                      : 'font-normal text-text-muted hover:text-text',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <Field label="Title" htmlFor="mt-title">
             <Input
               id="mt-title"
@@ -807,12 +977,14 @@ export function NewMeetingDialog({
                   <Avatar name={nameOf(id, directory)} size="xs" />
                   {nameOf(id, directory)}
                   {conflicts.includes(id) ? <span className="text-warning">· busy</span> : null}
-                  <button
-                    aria-label={`Remove ${nameOf(id, directory)}`}
-                    onClick={() => setPicked((p) => p.filter((x) => x !== id))}
-                  >
-                    <X className="size-3" />
-                  </button>
+                  {existing.has(id) ? null : (
+                    <button
+                      aria-label={`Remove ${nameOf(id, directory)}`}
+                      onClick={() => setPicked((p) => p.filter((x) => x !== id))}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
@@ -849,7 +1021,7 @@ export function NewMeetingDialog({
             ) : null}
           </div>
 
-          <GuestPicker guests={guests} onChange={setGuests} />
+          {editing ? null : <GuestPicker guests={guests} onChange={setGuests} />}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Date" htmlFor="mt-date">
@@ -876,11 +1048,13 @@ export function NewMeetingDialog({
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
               >
-                {[15, 30, 45, 60, 90, 120].map((d) => (
-                  <option key={d} value={d}>
-                    {d < 60 ? `${d} min` : `${d / 60} h${d % 60 ? ' 30' : ''}`}
-                  </option>
-                ))}
+                {[...new Set([15, 30, 45, 60, 90, 120, duration])]
+                  .sort((a, b) => a - b)
+                  .map((d) => (
+                    <option key={d} value={d}>
+                      {d < 60 ? `${d} min` : `${Math.floor(d / 60)} h${d % 60 ? ` ${d % 60}` : ''}`}
+                    </option>
+                  ))}
               </select>
             </Field>
             <Field label="Reminder" htmlFor="mt-rem">
@@ -900,6 +1074,15 @@ export function NewMeetingDialog({
               </select>
             </Field>
           </div>
+
+          {!editing || seriesEdit ? (
+            <RepeatPicker
+              start={start}
+              timeZone={editing?.timeZone ?? LOCAL_TZ}
+              value={recurrence}
+              onChange={(r) => (editing && !r ? undefined : setRecurrence(r))}
+            />
+          ) : null}
 
           <div
             className="rounded-lg border border-border bg-surface-sunken/60 p-3"
@@ -966,7 +1149,15 @@ export function NewMeetingDialog({
               Cancel
             </Button>
             <Button onClick={() => void submit()} disabled={!valid} loading={pending}>
-              <CalendarPlus /> Schedule
+              {editing ? (
+                <>
+                  <Check /> Save
+                </>
+              ) : (
+                <>
+                  <CalendarPlus /> Schedule
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -1202,7 +1393,10 @@ function GuestsSection({
                     loading={busy === `remove:${g.guestId}`}
                     onClick={() =>
                       void act(`remove:${g.guestId}`, () =>
-                        api.update(m.meetingId, { removeGuestIds: [g.guestId] }),
+                        api.update(m.meetingId, {
+                          removeGuestIds: [g.guestId],
+                          ...(m.series ? { scope: 'series' as const } : {}),
+                        }),
                       )
                     }
                   >
@@ -1238,7 +1432,10 @@ function GuestsSection({
               loading={busy === 'add'}
               onClick={() =>
                 void act('add', async () => {
-                  const r = await api.update(m.meetingId, { addGuests: adding });
+                  const r = await api.update(m.meetingId, {
+                    addGuests: adding,
+                    ...(m.series ? { scope: 'series' as const } : {}),
+                  });
                   setAdding([]);
                   return r;
                 })
@@ -1417,6 +1614,11 @@ export function MeetingCard({
             {cancelled ? 'Cancelled' : fmtRange(meta.startsAt, meta.endsAt)} · {who}{' '}
             {meta.status === 'updated' ? 'updated' : cancelled ? 'cancelled' : 'scheduled'}
           </span>
+          {meta.recurrence && !cancelled ? (
+            <span className="flex items-center gap-1 truncate text-meta text-text-muted">
+              <Repeat className="size-3" /> {meta.recurrence}
+            </span>
+          ) : null}
         </span>
       </button>
     </div>
@@ -1428,6 +1630,7 @@ export function MeetingReminderToast({
 }: {
   onOpenConversation: (id: string) => void;
 }) {
+  useMeetingOutbox();
   const [r, dismiss] = useMeetingReminder();
   const calls = useCalls();
   const { state } = useEngine();

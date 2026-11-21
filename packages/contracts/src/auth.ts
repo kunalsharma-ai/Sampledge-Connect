@@ -139,5 +139,15 @@ export interface SsoInfo {
   passwordLogin: boolean;
 }
 
-/** POST /v1/auth/sso/exchange — swaps the one-time code from `#sso=` for the session. */
-export const SsoExchangeRequestSchema = z.object({ code: z.string().min(10).max(200) });
+/**
+ * POST /v1/auth/sso/exchange — swaps the one-time code from `#sso=` for the session.
+ * Mobile apps (return URI `sampledge://…`) must also send the PKCE `codeVerifier` whose
+ * S256 they passed as `codeChallenge` to `/v1/auth/sso/:slug/start`.
+ */
+export const SsoExchangeRequestSchema = z.object({
+  code: z.string().min(10).max(200),
+  codeVerifier: z
+    .string()
+    .regex(/^[A-Za-z0-9._~-]{43,128}$/)
+    .optional(),
+});
