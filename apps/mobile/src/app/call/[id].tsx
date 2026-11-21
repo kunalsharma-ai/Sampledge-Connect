@@ -14,10 +14,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CallVideo } from '../../calls/CallVideo';
 import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
+import { useLiveCaptions } from '../../calls/useLiveCaptions';
 import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Text } from '../../components/Text';
 import type { LocalConversation } from '../../db/store';
 import { outputIcon, outputLabel } from '../../lib/audioRoute';
+import { captionsNotice } from '../../lib/captions';
 import { guestLabel } from '../../lib/guests';
 import { formatDuration } from '../../lib/systemMessages';
 import { useWorkspace } from '../../state/AppProvider';
@@ -47,6 +49,11 @@ export default function CallScreen() {
 
   const media = useCallMedia(call?.join ?? null, call?.media ?? 'audio', {
     onTokenExpired: () => engine.calls.rejoin(),
+  });
+  const captions = useLiveCaptions(media.room, {
+    enabled: !!config?.captionsEnabled,
+    myName: nameOf(selfId, { asWritten: true }),
+    transcribe: (clip) => engine.calls.transcribeCaption(clip),
   });
 
   useEffect(() => {
@@ -354,6 +361,33 @@ export default function CallScreen() {
           ) : null}
         </View>
       ) : null}
+      {captions.on || captions.active ? (
+        <View style={styles.captions} pointerEvents="none">
+          {captions.on
+            ? captions.lines.map((l) => (
+                <Text
+                  key={l.id}
+                  testID="caption-line"
+                  style={[styles.captionLine, { color: '#FFFFFF' }]}
+                  accessibilityLiveRegion="polite"
+                >
+                  <Text variant="bodyStrong" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                    {l.name}:{' '}
+                  </Text>
+                  {l.text}
+                </Text>
+              ))
+            : null}
+          <Text variant="meta" style={styles.captionNotice} testID="captions-notice">
+            {captionsNotice({
+              on: captions.on,
+              lines: captions.lines.length,
+              error: captions.error,
+              canSend: captions.canSend,
+            })}
+          </Text>
+        </View>
+      ) : null}
       <View style={[styles.controls, { paddingBottom: insets.bottom + space.lg }]}>
         <Control
           icon={media.micOn ? 'mic' : 'mic-off'}
@@ -385,6 +419,14 @@ export default function CallScreen() {
           active={media.handUp}
           onPress={() => void media.toggleHand()}
         />
+        {config?.captionsEnabled ? (
+          <Control
+            icon={captions.on ? 'text' : 'text-outline'}
+            label={captions.on ? 'Captions off' : 'Captions'}
+            active={captions.on}
+            onPress={() => captions.setOn(!captions.on)}
+          />
+        ) : null}
         {config?.recordingEnabled ? (
           <Control
             icon={rec ? 'stop' : 'radio-button-on'}
@@ -489,6 +531,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     alignSelf: 'flex-start',
+  },
+  captions: { alignItems: 'center', gap: 6, paddingHorizontal: space.md, paddingBottom: space.sm },
+  captionLine: {
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    textAlign: 'center',
+    overflow: 'hidden',
+  },
+  captionNotice: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    color: 'rgba(255,255,255,0.8)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    textAlign: 'center',
   },
   hand: {
     position: 'absolute',

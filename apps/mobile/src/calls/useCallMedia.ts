@@ -46,6 +46,8 @@ export function useCallMedia(
   opts: { onTokenExpired?: () => Promise<CallJoin | null> } = {},
 ) {
   const roomRef = useRef<Room | null>(null);
+  /** The room, for features that listen to it (captions). */
+  const [room, setRoom] = useState<Room | null>(null);
   const [status, setStatus] = useState<MediaStatus>('connecting');
   const [tiles, setTiles] = useState<CallTile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +66,7 @@ export function useCallMedia(
     setupCallMedia();
     const room = new Room({ adaptiveStream: true, dynacast: true });
     roomRef.current = room;
+    setRoom(room);
     let cancelled = false;
 
     const snapshot = () => {
@@ -158,6 +161,7 @@ export function useCallMedia(
       void room.disconnect();
       void stopCallAudio();
       roomRef.current = null;
+      setRoom(null);
     };
   }, [join, media]);
 
@@ -218,6 +222,7 @@ export function useCallMedia(
   }, [handUp]);
 
   return {
+    room,
     status,
     tiles,
     error,

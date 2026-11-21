@@ -45,6 +45,7 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type CallCaptionResponse,
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
@@ -291,6 +292,8 @@ export interface ApiTransport {
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
+  /** Live captions: a few seconds of my own microphone, sent as raw audio; returns the text. */
+  transcribeCaption(callId: string, clip: Blob): Promise<CallCaptionResponse>;
   /** Let a guest in from the lobby, or turn them away (anyone in the call; first answer wins). */
   lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call>;
   guestLink(meetingId: string, guestId: string): Promise<{ url: string }>;
@@ -937,6 +940,10 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  transcribeCaption(callId: string, clip: Blob): Promise<CallCaptionResponse> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/captions`, clip);
+  }
+
   startCallRecording(callId: string): Promise<Call> {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/start`, {});
   }
@@ -1004,7 +1011,10 @@ export class HttpTransport implements ApiTransport {
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
     const hasBody = method !== 'GET' && body !== undefined;
     const headers: Record<string, string> = { accept: 'application/json' };
-    if (hasBody) headers['content-type'] = 'application/json';
+    // Audio clips go as they are; everything else as JSON.
+    const raw = typeof Blob !== 'undefined' && body instanceof Blob;
+    if (hasBody)
+      headers['content-type'] = raw ? body.type || 'application/octet-stream' : 'application/json';
     if (auth) {
       const token = await this.opts.getAccessToken();
       if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
@@ -1017,7 +1027,7 @@ export class HttpTransport implements ApiTransport {
       res = await this.fetchImpl(new URL(path, this.opts.baseUrl).toString(), {
         method,
         headers,
-        body: hasBody ? JSON.stringify(body) : undefined,
+        body: hasBody ? (raw ? body : JSON.stringify(body)) : undefined,
         signal: controller.signal,
       });
     } catch (err) {
@@ -1181,6 +1191,7 @@ export class NoServerTransport implements ApiTransport {
   aiTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
+  transcribeCaption = async (): Promise<CallCaptionResponse> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();
