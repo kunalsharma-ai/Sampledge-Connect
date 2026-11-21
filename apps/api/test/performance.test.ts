@@ -97,7 +97,7 @@ describe('latency budgets with a large history', () => {
     const token = owner.session.accessToken;
     const convs = await api<Conversation[]>(h, 'GET', '/v1/conversations', { token });
     const general = convs.body[0]!;
-    const tenantId = owner.session.user.tenantId;
+    const tenantId = owner.session.tenant.tenantId;
     const userId = owner.session.user.userId;
 
     // Seed directly: 20,000 messages in #general, with sequences as the service assigns them.

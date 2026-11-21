@@ -22,6 +22,7 @@ afterAll(() => h.close());
 const PUBLIC = new Set([
   'GET /health/live',
   'GET /health/ready',
+  'GET /health/metrics', // METRICS_TOKEN bearer; 404 when unset
   'POST /v1/auth/register',
   'POST /v1/auth/login',
   'POST /v1/auth/refresh',
@@ -204,21 +205,13 @@ describe('request hardening', () => {
 
 describe('rate limits', () => {
   it('locks out repeated wrong passwords', async () => {
-    const limited = await startHarness({ RATE_LIMIT_DISABLED: 'false' });
+    // Same database as the main harness, so the account is made without spending the IP's
+    // registration allowance; only this second app instance enforces limits.
+    const owner = await registerTenant(h, 'Brute Co');
+    const limited = await startHarness({ RATE_LIMIT_DISABLED: 'false' }, { dbName: h.dbName });
     try {
-      const reg = await fetch(limited.url + '/v1/auth/register', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          organizationName: 'Brute Co',
-          tenantSlug: `brute-${Date.now().toString(36)}`,
-          ownerName: 'Bo',
-          ownerEmail: 'bo@brute.test',
-          password: 'correct horse battery staple',
-          device: device(),
-        }),
-      });
-      const slug = ((await reg.json()) as { tenant: { slug: string } }).tenant.slug;
+      const slug = owner.slug;
+      const email = `priya@${slug}.test`;
       const statuses: number[] = [];
       for (let i = 0; i < 25; i++) {
         const r = await fetch(limited.url + '/v1/auth/login', {
@@ -226,7 +219,7 @@ describe('rate limits', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             tenantSlug: slug,
-            email: 'bo@brute.test',
+            email,
             password: `guess number ${i}`,
             device: device(),
           }),
@@ -237,7 +230,31 @@ describe('rate limits', () => {
       expect(statuses).toContain(429);
       expect(statuses.indexOf(429)).toBeLessThanOrEqual(20);
     } finally {
-      await limited.close();
+      await limited.close(false);
+    }
+  });
+});
+
+describe('metrics endpoint', () => {
+  it('is off without METRICS_TOKEN and needs the token when on', async () => {
+    expect((await fetch(h.url + '/health/metrics')).status).toBe(404);
+    const token = 'metrics-token-for-tests-0123456789';
+    const m = await startHarness({ METRICS_TOKEN: token }, { dbName: h.dbName });
+    try {
+      expect((await fetch(m.url + '/health/metrics')).status).toBe(401);
+      await fetch(m.url + '/v1/billing/plans');
+      const res = await fetch(m.url + '/health/metrics', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain(
+        'sc_http_requests_total{method="GET",route="/v1/billing/plans",status="2xx"} 1',
+      );
+      expect(text).toContain('sc_mongo_up 1');
+      expect(text).toContain('sc_socket_connections 0');
+    } finally {
+      await m.close(false);
     }
   });
 });
