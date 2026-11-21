@@ -44,3 +44,10 @@
 - **Offline:** both PUTs go through the action queue (keys `my-status`, `my-dnd-schedule`) and
   show on this device at once.
 - Shared helpers in `@sampledge/contracts`: `effectiveStatus`, `inDndSchedule`, `dndActive`.
+- **Mobile:** More → Status and quiet hours sets availability, a status message with presets and
+  "clear after", and quiet hours (days, from and to in 30-minute steps). Changes go through the
+  action queue (`status.set`, `dnd.set`; only the latest of each is sent), show at once offline and
+  are laid over the cached directory until the server answers. A status that expired while
+  waiting offline is sent as cleared. Your status shows under your name in More; teammates'
+  status (with a dot and "Notifications paused") shows on their profile and in the DM header,
+  updating live on `directory:updated`.

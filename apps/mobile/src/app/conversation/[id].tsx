@@ -20,6 +20,7 @@ import { MessageActions, type MessageAction } from '../../components/MessageActi
 import { MessageBubble, type ReplyPreview } from '../../components/MessageBubble';
 import { pollIsClosed } from '../../lib/polls';
 import { Screen } from '../../components/Screen';
+import { StatusLine } from '../../components/StatusLine';
 import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
@@ -38,6 +39,7 @@ import {
   usePinned,
   useScheduled,
   useTenantRole,
+  useProfile,
   useSavedIds,
 } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
@@ -171,6 +173,9 @@ export default function ConversationScreen() {
   }, []);
 
   const title = conv ? conversationTitle(conv, nameOf, selfId) : '';
+  const peer = useProfile(
+    conv?.kind === 'dm' ? (conv.memberIds.find((m) => m !== selfId) ?? '') : '',
+  );
   const reversed = useMemo(() => [...messages].reverse(), [messages]);
   const typingNames = Object.keys(typers).map((u) => nameOf(u));
   const byServerId = useMemo(
@@ -298,7 +303,9 @@ export default function ConversationScreen() {
               <Text variant="heading" numberOfLines={1}>
                 {title}
               </Text>
-              {conv?.topic || conv?.memberIds ? (
+              {conv?.kind === 'dm' && (peer?.userStatus || peer?.dndSchedule) ? (
+                <StatusLine status={peer.userStatus} schedule={peer.dndSchedule} center />
+              ) : conv?.topic || conv?.memberIds ? (
                 <Text variant="meta" tone="muted" numberOfLines={1}>
                   {conv.topic ?? `${conv.memberIds.length} members`}
                 </Text>

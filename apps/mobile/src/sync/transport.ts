@@ -52,6 +52,9 @@ import {
   type RecordingKind,
   type RecordingList,
   type FileList,
+  type UserStatus,
+  type DndSchedule,
+  type PresenceInfo,
   type ListFilesQuery,
   type Conversation,
   type CreateConversationRequest,
@@ -218,6 +221,10 @@ export interface ApiTransport {
   listRecordings(q: RecordingsQuery): Promise<RecordingList>;
   /** GET /v1/files: every file in conversations you can read, newest first. */
   listFiles(q: ListFilesQuery): Promise<FileList>;
+  /** PUT /v1/me/status: replaces your availability and custom status. */
+  setStatus(status: UserStatus): Promise<PresenceInfo>;
+  /** PUT /v1/me/dnd-schedule: replaces your quiet hours. */
+  setDndSchedule(schedule: DndSchedule): Promise<PresenceInfo>;
   /** Pins or unpins for everyone in the conversation; returns the updated message. */
   pinMessage(messageId: string, pinned: boolean): Promise<Message>;
   /** Messages you saved for later, newest first. */
@@ -337,6 +344,10 @@ export interface DirectoryUser {
   bio?: string | null;
   /** IANA time zone, e.g. "Asia/Kolkata". */
   timeZone?: string | null;
+  /** Availability and custom status (absent on older servers). */
+  userStatus?: UserStatus | null;
+  /** Quiet hours, when set. */
+  dndSchedule?: DndSchedule | null;
 }
 
 export interface HttpTransportOptions {
@@ -638,6 +649,14 @@ export class HttpTransport implements ApiTransport {
     if (q.before) p.set('before', q.before);
     p.set('limit', String(q.limit ?? 30));
     return this.request('GET', `/v1/recordings?${p.toString()}`, undefined);
+  }
+
+  setStatus(status: UserStatus): Promise<PresenceInfo> {
+    return this.request('PUT', '/v1/me/status', status);
+  }
+
+  setDndSchedule(schedule: DndSchedule): Promise<PresenceInfo> {
+    return this.request('PUT', '/v1/me/dnd-schedule', schedule);
   }
 
   listFiles(q: ListFilesQuery): Promise<FileList> {
@@ -1106,6 +1125,8 @@ export class NoServerTransport implements ApiTransport {
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
   listRecordings = async (): Promise<RecordingList> => this.fail();
   listFiles = async (): Promise<FileList> => this.fail();
+  setStatus = async (): Promise<PresenceInfo> => this.fail();
+  setDndSchedule = async (): Promise<PresenceInfo> => this.fail();
   deleteRecording = async (): Promise<void> => this.fail();
   pinMessage = async (): Promise<Message> => this.fail();
   listBookmarks = async (): Promise<Bookmark[]> => this.fail();

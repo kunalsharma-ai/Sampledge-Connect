@@ -33,6 +33,8 @@ const WHAT: Record<ActionKind, string> = {
   'avatar.set': 'New profile photo',
   'avatar.remove': 'Removing your photo',
   'search.recent': 'Saving your recent searches',
+  'status.set': 'Changing your status',
+  'dnd.set': 'Changing your quiet hours',
 };
 
 /**

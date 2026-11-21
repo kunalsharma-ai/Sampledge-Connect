@@ -120,6 +120,8 @@ export class SyncEngine {
               phone,
               bio,
               timeZone,
+              userStatus,
+              dndSchedule,
             }) => ({
               userId,
               displayName,
@@ -131,6 +133,8 @@ export class SyncEngine {
               phone: phone ?? null,
               bio: bio ?? null,
               timeZone: timeZone ?? null,
+              userStatus: userStatus ?? null,
+              dndSchedule: dndSchedule ?? null,
             }),
           ),
       ),
