@@ -91,7 +91,10 @@ export interface PendingAction {
   messageId?: string;
   intent?: MessageIntent;
   state: 'queued' | 'failed';
+  /** Queue position: kept when a queued change is replaced, so the order never shifts. */
   createdAt: number;
+  /** Bumped on every replacement, so a send that finished after an edit keeps the new edit. */
+  revision?: number;
   attempts: number;
   nextAttemptAt: number;
   lastError: ApiError | null;

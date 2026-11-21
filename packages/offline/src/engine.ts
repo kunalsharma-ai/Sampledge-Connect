@@ -557,15 +557,23 @@ export class SyncEngine {
    * Use `intent` for message changes so `overlayMessage` shows them right away.
    */
   async queueAction(
-    a: Omit<PendingAction, 'state' | 'createdAt' | 'attempts' | 'nextAttemptAt' | 'lastError'>,
+    a: Omit<
+      PendingAction,
+      'state' | 'createdAt' | 'revision' | 'attempts' | 'nextAttemptAt' | 'lastError'
+    >,
   ) {
     const now = this.now();
     // Keep the original position when replacing a queued change, so order is preserved.
+    // A new change always lands after the last one, even within the same millisecond.
     const prev = await this.db.actions.get(a.key);
+    const last = await this.db.actions.orderBy('createdAt').last();
+    const position =
+      prev?.state === 'queued' ? prev.createdAt : Math.max(now, (last?.createdAt ?? 0) + 1e-3);
     await this.db.actions.put({
       ...a,
       state: 'queued',
-      createdAt: prev?.state === 'queued' ? Math.max(prev.createdAt + 1e-3, now) : now,
+      createdAt: position,
+      revision: (prev?.revision ?? 0) + 1,
       attempts: 0,
       nextAttemptAt: now,
       lastError: null,
@@ -616,7 +624,8 @@ export class SyncEngine {
           this.db.outbox,
           async () => {
             const cur = await this.db.actions.get(a.key);
-            if (cur && cur.createdAt === a.createdAt) await this.db.actions.delete(a.key);
+            if (cur && cur.createdAt === a.createdAt && cur.revision === a.revision)
+              await this.db.actions.delete(a.key);
             if (isMessage(result)) await this.upsertServerMessage(result);
           },
         );
