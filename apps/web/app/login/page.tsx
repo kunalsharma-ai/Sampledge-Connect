@@ -2,11 +2,16 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { KeyRound } from 'lucide-react';
 import { Button, Field, Input } from '@sampledge/ui';
 import { AuthShell } from '@/components/auth-shell';
 import { ApiFailure } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
-import type { MfaChallenge } from '@sampledge/contracts';
+import { apiRequest } from '@/lib/api';
+import { ssoStartUrl, useAuth } from '@/lib/auth';
+import type { MfaChallenge, SsoInfo } from '@sampledge/contracts';
+
+const SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const LAST_SLUG = 'sampledge.lastWorkspace';
 
 export default function LoginPage() {
   const auth = useAuth();
@@ -16,15 +21,76 @@ export default function LoginPage() {
   const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
   const [useRecovery, setUseRecovery] = React.useState(false);
 
+  const [slug, setSlug] = React.useState('');
+  const [sso, setSso] = React.useState<SsoInfo | null>(null);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [redirecting, setRedirecting] = React.useState(false);
+
   React.useEffect(() => {
     if (auth.status === 'signed-in' && !auth.expired) router.replace('/app');
   }, [auth.status, auth.expired, router]);
+
+  // Back from the identity provider: `#sso=<one-time code>` or `#sso_error=<message>`.
+  React.useEffect(() => {
+    try {
+      setSlug(localStorage.getItem(LAST_SLUG) ?? '');
+    } catch {
+      /* storage blocked */
+    }
+    const h = new URLSearchParams(window.location.hash.slice(1));
+    const code = h.get('sso');
+    const failed = h.get('sso_error');
+    if (!code && !failed) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    if (failed) {
+      setError(failed);
+      return;
+    }
+    setPending(true);
+    auth
+      .completeSso(code!)
+      .then(() => router.replace('/app'))
+      .catch((err: unknown) => {
+        setError(err instanceof ApiFailure ? err.error.message : 'Something went wrong');
+        setPending(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ask whether this workspace offers single sign-on once the name looks complete.
+  React.useEffect(() => {
+    const s = slug.trim().toLowerCase();
+    if (s.length < 3 || !SLUG.test(s)) {
+      setSso(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      apiRequest<SsoInfo>('GET', `/v1/auth/sso/${s}`)
+        .then((r) => live && setSso(r.enabled ? r : null))
+        .catch(() => live && setSso(null));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [slug]);
+
+  const rememberSlug = () => {
+    try {
+      localStorage.setItem(LAST_SLUG, slug.trim().toLowerCase());
+    } catch {
+      /* storage blocked */
+    }
+  };
+  const ssoOnly = !!sso && !sso.passwordLogin && !showPassword;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     setPending(true);
     setError(null);
+    rememberSlug();
     try {
       const ch = await auth.login({
         tenantSlug: String(f.get('workspace')),
@@ -152,27 +218,68 @@ export default function LoginPage() {
             autoComplete="organization"
             required
             placeholder="acme-research"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
           />
         </Field>
-        <Field label="Work email" htmlFor="email">
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            placeholder="you@company.com"
-          />
-        </Field>
-        <Field label="Password" htmlFor="password">
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </Field>
+        {sso ? (
+          <>
+            <Button
+              type="button"
+              size="lg"
+              variant={ssoOnly ? 'primary' : 'secondary'}
+              loading={redirecting}
+              onClick={() => {
+                rememberSlug();
+                setRedirecting(true);
+                window.location.assign(ssoStartUrl(slug.trim().toLowerCase()));
+              }}
+            >
+              <KeyRound /> {sso.label ?? 'Continue with single sign-on'}
+            </Button>
+            {ssoOnly ? (
+              <button
+                type="button"
+                className="text-label text-text-muted hover:text-text"
+                onClick={() => setShowPassword(true)}
+              >
+                Organization owner? Sign in with your password
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 text-meta text-text-subtle" aria-hidden>
+                <span className="h-px flex-1 bg-border" />
+                or use your password
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            )}
+          </>
+        ) : null}
+        {ssoOnly ? null : (
+          <>
+            <Field label="Work email" htmlFor="email">
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                placeholder="you@company.com"
+              />
+            </Field>
+            <Field label="Password" htmlFor="password">
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+            <Button type="submit" size="lg" loading={pending} className="mt-2">
+              Sign in
+            </Button>
+          </>
+        )}
         {error ? (
           <p
             role="alert"
@@ -181,10 +288,6 @@ export default function LoginPage() {
             {error}
           </p>
         ) : null}
-        <Button type="submit" size="lg" loading={pending} className="mt-2">
-          Sign in
-        </Button>
-        <p className="text-meta text-text-subtle">Single sign-on (OIDC) is planned.</p>
       </form>
     </AuthShell>
   );

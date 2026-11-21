@@ -9,6 +9,7 @@ import {
   type Session,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
+import { API_URL } from './config';
 import {
   clearSession,
   deviceInfo,
@@ -27,6 +28,8 @@ interface AuthContextValue {
   /** Resolves with a challenge when the account has two-step verification on. */
   login(input: Omit<LoginRequest, 'device'>): Promise<MfaChallenge | null>;
   verifyMfa(challengeId: string, code: string): Promise<void>;
+  /** Finishes single sign-on with the one-time code from `#sso=`. */
+  completeSso(code: string): Promise<void>;
   register(input: Omit<RegisterTenantRequest, 'device'>): Promise<void>;
   logout(): Promise<void>;
   /** Set when a refresh failed for auth reasons; the UI asks the user to sign in again. */
@@ -118,6 +121,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [adopt],
   );
 
+  const completeSso = React.useCallback(
+    async (code: string) => {
+      const s = await apiRequest<Session>('POST', '/v1/auth/sso/exchange', { body: { code } });
+      await adopt(s);
+    },
+    [adopt],
+  );
+
   const register = React.useCallback(
     async (input: Omit<RegisterTenantRequest, 'device'>) => {
       const s = await apiRequest<Session>('POST', '/v1/auth/register', {
@@ -139,8 +150,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ status, session, getAccessToken, login, verifyMfa, register, logout, expired }),
-    [status, session, getAccessToken, login, verifyMfa, register, logout, expired],
+    () => ({
+      status,
+      session,
+      getAccessToken,
+      login,
+      verifyMfa,
+      completeSso,
+      register,
+      logout,
+      expired,
+    }),
+    [status, session, getAccessToken, login, verifyMfa, completeSso, register, logout, expired],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/** Where the browser goes to start single sign-on for a workspace. */
+export function ssoStartUrl(slug: string) {
+  const d = deviceInfo();
+  const q = new URLSearchParams({
+    returnTo: `${window.location.origin}/login`,
+    deviceId: d.deviceId,
+    deviceName: d.name,
+    platform: d.platform,
+  });
+  return `${API_URL}/v1/auth/sso/${encodeURIComponent(slug)}/start?${q}`;
 }
