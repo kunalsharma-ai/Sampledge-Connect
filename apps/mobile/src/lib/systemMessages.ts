@@ -22,8 +22,40 @@ export function formatDuration(sec: number): string {
   return `${h} h ${m % 60} min`;
 }
 
+export interface MeetingMeta {
+  meetingId?: string;
+  title?: string;
+  startsAt?: string;
+  endsAt?: string;
+  organizerId?: string;
+  status?: 'scheduled' | 'updated' | 'cancelled' | string;
+}
+
+export function meetingMeta(metadata: Record<string, unknown>): MeetingMeta | null {
+  const m = metadata.meeting;
+  return m && typeof m === 'object' ? (m as MeetingMeta) : null;
+}
+
+function when(iso: string): string {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 /** One line describing a system message, e.g. "Video call ended · 12 min". */
 export function systemText(text: string, metadata: Record<string, unknown>): string {
+  const meeting = meetingMeta(metadata);
+  if (meeting) {
+    const title = meeting.title ? `“${meeting.title}”` : 'Meeting';
+    const at = meeting.startsAt ? ` · ${when(meeting.startsAt)}` : '';
+    switch (meeting.status) {
+      case 'cancelled':
+        return `${title} was cancelled`;
+      case 'updated':
+        return `${title} moved${at}`;
+      default:
+        return `${title} scheduled${at}`;
+    }
+  }
   const call = callMeta(metadata);
   if (call) {
     const kind = call.media === 'video' ? 'Video call' : 'Voice call';

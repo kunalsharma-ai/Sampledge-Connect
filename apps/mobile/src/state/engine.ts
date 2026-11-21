@@ -1,6 +1,14 @@
 import {
   backoffDelay,
   type CreateConversationRequest,
+  type CreateMeetingRequest,
+  type FindTimesRequest,
+  type FindTimesResponse,
+  type Meeting,
+  type MeetingReminderEvent,
+  type RsvpResponse,
+  type UpdateMeetingRequest,
+  type WorkingHours,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -48,6 +56,8 @@ export class ConnectEngine {
     state: EngineState;
     /** A new unread notification arrived live (drives the in-app banner). */
     notification: LocalNotification;
+    /** A meeting you attend starts soon (drives the reminder banner). */
+    meetingReminder: MeetingReminderEvent;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -69,6 +79,8 @@ export class ConnectEngine {
   private notificationsRun: Promise<void> | null = null;
   private notificationsAgain = false;
   private levelsRun: Promise<void> | null = null;
+  private rsvpRun: Promise<void> | null = null;
+  private meetingsRun: Promise<void> | null = null;
 
   constructor(
     readonly store: LocalStore,
@@ -130,6 +142,11 @@ export class ConnectEngine {
         this.realtime.events.on('needsSync', () => void this.resume()),
         this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
+        this.realtime.events.on('meetingReminder', (e) => {
+          const mine = e.meeting.attendees.find((a) => a.userId === this.store.selfUserId);
+          if (e.meeting.status === 'scheduled' && mine?.response !== 'declined')
+            this.events.emit('meetingReminder', e);
+        }),
         this.realtime.events.on('notificationsRead', ({ unreadCount }) => {
           void this.store.setNotificationUnread(unreadCount);
           void this.refreshNotifications();
@@ -181,6 +198,7 @@ export class ConnectEngine {
       this.refreshNotifications(),
       this.flushNotifyLevels(),
       this.calls.refresh(),
+      this.flushRsvps().then(() => this.refreshMeetings()),
     ]);
   }
 
@@ -407,6 +425,102 @@ export class ConnectEngine {
     } catch {
       // already revoked or unreachable
     }
+  }
+
+  // ------------------------------------------------------------------------- meetings
+
+  /** The window kept on the phone: the last week and the next eight. */
+  static meetingWindow(now = Date.now()): { from: string; to: string } {
+    return {
+      from: new Date(now - 7 * 86_400_000).toISOString(),
+      to: new Date(now + 55 * 86_400_000).toISOString(),
+    };
+  }
+
+  /** Reloads your meetings for the cached window. One run at a time. */
+  refreshMeetings(): Promise<void> {
+    if (!this._state.networkUp || this.session.state !== 'active') return Promise.resolve();
+    this.meetingsRun ??= (async () => {
+      try {
+        const { from, to } = ConnectEngine.meetingWindow();
+        await this.store.replaceMeetings(from, to, await this.api.listMeetings(from, to));
+      } catch (err) {
+        if (err instanceof TransportError && err.isAuth) void this.handleAuthError(err);
+        // Otherwise keep the cached copy; the next resume tries again.
+      } finally {
+        this.meetingsRun = null;
+      }
+    })();
+    return this.meetingsRun;
+  }
+
+  /** Answers an invitation. Works offline: the answer shows at once and is sent when possible. */
+  async rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<void> {
+    if (this.session.state === 'demo') return this.store.applyLocalRsvp(meetingId, response);
+    await this.store.setRsvpLocally(meetingId, response);
+    await this.flushRsvps();
+  }
+
+  private flushRsvps(): Promise<void> {
+    const run = (this.rsvpRun ?? Promise.resolve()).then(() => this.sendRsvps());
+    const tracked = run.finally(() => {
+      if (this.rsvpRun === tracked) this.rsvpRun = null;
+    });
+    this.rsvpRun = tracked;
+    return tracked;
+  }
+
+  private async sendRsvps(): Promise<void> {
+    if (!this._state.networkUp || this.session.state !== 'active') return;
+    for (const { meetingId, response } of await this.store.pendingRsvps()) {
+      try {
+        await this.store.upsertMeetings([await this.api.rsvp(meetingId, response)]);
+      } catch (err) {
+        if (!(err instanceof TransportError) || err.kind === 'network') return;
+        if (err.isAuth) return void this.handleAuthError(err);
+        if (err.retryable) return;
+        // Refused for good (cancelled, or no longer invited): fall back to the server's copy.
+      }
+      await this.store.settleRsvp(meetingId, response);
+    }
+  }
+
+  /** Schedules a meeting. Needs the server: it creates the meeting chat and invites people. */
+  createMeeting(req: CreateMeetingRequest): Promise<Meeting> {
+    return this.serverAction(async () => {
+      const m = await this.api.createMeeting(req);
+      await this.store.upsertMeetings([m]);
+      void this.resume(); // a new meeting chat syncs in
+      return m;
+    });
+  }
+
+  /** Organizer only. Moving the time resets everyone's answers. */
+  updateMeeting(meetingId: string, req: UpdateMeetingRequest): Promise<Meeting> {
+    return this.serverAction(async () => {
+      const m = await this.api.updateMeeting(meetingId, req);
+      await this.store.upsertMeetings([m]);
+      return m;
+    });
+  }
+
+  cancelMeeting(meetingId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertMeetings([await this.api.cancelMeeting(meetingId)]);
+    });
+  }
+
+  /** Slots where everyone is in working hours and free (busy times come without titles). */
+  findTimes(req: FindTimesRequest): Promise<FindTimesResponse> {
+    return this.serverAction(() => this.api.findTimes(req));
+  }
+
+  getWorkingHours(): Promise<WorkingHours> {
+    return this.serverAction(() => this.api.getWorkingHours());
+  }
+
+  setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
+    return this.serverAction(() => this.api.setWorkingHours(hours));
   }
 
   async send(

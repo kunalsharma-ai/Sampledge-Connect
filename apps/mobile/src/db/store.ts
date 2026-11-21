@@ -5,8 +5,10 @@ import {
   type ConversationKind,
   type ConversationRole,
   type Attachment,
+  type Meeting,
   type Message,
   type MessageStatus,
+  type RsvpResponse,
   type NotifyLevel,
   type Reaction,
   type Receipt,
@@ -207,7 +209,17 @@ type StoreEvents = {
   outbox: undefined;
   settings: { key: string };
   notifications: undefined;
+  meetings: undefined;
 };
+
+/** A meeting from the cache, with your own answer (a choice not yet sent wins). */
+export interface LocalMeeting extends Meeting {
+  myResponse: RsvpResponse | null;
+  /** True while an RSVP made on this device has not reached the server. */
+  rsvpPending: boolean;
+}
+
+type SentRsvp = Exclude<RsvpResponse, 'pending'>;
 
 interface MessageRow {
   client_id: string;
@@ -1373,13 +1385,127 @@ export class LocalStore {
         'conversations',
         'notifications',
         'notification_reads',
+        'meetings',
         'kv',
       ])
         await tx.run(`DELETE FROM ${table}`);
     });
+    this.events.emit('meetings', undefined);
     this.events.emit('conversations', undefined);
     this.events.emit('outbox', undefined);
     this.events.emit('notifications', undefined);
+  }
+
+  // ---------------------------------------------------------------- meetings
+
+  /** Stores meetings from the server or a live event. An older copy never replaces a newer one. */
+  async upsertMeetings(meetings: readonly Meeting[]): Promise<void> {
+    if (meetings.length === 0) return;
+    await this.db.transaction(async (tx) => {
+      for (const m of meetings) {
+        await tx.run(
+          `INSERT INTO meetings (meeting_id, conversation_id, starts_at, ends_at, status, updated_at, data)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(meeting_id) DO UPDATE SET
+             conversation_id = excluded.conversation_id, starts_at = excluded.starts_at,
+             ends_at = excluded.ends_at, status = excluded.status,
+             updated_at = excluded.updated_at, data = excluded.data
+           WHERE excluded.updated_at >= meetings.updated_at`,
+          [
+            m.meetingId,
+            m.conversationId,
+            m.startsAt,
+            m.endsAt,
+            m.status,
+            m.updatedAt,
+            JSON.stringify(m),
+          ],
+        );
+      }
+    });
+    this.events.emit('meetings', undefined);
+  }
+
+  /**
+   * The server's full list for a window: meetings in it that the server no longer lists for
+   * you (you were removed) are dropped, unless an RSVP for them is still waiting to be sent.
+   */
+  async replaceMeetings(from: string, to: string, meetings: readonly Meeting[]): Promise<void> {
+    const keep = new Set(meetings.map((m) => m.meetingId));
+    const rows = await this.db.all<{ meeting_id: string }>(
+      'SELECT meeting_id FROM meetings WHERE starts_at < ? AND ends_at > ? AND pending_rsvp IS NULL',
+      [to, from],
+    );
+    const gone = rows.map((r) => r.meeting_id).filter((id) => !keep.has(id));
+    if (gone.length)
+      await this.db.transaction(async (tx) => {
+        for (const id of gone) await tx.run('DELETE FROM meetings WHERE meeting_id = ?', [id]);
+      });
+    await this.upsertMeetings(meetings);
+    if (gone.length && meetings.length === 0) this.events.emit('meetings', undefined);
+  }
+
+  /** Meetings overlapping [from, to), soonest first. */
+  async listMeetings(from: string, to: string): Promise<LocalMeeting[]> {
+    const rows = await this.db.all<{ data: string; pending_rsvp: SentRsvp | null }>(
+      'SELECT data, pending_rsvp FROM meetings WHERE starts_at < ? AND ends_at > ? ORDER BY starts_at',
+      [to, from],
+    );
+    return rows.map((r) => this.toLocalMeeting(r));
+  }
+
+  async getMeeting(meetingId: string): Promise<LocalMeeting | undefined> {
+    const row = await this.db.get<{ data: string; pending_rsvp: SentRsvp | null }>(
+      'SELECT data, pending_rsvp FROM meetings WHERE meeting_id = ?',
+      [meetingId],
+    );
+    return row ? this.toLocalMeeting(row) : undefined;
+  }
+
+  private toLocalMeeting(r: { data: string; pending_rsvp: SentRsvp | null }): LocalMeeting {
+    const m = JSON.parse(r.data) as Meeting;
+    const mine = m.attendees.find((a) => a.userId === this.selfId)?.response ?? null;
+    return { ...m, myResponse: r.pending_rsvp ?? mine, rsvpPending: r.pending_rsvp != null };
+  }
+
+  /** Records your answer here at once; it is sent when online (last choice wins). */
+  async setRsvpLocally(meetingId: string, response: SentRsvp): Promise<void> {
+    await this.db.run('UPDATE meetings SET pending_rsvp = ? WHERE meeting_id = ?', [
+      response,
+      meetingId,
+    ]);
+    this.events.emit('meetings', undefined);
+  }
+
+  async pendingRsvps(): Promise<{ meetingId: string; response: SentRsvp }[]> {
+    const rows = await this.db.all<{ meeting_id: string; pending_rsvp: SentRsvp }>(
+      'SELECT meeting_id, pending_rsvp FROM meetings WHERE pending_rsvp IS NOT NULL',
+    );
+    return rows.map((r) => ({ meetingId: r.meeting_id, response: r.pending_rsvp }));
+  }
+
+  /** Demo workspace only: there is no server, so the answer is written straight into the copy. */
+  async applyLocalRsvp(meetingId: string, response: SentRsvp): Promise<void> {
+    const m = await this.getMeeting(meetingId);
+    if (!m) return;
+    const { myResponse: _r, rsvpPending: _p, ...meeting } = m;
+    const attendees = meeting.attendees.map((a) =>
+      a.userId === this.selfId ? { ...a, response } : a,
+    );
+    await this.db.run('UPDATE meetings SET data = ?, pending_rsvp = NULL WHERE meeting_id = ?', [
+      JSON.stringify({ ...meeting, attendees }),
+      meetingId,
+    ]);
+    this.events.emit('meetings', undefined);
+  }
+
+  /** Clears a sent (or refused) answer, unless a newer one was chosen while it was in flight. */
+  async settleRsvp(meetingId: string, sent: SentRsvp): Promise<void> {
+    await this.db.run(
+      'UPDATE meetings SET pending_rsvp = NULL WHERE meeting_id = ? AND pending_rsvp = ?',
+      [meetingId, sent],
+    );
+    this.events.emit('meetings', undefined);
   }
 
   // ---------------------------------------------------------------- notifications

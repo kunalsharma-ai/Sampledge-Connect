@@ -96,6 +96,12 @@ export default function More() {
               divider
             />
             <Row
+              icon="time-outline"
+              title="Working hours"
+              onPress={() => router.push('/settings/working-hours')}
+              divider
+            />
+            <Row
               icon="phone-portrait-outline"
               title="Devices"
               onPress={() => router.push('/settings/devices')}

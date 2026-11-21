@@ -9,6 +9,12 @@ export function PushOpenHandler() {
   useEffect(
     () =>
       onPushOpened((data) => {
+        // Meeting invites, changes and reminders open the meeting.
+        if (data.type === 'meeting' && typeof data.meetingId === 'string') {
+          void engine.refreshMeetings();
+          router.push({ pathname: '/meeting/[id]', params: { id: data.meetingId } });
+          return;
+        }
         const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null;
         if (!conversationId) return;
         // A ringing call: show the incoming call sheet if it is still ringing for you.

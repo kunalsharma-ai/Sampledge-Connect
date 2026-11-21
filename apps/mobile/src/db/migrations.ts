@@ -159,6 +159,22 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
     `);
   },
+  // v8: scheduled meetings you are invited to, and RSVPs made offline
+  async (tx) => {
+    await tx.exec(`
+      CREATE TABLE meetings (
+        meeting_id      TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        starts_at       TEXT NOT NULL,
+        ends_at         TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        updated_at      TEXT NOT NULL,
+        data            TEXT NOT NULL,
+        pending_rsvp    TEXT
+      );
+      CREATE INDEX meetings_by_start ON meetings (starts_at);
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

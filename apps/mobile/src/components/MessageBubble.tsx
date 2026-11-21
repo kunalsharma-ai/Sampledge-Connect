@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { memo } from 'react';
+import { router } from 'expo-router';
 import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
-import { callMeta, systemText } from '../lib/systemMessages';
+import { callMeta, meetingMeta, systemText } from '../lib/systemMessages';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AttachmentList } from './Attachments';
@@ -232,37 +233,50 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
   const { theme, motion } = useTheme();
   const c = theme.colors;
   const call = callMeta(m.metadata);
-  const missed = call?.status === 'missed' || call?.status === 'declined';
+  const meeting = meetingMeta(m.metadata);
+  const missed =
+    call?.status === 'missed' || call?.status === 'declined' || meeting?.status === 'cancelled';
   const icon: keyof typeof Ionicons.glyphMap = call
     ? call.media === 'video'
       ? 'videocam'
       : 'call'
-    : 'information-circle-outline';
+    : meeting
+      ? 'calendar'
+      : 'information-circle-outline';
   const label = systemText(m.text, m.metadata);
+  const openMeeting = meeting?.meetingId
+    ? () => router.push({ pathname: '/meeting/[id]', params: { id: meeting.meetingId! } })
+    : undefined;
   return (
     <Animated.View
       entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}
       style={styles.systemRow}
-      accessible
-      accessibilityLabel={`${label}, ${time(m.createdAt)}`}
     >
-      <View
-        style={[
-          styles.systemPill,
-          {
-            backgroundColor: missed ? alpha(c.danger, 0.12) : alpha(c.accent, 0.1),
-            borderColor: missed ? alpha(c.danger, 0.3) : c.border,
-          },
-        ]}
+      <Pressable
+        onPress={openMeeting}
+        disabled={!openMeeting}
+        accessibilityRole={openMeeting ? 'button' : 'text'}
+        accessibilityLabel={`${label}, ${time(m.createdAt)}${openMeeting ? '. Open meeting' : ''}`}
       >
-        <Ionicons name={icon} size={14} color={missed ? c.danger : c.accent} />
-        <Text variant="meta" style={{ color: missed ? c.danger : c.textMuted }}>
-          {label}
-        </Text>
-        <Text variant="meta" tone="subtle">
-          {time(m.createdAt)}
-        </Text>
-      </View>
+        <View
+          style={[
+            styles.systemPill,
+            {
+              backgroundColor: missed ? alpha(c.danger, 0.12) : alpha(c.accent, 0.1),
+              borderColor: missed ? alpha(c.danger, 0.3) : c.border,
+            },
+          ]}
+        >
+          <Ionicons name={icon} size={14} color={missed ? c.danger : c.accent} />
+          <Text variant="meta" style={{ color: missed ? c.danger : c.textMuted }}>
+            {label}
+          </Text>
+          <Text variant="meta" tone="subtle">
+            {time(m.createdAt)}
+          </Text>
+          {openMeeting ? <Ionicons name="chevron-forward" size={12} color={c.textSubtle} /> : null}
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }

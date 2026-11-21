@@ -4,6 +4,7 @@ import type {
   AckReceiptRequest,
   Call,
   CallRingingEvent,
+  MeetingReminderEvent,
   ClientToServerEvents,
   Message,
   PresenceStatus,
@@ -35,6 +36,8 @@ type RealtimeEvents = {
   callRinging: CallRingingEvent;
   /** A call changed or ended (sent to the conversation's members). */
   callUpdated: Call;
+  /** A meeting you attend starts soon. */
+  meetingReminder: MeetingReminderEvent;
 };
 
 /**
@@ -97,6 +100,11 @@ export class RealtimeClient {
     socket.on('call:ringing', (e) => this.events.emit('callRinging', e));
     socket.on('call:updated', (c) => this.events.emit('callUpdated', c));
     socket.on('call:ended', (c) => this.events.emit('callUpdated', c));
+    socket.on('meeting:upsert', (m) => void this.store.upsertMeetings([m]));
+    socket.on('meeting:reminder', (e) => {
+      void this.store.upsertMeetings([e.meeting]);
+      this.events.emit('meetingReminder', e);
+    });
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);
