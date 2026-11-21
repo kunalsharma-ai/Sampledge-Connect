@@ -462,6 +462,68 @@ async function api(method, path, body, token) {
   await p.waitForTimeout(2000);
   await shot('27-notification-settings');
   check('push shown as needing setup', (await p.innerText('body')).includes('Needs setup'));
+  check(
+    'server push status read live',
+    (await p.innerText('body')).includes('no push provider configured'),
+  );
+
+  // ---- Per-conversation notification level (mute), synced across devices and offline-safe
+  const levelOnServer = async () => {
+    const r = await api('GET', '/v1/conversations', undefined, samApi);
+    return (Array.isArray(r) ? r : r.conversations).find(
+      (c) => c.conversationId === ch.conversationId,
+    ).myNotifyLevel;
+  };
+  await p.goto(`${APP}/conversation/${ch.conversationId}`);
+  await p.waitForTimeout(2500);
+  await p.getByRole('button', { name: /^Notifications:/ }).click();
+  await shot('28-notify-level-sheet');
+  await p.getByRole('radio', { name: 'Nothing' }).click();
+  await p.waitForTimeout(1500);
+  check('mute saved on the server', (await levelOnServer()) === 'none');
+  const before = (await feed()).unreadCount;
+  await p.goto(`${APP}/messages`);
+  await p.waitForTimeout(1500);
+  await api(
+    'POST',
+    `/v1/conversations/${ch.conversationId}/messages`,
+    {
+      conversationId: ch.conversationId,
+      clientMessageId: crypto.randomUUID(),
+      messageType: 'text',
+      content: { text: '@Sam Okafor are you around?', mentions: [idOf('Sam Okafor')] },
+    },
+    priya,
+  );
+  await p.waitForTimeout(2000);
+  await shot('29-muted-conversation');
+  check('muted conversation sends no notification', (await feed()).unreadCount === before);
+  check(
+    'muted conversation shows no banner',
+    !(await p.innerText('body')).includes('mentioned you'),
+  );
+  // Change it offline: kept on the phone, sent after reconnecting.
+  await p.goto(`${APP}/conversation/${ch.conversationId}`);
+  await p.waitForTimeout(2000);
+  await ctx.setOffline(true);
+  await p.waitForTimeout(1000);
+  await p.getByRole('button', { name: /^Notifications:/ }).click();
+  await p.getByRole('radio', { name: '@Mentions only' }).click();
+  await p.getByRole('button', { name: /^Notifications:/ }).click();
+  await shot('30-level-changed-offline');
+  check('offline level change not on the server yet', (await levelOnServer()) === 'none');
+  await p.getByRole('button', { name: 'Done' }).click();
+  await ctx.setOffline(false);
+  await p.waitForTimeout(5000);
+  check('offline level change reached the server', (await levelOnServer()) === 'mentions');
+  // Changed on another device: this phone follows.
+  await api('PUT', `/v1/conversations/${ch.conversationId}/notify-level`, { level: 'all' }, samApi);
+  await p.waitForTimeout(2500);
+  check(
+    'level changed on another device shows here',
+    (await p.getByRole('button', { name: /^Notifications:/ }).getAttribute('aria-label')) ===
+      'Notifications: all activity',
+  );
   await b.close();
   if (failures.length) process.exit(1);
 })();

@@ -1,6 +1,8 @@
 import {
   backoffDelay,
   type Message,
+  type NotifyLevel,
+  type PushStatus,
   type SendMessageAck,
   type SendMessageRequest,
   type SetReactionRequest,
@@ -62,6 +64,7 @@ export class ConnectEngine {
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private notificationsRun: Promise<void> | null = null;
   private notificationsAgain = false;
+  private levelsRun: Promise<void> | null = null;
 
   constructor(
     readonly store: LocalStore,
@@ -164,7 +167,12 @@ export class ConnectEngine {
   /** App returned to the foreground or the user pulled to refresh. */
   async resume(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
-    await Promise.all([this.outbox.kick(), this.runSync(), this.refreshNotifications()]);
+    await Promise.all([
+      this.outbox.kick(),
+      this.runSync(),
+      this.refreshNotifications(),
+      this.flushNotifyLevels(),
+    ]);
   }
 
   /**
@@ -176,6 +184,62 @@ export class ConnectEngine {
       queue: this.session.state !== 'demo',
     });
     if (changed > 0 || 'all' in target) void this.refreshNotifications();
+  }
+
+  /** Server push availability and whether this device session has a token (null without a server). */
+  async pushStatus(): Promise<PushStatus | null> {
+    if (this.session.state !== 'active' || !this._state.networkUp) return null;
+    return this.api.pushStatus();
+  }
+
+  /**
+   * Ties this install's push token to the signed-in device session. Repeating it is harmless;
+   * the server moves a token that another session held (re-login on the same phone).
+   */
+  async registerPush(token: string, platform: 'ios' | 'android'): Promise<PushStatus | null> {
+    if (this.session.state !== 'active' || !this._state.networkUp) return null;
+    try {
+      return await this.api.registerPushToken({ provider: 'expo', token, platform });
+    } catch {
+      return null; // tried again on the next foreground
+    }
+  }
+
+  /** Changes what notifies you in a conversation; works offline and is sent when possible. */
+  async setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<void> {
+    if (this.session.state === 'demo') {
+      // No server: the local choice is the final one.
+      return this.store.upsertLocalNotifyLevel(conversationId, level);
+    }
+    await this.store.setNotifyLevelLocally(conversationId, level);
+    await this.flushNotifyLevels();
+  }
+
+  /** One flush at a time; a call during a flush waits for it and then runs again. */
+  private flushNotifyLevels(): Promise<void> {
+    const run = (this.levelsRun ?? Promise.resolve()).then(() => this.sendNotifyLevels());
+    const tracked = run.finally(() => {
+      if (this.levelsRun === tracked) this.levelsRun = null;
+    });
+    this.levelsRun = tracked;
+    return tracked;
+  }
+
+  private async sendNotifyLevels(): Promise<void> {
+    if (!this._state.networkUp || this.session.state !== 'active') return;
+    for (const { conversationId, level } of await this.store.pendingNotifyLevels()) {
+      try {
+        await this.store.upsertConversations([
+          await this.api.setNotifyLevel(conversationId, level),
+        ]);
+      } catch (err) {
+        if (!(err instanceof TransportError) || err.kind === 'network') return;
+        if (err.isAuth) return void this.handleAuthError(err);
+        if (err.retryable) return;
+        // Refused for good (e.g. no longer a member): fall back to the server's level.
+      }
+      await this.store.settleNotifyLevel(conversationId, level);
+    }
   }
 
   /**

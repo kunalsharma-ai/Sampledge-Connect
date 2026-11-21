@@ -145,6 +145,13 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       );
     `);
   },
+  // v6: your notification level per conversation, and a change made here not yet sent
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE conversations ADD COLUMN notify_level TEXT NOT NULL DEFAULT 'all';
+      ALTER TABLE conversations ADD COLUMN pending_notify_level TEXT;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

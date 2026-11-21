@@ -19,3 +19,31 @@ export async function requestPushPermission(): Promise<PushPermission> {
   const { status } = await Notifications.requestPermissionsAsync();
   return status as PushPermission;
 }
+
+/** Expo push token for this install, or null when this build cannot get one. */
+export async function expoPushToken(): Promise<string | null> {
+  const projectId = easProjectId();
+  if (!projectId || (await pushPermission()) !== 'granted') return null;
+  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+}
+
+/**
+ * Pushes that arrive while the app is open are not shown by the OS (the in-app banner covers
+ * them). Calls back with the push data when the person taps a notification.
+ */
+export function onPushOpened(cb: (data: Record<string, unknown>) => void): () => void {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: false,
+      shouldShowList: false,
+      shouldPlaySound: false,
+      shouldSetBadge: true,
+    }),
+  });
+  const last = Notifications.getLastNotificationResponse();
+  if (last) cb(last.notification.request.content.data ?? {});
+  const sub = Notifications.addNotificationResponseReceivedListener((r) =>
+    cb(r.notification.request.content.data ?? {}),
+  );
+  return () => sub.remove();
+}

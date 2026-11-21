@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NotificationBanner } from '../components/NotificationBanner';
+import { PushOpenHandler } from '../components/PushOpenHandler';
 import { AppProvider, useApp } from '../state/AppProvider';
 import { fonts } from '../theme/themes';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
@@ -69,7 +70,12 @@ function RootStack() {
           options={{ headerShown: false, presentation: signedIn ? 'modal' : 'card' }}
         />
       </Stack>
-      {signedIn ? <NotificationBanner /> : null}
+      {signedIn ? (
+        <>
+          <NotificationBanner />
+          <PushOpenHandler />
+        </>
+      ) : null}
     </>
   );
 }

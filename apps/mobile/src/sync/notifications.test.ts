@@ -157,3 +157,63 @@ describe('notifications', () => {
     expect((await t.store.listNotifications()).map((n) => n.notificationId)).toEqual(['n2']);
   });
 });
+
+describe('notification level', () => {
+  async function levelSetup() {
+    const t = await setup();
+    const puts: [string, string][] = [];
+    let down = false;
+    const api = (t.engine as unknown as { api: ApiTransport }).api as unknown as Record<
+      string,
+      unknown
+    >;
+    api.setNotifyLevel = async (id: string, level: 'all' | 'mentions' | 'none') => {
+      puts.push([id, level]);
+      if (down) throw new TransportError('offline', 'network');
+      return { ...conversation(id), myNotifyLevel: level };
+    };
+    return { ...t, puts, setDown: (d: boolean) => (down = d) };
+  }
+  const levelOf = async (store: LocalStore, id: string) => (await store.getConversation(id))!;
+
+  it('applies at once, queues offline, and sends the last choice on reconnect', async () => {
+    const t = await levelSetup();
+    await t.engine.setNotifyLevel('c1', 'mentions');
+    await t.engine.setNotifyLevel('c1', 'none');
+    expect(await levelOf(t.store, 'c1')).toMatchObject({
+      notifyLevel: 'none',
+      notifyLevelPending: true,
+    });
+    expect(t.puts).toEqual([]);
+    t.online();
+    await t.engine.resume();
+    expect(t.puts).toEqual([['c1', 'none']]);
+    expect(await levelOf(t.store, 'c1')).toMatchObject({
+      notifyLevel: 'none',
+      notifyLevelPending: false,
+    });
+  });
+
+  it('keeps the local choice while a sync brings the old server level', async () => {
+    const t = await levelSetup();
+    await t.engine.setNotifyLevel('c1', 'none');
+    await t.store.upsertConversations([{ ...conversation('c1'), myNotifyLevel: 'all' }]);
+    expect((await levelOf(t.store, 'c1')).notifyLevel).toBe('none');
+  });
+
+  it('follows a level changed on another device', async () => {
+    const t = await levelSetup();
+    await t.store.upsertConversations([{ ...conversation('c1'), myNotifyLevel: 'mentions' }]);
+    expect(await levelOf(t.store, 'c1')).toMatchObject({
+      notifyLevel: 'mentions',
+      notifyLevelPending: false,
+    });
+  });
+
+  it('setting it back to the server level cancels the pending change', async () => {
+    const t = await levelSetup();
+    await t.engine.setNotifyLevel('c1', 'none');
+    await t.engine.setNotifyLevel('c1', 'all');
+    expect(await t.store.pendingNotifyLevels()).toEqual([]);
+  });
+});

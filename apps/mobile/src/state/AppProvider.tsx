@@ -17,6 +17,7 @@ import { openExpoDriver } from '../db/expoDriver';
 import { secureStorage } from '../db/secureStorage';
 import { LocalStore } from '../db/store';
 import type { SqlDriver } from '../db/driver';
+import { expoPushToken } from '../lib/push';
 import { RealtimeClient } from '../sync/realtime';
 import { HttpTransport, NoServerTransport } from '../sync/transport';
 import { DEMO_SELF, seedDemo } from './demoSeed';
@@ -140,14 +141,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       workspace.engine.setNetworkUp(!!s.isConnected && s.isInternetReachable !== false),
     );
     const offApp = AppState.addEventListener('change', (st) => {
-      if (st === 'active') workspace.engine.setForeground(true);
-      else if (st === 'background') workspace.engine.setForeground(false);
+      if (st === 'active') {
+        workspace.engine.setForeground(true);
+        void registerPush(workspace.engine);
+      } else if (st === 'background') workspace.engine.setForeground(false);
     });
     // Browsers that expose navigator.connection never fire NetInfo for a plain offline
     // switch, so the web preview also follows the window online/offline events.
     const win = Platform.OS === 'web' ? (globalThis as unknown as Window) : null;
     const up = () => workspace.engine.setNetworkUp(true);
     const down = () => workspace.engine.setNetworkUp(false);
+    void registerPush(workspace.engine);
     win?.addEventListener('online', up);
     win?.addEventListener('offline', down);
     return () => {
@@ -171,6 +175,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [sessionState, workspace, engineState, signOut],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+/** Registers this install for push when the build and the OS allow it (no-op otherwise). */
+async function registerPush(engine: ConnectEngine): Promise<void> {
+  const token = await expoPushToken().catch(() => null);
+  if (token) await engine.registerPush(token, devicePlatform);
 }
 
 export function useApp(): AppContextValue {

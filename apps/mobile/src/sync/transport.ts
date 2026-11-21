@@ -5,6 +5,10 @@ import {
   type CreateUploadRequest,
   type UploadTicket,
   type AckReceiptRequest,
+  type Conversation,
+  type NotifyLevel,
+  type PushStatus,
+  type RegisterPushTokenRequest,
   type EditMessageRequest,
   type ErrorCode,
   type LoginRequest,
@@ -66,6 +70,9 @@ export interface ApiTransport {
   listUsers(): Promise<DirectoryUser[]>;
   listNotifications(q?: ListNotificationsQuery): Promise<ListNotificationsResponse>;
   markNotificationsRead(req: MarkNotificationsReadRequest): Promise<MarkNotificationsReadResponse>;
+  setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<Conversation>;
+  pushStatus(): Promise<PushStatus>;
+  registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus>;
 }
 
 export interface DirectoryUser {
@@ -196,6 +203,26 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', '/v1/notifications/read', req);
   }
 
+  setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<Conversation> {
+    return this.request(
+      'PUT',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/notify-level`,
+      {
+        level,
+      },
+    );
+  }
+
+  /** Whether the server can send push, and whether this device session has a token stored. */
+  pushStatus(): Promise<PushStatus> {
+    return this.request('GET', '/v1/push/status', undefined);
+  }
+
+  /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
+  registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
+    return this.request('POST', '/v1/push/token', req);
+  }
+
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
     const hasBody = method !== 'GET' && body !== undefined;
     const headers: Record<string, string> = { accept: 'application/json' };
@@ -286,4 +313,7 @@ export class NoServerTransport implements ApiTransport {
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
   listNotifications = async (): Promise<ListNotificationsResponse> => this.fail();
   markNotificationsRead = async (): Promise<MarkNotificationsReadResponse> => this.fail();
+  setNotifyLevel = async (): Promise<Conversation> => this.fail();
+  pushStatus = async (): Promise<PushStatus> => this.fail();
+  registerPushToken = async (): Promise<PushStatus> => this.fail();
 }
