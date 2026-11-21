@@ -2,7 +2,24 @@
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import { CheckCheck, CloudOff, ShieldCheck, Workflow } from 'lucide-react';
+import type { PublicBranding } from '@sampledge/contracts';
+import { createBrandTheme, themeToCssVars } from '@sampledge/design-tokens';
 import { Wordmark } from './brand';
+
+/** The organization's name and logo in place of the product wordmark (white-label). */
+function BrandMark({ brand }: { brand: PublicBranding }) {
+  return (
+    <span className="inline-flex items-center gap-2.5" data-testid="org-brand">
+      {brand.logo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={brand.logo} alt="" className="size-8 rounded-lg object-contain" />
+      ) : null}
+      <span className="font-display text-[17px] font-bold tracking-tight text-text">
+        {brand.displayName}
+      </span>
+    </span>
+  );
+}
 
 const POINTS = [
   {
@@ -27,19 +44,32 @@ export function AuthShell({
   subtitle,
   children,
   footer,
+  brand,
 }: {
   title: string;
   subtitle: string;
   children: React.ReactNode;
   footer: React.ReactNode;
+  /** Set once the workspace is known and has its own branding. */
+  brand?: PublicBranding | null;
 }) {
+  const style = brand
+    ? (themeToCssVars(
+        createBrandTheme({ primary: brand.primary, secondary: brand.secondary, mode: brand.mode }),
+      ) as React.CSSProperties)
+    : undefined;
+  const mark = brand ? <BrandMark brand={brand} /> : <Wordmark />;
   return (
-    <main className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+    <main
+      className="grid min-h-dvh bg-bg lg:grid-cols-[1.05fr_1fr]"
+      style={style}
+      data-brand={brand ? 'org' : undefined}
+    >
       <section className="sc-noise relative hidden overflow-hidden border-r border-border lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div className="pointer-events-none absolute -left-40 -top-40 size-[520px] rounded-full bg-accent/20 blur-[120px]" />
         <div className="pointer-events-none absolute -bottom-48 right-[-120px] size-[480px] rounded-full bg-accent2/20 blur-[120px]" />
         <Link href="/" className="relative">
-          <Wordmark />
+          {mark}
         </Link>
         <div className="relative max-w-md">
           <p className="text-overline uppercase text-accent">
@@ -82,13 +112,14 @@ export function AuthShell({
           transition={{ duration: 0.25 }}
           className="w-full max-w-[420px]"
         >
-          <div className="mb-8 lg:hidden">
-            <Wordmark />
-          </div>
+          <div className="mb-8 lg:hidden">{mark}</div>
           <h1 className="font-display text-h1 text-text">{title}</h1>
           <p className="mt-2 text-body text-text-muted">{subtitle}</p>
           <div className="mt-8">{children}</div>
           <div className="mt-8 text-label font-normal text-text-muted">{footer}</div>
+          {brand && !brand.hidePoweredBy && brand.displayName !== 'Sampledge Connect' ? (
+            <p className="mt-6 text-meta text-text-subtle">with Sampledge Connect</p>
+          ) : null}
         </motion.div>
       </section>
     </main>

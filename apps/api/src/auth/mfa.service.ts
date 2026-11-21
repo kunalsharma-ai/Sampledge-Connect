@@ -16,6 +16,7 @@ import type { UserDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { decryptSecret, encryptSecret } from '../integration-settings/cipher.js';
 import { AuditService } from '../audit/audit.service.js';
+import { BrandingService } from '../branding/branding.service.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import {
   newRecoveryCodes,
@@ -174,7 +175,11 @@ export class MfaService {
       },
     );
     const tenant = await this.db.tenants.findOne({ _id: ctx.tenantId });
-    const url = otpauthUrl(secret, `Sampledge Connect (${tenant?.name ?? 'Connect'})`, u.email);
+    const url = otpauthUrl(
+      secret,
+      `${BrandingService.displayName(tenant)} (${tenant?.name ?? 'Connect'})`,
+      u.email,
+    );
     // Dark modules on a white quiet zone: scanners need the contrast in every theme.
     const qrSvg = await QRCode.toString(url, {
       type: 'svg',

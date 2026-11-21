@@ -55,6 +55,7 @@ describe('guest emails', () => {
       ),
     ).toMatch(/^Tuesday,? 24 November 2026, 15:00 – 15:30 \(Asia\/Kolkata\)$/);
     const mail = guestEmail('invite', {
+      poweredBy: 'Sampledge Connect',
       title: '<b>Q4</b>',
       agenda: '',
       startsAt: new Date('2026-11-24T09:30:00Z'),

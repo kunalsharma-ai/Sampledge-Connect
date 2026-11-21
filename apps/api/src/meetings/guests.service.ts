@@ -27,6 +27,7 @@ import { RateLimitService } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { buildIcs } from './ics.js';
 import { guestEmail, type GuestEmailKind } from './guest-email.js';
+import { BrandingService } from '../branding/branding.service.js';
 
 /** What a meeting:upsert broadcast needs (MeetingsService owns the mapping). */
 type ToMeeting = (m: MeetingDoc) => Meeting;
@@ -226,12 +227,15 @@ export class GuestsService {
       this.db
         .for(tenantId)
         .users.findOne({ _id: meeting.organizerId }, { projection: { displayName: 1, email: 1 } }),
-      this.db.tenants.findOne({ _id: tenantId }, { projection: { name: 1 } }),
+      this.db.tenants.findOne({ _id: tenantId }, { projection: { name: 1, branding: 1 } }),
     ]);
     return {
       name: user?.displayName ?? 'The organizer',
       email: user?.email ?? this.mailer.fromAddress?.email ?? 'no-reply@localhost',
       organization: tenant?.name ?? 'Sampledge Connect',
+      poweredBy: BrandingService.resolve(tenant).hidePoweredBy
+        ? null
+        : BrandingService.displayName(tenant),
     };
   }
 
@@ -240,7 +244,7 @@ export class GuestsService {
     meeting: MeetingDoc,
     g: MeetingGuestDoc,
     kind: GuestEmailKind,
-    organizer: { name: string; email: string; organization: string },
+    organizer: { name: string; email: string; organization: string; poweredBy: string | null },
   ) {
     const url = this.joinUrl(tenantId, meeting._id, g);
     const cancel = kind === 'cancelled' || kind === 'cancelled-for-you';
@@ -266,6 +270,7 @@ export class GuestsService {
       timeZone: meeting.timeZone,
       organizerName: organizer.name,
       organizationName: organizer.organization,
+      poweredBy: organizer.poweredBy,
       guestName: g.name,
       url,
     });

@@ -22,12 +22,8 @@ export interface TenantDoc {
   name: string;
   status: 'active' | 'suspended';
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
-  branding: {
-    primary?: string;
-    secondary?: string;
-    logoUrl?: string;
-    mode?: 'dark' | 'light';
-  } | null;
+  /** White-label settings (see BrandingInputSchema); older tenants may have none. */
+  branding: Record<string, unknown> | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;

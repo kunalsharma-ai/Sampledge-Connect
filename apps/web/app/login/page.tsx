@@ -8,7 +8,7 @@ import { AuthShell } from '@/components/auth-shell';
 import { ApiFailure } from '@/lib/api';
 import { apiRequest } from '@/lib/api';
 import { ssoStartUrl, useAuth } from '@/lib/auth';
-import type { MfaChallenge, SsoInfo } from '@sampledge/contracts';
+import type { MfaChallenge, PublicBranding, SsoInfo } from '@sampledge/contracts';
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const LAST_SLUG = 'sampledge.lastWorkspace';
@@ -23,6 +23,7 @@ export default function LoginPage() {
 
   const [slug, setSlug] = React.useState('');
   const [sso, setSso] = React.useState<SsoInfo | null>(null);
+  const [brand, setBrand] = React.useState<PublicBranding | null>(null);
   const [showPassword, setShowPassword] = React.useState(false);
   const [redirecting, setRedirecting] = React.useState(false);
 
@@ -62,6 +63,7 @@ export default function LoginPage() {
     const s = slug.trim().toLowerCase();
     if (s.length < 3 || !SLUG.test(s)) {
       setSso(null);
+      setBrand(null);
       return;
     }
     let live = true;
@@ -69,6 +71,9 @@ export default function LoginPage() {
       apiRequest<SsoInfo>('GET', `/v1/auth/sso/${s}`)
         .then((r) => live && setSso(r.enabled ? r : null))
         .catch(() => live && setSso(null));
+      apiRequest<PublicBranding>('GET', `/v1/branding/public/${s}`)
+        .then((r) => live && setBrand(r))
+        .catch(() => live && setBrand(null));
     }, 300);
     return () => {
       live = false;
@@ -131,6 +136,7 @@ export default function LoginPage() {
   if (challenge)
     return (
       <AuthShell
+        brand={brand}
         title="Two-step verification"
         subtitle={
           useRecovery
@@ -195,8 +201,13 @@ export default function LoginPage() {
 
   return (
     <AuthShell
+      brand={brand}
       title="Welcome back"
-      subtitle="Sign in to your organization’s workspace."
+      subtitle={
+        brand
+          ? `Sign in to ${brand.organizationName}.`
+          : 'Sign in to your organization’s workspace.'
+      }
       footer={
         <>
           New to Sampledge Connect?{' '}
@@ -222,6 +233,14 @@ export default function LoginPage() {
             onChange={(e) => setSlug(e.target.value)}
           />
         </Field>
+        {brand?.loginMessage ? (
+          <p
+            className="rounded-md border border-border bg-surface-raised px-3 py-2 text-label font-normal text-text"
+            data-testid="login-message"
+          >
+            {brand.loginMessage}
+          </p>
+        ) : null}
         {sso ? (
           <>
             <Button

@@ -4,6 +4,7 @@ import { ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
 import { Avatar, Badge, Tooltip, cn } from '@sampledge/ui';
 import { motion as tokens } from '@sampledge/design-tokens';
 import { LogoMark } from '../brand';
+import { OrgLogo } from '@/lib/org-branding';
 import { MODULES, type ModuleId } from './modules';
 
 export function NavRail({
@@ -38,7 +39,10 @@ export function NavRail({
       className="relative z-20 hidden h-full shrink-0 flex-col border-r border-border bg-surface-glass backdrop-blur-xl md:flex"
     >
       <div className="flex h-[60px] items-center gap-3 px-[18px]">
-        <LogoMark className="size-9 shrink-0" />
+        <OrgLogo
+          className="size-9 shrink-0 rounded-lg object-contain"
+          fallback={<LogoMark className="size-9 shrink-0" />}
+        />
         {expanded ? (
           <div className="min-w-0">
             <p className="truncate text-label text-text">{tenantName}</p>
