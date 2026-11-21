@@ -123,6 +123,17 @@ export class MessagesController {
     return this.messages.react(ctx, { messageId: id, emoji, op: 'remove' });
   }
 
+  /** Pin to the conversation. Idempotent. */
+  @Put(':id/pin')
+  pin(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.messages.pin(ctx, id, true);
+  }
+
+  @Delete(':id/pin')
+  unpin(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.messages.pin(ctx, id, false);
+  }
+
   @Post('receipts')
   @HttpCode(200)
   receipt(@Ctx() ctx: TenantContext, @Body() body: unknown) {

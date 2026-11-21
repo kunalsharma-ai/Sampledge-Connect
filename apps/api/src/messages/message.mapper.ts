@@ -40,6 +40,9 @@ export function toMessage(m: MessageDoc): Message {
         userIds: r.userIds.slice(0, REACTION_USER_IDS_LIMIT),
         count: r.userIds.length,
       })),
+    pinned: m.pinned
+      ? { pinnedBy: m.pinned.pinnedBy, pinnedAt: m.pinned.pinnedAt.toISOString() }
+      : null,
   };
 }
 

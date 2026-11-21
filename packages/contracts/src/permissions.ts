@@ -39,6 +39,7 @@ export const CONVERSATION_PERMISSIONS = [
   'conversation.read',
   'message.send',
   'message.react',
+  'message.pin',
   'message.edit.own',
   'message.delete.own',
   'message.delete.any', // moderation
@@ -74,6 +75,7 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
       'conversation.read',
       'message.send',
       'message.react',
+      'message.pin',
       'message.edit.own',
       'message.delete.own',
       'message.delete.any',
@@ -85,6 +87,7 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
       'conversation.read',
       'message.send',
       'message.react',
+      'message.pin',
       'message.edit.own',
       'message.delete.own',
     ],
@@ -106,6 +109,7 @@ export interface ConversationAccess {
 const WRITE_PERMISSIONS: ReadonlySet<ConversationPermission> = new Set([
   'message.send',
   'message.react',
+  'message.pin',
   'message.edit.own',
   'members.add',
   'conversation.rename',
