@@ -1,5 +1,20 @@
 import {
   ERROR_CODES,
+  type AiAskRequest,
+  type AiAskResponse,
+  type AiDigest,
+  type AiDigestRequest,
+  type AiMeetingSummary,
+  type AiProposal,
+  type AiSearchRequest,
+  type AiSearchResponse,
+  type AiStatus,
+  type AiSuggestedReplies,
+  type AiSummary,
+  type AiTranscript,
+  type AiTranslation,
+  type ConfirmAiProposalRequest,
+  type SummaryRange,
   type Attachment,
   type Approval,
   type Bookmark,
@@ -187,6 +202,19 @@ export interface ApiTransport {
   createApproval(req: CreateApprovalRequest): Promise<Approval>;
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
+  aiStatus(): Promise<AiStatus>;
+  setAiEnabled(enabled: boolean): Promise<AiStatus>;
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary>;
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary>;
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies>;
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse>;
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse>;
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation>;
+  aiDigest(req: AiDigestRequest): Promise<AiDigest>;
+  aiPropose(conversationId: string, text: string): Promise<AiProposal>;
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal>;
+  aiDismiss(proposalId: string): Promise<AiProposal>;
+  aiTranscript(attachmentId: string, queue?: boolean): Promise<AiTranscript>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -608,6 +636,74 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/cancel`, {});
   }
 
+  aiStatus(): Promise<AiStatus> {
+    return this.request('GET', '/v1/ai/status', undefined);
+  }
+
+  setAiEnabled(enabled: boolean): Promise<AiStatus> {
+    return this.request('PUT', '/v1/ai/settings', { enabled });
+  }
+
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary> {
+    return this.request(
+      'POST',
+      `/v1/ai/conversations/${encodeURIComponent(conversationId)}/summary`,
+      { range },
+    );
+  }
+
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary> {
+    return this.request('POST', `/v1/ai/meetings/${encodeURIComponent(meetingId)}/summary`, {});
+  }
+
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies> {
+    return this.request(
+      'POST',
+      `/v1/ai/conversations/${encodeURIComponent(conversationId)}/replies`,
+      {},
+    );
+  }
+
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse> {
+    return this.request('POST', '/v1/ai/search', req);
+  }
+
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse> {
+    return this.request('POST', '/v1/ai/ask', req);
+  }
+
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation> {
+    return this.request('POST', '/v1/ai/translate', { messageId, targetLanguage });
+  }
+
+  aiDigest(req: AiDigestRequest): Promise<AiDigest> {
+    return this.request('POST', '/v1/ai/digest', req);
+  }
+
+  aiPropose(conversationId: string, text: string): Promise<AiProposal> {
+    return this.request('POST', '/v1/ai/proposals', {
+      kind: 'send_message',
+      conversationId,
+      text,
+    });
+  }
+
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal> {
+    return this.request('POST', `/v1/ai/proposals/${encodeURIComponent(proposalId)}/confirm`, req);
+  }
+
+  aiDismiss(proposalId: string): Promise<AiProposal> {
+    return this.request('POST', `/v1/ai/proposals/${encodeURIComponent(proposalId)}/dismiss`, {});
+  }
+
+  aiTranscript(attachmentId: string, queue = false): Promise<AiTranscript> {
+    return this.request(
+      queue ? 'POST' : 'GET',
+      `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}`,
+      queue ? {} : undefined,
+    );
+  }
+
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -830,6 +926,19 @@ export class NoServerTransport implements ApiTransport {
   createApproval = async (): Promise<Approval> => this.fail();
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
+  aiStatus = async (): Promise<AiStatus> => this.fail();
+  setAiEnabled = async (): Promise<AiStatus> => this.fail();
+  aiSummarize = async (): Promise<AiSummary> => this.fail();
+  aiSummarizeMeeting = async (): Promise<AiMeetingSummary> => this.fail();
+  aiReplies = async (): Promise<AiSuggestedReplies> => this.fail();
+  aiSearch = async (): Promise<AiSearchResponse> => this.fail();
+  aiAsk = async (): Promise<AiAskResponse> => this.fail();
+  aiTranslate = async (): Promise<AiTranslation> => this.fail();
+  aiDigest = async (): Promise<AiDigest> => this.fail();
+  aiPropose = async (): Promise<AiProposal> => this.fail();
+  aiConfirm = async (): Promise<AiProposal> => this.fail();
+  aiDismiss = async (): Promise<AiProposal> => this.fail();
+  aiTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();

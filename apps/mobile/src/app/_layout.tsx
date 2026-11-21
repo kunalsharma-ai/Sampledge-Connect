@@ -85,6 +85,8 @@ function RootStack() {
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
           <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
           <Stack.Screen name="tasks" options={{ title: 'Tasks & Approvals' }} />
+          <Stack.Screen name="assistant" options={{ title: 'AI Assistant' }} />
+          <Stack.Screen name="summary/[id]" options={{ title: 'Summary' }} />
           <Stack.Screen name="task/[id]" options={{ title: 'Task' }} />
           <Stack.Screen name="task/new" options={{ title: 'New task', presentation: 'modal' }} />
           <Stack.Screen name="approval/[id]" options={{ title: 'Approval' }} />

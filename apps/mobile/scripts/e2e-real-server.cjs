@@ -2032,6 +2032,160 @@ function totp(secret, offset = 0) {
     await p.waitForTimeout(2000);
     await shot('99-created-by-me');
   }
+  // ---- AI assistant: Sam asks a question with sources, searches, reads the digest, summarizes
+  // the channel and shares the summary (with confirmation), uses a suggested reply and
+  // translates a message; Priya (owner) sees the organization switch.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const marcoSays = `Should we extend the Germany fieldwork to Friday? (${run})`;
+    await api(
+      'POST',
+      `/v1/conversations/${ops.conversationId}/messages`,
+      {
+        conversationId: ops.conversationId,
+        clientMessageId: crypto.randomUUID(),
+        messageType: 'text',
+        content: { text: marcoSays, mentions: [] },
+      },
+      marcoTok,
+    );
+
+    await p.goto(`${APP}/assistant`);
+    await p.waitForTimeout(3000);
+    await p.getByLabel('Ask a question').fill('What did we say about the wave 3 quotas?');
+    await p.getByRole('button', { name: 'Ask', exact: true }).click();
+    await p.waitForTimeout(3500);
+    const askBody = await p.innerText('body');
+    check(
+      'Ask answers with numbered sources',
+      /Sources/.test(askBody) && /\[1\]/.test(askBody) && /Built-in assistant/.test(askBody),
+    );
+    await shot('100-ai-ask');
+    await p.getByRole('radio', { name: 'Status digest' }).click();
+    await p.waitForTimeout(3500);
+    check(
+      'the status digest lists conversations with a status',
+      /On track|Needs attention|Quiet/.test(await p.innerText('body')),
+    );
+    await shot('101-ai-digest');
+    await p.getByRole('radio', { name: 'Search', exact: true }).click();
+    await p.waitForTimeout(800);
+    await p.getByLabel('Search by meaning').fill('Germany fieldwork extension');
+    await p.getByLabel('Search by meaning').press('Enter');
+    await p.waitForTimeout(3000);
+    check('search by meaning finds the message', (await p.innerText('body')).includes(marcoSays));
+    await p.getByText(marcoSays).first().click();
+    await p.waitForTimeout(3000);
+    check(
+      'a search hit opens its conversation',
+      p.url().includes(`/conversation/${ops.conversationId}`),
+    );
+
+    // Suggested replies to Marco's question.
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Suggest replies' }).click();
+    await p.waitForTimeout(3000);
+    const chips = p.getByRole('button', { name: /^Use reply: / });
+    check('suggested replies appear above the composer', (await chips.count()) > 0);
+    await shot('102-ai-suggested-replies');
+    const first = (await chips.first().getAttribute('aria-label')).replace(/^Use reply: /, '');
+    await chips.first().click();
+    await p.waitForTimeout(500);
+    check(
+      'tapping a suggestion puts it in the composer (not sent)',
+      (await p.locator('textarea').last().inputValue()) === first,
+    );
+    await p.locator('textarea').last().fill('');
+
+    // Translate (needs a model server: the built-in engine says so).
+    await p.getByText(marcoSays, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Translate' }).click();
+    await p.waitForTimeout(2500);
+    check(
+      'translate explains that it needs a model server',
+      /Translation needs a model server/.test(await p.innerText('body')),
+    );
+    await shot('103-ai-translate');
+    await p.getByRole('button', { name: 'Close translation' }).click();
+
+    // Summary, then share it.
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Summarize conversation' }).click();
+    await p.waitForTimeout(3500);
+    check(
+      'the summary screen summarizes the channel',
+      /\d+ messages?/.test(await p.innerText('body')),
+    );
+    await shot('104-ai-summary');
+    await p.getByRole('button', { name: 'Share in the conversation' }).click();
+    await p.waitForTimeout(800);
+    await p.getByRole('button', { name: 'Send', exact: true }).click();
+    await p.waitForTimeout(2500);
+    if (await p.getByRole('switch', { name: 'I checked it, send it' }).count()) {
+      await shot('105-ai-share-sensitive');
+      await p.getByRole('switch', { name: 'I checked it, send it' }).click();
+      await p.getByRole('button', { name: 'Send', exact: true }).click();
+      await p.waitForTimeout(2500);
+    }
+    const latest = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=5`,
+      undefined,
+      samTok,
+    );
+    check(
+      'sharing posts the summary as Sam only after Send',
+      (Array.isArray(latest) ? latest : (latest.messages ?? latest.items)).some((m) =>
+        m.content.text?.startsWith('Summary:'),
+      ) && /Shared in the conversation/.test(await p.innerText('body')),
+    );
+
+    // Priya manages the assistant for the organization.
+    const ctx7 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p7 = await ctx7.newPage();
+    await p7.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p7.waitForTimeout(1500);
+    const f7 = p7.locator('input');
+    await f7.nth(0).fill(API);
+    await f7.nth(1).fill('northwind');
+    await f7.nth(2).fill('priya@northwind.test');
+    await f7.nth(3).fill(pw);
+    await p7.getByRole('button', { name: 'Sign in' }).click();
+    await p7.waitForTimeout(4000);
+    await p7.goto(`${APP}/assistant`);
+    await p7.waitForTimeout(3000);
+    const sw = p7.getByRole('switch', { name: 'Assistant on for everyone' });
+    check('owners get the organization switch', (await sw.count()) === 1);
+    await p7.screenshot({ path: `${out}/106-ai-admin.png` });
+    console.log('shot 106-ai-admin');
+    await sw.click();
+    await p7.waitForTimeout(2000);
+    const off = await api('GET', '/v1/ai/status', undefined, samTok);
+    check(
+      'turning it off reaches the server',
+      off.enabled === false && /assistant is off/.test(await p7.innerText('body')),
+    );
+    await p7.getByRole('switch', { name: 'Assistant on for everyone' }).click();
+    await p7.waitForTimeout(2000);
+    check('and back on', (await api('GET', '/v1/ai/status', undefined, samTok)).enabled === true);
+    await ctx7.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

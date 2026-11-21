@@ -27,6 +27,21 @@ import {
   type ScheduledMessage,
   type Task,
   type Approval,
+  type AiAskRequest,
+  type AiAskResponse,
+  type AiDigest,
+  type AiDigestRequest,
+  type AiMeetingSummary,
+  type AiProposal,
+  type AiSearchRequest,
+  type AiSearchResponse,
+  type AiStatus,
+  type AiSuggestedReplies,
+  type AiSummary,
+  type AiTranscript,
+  type AiTranslation,
+  type ConfirmAiProposalRequest,
+  type SummaryRange,
   type CreateTaskRequest,
   type UpdateTaskRequest,
   type CreateApprovalRequest,
@@ -592,6 +607,69 @@ export class ConnectEngine {
       this.events.emit('work', { kind: 'approval', approval });
       return approval;
     });
+  }
+
+  // ------------------------------------------------------------ private AI assistant
+  // Kept on the server and optional: failures stay in the screen that asked (docs/ai.md).
+
+  aiStatus(): Promise<AiStatus> {
+    return this.serverAction(() => this.api.aiStatus());
+  }
+
+  setAiEnabled(enabled: boolean): Promise<AiStatus> {
+    return this.serverAction(() => this.api.setAiEnabled(enabled));
+  }
+
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary> {
+    return this.serverAction(() => this.api.aiSummarize(conversationId, range));
+  }
+
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary> {
+    return this.serverAction(() => this.api.aiSummarizeMeeting(meetingId));
+  }
+
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies> {
+    return this.serverAction(() => this.api.aiReplies(conversationId));
+  }
+
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse> {
+    return this.serverAction(() => this.api.aiSearch(req));
+  }
+
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse> {
+    return this.serverAction(() => this.api.aiAsk(req));
+  }
+
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation> {
+    return this.serverAction(() => this.api.aiTranslate(messageId, targetLanguage));
+  }
+
+  aiDigest(req: AiDigestRequest): Promise<AiDigest> {
+    return this.serverAction(() => this.api.aiDigest(req));
+  }
+
+  /**
+   * Share AI text in a conversation: the server drafts it, and it is sent only when the person
+   * confirms (sensitive drafts need `acknowledgeRisk`). The message arrives through sync.
+   */
+  aiPropose(conversationId: string, text: string): Promise<AiProposal> {
+    return this.serverAction(() => this.api.aiPropose(conversationId, text));
+  }
+
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal> {
+    return this.serverAction(async () => {
+      const p = await this.api.aiConfirm(proposalId, req);
+      void this.runSync();
+      return p;
+    });
+  }
+
+  aiDismiss(proposalId: string): Promise<AiProposal> {
+    return this.serverAction(() => this.api.aiDismiss(proposalId));
+  }
+
+  aiTranscript(attachmentId: string, queue = false): Promise<AiTranscript> {
+    return this.serverAction(() => this.api.aiTranscript(attachmentId, queue));
   }
 
   /** Announcement channel on or off (channel owners and moderators). */
