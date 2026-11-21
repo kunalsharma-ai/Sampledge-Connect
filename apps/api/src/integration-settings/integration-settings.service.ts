@@ -95,6 +95,7 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
 
   async onModuleInit() {
     this.sub = this.redis.duplicate();
+    this.sub.on('error', (e) => this.log.warn(`settings subscriber: ${e.message}`));
     await this.sub.subscribe(CHANNEL);
     this.sub.on('message', (_ch, raw) => {
       try {
@@ -109,8 +110,11 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
     });
   }
 
-  async onModuleDestroy() {
-    await this.sub?.quit().catch(() => undefined);
+  onModuleDestroy() {
+    // disconnect() rather than quit(): a subscriber has nothing to flush, and quit() can
+    // reject pending commands with "Connection is closed" while the app shuts down.
+    this.sub?.disconnect();
+    this.sub = null;
   }
 
   // ---------- registry ----------
