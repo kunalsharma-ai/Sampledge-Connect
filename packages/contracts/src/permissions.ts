@@ -24,6 +24,7 @@ export const TENANT_PERMISSIONS = [
   'members.manage', // change roles, deactivate users
   'devices.revoke.any',
   'audit.read',
+  'integrations.manage',
   'recordings.manage', // retention settings, delete any recording, bulk export
   'ai.manage', // turn the private AI assistant on or off for the organization
   'directory.read',

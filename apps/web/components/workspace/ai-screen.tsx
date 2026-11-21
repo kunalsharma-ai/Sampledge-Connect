@@ -191,7 +191,7 @@ export function AiScreen({
               >
                 <span
                   className={cn(
-                    'absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform',
+                    'absolute left-0 top-0.5 size-4 rounded-full bg-white shadow transition-transform',
                     status.enabled ? 'translate-x-[18px]' : 'translate-x-0.5',
                   )}
                 />
@@ -206,11 +206,34 @@ export function AiScreen({
           <StateView {...unavailable} />
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-1">
+          <div className="flex gap-1 border-b border-border px-3 py-2 lg:hidden">
+            {(
+              [
+                { id: 'ask', label: 'Ask' },
+                { id: 'tools', label: 'Needs you · Status · Search' },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPane(p.id)}
+                aria-pressed={pane === p.id}
+                className={cn(
+                  'flex-1 rounded-md px-2 py-1.5 text-meta transition-colors',
+                  pane === p.id ? 'bg-accent-soft text-text' : 'text-text-muted',
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           {/* Ask */}
           <section
             aria-label="Ask the assistant"
-            className="flex min-h-0 flex-col border-border lg:border-r"
+            className={cn(
+              'min-h-0 flex-col border-border lg:flex lg:border-r',
+              pane === 'ask' ? 'flex' : 'hidden',
+            )}
           >
             <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
               {turns.length === 0 ? (

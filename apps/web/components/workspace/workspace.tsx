@@ -12,6 +12,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
+  Plug,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } 
 import { conversationTitle, nameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
+import { IntegrationsScreen } from './integrations-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
@@ -232,6 +234,8 @@ export function Workspace() {
           directory={directory}
           onOpenConversation={openConversation}
         />
+      ) : module === 'integrations' ? (
+        <IntegrationsScreen online={state.connectivity === 'online'} />
       ) : module === 'notifications' ? (
         <NotificationsScreen
           api={notifications}
@@ -588,6 +592,12 @@ export function Workspace() {
                   label: 'Administration',
                   icon: ShieldCheck,
                   run: () => setDialog('admin'),
+                },
+                {
+                  id: 'a:integrations',
+                  label: 'Manage integrations',
+                  icon: Plug,
+                  run: () => setModule('integrations'),
                 },
               ]
             : []),

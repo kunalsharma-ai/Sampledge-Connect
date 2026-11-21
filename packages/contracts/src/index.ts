@@ -15,3 +15,4 @@ export * from './meetings.js';
 export * from './recordings.js';
 export * from './guests.js';
 export * from './ai.js';
+export * from './integration-settings.js';

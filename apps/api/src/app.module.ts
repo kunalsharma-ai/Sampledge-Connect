@@ -30,7 +30,12 @@ import { MONGO_DB } from './database/database.module.js';
 import { NotificationsController } from './notifications/notifications.controller.js';
 import { NotificationsService } from './notifications/notifications.service.js';
 import { PushController } from './push/push.controller.js';
-import { PUSH_PROVIDER, createPushProvider } from './push/push-provider.js';
+import { PushProviders } from './push/push-provider.js';
+import { IntegrationSettingsModule } from './integration-settings/integration-settings.module.js';
+import {
+  PlatformIntegrationsController,
+  TenantIntegrationsController,
+} from './integration-settings/integration-settings.controller.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
@@ -40,6 +45,7 @@ import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
 import { AiController } from './ai/ai.controller.js';
 import { AiService } from './ai/ai.service.js';
+import { AiIntegration } from './ai/ai-integration.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
 
@@ -54,8 +60,10 @@ export class AppModule {
     };
     return {
       module: AppModule,
-      imports: [configModule, DatabaseModule, RedisModule],
+      imports: [configModule, DatabaseModule, RedisModule, IntegrationSettingsModule],
       controllers: [
+        TenantIntegrationsController,
+        PlatformIntegrationsController,
         AuthController,
         RecordingsController,
         DirectoryController,
@@ -90,8 +98,9 @@ export class AppModule {
         GuestsService,
         MailerService,
         AiService,
+        AiIntegration,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
-        { provide: PUSH_PROVIDER, useValue: createPushProvider(cfg) },
+        PushProviders,
         {
           provide: FILE_STORAGE,
           inject: [MONGO_DB],

@@ -452,6 +452,48 @@ describe('organization switch', () => {
   });
 });
 
+describe('model server settings live in the database', () => {
+  it('admins set the model server in Integrations; the assistant picks it up', async () => {
+    const put = (s: Session, values: Record<string, unknown>, enabled = true) =>
+      api(h, 'PUT', '/v1/admin/integrations/ai.model', {
+        token: s.accessToken,
+        body: { enabled, values },
+      });
+    expect((await put(ravi, { baseUrl: 'http://127.0.0.1:9', chatModel: 'llama3.1' })).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await put(owner, {
+          baseUrl: 'http://127.0.0.1:9',
+          chatModel: 'llama3.1',
+          apiKey: 'sk-secret',
+        })
+      ).status,
+    ).toBe(200);
+    const st = await ai<AiStatus>(ravi, 'GET', '/status');
+    expect(st.body).toMatchObject({ engine: 'model', model: 'llama3.1' });
+    // Nothing listens on port 9: the assistant still answers, with the built-in engine.
+    const r = await ai<AiSummary>(ravi, 'POST', `/conversations/${bid.conversationId}/summary`, {
+      range: 'week',
+    });
+    expect(r.body.engine).toBe('basic');
+    expect((await ai<AiStatus>(ravi, 'GET', '/status')).body.lastError).toMatch(
+      /Cannot reach the model server/,
+    );
+    const test = await api<{ ok: boolean }>(h, 'POST', '/v1/admin/integrations/ai.model/test', {
+      token: owner.accessToken,
+      body: {},
+    });
+    expect(test.body.ok).toBe(false);
+    // Cloud metadata addresses are refused.
+    await put(owner, { baseUrl: 'http://169.254.169.254', chatModel: 'x' });
+    expect((await ai<AiStatus>(ravi, 'GET', '/status')).body).toMatchObject({ engine: 'basic' });
+    await put(owner, { baseUrl: 'http://127.0.0.1:9', chatModel: 'llama3.1' }, false);
+    expect((await ai<AiStatus>(ravi, 'GET', '/status')).body.engine).toBe('basic');
+  });
+});
+
 describe('model server (OpenAI-compatible)', () => {
   let server: Server;
   let prompts: string[] = [];
