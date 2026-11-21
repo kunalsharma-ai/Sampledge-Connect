@@ -69,8 +69,9 @@ export class GuestsService {
       : randomBytes(32);
   }
 
-  get emailEnabled() {
-    return this.mailer.enabled;
+  /** Whether this organization can send email (its own SMTP, the platform's, or env). */
+  emailEnabled(tenantId: string): Promise<boolean> {
+    return this.mailer.enabled(tenantId);
   }
 
   // ---------- links ----------
@@ -175,13 +176,14 @@ export class GuestsService {
         `${members.map((u) => u.email).join(', ')} ${members.length === 1 ? 'is' : 'are'} in your organization. Add ${members.length === 1 ? 'them' : 'these people'} as attendees instead.`,
       );
     const now = new Date();
+    const mailOn = await this.mailer.enabled(ctx.tenantId);
     return fresh.map((f) => ({
       guestId: newId(),
       email: f.email,
       name: f.name,
       response: 'pending',
       linkNonce: randomBytes(12).toString('base64url'),
-      invite: { status: this.mailer.enabled ? 'sending' : 'not_configured', at: null, error: null },
+      invite: { status: mailOn ? 'sending' : 'not_configured', at: null, error: null },
       invitedBy: ctx.userId,
       invitedAt: now,
     }));
@@ -227,16 +229,13 @@ export class GuestsService {
           : t.meetings.updateOne({ _id: meeting._id, 'guests.guestId': guestId }, set)
       ).catch(() => undefined);
     };
-    if (!this.mailer.enabled) {
-      const job = (async () => {
+    const job = (async () => {
+      if (!(await this.mailer.enabled(tenantId))) {
         for (const g of guests)
           await mark(g.guestId, { status: 'not_configured', at: null, error: null });
         onUpdated?.();
-      })();
-      this.track(job);
-      return;
-    }
-    const job = (async () => {
+        return;
+      }
       const organizer = await this.organizer(tenantId, meeting);
       for (const g of guests) {
         await mark(g.guestId, { status: 'sending', at: new Date(), error: null });
@@ -268,15 +267,16 @@ export class GuestsService {
   }
 
   private async organizer(tenantId: string, meeting: MeetingDoc) {
-    const [user, tenant] = await Promise.all([
+    const [user, tenant, from] = await Promise.all([
       this.db
         .for(tenantId)
         .users.findOne({ _id: meeting.organizerId }, { projection: { displayName: 1, email: 1 } }),
       this.db.tenants.findOne({ _id: tenantId }, { projection: { name: 1, branding: 1 } }),
+      this.mailer.fromAddress(tenantId),
     ]);
     return {
       name: user?.displayName ?? 'The organizer',
-      email: user?.email ?? this.mailer.fromAddress?.email ?? 'no-reply@localhost',
+      email: user?.email ?? from?.email ?? 'no-reply@localhost',
       organization: tenant?.name ?? 'SampConnect',
       poweredBy: BrandingService.resolve(tenant).hidePoweredBy
         ? null
@@ -313,7 +313,7 @@ export class GuestsService {
       recurrence: series ? this.summary(series) : null,
       occurrenceOnly: !!series && scope === 'occurrence',
     });
-    await this.mailer.send({
+    await this.mailer.send(tenantId, {
       to: { name: g.name, email: g.email },
       subject: body.subject,
       text: body.text,

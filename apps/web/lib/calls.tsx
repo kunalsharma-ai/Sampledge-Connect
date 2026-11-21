@@ -17,7 +17,7 @@ import type {
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useEngine, useEngineChange } from './engine';
 import { deviceOptions } from './call-devices';
 
 /** The call this tab is in: the server's record plus the live SFU room. */
@@ -116,6 +116,16 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
       if (row) setConfig((c) => c ?? (row.value as CallsConfig));
     });
   }, [db]);
+  // Refetched when an admin saves Integrations or recording settings on any device, so call
+  // buttons turn on (or off) without a reload.
+  const [configVersion, setConfigVersion] = React.useState(0);
+  useEngineChange(['tenant'], (e) => {
+    if (
+      e.type === 'reconnected' ||
+      (e.type === 'tenant' && (e.area === 'integrations' || e.area === 'recordings'))
+    )
+      setConfigVersion((v) => v + 1);
+  });
   React.useEffect(() => {
     if (!online) return;
     void (async () => {
@@ -130,7 +140,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
         /* offline or not permitted: keep what we have */
       }
     })();
-  }, [online, req, db]);
+  }, [online, req, db, configVersion]);
 
   const bump = React.useCallback((patch: Partial<CurrentCall> = {}) => {
     setCurrent((c) => (c ? { ...c, ...patch, version: c.version + 1 } : c));

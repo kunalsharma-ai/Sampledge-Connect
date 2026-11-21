@@ -290,10 +290,17 @@ describe('chat recordings', () => {
       'message:updated',
       (m: Message) => m.messageId === message!.messageId,
     );
+    const libraryEvent = nextEvent(
+      raviSocket,
+      'recording:changed',
+      (e) => e.recordingId === attachment!.attachmentId,
+    );
     const del = await api(h, 'DELETE', `/v1/recordings/${attachment!.attachmentId}`, {
       token: mia.accessToken,
     });
     expect(del.status).toBe(200);
+    // Everyone in the conversation drops it from their recordings library live.
+    expect((await libraryEvent).deleted).toBe(true);
     const m = await updated;
     expect(m.attachments[0]!.deletedAt).toBeTruthy();
     expect((await urlOf(ravi, attachment!.attachmentId)).status).toBe(404);
