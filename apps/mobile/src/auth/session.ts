@@ -125,6 +125,16 @@ export class SessionManager {
     await this.finishSignIn(pending.serverUrl, s);
   }
 
+  /**
+   * Finishes single sign-on: the one-time code the server sent back to the app, plus the
+   * PKCE verifier whose challenge started the flow.
+   */
+  async signInWithSso(serverUrl: string, code: string, codeVerifier: string): Promise<void> {
+    const base = normaliseUrl(serverUrl);
+    const s = await this.apiFor(base).ssoExchange(code, codeVerifier);
+    await this.finishSignIn(base, s);
+  }
+
   private async finishSignIn(serverUrl: string, s: Session): Promise<void> {
     // Signing in as someone else on this device must not mix their caches.
     if (

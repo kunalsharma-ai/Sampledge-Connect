@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -18,7 +19,8 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Glass } from '../components/Glass';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
-import { DEFAULT_APP_NAME, type PublicBranding } from '@sampledge/contracts';
+import { DEFAULT_APP_NAME, type PublicBranding, type SsoInfo } from '@sampledge/contracts';
+import { runSso } from '../auth/ssoFlow';
 import { normaliseUrl, type PendingMfa } from '../auth/session';
 import { devicePlatform, useApp } from '../state/AppProvider';
 import { TransportError } from '../sync/transport';
@@ -33,9 +35,8 @@ function errorText(e: unknown): string {
       return 'Email, password or workspace is incorrect.';
     if (e.code === 'VALIDATION_FAILED') return 'Check the details and try again.';
     if (e.code === 'RATE_LIMITED') return 'Too many attempts. Wait a moment and try again.';
-    // Single sign-on only workspaces say so (the phone can't do SSO yet).
-    if (e.code === 'FORBIDDEN' && e.message)
-      return `${e.message} Single sign-on on the phone is coming; for now sign in on the web.`;
+    // Single sign-on only workspaces say so.
+    if (e.code === 'FORBIDDEN' && e.message) return e.message;
   }
   return e instanceof Error ? e.message : 'Sign-in failed.';
 }
@@ -66,6 +67,10 @@ export default function SignIn() {
   const [code, setCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
   const [brand, setBrand] = useState<PublicBranding | null>(null);
+  const [sso, setSso] = useState<SsoInfo | null>(null);
+  // Shown under the SSO button, where the person is looking after the browser closes.
+  const [ssoError, setSsoError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   // The workspace's own logo, name and sign-in message once the address and workspace are typed.
   useEffect(() => {
@@ -74,15 +79,24 @@ export default function SignIn() {
     try {
       base = normaliseUrl(serverUrl);
     } catch {
+      setSso(null);
       return setBrand(null);
     }
-    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || slug.length < 3) return setBrand(null);
+    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || slug.length < 3) {
+      setSso(null);
+      return setBrand(null);
+    }
     let alive = true;
     const t = setTimeout(() => {
       fetch(`${base}/v1/branding/public/${slug}`)
         .then((r) => (r.ok ? (r.json() as Promise<PublicBranding>) : null))
         .then((b) => alive && setBrand(b))
         .catch(() => alive && setBrand(null));
+      // Whether this workspace signs in through its identity provider.
+      fetch(`${base}/v1/auth/sso/${slug}`)
+        .then((r) => (r.ok ? (r.json() as Promise<SsoInfo>) : null))
+        .then((x) => alive && setSso(x?.enabled ? x : null))
+        .catch(() => alive && setSso(null));
     }, 400);
     return () => {
       alive = false;
@@ -102,6 +116,7 @@ export default function SignIn() {
   const submit = async () => {
     setBusy(true);
     setError(null);
+    setSsoError(null);
     try {
       const pending = await sessions.signIn({
         serverUrl,
@@ -122,6 +137,39 @@ export default function SignIn() {
       setBusy(false);
     }
   };
+
+  const signInWithSso = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setSsoError(null);
+    try {
+      const serverBase = normaliseUrl(serverUrl);
+      const r = await runSso({
+        serverUrl: serverBase,
+        tenantSlug: tenantSlug.trim().toLowerCase(),
+        deviceId: await sessions.deviceId(),
+        deviceName: Constants.deviceName ?? `${Platform.OS} device`,
+        platform: devicePlatform,
+      });
+      if (!r) return setBusy(false);
+      if ('error' in r) {
+        setSsoError(r.error);
+        return setBusy(false);
+      }
+      await sessions.signInWithSso(serverBase, r.code, r.codeVerifier);
+      setSignedIn(true);
+    } catch (e) {
+      setSsoError(
+        e instanceof TransportError && e.isAuth
+          ? 'This sign-in could not be verified. Try again.'
+          : errorText(e),
+      );
+      setBusy(false);
+    }
+  };
+  // SSO-only workspaces hide the password form (the owner can still open it).
+  const passwordForm = !sso || sso.passwordLogin || showPassword;
 
   const codeReady = useRecovery ? code.trim().length >= 6 : /^\d{6}$/.test(code.trim());
   const verify = async () => {
@@ -332,53 +380,107 @@ export default function SignIn() {
                   placeholder: 'your-workspace',
                   editable: !reauth,
                 })}
-                {field({
-                  label: 'Email',
-                  value: email,
-                  onChangeText: setEmail,
-                  placeholder: 'you@company.com',
-                  keyboardType: 'email-address',
-                  autoComplete: 'email',
-                  textContentType: 'username',
-                })}
-                {field({
-                  label: 'Password',
-                  value: password,
-                  onChangeText: setPassword,
-                  secureTextEntry: true,
-                  autoComplete: 'password',
-                  textContentType: 'password',
-                  onSubmitEditing: () => canSubmit && void submit(),
-                })}
+                {sso ? (
+                  <View style={{ gap: space.md }}>
+                    <Pressable
+                      onPress={() => void signInWithSso()}
+                      disabled={busy}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.primary,
+                        styles.ssoButton,
+                        {
+                          backgroundColor: theme.colors.accent,
+                          opacity: busy ? 0.5 : pressed ? 0.85 : 1,
+                        },
+                      ]}
+                    >
+                      {busy ? (
+                        <ActivityIndicator color={theme.colors.onAccent} />
+                      ) : (
+                        <>
+                          <Ionicons name="key-outline" size={18} color={theme.colors.onAccent} />
+                          <Text variant="bodyStrong" tone="onAccent">
+                            {sso.label || 'Sign in with single sign-on'}
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                    {ssoError ? (
+                      <Text variant="label" tone="danger" accessibilityLiveRegion="polite">
+                        {ssoError}
+                      </Text>
+                    ) : null}
+                    {passwordForm ? (
+                      <View style={styles.divider}>
+                        <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
+                        <Text variant="meta" tone="subtle">
+                          or use your password
+                        </Text>
+                        <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => setShowPassword(true)}
+                        accessibilityRole="button"
+                        hitSlop={6}
+                      >
+                        <Text variant="label" tone="muted" style={{ textAlign: 'center' }}>
+                          Workspace owner? Sign in with a password
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                ) : null}
+                {passwordForm ? (
+                  <>
+                    {field({
+                      label: 'Email',
+                      value: email,
+                      onChangeText: setEmail,
+                      placeholder: 'you@company.com',
+                      keyboardType: 'email-address',
+                      autoComplete: 'email',
+                      textContentType: 'username',
+                    })}
+                    {field({
+                      label: 'Password',
+                      value: password,
+                      onChangeText: setPassword,
+                      secureTextEntry: true,
+                      autoComplete: 'password',
+                      textContentType: 'password',
+                      onSubmitEditing: () => canSubmit && void submit(),
+                    })}
+                  </>
+                ) : null}
                 {error ? (
                   <Text variant="label" tone="danger" accessibilityLiveRegion="polite">
                     {error}
                   </Text>
                 ) : null}
-                <Pressable
-                  onPress={submit}
-                  disabled={!canSubmit}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.primary,
-                    {
-                      backgroundColor: theme.colors.accent,
-                      opacity: !canSubmit ? 0.5 : pressed ? 0.85 : 1,
-                    },
-                  ]}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={theme.colors.onAccent} />
-                  ) : (
-                    <Text variant="bodyStrong" tone="onAccent">
-                      Sign in
-                    </Text>
-                  )}
-                </Pressable>
-                <Text variant="meta" tone="subtle">
-                  Single sign-on (OIDC) is planned for mobile. Use your workspace email and password
-                  for now.
-                </Text>
+                {passwordForm ? (
+                  <Pressable
+                    onPress={submit}
+                    disabled={!canSubmit}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.primary,
+                      {
+                        backgroundColor: theme.colors.accent,
+                        opacity: !canSubmit ? 0.5 : pressed ? 0.85 : 1,
+                      },
+                    ]}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color={theme.colors.onAccent} />
+                    ) : (
+                      <Text variant="bodyStrong" tone="onAccent">
+                        Sign in
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : null}
               </Glass>
             )}
 
@@ -415,6 +517,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   code: { textAlign: 'center', fontSize: 22, letterSpacing: 6, fontFamily: fonts.semibold },
+  ssoButton: { flexDirection: 'row', gap: space.sm },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rule: { flex: 1, height: StyleSheet.hairlineWidth },
   primary: { height: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   secondary: {
     alignItems: 'center',
