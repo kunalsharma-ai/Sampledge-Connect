@@ -23,6 +23,20 @@ async function api(method, path, body, token) {
   if (!r.ok) throw new Error(`${path} ${r.status} ${t}`);
   return t ? JSON.parse(t) : undefined;
 }
+
+// RFC 6238 code for a base32 secret, `offset` 30-second steps from now.
+function totp(secret, offset = 0) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const ch of secret.replace(/=+$/, '').toUpperCase())
+    bits += alphabet.indexOf(ch).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const step = Buffer.alloc(8);
+  step.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000) + offset));
+  const h = require('crypto').createHmac('sha1', key).update(step).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
 (async () => {
   // Fake camera and microphone so calls connect real media through the local SFU.
   const b = await chromium.launch({
@@ -1414,6 +1428,74 @@ async function api(method, path, body, token) {
     );
     await shot3('79-integrations-tested');
     await ctx3.close();
+  }
+
+  // ---- Two-step verification: Lena turns it on; the phone asks for her code after the
+  // password, refuses a wrong one, and accepts a code from her authenticator. A recovery code
+  // turns it off again at the end so later runs can sign her in with a password.
+  {
+    const lenaTok = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'lena@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    const setup = await api('POST', '/v1/auth/mfa/totp/setup', {}, lenaTok);
+    const { recoveryCodes } = await api(
+      'POST',
+      '/v1/auth/mfa/totp/enable',
+      { code: totp(setup.secret) },
+      lenaTok,
+    );
+    const ctx4 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p4 = await ctx4.newPage();
+    const shot4 = async (n) => {
+      await p4.waitForTimeout(1200);
+      await p4.screenshot({ path: `${out}/${n}.png` });
+      console.log('shot', n);
+    };
+    await p4.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p4.waitForTimeout(1500);
+    const f4 = p4.locator('input');
+    await f4.nth(0).fill(API);
+    await f4.nth(1).fill('northwind');
+    await f4.nth(2).fill('lena@northwind.test');
+    await f4.nth(3).fill(pw);
+    await p4.getByRole('button', { name: 'Sign in' }).click();
+    await p4.waitForTimeout(2500);
+    check(
+      'password sign-in asks for the two-step code',
+      /Two-step verification/.test(await p4.innerText('body')),
+    );
+    await shot4('80-two-step-code');
+    await p4.getByLabel('Code', { exact: true }).fill('000000');
+    await p4.getByRole('button', { name: 'Verify and sign in' }).click();
+    await p4.waitForTimeout(2000);
+    const wrong = await p4.innerText('body');
+    check(
+      'a wrong code is refused and the code step stays',
+      /didn.t work/.test(wrong) && /Two-step verification/.test(wrong),
+    );
+    await shot4('81-two-step-wrong-code');
+    await p4.getByRole('button', { name: 'Lost your phone? Use a recovery code' }).click();
+    check(
+      'recovery codes can be used instead',
+      (await p4.getByLabel('Recovery code', { exact: true }).count()) > 0,
+    );
+    await p4.getByRole('button', { name: 'Use my authenticator app instead' }).click();
+    await p4.getByLabel('Code', { exact: true }).fill(totp(setup.secret, 1));
+    await p4.getByRole('button', { name: 'Verify and sign in' }).click();
+    await p4.waitForTimeout(4500);
+    const home = await p4.innerText('body');
+    check(
+      'the authenticator code finishes sign-in',
+      !/Two-step verification/.test(home) && /fieldwork-ops/.test(home),
+    );
+    await shot4('82-two-step-signed-in');
+    await ctx4.close();
+    await api('POST', '/v1/auth/mfa/disable', { password: pw, code: recoveryCodes[0] }, lenaTok);
   }
   await b.close();
   if (failures.length) process.exit(1);

@@ -1,4 +1,4 @@
-import { uuidv7, type Session } from '@sampledge/contracts';
+import { isMfaChallenge, uuidv7, type MfaChallenge, type Session } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import { TransportError, type ApiTransport } from '../sync/transport';
 
@@ -7,6 +7,12 @@ export interface SecretStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   delete(key: string): Promise<void>;
+}
+
+/** A password sign-in waiting for its two-step code. */
+export interface PendingMfa {
+  serverUrl: string;
+  challenge: MfaChallenge;
 }
 
 export interface StoredSession {
@@ -86,6 +92,10 @@ export class SessionManager {
     return key;
   }
 
+  /**
+   * Signs in with a password. Accounts with two-step verification get a challenge back
+   * instead; finish it with {@link verifyMfa} within its five minutes.
+   */
   async signIn(input: {
     serverUrl: string;
     tenantSlug: string;
@@ -93,15 +103,29 @@ export class SessionManager {
     password: string;
     deviceName: string;
     platform: 'ios' | 'android';
-  }): Promise<void> {
+  }): Promise<PendingMfa | null> {
     const serverUrl = normaliseUrl(input.serverUrl);
-    const api = this.apiFor(serverUrl);
-    const s = await api.login({
+    const r = await this.apiFor(serverUrl).login({
       tenantSlug: input.tenantSlug,
       email: input.email,
       password: input.password,
       device: { deviceId: await this.deviceId(), name: input.deviceName, platform: input.platform },
     });
+    if (isMfaChallenge(r)) return { serverUrl, challenge: r };
+    await this.finishSignIn(serverUrl, r);
+    return null;
+  }
+
+  /** Second step: a 6-digit authenticator code or a recovery code. */
+  async verifyMfa(pending: PendingMfa, code: string): Promise<void> {
+    const s = await this.apiFor(pending.serverUrl).verifyMfa(
+      pending.challenge.challengeId,
+      code.trim(),
+    );
+    await this.finishSignIn(pending.serverUrl, s);
+  }
+
+  private async finishSignIn(serverUrl: string, s: Session): Promise<void> {
     // Signing in as someone else on this device must not mix their caches.
     if (
       this.session &&
