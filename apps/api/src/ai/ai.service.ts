@@ -259,17 +259,17 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       .filter((m) => !m.deletedAt && (m.messageType === 'text' || transcripts.has(m._id)))
       .map((m) => {
         const heard = transcripts.get(m._id);
-        const files = (m.attachments ?? []).filter((a) => !a.deletedAt).map((a) => a.fileName);
-        const text =
-          m.messageType === 'text'
-            ? [
-                m.content.text.trim(),
-                files.length ? `[shared ${files.join(', ')}]` : '',
-                heard ? `[voice message, transcript: ${heard}]` : '',
-              ]
-                .filter(Boolean)
-                .join(' ')
-            : `[call recording transcript] ${heard}`;
+        // Recordings with a transcript are read as speech, not listed as shared files.
+        const files = (m.attachments ?? [])
+          .filter((a) => !a.deletedAt && !(heard && a.recording))
+          .map((a) => a.fileName);
+        const text = [
+          m.messageType === 'text' ? m.content.text.trim() : '',
+          files.length ? `[shared ${files.join(', ')}]` : '',
+          heard ?? '',
+        ]
+          .filter(Boolean)
+          .join(' ');
         return {
           messageId: m._id,
           conversationId: m.conversationId,
