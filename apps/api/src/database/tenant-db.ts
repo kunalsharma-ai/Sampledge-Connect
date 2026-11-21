@@ -145,6 +145,7 @@ export class TenantDb {
       ai_index_state: c('ai_index_state'),
       ai_summaries: c('ai_summaries'),
       ai_proposals: c('ai_proposals'),
+      ai_transcripts: c('ai_transcripts'),
     };
   }
 }
