@@ -11,6 +11,7 @@ import type {
   AiStatus,
   AiSuggestedReplies,
   AiSummary,
+  AiTranscript,
   AiTranslation,
   ConfirmAiProposalRequest,
   Message,
@@ -86,11 +87,19 @@ export function useAi() {
           body,
         ),
       dismiss: (proposalId: string) => call<AiProposal>('POST', `/proposals/${proposalId}/dismiss`),
+      transcript: (attachmentId: string) =>
+        call<AiTranscript>('GET', `/transcripts/${attachmentId}`),
+      requestTranscript: (attachmentId: string) =>
+        call<AiTranscript>('POST', `/transcripts/${attachmentId}`),
     }),
     [online, status, refreshStatus, call],
   );
 }
 export type AiApi = ReturnType<typeof useAi>;
+
+/** The workspace's AI client, shared so recordings and cards don't each fetch the status. */
+export const AiContext = React.createContext<AiApi | null>(null);
+export const useAiContext = () => React.useContext(AiContext);
 
 export function aiErrorText(e: unknown): string {
   if (e instanceof ApiFailure) {
