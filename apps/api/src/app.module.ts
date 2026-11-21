@@ -27,6 +27,8 @@ import { FILE_STORAGE, GridFsStorage } from './attachments/file-storage.js';
 import { MONGO_DB } from './database/database.module.js';
 import { NotificationsController } from './notifications/notifications.controller.js';
 import { NotificationsService } from './notifications/notifications.service.js';
+import { PushController } from './push/push.controller.js';
+import { PUSH_PROVIDER, createPushProvider } from './push/push-provider.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -50,6 +52,7 @@ export class AppModule {
         HealthController,
         AttachmentsController,
         NotificationsController,
+        PushController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -64,6 +67,7 @@ export class AppModule {
         RealtimeGateway,
         AttachmentsService,
         NotificationsService,
+        { provide: PUSH_PROVIDER, useValue: createPushProvider(cfg) },
         {
           provide: FILE_STORAGE,
           inject: [MONGO_DB],

@@ -152,18 +152,11 @@ export class MessagesService {
     }
     const message = toMessage(doc);
     this.realtime.toConversation(ctx.tenantId, req.conversationId, 'message:new', message);
-    if (replyParentSenderId || doc.content.mentions.length) {
-      try {
-        await this.notifications.onMessageCreated(
-          ctx.tenantId,
-          doc,
-          replyParentSenderId,
-          await this.conversations.memberIds(ctx.tenantId, req.conversationId),
-        );
-      } catch (e) {
-        // The message is committed and delivered; a missed notification must not fail the send.
-        this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
-      }
+    try {
+      await this.notifications.onMessageCreated(ctx.tenantId, doc, replyParentSenderId);
+    } catch (e) {
+      // The message is committed and delivered; a missed notification must not fail the send.
+      this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
     }
     return { clientMessageId: req.clientMessageId, message, duplicate: false };
   }

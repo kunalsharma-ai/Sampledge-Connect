@@ -3,6 +3,7 @@ import { MongoServerError } from 'mongodb';
 import {
   AddMembersRequestSchema,
   CreateConversationRequestSchema,
+  SetNotifyLevelRequestSchema,
   conversationCan,
   tenantCan,
   type Conversation,
@@ -69,18 +70,15 @@ export class ConversationsService {
     ctx: TenantContext,
     c: ConversationDoc,
     memberIds?: string[],
-    myRole?: ConversationRole | null,
+    me?: Pick<ConversationMemberDoc, 'role' | 'notifyLevel'> | null,
   ): Promise<Conversation> {
     const ids = memberIds ?? (await this.memberIds(ctx.tenantId, c._id));
-    let role = myRole;
-    if (role === undefined) {
-      role =
-        (
-          await this.db
+    const mine =
+      me === undefined
+        ? await this.db
             .for(ctx.tenantId)
             .conversation_members.findOne({ conversationId: c._id, userId: ctx.userId })
-        )?.role ?? null;
-    }
+        : me;
     return {
       conversationId: c._id,
       tenantId: c.tenantId,
@@ -94,7 +92,8 @@ export class ConversationsService {
       archivedAt: c.archivedAt?.toISOString() ?? null,
       lastChangeSequence: c.lastChangeSequence,
       lastMessageAt: c.lastMessageAt?.toISOString() ?? null,
-      myRole: role,
+      myRole: mine?.role ?? null,
+      myNotifyLevel: mine?.notifyLevel ?? 'all',
     };
   }
 
@@ -102,7 +101,7 @@ export class ConversationsService {
   async listReadable(ctx: TenantContext): Promise<Conversation[]> {
     const t = this.db.for(ctx.tenantId);
     const mine = await t.conversation_members.find({ userId: ctx.userId }).toArray();
-    const myRole = new Map(mine.map((m) => [m.conversationId, m.role]));
+    const myRole = new Map(mine.map((m) => [m.conversationId, m]));
     const filter =
       ctx.role === 'guest'
         ? { _id: { $in: [...myRole.keys()] } }
@@ -231,20 +230,44 @@ export class ConversationsService {
   private async announce(ctx: TenantContext, c: ConversationDoc, members: string[]) {
     for (const userId of members) {
       this.realtime.joinConversation(ctx.tenantId, userId, c._id);
-      const role =
-        (
-          await this.db
-            .for(ctx.tenantId)
-            .conversation_members.findOne({ conversationId: c._id, userId })
-        )?.role ?? null;
+      const membership = await this.db
+        .for(ctx.tenantId)
+        .conversation_members.findOne({ conversationId: c._id, userId });
       this.realtime.toUser(
         ctx.tenantId,
         userId,
         'conversation:upsert',
-        await this.toDto({ ...ctx, userId }, c, members, role),
+        await this.toDto({ ...ctx, userId }, c, members, membership),
       );
     }
     return this.toDto(ctx, c, members);
+  }
+
+  /** The caller's notification level. Members only; synced to the caller's other devices. */
+  async setNotifyLevel(
+    ctx: TenantContext,
+    conversationId: string,
+    body: unknown,
+  ): Promise<Conversation> {
+    const { level } = parse(SetNotifyLevelRequestSchema, body);
+    const { conversation, membership } = await this.authorize(
+      ctx,
+      conversationId,
+      'conversation.read',
+    );
+    if (!membership) throw forbidden('Join this conversation to change notifications');
+    await this.db
+      .for(ctx.tenantId)
+      .conversation_members.updateOne(
+        { conversationId, userId: ctx.userId },
+        { $set: { notifyLevel: level } },
+      );
+    const dto = await this.toDto(ctx, conversation, undefined, {
+      ...membership,
+      notifyLevel: level,
+    });
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'conversation:upsert', dto);
+    return dto;
   }
 
   async get(ctx: TenantContext, conversationId: string): Promise<Conversation> {
@@ -253,7 +276,7 @@ export class ConversationsService {
       conversationId,
       'conversation.read',
     );
-    return this.toDto(ctx, conversation, undefined, membership?.role ?? null);
+    return this.toDto(ctx, conversation, undefined, membership ?? null);
   }
 
   /** Join a public channel. */
@@ -263,7 +286,7 @@ export class ConversationsService {
       conversationId,
       'conversation.read',
     );
-    if (membership) return this.toDto(ctx, conversation, undefined, membership.role);
+    if (membership) return this.toDto(ctx, conversation, undefined, membership);
     if (conversation.kind !== 'channel_public' || !tenantCan(ctx.role, 'channel.public.join'))
       throw forbidden();
     await this.db.for(ctx.tenantId).conversation_members.updateOne(

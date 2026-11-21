@@ -39,6 +39,7 @@ export class FakeServer {
       lastChangeSequence: 0,
       lastMessageAt: null,
       myRole: 'member',
+      myNotifyLevel: 'all',
     });
   }
   failNext(...f: (ApiError | 'network' | 'drop-ack')[]) {

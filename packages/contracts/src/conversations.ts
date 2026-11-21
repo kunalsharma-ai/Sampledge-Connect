@@ -1,4 +1,14 @@
 import { z } from 'zod';
+
+/**
+ * Per-conversation notification level for the caller.
+ * all: mentions, replies and (in DMs) every message notify. mentions: only @mentions notify.
+ * none: nothing notifies; unread counts still work.
+ */
+export const NOTIFY_LEVELS = ['all', 'mentions', 'none'] as const;
+export const NotifyLevelSchema = z.enum(NOTIFY_LEVELS);
+export type NotifyLevel = z.infer<typeof NotifyLevelSchema>;
+export const SetNotifyLevelRequestSchema = z.object({ level: NotifyLevelSchema });
 import { ServerIdSchema } from './ids.js';
 import { ConversationRoleSchema } from './permissions.js';
 
@@ -28,6 +38,8 @@ export const ConversationSchema = z.object({
   lastMessageAt: z.string().datetime().nullable(),
   /** Caller's own membership details. */
   myRole: ConversationRoleSchema.nullable(),
+  /** The caller's notification level for this conversation (default 'all'). */
+  myNotifyLevel: NotifyLevelSchema.default('all'),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
 

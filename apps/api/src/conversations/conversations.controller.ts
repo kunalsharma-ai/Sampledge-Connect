@@ -69,6 +69,12 @@ export class ConversationsController {
     return this.conversations.archive(ctx, id, archived);
   }
 
+  /** The caller's notification level for this conversation: all, mentions or none. */
+  @Put(':id/notify-level')
+  setNotifyLevel(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.conversations.setNotifyLevel(ctx, id, body);
+  }
+
   @Get(':id/messages')
   history(
     @Ctx() ctx: TenantContext,

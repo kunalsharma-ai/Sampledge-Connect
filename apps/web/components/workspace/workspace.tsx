@@ -40,6 +40,7 @@ import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } 
 import { conversationTitle, nameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
+import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
@@ -226,7 +227,7 @@ export function Workspace() {
           >
             {active ? (
               <>
-                <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
+                <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
                   <button
                     onClick={() => setActiveId(null)}
                     aria-label="Back to conversations"
@@ -271,6 +272,7 @@ export function Workspace() {
                       compact
                     />
                   </button>
+                  <NotifyLevelMenu conversation={active} offline={offline} />
                   <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
                     <button
                       onClick={() => setPanelOpen(!panelOpen)}

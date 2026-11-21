@@ -74,6 +74,8 @@ export interface ConversationMemberDoc extends TenantOwned {
   userId: string;
   role: ConversationRole;
   joinedAt: Date;
+  /** Absent means 'all'. */
+  notifyLevel?: 'all' | 'mentions' | 'none';
 }
 
 export interface AttachmentSnapshot {
@@ -128,6 +130,13 @@ export interface DeviceDoc extends TenantOwned {
   lastSeenAt: Date;
   revokedAt: Date | null;
   revokedReason: string | null;
+  /** Push token for this device session; cleared on revoke and sign-out. */
+  push?: {
+    provider: 'expo' | 'fcm' | 'apns';
+    token: string;
+    platform: string;
+    updatedAt: Date;
+  } | null;
 }
 
 export interface SyncCheckpointDoc extends TenantOwned {

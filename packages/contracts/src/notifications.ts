@@ -51,3 +51,30 @@ export const MarkNotificationsReadRequestSchema = z.union([
   z.object({ conversationId: ServerIdSchema }),
 ]);
 export type MarkNotificationsReadRequest = z.infer<typeof MarkNotificationsReadRequestSchema>;
+
+/** Push token for the caller's current device session. POST /v1/push/token, DELETE /v1/push/token. */
+export const PUSH_TOKEN_PROVIDERS = ['expo', 'fcm', 'apns'] as const;
+export const RegisterPushTokenRequestSchema = z.object({
+  provider: z.enum(PUSH_TOKEN_PROVIDERS),
+  token: z.string().trim().min(8).max(512),
+  platform: z.enum(['ios', 'android', 'web']),
+});
+export type RegisterPushTokenRequest = z.infer<typeof RegisterPushTokenRequestSchema>;
+
+/** GET /v1/push/status. `enabled` is false until the server has a push provider configured. */
+export const PushStatusSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.enum(['expo']).nullable(),
+  tokenRegistered: z.boolean(),
+});
+export type PushStatus = z.infer<typeof PushStatusSchema>;
+
+/** The `data` payload of a push. `unreadCount` is the in-app notification unread count (for badges). */
+export interface PushData {
+  type: 'message';
+  conversationId: string;
+  messageId: string;
+  kind: NotificationKind | 'dm';
+  notificationId: string | null;
+  unreadCount: number;
+}
