@@ -64,6 +64,17 @@ function RootStack() {
           <Stack.Screen name="settings/appearance" options={{ title: 'Appearance' }} />
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
+          <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen
+            name="new-conversation"
+            options={{ title: 'New conversation', presentation: 'modal' }}
+          />
+          <Stack.Screen name="channels" options={{ title: 'Browse channels' }} />
+          <Stack.Screen name="conversation-info/[id]" options={{ title: 'Details' }} />
+          <Stack.Screen
+            name="add-members/[id]"
+            options={{ title: 'Add people', presentation: 'modal' }}
+          />
           <Stack.Screen name="planned/[module]" options={{ title: '' }} />
           <Stack.Screen
             name="call/[id]"

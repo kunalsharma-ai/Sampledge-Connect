@@ -3,6 +3,7 @@ import {
   uuidv7,
   type Conversation,
   type ConversationKind,
+  type ConversationRole,
   type Attachment,
   type Message,
   type MessageStatus,
@@ -165,6 +166,8 @@ export interface LocalConversation {
   topic: string | null;
   memberIds: string[];
   archivedAt: string | null;
+  /** Your role here; null for a public channel you can read but have not joined. */
+  myRole: ConversationRole | null;
   lastChangeSeq: number;
   cursor: number;
   lastMessageAt: string | null;
@@ -1168,6 +1171,7 @@ export class LocalStore {
       topic: string | null;
       member_ids: string;
       archived_at: string | null;
+      my_role: ConversationRole | null;
       last_change_seq: number;
       cursor: number;
       last_message_at: string | null;
@@ -1178,7 +1182,9 @@ export class LocalStore {
       pending_notify_level: NotifyLevel | null;
     }>(
       `SELECT c.*,
-         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.conversation_id AND m.sender_id != ? AND m.server_seq > c.read_up_to AND m.deleted_at IS NULL) AS unread,
+         CASE WHEN c.kind = 'channel_public' AND c.my_role IS NULL THEN 0 ELSE
+           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.conversation_id AND m.sender_id != ? AND m.server_seq > c.read_up_to AND m.deleted_at IS NULL)
+         END AS unread,
          (SELECT COUNT(*) FROM outbox o WHERE o.conversation_id = c.conversation_id) AS pending
        FROM conversations c
        ORDER BY c.archived_at IS NOT NULL, COALESCE(c.last_message_at, '') DESC`,
@@ -1191,6 +1197,7 @@ export class LocalStore {
       topic: r.topic,
       memberIds: JSON.parse(r.member_ids) as string[],
       archivedAt: r.archived_at,
+      myRole: r.my_role ?? null,
       lastChangeSeq: r.last_change_seq,
       cursor: r.cursor,
       lastMessageAt: r.last_message_at,

@@ -10,6 +10,7 @@ import {
   type CallMedia,
   type CallsConfig,
   type Conversation,
+  type CreateConversationRequest,
   type NotifyLevel,
   type PushStatus,
   type RegisterPushTokenRequest,
@@ -83,6 +84,34 @@ export interface ApiTransport {
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
   joinCall(callId: string): Promise<CallJoinResponse>;
   callAction(callId: string, action: 'leave' | 'decline' | 'end'): Promise<Call>;
+  /** A DM with someone you already talk to returns the existing conversation. */
+  createConversation(req: CreateConversationRequest): Promise<Conversation>;
+  getConversation(conversationId: string): Promise<Conversation>;
+  /** Join a public channel. */
+  joinConversation(conversationId: string): Promise<Conversation>;
+  addMembers(conversationId: string, userIds: readonly string[]): Promise<Conversation>;
+  /** Removing yourself is leaving. */
+  removeMember(conversationId: string, userId: string): Promise<void>;
+  setArchived(conversationId: string, archived: boolean): Promise<Conversation>;
+  /** Your signed-in device sessions, newest activity first. */
+  listDevices(): Promise<DeviceSession[]>;
+  revokeDevice(sessionId: string): Promise<void>;
+  /** Ends this device session on the server (also drops its push token). */
+  logout(): Promise<void>;
+}
+
+/** A signed-in device session, from GET /v1/devices. */
+export interface DeviceSession {
+  sessionId: string;
+  userId: string;
+  deviceId: string;
+  name: string;
+  platform: string;
+  createdAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  /** The session making the request (this phone). */
+  current: boolean;
 }
 
 export interface DirectoryUser {
@@ -258,6 +287,54 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/${action}`, {});
   }
 
+  createConversation(req: CreateConversationRequest): Promise<Conversation> {
+    return this.request('POST', '/v1/conversations', req);
+  }
+
+  getConversation(conversationId: string): Promise<Conversation> {
+    return this.request(
+      'GET',
+      `/v1/conversations/${encodeURIComponent(conversationId)}`,
+      undefined,
+    );
+  }
+
+  joinConversation(conversationId: string): Promise<Conversation> {
+    return this.request('POST', `/v1/conversations/${encodeURIComponent(conversationId)}/join`, {});
+  }
+
+  addMembers(conversationId: string, userIds: readonly string[]): Promise<Conversation> {
+    return this.request('POST', `/v1/conversations/${encodeURIComponent(conversationId)}/members`, {
+      userIds,
+    });
+  }
+
+  removeMember(conversationId: string, userId: string): Promise<void> {
+    return this.request(
+      'DELETE',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
+      undefined,
+    );
+  }
+
+  setArchived(conversationId: string, archived: boolean): Promise<Conversation> {
+    return this.request('PATCH', `/v1/conversations/${encodeURIComponent(conversationId)}`, {
+      archived,
+    });
+  }
+
+  listDevices(): Promise<DeviceSession[]> {
+    return this.request('GET', '/v1/devices', undefined);
+  }
+
+  revokeDevice(sessionId: string): Promise<void> {
+    return this.request('DELETE', `/v1/devices/${encodeURIComponent(sessionId)}`, undefined);
+  }
+
+  logout(): Promise<void> {
+    return this.request('POST', '/v1/auth/logout', {});
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -362,4 +439,13 @@ export class NoServerTransport implements ApiTransport {
   startCall = async (): Promise<CallJoinResponse> => this.fail();
   joinCall = async (): Promise<CallJoinResponse> => this.fail();
   callAction = async (): Promise<Call> => this.fail();
+  createConversation = async (): Promise<Conversation> => this.fail();
+  getConversation = async (): Promise<Conversation> => this.fail();
+  joinConversation = async (): Promise<Conversation> => this.fail();
+  addMembers = async (): Promise<Conversation> => this.fail();
+  removeMember = async (): Promise<void> => this.fail();
+  setArchived = async (): Promise<Conversation> => this.fail();
+  listDevices = async (): Promise<DeviceSession[]> => this.fail();
+  revokeDevice = async (): Promise<void> => this.fail();
+  logout = async (): Promise<void> => this.fail();
 }

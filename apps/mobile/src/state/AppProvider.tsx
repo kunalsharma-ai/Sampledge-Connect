@@ -165,6 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const ws = openDb.current;
     if (ws) {
+      await ws.engine.logoutServer();
       await ws.engine.store.wipe();
     }
     await sessions.signOut();

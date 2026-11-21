@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMessage, LocalNotification } from '../db/store';
-import { useWorkspace } from './AppProvider';
+import type { TenantRole } from '@sampledge/contracts';
+import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
 export function useConversations(): { conversations: LocalConversation[]; loading: boolean } {
@@ -126,4 +127,73 @@ export function useCalls(): CallsState {
     return engine.calls.events.on('change', setState);
   }, [engine]);
   return state;
+}
+
+export interface DirectoryEntry {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: string;
+  title: string | null;
+}
+
+/**
+ * Active people in your workspace, cached after each sync so the picker works offline.
+ * Falls back to the cached names (no email or title) when the full directory has not loaded yet.
+ */
+export function useDirectory(): DirectoryEntry[] {
+  const { store, selfId } = useWorkspace();
+  const [list, setList] = useState<DirectoryEntry[]>([]);
+  useEffect(() => {
+    const load = () =>
+      void Promise.all([store.getSetting('directory'), store.getSetting('people')]).then(
+        ([dir, people]) => {
+          const rows: DirectoryEntry[] = dir
+            ? (JSON.parse(dir) as DirectoryEntry[])
+            : Object.entries(people ? (JSON.parse(people) as Record<string, string>) : {}).map(
+                ([userId, displayName]) => ({
+                  userId,
+                  displayName,
+                  email: '',
+                  role: 'member',
+                  title: null,
+                }),
+              );
+          setList(
+            rows
+              .filter((u) => u.userId !== selfId)
+              .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+          );
+        },
+      );
+    load();
+    return store.events.on(
+      'settings',
+      ({ key }) => (key === 'directory' || key === 'people') && load(),
+    );
+  }, [store, selfId]);
+  return list;
+}
+
+/** Your workspace role (the demo workspace acts as a regular member). */
+export function useTenantRole(): TenantRole {
+  const { session, sessionState } = useApp();
+  return sessionState === 'demo' ? 'member' : (session?.user.role ?? 'member');
+}
+
+/** One conversation from the local store, kept current. */
+export function useConversation(id: string): LocalConversation | undefined {
+  const { store } = useWorkspace();
+  const [conv, setConv] = useState<LocalConversation | undefined>();
+  useEffect(() => {
+    let alive = true;
+    const load = () => void store.getConversation(id).then((c) => alive && setConv(c));
+    load();
+    const off = store.events.on('conversations', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, id]);
+  return conv;
 }

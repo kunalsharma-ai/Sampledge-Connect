@@ -22,6 +22,8 @@ import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
+import { Button } from '../../components/Button';
+import { isUnjoinedChannel } from '../../lib/access';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useCalls, useMessages, usePeople } from '../../state/hooks';
 import { space } from '../../theme/themes';
@@ -57,6 +59,20 @@ export default function ConversationScreen() {
     if (cur) router.push({ pathname: '/call/[id]', params: { id: cur.call.callId } });
   };
   const atBottom = useRef(true);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const join = async () => {
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await engine.joinChannel(id);
+    } catch (e) {
+      setJoinError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setJoinBusy(false);
+    }
+  };
+  const openInfo = () => router.push({ pathname: '/conversation-info/[id]', params: { id } });
 
   useEffect(() => {
     const load = () => void store.getConversation(id).then(setConv);
@@ -191,7 +207,12 @@ export default function ConversationScreen() {
         options={{
           title,
           headerTitle: () => (
-            <View style={{ alignItems: 'center' }}>
+            <Pressable
+              onPress={openInfo}
+              accessibilityRole="button"
+              accessibilityLabel={`${title}, details`}
+              style={{ alignItems: 'center' }}
+            >
               <Text variant="heading" numberOfLines={1}>
                 {title}
               </Text>
@@ -200,12 +221,12 @@ export default function ConversationScreen() {
                   {conv.topic ?? `${conv.memberIds.length} members`}
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
           ),
           headerRight: () =>
             conv ? (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {callsOn
+                {callsOn && conv.myRole !== null && !conv.archivedAt
                   ? (['audio', 'video'] as const).map((m) => (
                       <Pressable
                         key={m}
@@ -225,23 +246,40 @@ export default function ConversationScreen() {
                       </Pressable>
                     ))
                   : null}
+                {conv.myRole !== null ? (
+                  <Pressable
+                    onPress={() => setNotifyOpen(true)}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Notifications: ${
+                      conv.notifyLevel === 'all'
+                        ? 'all activity'
+                        : conv.notifyLevel === 'mentions'
+                          ? 'mentions only'
+                          : 'off'
+                    }`}
+                    style={{ paddingHorizontal: space.sm }}
+                  >
+                    <Ionicons
+                      name={NOTIFY_ICON[conv.notifyLevel]}
+                      size={22}
+                      color={
+                        conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning
+                      }
+                    />
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  onPress={() => setNotifyOpen(true)}
+                  onPress={openInfo}
                   hitSlop={10}
                   accessibilityRole="button"
-                  accessibilityLabel={`Notifications: ${
-                    conv.notifyLevel === 'all'
-                      ? 'all activity'
-                      : conv.notifyLevel === 'mentions'
-                        ? 'mentions only'
-                        : 'off'
-                  }`}
+                  accessibilityLabel="Conversation details"
                   style={{ paddingHorizontal: space.sm }}
                 >
                   <Ionicons
-                    name={NOTIFY_ICON[conv.notifyLevel]}
-                    size={22}
-                    color={conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning}
+                    name="information-circle-outline"
+                    size={23}
+                    color={theme.colors.accent}
                   />
                 </Pressable>
               </View>
@@ -318,7 +356,9 @@ export default function ConversationScreen() {
               tone="muted"
               style={{ textAlign: 'center', padding: space.xl, transform: [{ scaleY: -1 }] }}
             >
-              No messages saved on this device yet. Say hello.
+              {conv && isUnjoinedChannel(conv)
+                ? 'No messages in this channel yet.'
+                : 'No messages saved on this device yet. Say hello.'}
             </Text>
           }
         />
@@ -333,13 +373,34 @@ export default function ConversationScreen() {
             </Text>
           </Animated.View>
         ) : null}
-        <Composer
-          conversationId={id}
-          placeholder={`Message ${title}`}
-          members={members}
-          mode={mode}
-          onCancelMode={() => setMode(null)}
-        />
+        {conv && isUnjoinedChannel(conv) ? (
+          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+            <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
+              {joinError ?? 'You are reading this channel. Join to post and get notified.'}
+            </Text>
+            <Button
+              title="Join channel"
+              icon="enter-outline"
+              onPress={() => void join()}
+              busy={joinBusy}
+              disabled={!!engine.serverActionBlocker()}
+            />
+          </View>
+        ) : conv?.archivedAt ? (
+          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+            <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
+              This conversation is archived and read-only.
+            </Text>
+          </View>
+        ) : (
+          <Composer
+            conversationId={id}
+            placeholder={`Message ${title}`}
+            members={members}
+            mode={mode}
+            onCancelMode={() => setMode(null)}
+          />
+        )}
       </KeyboardAvoidingView>
       <MessageActions
         message={sheetFor}
@@ -354,4 +415,10 @@ export default function ConversationScreen() {
 
 const styles = StyleSheet.create({
   typing: { paddingHorizontal: space.lg, paddingBottom: space.xs },
+  bar: {
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
 });

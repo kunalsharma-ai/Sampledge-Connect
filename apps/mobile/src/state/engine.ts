@@ -1,5 +1,6 @@
 import {
   backoffDelay,
+  type CreateConversationRequest,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -16,7 +17,7 @@ import { OutboxProcessor } from '../sync/outbox';
 import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
-import { TransportError, type ApiTransport } from '../sync/transport';
+import { TransportError, type ApiTransport, type DeviceSession } from '../sync/transport';
 
 /** What the connectivity indicator shows. */
 export type Connectivity =
@@ -313,6 +314,99 @@ export class ConnectEngine {
 
   private async receiveNotification(n: LocalNotification): Promise<void> {
     if ((await this.store.addNotification(n)) && !n.readAt) this.events.emit('notification', n);
+  }
+
+  // ------------------------------------------------------------ conversations and members
+  //
+  // These change who is in a conversation, so the server has to decide them: they need a
+  // connection and fail with a readable message instead of being queued.
+
+  /** Why a server-only action cannot run right now, or null when it can. */
+  serverActionBlocker(): string | null {
+    if (this.session.state === 'demo')
+      return 'The demo workspace has no server. Sign in to a server to do this.';
+    if (this.session.state !== 'active') return 'Sign in again to do this.';
+    if (!this._state.networkUp) return 'You are offline. This needs a connection.';
+    return null;
+  }
+
+  private async serverAction<T>(run: () => Promise<T>): Promise<T> {
+    const blocked = this.serverActionBlocker();
+    if (blocked) throw new Error(blocked);
+    try {
+      return await run();
+    } catch (err) {
+      if (err instanceof TransportError) {
+        if (err.isAuth) void this.handleAuthError(err);
+        if (err.kind === 'network') throw new Error('Could not reach the server. Try again.');
+        if (err.code === 'FORBIDDEN') throw new Error('You do not have permission to do that.');
+      }
+      throw err;
+    }
+  }
+
+  /** Starts a DM, group or channel and returns its id (an existing DM is reused). */
+  createConversation(req: CreateConversationRequest): Promise<string> {
+    return this.serverAction(async () => {
+      const c = await this.api.createConversation(req);
+      // The server adds your open sockets to its room, so live events start at once.
+      await this.store.upsertConversations([c]);
+      return c.conversationId;
+    });
+  }
+
+  /** Joins a public channel you could already read. */
+  joinChannel(conversationId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([await this.api.joinConversation(conversationId)]);
+      void this.resume();
+    });
+  }
+
+  addMembers(conversationId: string, userIds: readonly string[]): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([await this.api.addMembers(conversationId, userIds)]);
+    });
+  }
+
+  /** Removes someone, or leaves when it is you (the local copy is then removed). */
+  removeMember(conversationId: string, userId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.api.removeMember(conversationId, userId);
+      if (userId === this.store.selfUserId) {
+        await this.store.purgeConversations([conversationId]);
+        void this.resume(); // a public channel comes back as readable, not joined
+      } else {
+        await this.store.upsertConversations([await this.api.getConversation(conversationId)]);
+      }
+    });
+  }
+
+  setArchived(conversationId: string, archived: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([await this.api.setArchived(conversationId, archived)]);
+    });
+  }
+
+  listDevices(): Promise<DeviceSession[]> {
+    return this.serverAction(() => this.api.listDevices());
+  }
+
+  revokeDevice(sessionId: string): Promise<void> {
+    return this.serverAction(() => this.api.revokeDevice(sessionId));
+  }
+
+  /**
+   * Ends this device session on the server before local data is wiped, so the refresh token
+   * and push token stop working. Best effort: offline, the session simply expires.
+   */
+  async logoutServer(): Promise<void> {
+    if (this.session.state !== 'active' || !this._state.networkUp) return;
+    try {
+      await this.api.logout();
+    } catch {
+      // already revoked or unreachable
+    }
   }
 
   async send(
