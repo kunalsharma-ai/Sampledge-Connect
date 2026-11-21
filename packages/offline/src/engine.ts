@@ -6,6 +6,7 @@ import {
   uuidv7,
   type ApiError,
   type Attachment,
+  type InboxChangedEvent,
   type Conversation,
   type Message,
   type MessageStatus,
@@ -84,6 +85,7 @@ export class SyncEngine {
   private notificationListeners = new Set<(e: NotificationEvent) => void>();
   private callListeners = new Set<(e: CallEvent) => void>();
   private meetingListeners = new Set<(e: MeetingEvent) => void>();
+  private inboxListeners = new Set<(e: InboxChangedEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -124,6 +126,11 @@ export class SyncEngine {
   onCall(fn: (e: CallEvent) => void): () => void {
     this.callListeners.add(fn);
     return () => this.callListeners.delete(fn);
+  }
+  /** Client Inbox changes (new client message, delivery, assignment). The inbox is fetched over REST. */
+  onInbox(fn: (e: InboxChangedEvent) => void): () => void {
+    this.inboxListeners.add(fn);
+    return () => this.inboxListeners.delete(fn);
   }
   /** Live meeting events (invites, changes, RSVPs, reminders). */
   onMeeting(fn: (e: MeetingEvent) => void): () => void {
@@ -242,6 +249,9 @@ export class SyncEngine {
       },
       onMeeting: (e) => {
         for (const l of this.meetingListeners) l(e);
+      },
+      onInbox: (e) => {
+        for (const l of this.inboxListeners) l(e);
       },
     });
   }

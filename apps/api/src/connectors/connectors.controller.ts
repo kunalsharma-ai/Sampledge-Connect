@@ -23,7 +23,10 @@ import type { WebhookRequest } from './adapters/index.js';
 @Controller('v1/connectors')
 @UseGuards(AuthGuard)
 export class ConnectorsController {
-  constructor(private readonly connectors: ConnectorsService) {}
+  constructor(
+    private readonly connectors: ConnectorsService,
+    private readonly webhooks: WebhookService,
+  ) {}
 
   /** What every provider supports, before connecting. Static. */
   @Get('catalog')
@@ -71,7 +74,7 @@ export class ConnectorsController {
   @Post(':id/simulate-inbound')
   @HttpCode(200)
   simulate(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
-    return this.connectors.simulateInbound(ctx, id, body);
+    return this.webhooks.simulateInbound(ctx, id, body);
   }
 
   @Delete(':id')

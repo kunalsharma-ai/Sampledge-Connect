@@ -1,10 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   CONNECTOR_CATALOG,
   CreateConnectorRequestSchema,
   RotateCredentialsRequestSchema,
-  SimulateInboundRequestSchema,
   UpdateConnectorRequestSchema,
   tenantCan,
   type Connector,
@@ -18,7 +17,6 @@ import { AuditService } from '../audit/audit.service.js';
 import { ADAPTERS, ProviderError, type Credentials, type TokenCache } from './adapters/index.js';
 import { CredentialVault, hint } from './credential-vault.js';
 import { ConnectorHttp } from './transport.js';
-import { WebhookService } from './webhook.service.js';
 
 export const newWebhookKey = () => randomBytes(24).toString('base64url');
 
@@ -52,7 +50,6 @@ export class ConnectorsService {
     private readonly vault: CredentialVault,
     private readonly http: ConnectorHttp,
     private readonly audit: AuditService,
-    @Inject(forwardRef(() => WebhookService)) private readonly webhooks: WebhookService,
   ) {}
 
   private requireManage(ctx: TenantContext) {
@@ -98,12 +95,10 @@ export class ConnectorsService {
   }
 
   async toConnector(doc: ConnectorDoc): Promise<Connector> {
-    const queued = await this.db
-      .for(doc.tenantId)
-      .external_messages.countDocuments({
-        connectorId: doc._id,
-        deliveryState: { $in: ['queued', 'sending'] },
-      });
+    const queued = await this.db.for(doc.tenantId).external_messages.countDocuments({
+      connectorId: doc._id,
+      deliveryState: { $in: ['queued', 'sending'] },
+    });
     const handoff = CONNECTOR_CATALOG[doc.provider].mode === 'handoff';
     return {
       connectorId: doc._id,
@@ -409,33 +404,5 @@ export class ConnectorsService {
         e instanceof ProviderError ? e.message : `Check failed: ${(e as Error).message}`;
       return { ok: false, message, sandbox: http.sandbox };
     }
-  }
-
-  /** Test mode: build the provider's own signed webhook and run it through the real inbound path. */
-  async simulateInbound(ctx: TenantContext, id: string, input: unknown) {
-    this.requireManage(ctx);
-    const req = parse(SimulateInboundRequestSchema, input);
-    const doc = await this.find(ctx.tenantId, id);
-    if (doc.environment !== 'test')
-      throw new AppError('VALIDATION_FAILED', 'Simulated messages are only allowed in test mode');
-    const adapter = ADAPTERS[doc.provider];
-    if (!adapter.buildTestWebhook)
-      throw new AppError(
-        'VALIDATION_FAILED',
-        'This is a handoff channel. Log client messages from the conversation instead.',
-      );
-    const wh = await adapter.buildTestWebhook(
-      {
-        fromName: req.fromName,
-        fromHandle: req.fromHandle,
-        text: req.text,
-        threadId: req.threadId ?? '',
-        email: req.email,
-      },
-      this.credentials(doc),
-      `/v1/connectors/webhooks/${doc.webhookKey}`,
-    );
-    const result = await this.webhooks.handle(doc.webhookKey, wh);
-    return { accepted: result.status < 400, conversationIds: result.conversationIds };
   }
 }

@@ -47,6 +47,7 @@ import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
+import { ClientInboxScreen } from './inbox/inbox-screen';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 
@@ -216,6 +217,8 @@ export function Workspace() {
           online={state.connectivity === 'online'}
           onOpenConversation={openConversation}
         />
+      ) : module === 'client-inbox' ? (
+        <ClientInboxScreen me={me} directory={directory} role={session!.user.role} />
       ) : module === 'notifications' ? (
         <NotificationsScreen
           api={notifications}

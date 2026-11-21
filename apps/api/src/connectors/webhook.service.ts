@@ -1,5 +1,7 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { CONNECTOR_CATALOG } from '@sampledge/contracts';
+import { Injectable, Logger } from '@nestjs/common';
+import { CONNECTOR_CATALOG, SimulateInboundRequestSchema, tenantCan } from '@sampledge/contracts';
+import { forbidden, parse } from '../common/errors.js';
+import type { TenantContext } from '../common/tenant-context.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
@@ -25,8 +27,8 @@ export class WebhookService {
   private readonly log = new Logger('Webhooks');
   constructor(
     private readonly db: TenantDb,
-    @Inject(forwardRef(() => ConnectorsService)) private readonly connectors: ConnectorsService,
-    @Inject(forwardRef(() => InboxService)) private readonly inbox: InboxService,
+    private readonly connectors: ConnectorsService,
+    private readonly inbox: InboxService,
     private readonly audit: AuditService,
     private readonly limits: RateLimitService,
   ) {}
@@ -112,5 +114,34 @@ export class WebhookService {
         .for(doc.tenantId)
         .connectors.updateOne({ _id: doc._id }, { $set: { 'health.lastInboundAt': new Date() } });
     return { status: ok.status, body: ok.body, contentType: ok.contentType, conversationIds };
+  }
+
+  /** Test mode: build the provider's own signed webhook and run it through the real inbound path. */
+  async simulateInbound(ctx: TenantContext, id: string, input: unknown) {
+    if (!tenantCan(ctx.role, 'connectors.manage'))
+      throw forbidden('Only admins can manage connectors');
+    const req = parse(SimulateInboundRequestSchema, input);
+    const doc = await this.connectors.find(ctx.tenantId, id);
+    if (doc.environment !== 'test')
+      throw new AppError('VALIDATION_FAILED', 'Simulated messages are only allowed in test mode');
+    const adapter = ADAPTERS[doc.provider];
+    if (!adapter.buildTestWebhook)
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'This is a handoff channel. Log client messages from the conversation instead.',
+      );
+    const wh = await adapter.buildTestWebhook(
+      {
+        fromName: req.fromName,
+        fromHandle: req.fromHandle,
+        text: req.text,
+        threadId: req.threadId ?? '',
+        email: req.email,
+      },
+      this.connectors.credentials(doc),
+      `/v1/connectors/webhooks/${doc.webhookKey}`,
+    );
+    const result = await this.handle(doc.webhookKey, wh);
+    return { accepted: result.status < 400, conversationIds: result.conversationIds };
   }
 }

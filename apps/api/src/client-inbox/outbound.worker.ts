@@ -2,7 +2,6 @@ import {
   Inject,
   Injectable,
   Logger,
-  forwardRef,
   type OnApplicationShutdown,
   type OnModuleInit,
 } from '@nestjs/common';
@@ -17,6 +16,7 @@ import { ConnectorsService } from '../connectors/connectors.service.js';
 import { ConnectorHttp, type SandboxTransport } from '../connectors/transport.js';
 import { InboxAccess } from './inbox-events.js';
 import { InboxService } from './inbox.service.js';
+import { OutboxSignal } from './outbox-signal.js';
 
 export const MAX_ATTEMPTS = 8;
 const LEASE_MS = 30_000;
@@ -43,13 +43,16 @@ export class OutboundWorker implements OnModuleInit, OnApplicationShutdown {
 
   constructor(
     private readonly db: TenantDb,
-    @Inject(forwardRef(() => ConnectorsService)) private readonly connectors: ConnectorsService,
+    private readonly connectors: ConnectorsService,
     private readonly http: ConnectorHttp,
     private readonly access: InboxAccess,
-    @Inject(forwardRef(() => InboxService)) private readonly inbox: InboxService,
+    private readonly inbox: InboxService,
+    signal: OutboxSignal,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
-  ) {}
+  ) {
+    signal.onPoke(() => this.poke());
+  }
 
   onModuleInit() {
     this.timer = setInterval(() => this.poke(), TICK_MS);
@@ -116,15 +119,13 @@ export class OutboundWorker implements OnModuleInit, OnApplicationShutdown {
 
   /** Put a claimed message back without spending an attempt. */
   private async hold(m: ExternalMessageDoc, until: Date, reason: string | null) {
-    await this.db
-      .for(m.tenantId)
-      .external_messages.updateOne(
-        { _id: m._id },
-        {
-          $set: { deliveryState: 'queued', nextAttemptAt: until, lockedUntil: null, error: reason },
-          $inc: { attempts: -1 },
-        },
-      );
+    await this.db.for(m.tenantId).external_messages.updateOne(
+      { _id: m._id },
+      {
+        $set: { deliveryState: 'queued', nextAttemptAt: until, lockedUntil: null, error: reason },
+        $inc: { attempts: -1 },
+      },
+    );
   }
 
   private rateLimited(c: ConnectorDoc): boolean {

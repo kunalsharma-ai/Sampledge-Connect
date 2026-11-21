@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import {
+  type InboxChangedEvent,
   ERROR_CODES,
   type Ack,
   type Call,
@@ -48,6 +49,8 @@ export interface RealtimeHandlers {
   onCall?(e: CallEvent): void;
   /** Meeting invites/changes and reminders (optional for transports that lack them). */
   onMeeting?(e: MeetingEvent): void;
+  /** A Client Inbox conversation the user can see changed (optional). */
+  onInbox?(e: InboxChangedEvent): void;
 }
 
 export type MeetingEvent =
@@ -226,6 +229,7 @@ export class HttpSocketTransport implements Transport {
     s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
     s.on('meeting:upsert', (meeting) => this.handlers?.onMeeting?.({ type: 'upsert', meeting }));
     s.on('meeting:reminder', (r) => this.handlers?.onMeeting?.({ type: 'reminder', reminder: r }));
+    s.on('inbox:changed', (e) => this.handlers?.onInbox?.(e));
     this.socket = s;
     s.connect();
   }

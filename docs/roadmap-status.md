@@ -29,4 +29,10 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 
 ## Phase 2 to 4
 
-Sampledge SDK and the seven module adapters (Samptrek, SampleAudience, Sampcode, SampBidX, SampForce, SampCrew, Talk2Tax); connector gateway and unified client inbox; private AI; billing and white-label: all Planned.
+| Area    | Item                                                                                                                                                                                              | Status                           |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Phase 3 | External messaging connectors: Telegram, Slack, Teams, Google Chat, LINE, Mattermost, Nextcloud Talk (two-way); Discord, WeChat, QQ Bot (limited); Signal, iMessage (handoff)                     | Built (see docs/client-inbox.md) |
+| Phase 3 | Connector credentials stored encrypted in the database, test mode with sandbox, credential rotation with grace window, retries, rate limits, circuit breaker                                      | Built                            |
+| Phase 3 | Unified Client Inbox: timeline, client profiles and identity matching, assignment, teams, internal notes, tags, priorities, SLA, templates, escalation, links, search, supervisor dashboard (web) | Built (see docs/client-inbox.md) |
+| Phase 3 | Inbox on mobile, attachments in and out of connectors, Discord Gateway, WeChat safe mode, LINE profile names, Apple Messages for Business, dedicated connector worker process                     | Planned                          |
+|         | Sampledge SDK and the seven module adapters; private AI; billing and white-label                                                                                                                  | Planned                          |

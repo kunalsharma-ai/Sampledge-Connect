@@ -58,7 +58,7 @@ export const MODULES: ModuleDef[] = [
     built: false,
     phase: 'Phase 2 · Samptrek',
   },
-  { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: false, phase: 'Phase 3' },
+  { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: true },
   { id: 'meetings', label: 'Meetings', icon: CalendarClock, built: true },
   { id: 'recordings', label: 'Recordings', icon: Clapperboard, built: true },
   { id: 'files', label: 'Files', icon: FolderOpen, built: false, phase: 'Phase 1b · Nextcloud' },

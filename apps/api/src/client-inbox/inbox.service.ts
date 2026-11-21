@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MongoServerError, type Filter } from 'mongodb';
 import {
   AddInboxNoteRequestSchema,
@@ -41,7 +41,7 @@ import {
   toMessage,
   toNote,
 } from './mappers.js';
-import { OutboundWorker } from './outbound.worker.js';
+import { OutboxSignal } from './outbox-signal.js';
 import { LINKED_RECORD_RESOLVER, type LinkedRecordResolver } from './linked-records.js';
 
 const isDuplicate = (e: unknown) => e instanceof MongoServerError && e.code === 11000;
@@ -57,7 +57,7 @@ export class InboxService {
     private readonly access: InboxAccess,
     private readonly audit: AuditService,
     private readonly limits: RateLimitService,
-    @Inject(forwardRef(() => OutboundWorker)) private readonly worker: OutboundWorker,
+    private readonly worker: OutboxSignal,
     @Inject(LINKED_RECORD_RESOLVER) private readonly resolver: LinkedRecordResolver,
   ) {}
 
