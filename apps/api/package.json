@@ -44,6 +44,8 @@
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.2",
     "unplugin-swc": "^2.0.0",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "@sampledge/offline": "workspace:*",
+    "fake-indexeddb": "^6.2.8"
   }
 }

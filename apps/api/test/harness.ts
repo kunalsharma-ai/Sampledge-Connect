@@ -15,12 +15,15 @@ export interface Harness {
   app: INestApplication;
   url: string;
   dbName: string;
-  close(): Promise<void>;
+  close(drop?: boolean): Promise<void>;
 }
 
 /** Boots the real API against real MongoDB + Redis (docker or CI services) on a throwaway database. */
-export async function startHarness(overrides: Record<string, string> = {}): Promise<Harness> {
-  const dbName = `sc_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+export async function startHarness(
+  overrides: Record<string, string> = {},
+  opts: { port?: number; dbName?: string } = {},
+): Promise<Harness> {
+  const dbName = opts.dbName ?? `sc_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const cfg = loadConfig({
     ...process.env,
     NODE_ENV: 'test',
@@ -30,15 +33,16 @@ export async function startHarness(overrides: Record<string, string> = {}): Prom
     ...overrides,
   });
   const app = await createApp(cfg);
-  await app.listen(0, '127.0.0.1');
+  await app.listen(opts.port ?? 0, '127.0.0.1');
   const addr = app.getHttpServer().address() as { port: number };
   const url = `http://127.0.0.1:${addr.port}`;
   return {
     app,
     url,
     dbName,
-    async close() {
+    async close(drop = true) {
       await app.close();
+      if (!drop) return;
       const c = await MongoClient.connect(cfg.MONGO_URL);
       await c.db(dbName).dropDatabase();
       await c.close();

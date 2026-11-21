@@ -1,0 +1,32 @@
+{
+  "name": "@sampledge/offline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first engine: IndexedDB (Dexie) cache, durable outbox, reconnect with backoff, cursor sync",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sampledge/contracts": "workspace:*",
+    "dexie": "^4.4.7",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.8",
+    "vitest": "^5.1.1"
+  }
+}
