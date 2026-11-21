@@ -25,6 +25,12 @@ import {
   type Poll,
   type PostingPolicy,
   type ScheduledMessage,
+  type Task,
+  type Approval,
+  type CreateTaskRequest,
+  type UpdateTaskRequest,
+  type CreateApprovalRequest,
+  type DecideApprovalRequest,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -39,7 +45,9 @@ import {
   TransportError,
   type ApiTransport,
   type DeviceSession,
+  type ApprovalQuery,
   type RecordingsQuery,
+  type TaskQuery,
 } from '../sync/transport';
 
 /** What the connectivity indicator shows. */
@@ -77,6 +85,8 @@ export class ConnectEngine {
     bookmarks: ReadonlySet<string>;
     /** One of your scheduled messages changed here, on another device or by being sent. */
     scheduled: ScheduledMessage | null;
+    /** A task or approval you are involved in was created or changed (here or live). */
+    work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
   }>();
   /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
   private myVotes = new Map<string, string[]>();
@@ -168,6 +178,7 @@ export class ConnectEngine {
         this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
         this.realtime.events.on('scheduledUpdated', (m) => this.events.emit('scheduled', m)),
+        this.realtime.events.on('work', (w) => this.events.emit('work', w)),
         this.realtime.events.on('meetingReminder', (e) => {
           const mine = e.meeting.attendees.find((a) => a.userId === this.store.selfUserId);
           if (e.meeting.status === 'scheduled' && mine?.response !== 'declined')
@@ -519,6 +530,67 @@ export class ConnectEngine {
     return this.serverAction(async () => {
       this.events.emit('scheduled', await this.api.sendScheduledNow(id));
       void this.resume();
+    });
+  }
+
+  // ------------------------------------------------ tasks and approvals (online; kept on the server)
+
+  listTasks(q: TaskQuery): Promise<Task[]> {
+    return this.serverAction(() => this.api.listTasks(q));
+  }
+
+  getTask(taskId: string): Promise<Task> {
+    return this.serverAction(() => this.api.getTask(taskId));
+  }
+
+  /** Creates a task (its card is posted in the conversation). Retry-safe. */
+  createTask(req: Omit<CreateTaskRequest, 'clientRequestId'>): Promise<Task> {
+    const clientRequestId = uuidv7();
+    return this.serverAction(async () => {
+      const task = await this.api.createTask({ ...req, clientRequestId });
+      this.events.emit('work', { kind: 'task', task });
+      return task;
+    });
+  }
+
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task> {
+    return this.serverAction(async () => {
+      const task = await this.api.updateTask(taskId, req);
+      this.events.emit('work', { kind: 'task', task });
+      return task;
+    });
+  }
+
+  listApprovals(q: ApprovalQuery): Promise<Approval[]> {
+    return this.serverAction(() => this.api.listApprovals(q));
+  }
+
+  getApproval(approvalId: string): Promise<Approval> {
+    return this.serverAction(() => this.api.getApproval(approvalId));
+  }
+
+  createApproval(req: Omit<CreateApprovalRequest, 'clientRequestId'>): Promise<Approval> {
+    const clientRequestId = uuidv7();
+    return this.serverAction(async () => {
+      const approval = await this.api.createApproval({ ...req, clientRequestId });
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
+    });
+  }
+
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval> {
+    return this.serverAction(async () => {
+      const approval = await this.api.decideApproval(approvalId, req);
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
+    });
+  }
+
+  cancelApproval(approvalId: string): Promise<Approval> {
+    return this.serverAction(async () => {
+      const approval = await this.api.cancelApproval(approvalId);
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
     });
   }
 

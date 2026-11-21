@@ -1,7 +1,13 @@
 import {
   ERROR_CODES,
   type Attachment,
+  type Approval,
   type Bookmark,
+  type CreateApprovalRequest,
+  type CreateTaskRequest,
+  type DecideApprovalRequest,
+  type Task,
+  type UpdateTaskRequest,
   type CreatePollRequest,
   type CreateScheduledMessageRequest,
   type PostingPolicy,
@@ -57,6 +63,25 @@ import type {
 } from './notificationTypes';
 
 /** Why a request failed, in terms the offline queue can act on. */
+export interface TaskQuery {
+  scope: 'mine' | 'created' | 'conversation' | 'all';
+  conversationId?: string;
+  status?: 'active' | 'done' | 'any';
+}
+
+export interface ApprovalQuery {
+  scope: 'to_decide' | 'requested' | 'conversation' | 'all';
+  conversationId?: string;
+  status?: 'pending' | 'decided' | 'any';
+}
+
+function workQuery(q: TaskQuery | ApprovalQuery): string {
+  const p = new URLSearchParams({ scope: q.scope });
+  if (q.conversationId) p.set('conversationId', q.conversationId);
+  if (q.status) p.set('status', q.status);
+  return p.toString();
+}
+
 export class TransportError extends Error {
   constructor(
     message: string,
@@ -153,6 +178,15 @@ export interface ApiTransport {
   cancelScheduled(id: string): Promise<ScheduledMessage>;
   sendScheduledNow(id: string): Promise<ScheduledMessage>;
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation>;
+  listTasks(q: TaskQuery): Promise<Task[]>;
+  getTask(taskId: string): Promise<Task>;
+  createTask(req: CreateTaskRequest): Promise<Task>;
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task>;
+  listApprovals(q: ApprovalQuery): Promise<Approval[]>;
+  getApproval(approvalId: string): Promise<Approval>;
+  createApproval(req: CreateApprovalRequest): Promise<Approval>;
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
+  cancelApproval(approvalId: string): Promise<Approval>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -538,6 +572,42 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/scheduled-messages/${encodeURIComponent(id)}/send-now`, {});
   }
 
+  listTasks(q: TaskQuery): Promise<Task[]> {
+    return this.request('GET', `/v1/tasks?${workQuery(q)}`, undefined);
+  }
+
+  getTask(taskId: string): Promise<Task> {
+    return this.request('GET', `/v1/tasks/${encodeURIComponent(taskId)}`, undefined);
+  }
+
+  createTask(req: CreateTaskRequest): Promise<Task> {
+    return this.request('POST', '/v1/tasks', req);
+  }
+
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task> {
+    return this.request('PATCH', `/v1/tasks/${encodeURIComponent(taskId)}`, req);
+  }
+
+  listApprovals(q: ApprovalQuery): Promise<Approval[]> {
+    return this.request('GET', `/v1/approvals?${workQuery(q)}`, undefined);
+  }
+
+  getApproval(approvalId: string): Promise<Approval> {
+    return this.request('GET', `/v1/approvals/${encodeURIComponent(approvalId)}`, undefined);
+  }
+
+  createApproval(req: CreateApprovalRequest): Promise<Approval> {
+    return this.request('POST', '/v1/approvals', req);
+  }
+
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval> {
+    return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/decision`, req);
+  }
+
+  cancelApproval(approvalId: string): Promise<Approval> {
+    return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/cancel`, {});
+  }
+
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -751,6 +821,15 @@ export class NoServerTransport implements ApiTransport {
   cancelScheduled = async (): Promise<ScheduledMessage> => this.fail();
   sendScheduledNow = async (): Promise<ScheduledMessage> => this.fail();
   setPostingPolicy = async (): Promise<Conversation> => this.fail();
+  listTasks = async (): Promise<Task[]> => this.fail();
+  getTask = async (): Promise<Task> => this.fail();
+  createTask = async (): Promise<Task> => this.fail();
+  updateTask = async (): Promise<Task> => this.fail();
+  listApprovals = async (): Promise<Approval[]> => this.fail();
+  getApproval = async (): Promise<Approval> => this.fail();
+  createApproval = async (): Promise<Approval> => this.fail();
+  decideApproval = async (): Promise<Approval> => this.fail();
+  cancelApproval = async (): Promise<Approval> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();

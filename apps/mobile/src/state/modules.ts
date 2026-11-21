@@ -98,8 +98,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'tasks',
     title: 'Tasks & Approvals',
     icon: 'checkbox-outline',
-    status: 'planned',
-    summary: 'Assignments and approval workflows.',
+    status: 'available',
+    href: '/tasks',
+    summary:
+      'Turn a message into a task or an approval request. Assign people, set a due date, and decide approvals from your phone.',
   },
   {
     key: 'notifications',

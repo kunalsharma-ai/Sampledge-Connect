@@ -316,3 +316,62 @@ export function useScheduled(conversationId?: string): {
   }, [engine, conversationId, engineState?.networkUp, tick]);
   return { items, error, reload: () => setTick((t) => t + 1) };
 }
+
+/**
+ * A list of tasks or approvals from the server, reloaded when one changes (here or live).
+ * Null until the first load; needs a connection.
+ */
+export function useWorkList<T>(
+  load: () => Promise<T[]>,
+  deps: readonly unknown[],
+): { items: T[] | null; error: string | null; loading: boolean; reload: () => void } {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<T[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const run = () => {
+      if (engine.serverActionBlocker()) return;
+      setLoading(true);
+      load()
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => alive && setLoading(false));
+    };
+    run();
+    const off = engine.events.on('work', run);
+    return () => {
+      alive = false;
+      off();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, engineState?.networkUp, tick, ...deps]);
+  return { items, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * People you can assign work to or ask for approval: the conversation's members when there is
+ * one, else everyone in the workspace. You come first, as "Me".
+ */
+export function usePeopleChoices(conversationId?: string): { key: string; label: string }[] {
+  const { selfId } = useWorkspace();
+  const conv = useConversation(conversationId ?? '');
+  const directory = useDirectory();
+  const nameOf = usePeople();
+  const ids = conversationId
+    ? (conv?.memberIds ?? []).filter((u) => u !== selfId)
+    : directory.map((u) => u.userId);
+  return [
+    { key: selfId, label: 'Me' },
+    ...ids
+      .map((u) => ({ key: u, label: nameOf(u) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+}
