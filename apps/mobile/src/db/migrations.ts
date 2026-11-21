@@ -152,6 +152,13 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       ALTER TABLE conversations ADD COLUMN pending_notify_level TEXT;
     `);
   },
+  // v7: message type and server metadata, so system messages (calls, ...) render offline
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE messages ADD COLUMN message_type TEXT NOT NULL DEFAULT 'text';
+      ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
