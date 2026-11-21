@@ -4,7 +4,11 @@ import { createSerialDriver, type SqlDriver, type SqlValue } from './driver';
 /** Web preview: expo-sqlite's wasm build (no SQLCipher in browsers, so no PRAGMA key). */
 export async function openExpoDriver(name: string): Promise<SqlDriver> {
   const db = await SQLite.openDatabaseAsync(name);
-  await db.execAsync('PRAGMA foreign_keys = ON;');
+  // The browser VFS has a small fixed pool of file handles; keep temp tables and the
+  // rollback journal in memory so they don't take slots. Acceptable for a preview build.
+  await db.execAsync(
+    'PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA journal_mode = MEMORY;',
+  );
   return createSerialDriver(
     {
       exec: (sql) => db.execAsync(sql),

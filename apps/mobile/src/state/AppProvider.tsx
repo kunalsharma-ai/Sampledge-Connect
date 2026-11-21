@@ -55,10 +55,22 @@ const sessions: SessionManager = new SessionManager(
     }),
 );
 
+/** Short, stable per-account file name (some SQLite VFSs, e.g. the browser one, reject long names). */
+function shortHash(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x5bd1e995) >>> 0;
+  }
+  return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
+}
+
 function dbNameFor(state: SessionState, s: StoredSession | null): string | null {
   if (state === 'demo') return 'sampledge-demo.db';
   if ((state === 'active' || state === 'expired') && s)
-    return `sampledge-${s.tenant.tenantId}-${s.user.userId}.db`.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    return `sampledge-${shortHash(`${s.tenant.tenantId}:${s.user.userId}`)}.db`;
   return null;
 }
 
@@ -130,9 +142,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const offApp = AppState.addEventListener('change', (st) => {
       if (st === 'active') void workspace.engine.resume();
     });
+    // Browsers that expose navigator.connection never fire NetInfo for a plain offline
+    // switch, so the web preview also follows the window online/offline events.
+    const win = Platform.OS === 'web' ? (globalThis as unknown as Window) : null;
+    const up = () => workspace.engine.setNetworkUp(true);
+    const down = () => workspace.engine.setNetworkUp(false);
+    win?.addEventListener('online', up);
+    win?.addEventListener('offline', down);
     return () => {
       offNet();
       offApp.remove();
+      win?.removeEventListener('online', up);
+      win?.removeEventListener('offline', down);
     };
   }, [workspace]);
 
