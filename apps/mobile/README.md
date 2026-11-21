@@ -77,7 +77,10 @@ saved messages (pin from the message sheet, another member's pin arriving live, 
 list with Unpin, Save for later and the Saved messages screen), polls (post, vote, a vote
 arriving live, change a vote, close), and scheduled messages and announcement channels (Send
 later, the scheduled list with Change time, Delete and Send now, the read-only composer for
-members, and the owner's switch in details).
+members, and the owner's switch in details), and tasks and approvals (Create task from a
+message with an assignee, due date and priority; Request approval with an amount and an
+approver; both cards in the conversation; the approver deciding from To decide; ticking a task
+done from the list).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -175,12 +178,16 @@ device so they show offline) and saved messages (Save for later, More, Saved mes
 Close poll for the author and moderators), scheduled messages (+ menu, Send later, or hold the
 send button; quick times or a day and time; the server sends them as you; a banner in the
 conversation and More, Scheduled messages to send now, change the time or delete), announcement
-channels (members get a read-only bar; owners and moderators switch it in details), on-device
+channels (members get a read-only bar; owners and moderators switch it in details), tasks and
+approvals (hold a message and choose Create task or Request approval; assignees or approvers,
+due date, priority, category and amount; task and approval cards in the conversation open the
+details; More, Tasks & Approvals lists My tasks, To decide, Created by me and Requested, with a
+tick to finish a task, status changes, and Approve or Reject with a comment), on-device
 search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
+Inbox, recurring meetings, a Files library, resumable uploads, offline image caching,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), AI Assistant, Analytics, the Sampledge module integrations, Administration, SSO (OIDC)

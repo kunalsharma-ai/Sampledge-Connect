@@ -6,12 +6,14 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
 import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemMessages';
+import { workMeta } from '../lib/work';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AttachmentList } from './Attachments';
 import { PollCard } from './PollCard';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
 import { Text } from './Text';
+import { WorkCard } from './WorkRows';
 
 export interface ReplyPreview {
   /** Server id of the quoted message. */
@@ -243,6 +245,7 @@ export const MessageBubble = memo(MessageBubbleImpl);
 function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: boolean }) {
   const { theme, motion } = useTheme();
   const c = theme.colors;
+  const work = workMeta(m.metadata);
   const call = callMeta(m.metadata);
   const meeting = meetingMeta(m.metadata);
   const rec = recordingMeta(m.metadata);
@@ -264,6 +267,15 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
   const openMeeting = meeting?.meetingId
     ? () => router.push({ pathname: '/meeting/[id]', params: { id: meeting.meetingId! } })
     : undefined;
+  if (work)
+    return (
+      <Animated.View
+        entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}
+        style={styles.systemRow}
+      >
+        <WorkCard work={work} time={time(m.createdAt)} />
+      </Animated.View>
+    );
   return (
     <Animated.View
       entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}

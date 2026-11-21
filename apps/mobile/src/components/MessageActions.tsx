@@ -17,7 +17,9 @@ export type MessageAction =
   | 'unpin'
   | 'save'
   | 'unsave'
-  | 'closePoll';
+  | 'closePoll'
+  | 'createTask'
+  | 'requestApproval';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -28,6 +30,7 @@ export function MessageActions({
   saved = false,
   canPin = false,
   canClosePoll = false,
+  canMakeWork = false,
   onAction,
   onReact,
   onClose,
@@ -40,6 +43,8 @@ export function MessageActions({
   canPin?: boolean;
   /** Author or moderator of an open poll. */
   canClosePoll?: boolean;
+  /** A member here, so you can turn the message into a task or approval. */
+  canMakeWork?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -75,6 +80,14 @@ export function MessageActions({
           ? { key: 'unpin', label: 'Unpin', icon: 'pin' }
           : { key: 'pin', label: 'Pin to conversation', icon: 'pin-outline' },
       );
+    if (canMakeWork) {
+      rows.push({ key: 'createTask', label: 'Create task', icon: 'checkbox-outline' });
+      rows.push({
+        key: 'requestApproval',
+        label: 'Request approval',
+        icon: 'shield-checkmark-outline',
+      });
+    }
     rows.push(
       saved
         ? { key: 'unsave', label: 'Remove from saved', icon: 'bookmark' }

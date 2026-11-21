@@ -229,6 +229,12 @@ export default function ConversationScreen() {
         return serverStep(engine.pinMessage(m.messageId!, action === 'pin'));
       case 'closePoll':
         return serverStep(engine.closePoll(m.messageId!));
+      case 'createTask':
+      case 'requestApproval':
+        return router.push({
+          pathname: action === 'createTask' ? '/task/new' : '/approval/new',
+          params: { conversationId: id, messageId: m.messageId! },
+        });
       case 'save':
       case 'unsave':
         return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
@@ -506,6 +512,7 @@ export default function ConversationScreen() {
         own={sheetFor?.senderId === selfId}
         saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
         canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
+        canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
         canClosePoll={
           !!sheetFor?.poll &&
           !pollIsClosed(sheetFor.poll) &&

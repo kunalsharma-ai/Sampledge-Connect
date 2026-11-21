@@ -1888,6 +1888,150 @@ function totp(secret, offset = 0) {
     await p5.waitForTimeout(1500);
     await ctx5.close();
   }
+  // ---- Tasks and approvals: Sam turns a message into a task for Marco and an approval
+  // request for Priya; both cards land in the conversation; Priya approves from her phone;
+  // Sam ticks the task done from the list.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const ask = `Can someone recheck the wave 3 quota sheet before launch? (${run})`;
+    const posted = await api(
+      'POST',
+      `/v1/conversations/${ops.conversationId}/messages`,
+      {
+        conversationId: ops.conversationId,
+        clientMessageId: crypto.randomUUID(),
+        messageType: 'text',
+        content: { text: ask, mentions: [] },
+      },
+      samTok,
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(ask, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Create task' }).click();
+    await p.waitForTimeout(2500);
+    check(
+      'a task from a message starts with its text as the title',
+      (await p.getByLabel('Title', { exact: true }).inputValue()) === ask,
+    );
+    await p.getByRole('checkbox', { name: /^Marco/ }).click();
+    await p.getByRole('radio', { name: 'Tomorrow' }).click();
+    await p.getByRole('radio', { name: 'High' }).click();
+    await shot('93-new-task');
+    await p.getByRole('button', { name: 'Create task' }).click();
+    await p.waitForTimeout(3000);
+    const created = await api('GET', '/v1/tasks?scope=created', undefined, samTok);
+    const task = created.find((t) => t.title === ask);
+    check(
+      'the task reaches the server with its source message, assignee and due date',
+      !!task &&
+        task.sourceMessageId === (posted.messageId ?? posted.message?.messageId) &&
+        task.assigneeIds.length === 1 &&
+        task.priority === 'high' &&
+        !!task.dueAt,
+    );
+    check(
+      'the task opens after it is created',
+      /Assigned to/.test(await p.innerText('body')) &&
+        /High priority/.test(await p.innerText('body')),
+    );
+    await shot('94-task-detail');
+
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(ask, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Request approval' }).click();
+    await p.waitForTimeout(2500);
+    const what = `Approve the wave 3 boost incentive (${run})`;
+    await p.getByLabel('What needs approving').fill(what);
+    await p.getByRole('radio', { name: 'Budget' }).click();
+    await p.getByLabel('Amount').fill('1,250');
+    await p.getByRole('checkbox', { name: /^Priya/ }).click();
+    await shot('95-request-approval');
+    await p.getByRole('button', { name: 'Send request' }).click();
+    await p.waitForTimeout(3000);
+    const requested = await api('GET', '/v1/approvals?scope=requested', undefined, samTok);
+    const appr = requested.find((a) => a.title === what);
+    check(
+      'the approval reaches the server with its amount and approver',
+      !!appr && appr.amount?.amountMinor === 125_000 && appr.status === 'pending',
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    check(
+      'task and approval cards appear in the conversation',
+      (await p.getByRole('button', { name: new RegExp(`^Task: .*${run}`) }).count()) > 0 &&
+        (await p.getByRole('button', { name: new RegExp(`^Approval: .*${run}`) }).count()) > 0,
+    );
+    await shot('96-work-cards');
+
+    // Priya decides on her phone.
+    const ctx6 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p6 = await ctx6.newPage();
+    await p6.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p6.waitForTimeout(1500);
+    const f6 = p6.locator('input');
+    await f6.nth(0).fill(API);
+    await f6.nth(1).fill('northwind');
+    await f6.nth(2).fill('priya@northwind.test');
+    await f6.nth(3).fill(pw);
+    await p6.getByRole('button', { name: 'Sign in' }).click();
+    await p6.waitForTimeout(4000);
+    await p6.goto(`${APP}/tasks`);
+    await p6.waitForTimeout(2500);
+    await p6.getByRole('tab', { name: 'To decide' }).click();
+    await p6.waitForTimeout(2500);
+    check(
+      'the approver sees it under To decide',
+      /Your decision/.test(await p6.innerText('body')) &&
+        (await p6.innerText('body')).includes(what),
+    );
+    await p6.screenshot({ path: `${out}/97-to-decide.png` });
+    console.log('shot 97-to-decide');
+    await p6.getByText(what).first().click();
+    await p6.waitForTimeout(2500);
+    await p6.getByLabel('Comment').fill('Fine for this wave. Keep it under $1,500.');
+    await p6.getByRole('button', { name: 'Approve' }).click();
+    await p6.waitForTimeout(3000);
+    const after = await api('GET', `/v1/approvals/${appr.approvalId}`, undefined, samTok);
+    check(
+      'approving reaches the server with the comment',
+      after.status === 'approved' && after.decisions[0]?.comment.startsWith('Fine for this wave'),
+    );
+    await p6.waitForTimeout(800);
+    await p6.screenshot({ path: `${out}/98-approved.png` });
+    console.log('shot 98-approved');
+    await ctx6.close();
+
+    // Sam ticks the task done from the list.
+    await p.goto(`${APP}/tasks`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('tab', { name: 'Created by me' }).click();
+    await p.waitForTimeout(2500);
+    await p.getByRole('checkbox', { name: `Mark ${ask} done` }).click();
+    await p.waitForTimeout(2500);
+    const done = await api('GET', `/v1/tasks/${task.taskId}`, undefined, samTok);
+    check('ticking a task marks it done on the server', done.status === 'done');
+    await p.getByLabel('Show finished tasks').click();
+    await p.waitForTimeout(2000);
+    await shot('99-created-by-me');
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
