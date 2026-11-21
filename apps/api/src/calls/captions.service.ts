@@ -65,7 +65,8 @@ export class CaptionsService {
     const type = (mimeType ?? '').toLowerCase();
     if (!AUDIO.test(type) || !Buffer.isBuffer(audio) || audio.length === 0)
       throw new AppError('VALIDATION_FAILED', 'Send a short audio clip (audio/webm, ogg or mp4)');
-    if (audio.length > CAPTION_CLIP_MAX_BYTES) throw new AppError('VALIDATION_FAILED', 'Audio clip is too long');
+    if (audio.length > CAPTION_CLIP_MAX_BYTES)
+      throw new AppError('VALIDATION_FAILED', 'Audio clip is too long');
     const s = await this.transcripts.settings(tenantId);
     if (!s)
       throw new AppError(
