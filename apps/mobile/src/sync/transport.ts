@@ -61,6 +61,7 @@ import {
   type FindTimesResponse,
   type Meeting,
   type RsvpResponse,
+  type SeriesScope,
   type UpdateMeetingRequest,
   type WorkingHours,
   type NotifyLevel,
@@ -184,8 +185,14 @@ export interface ApiTransport {
   getMeeting(meetingId: string): Promise<Meeting>;
   createMeeting(req: CreateMeetingRequest): Promise<Meeting>;
   updateMeeting(meetingId: string, req: UpdateMeetingRequest): Promise<Meeting>;
-  cancelMeeting(meetingId: string): Promise<Meeting>;
-  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting>;
+  /** `scope: 'series'` cancels every upcoming meeting of a recurring series. */
+  cancelMeeting(meetingId: string, scope?: SeriesScope): Promise<Meeting>;
+  /** `scope: 'series'` answers for every upcoming meeting of a recurring series. */
+  rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope?: SeriesScope,
+  ): Promise<Meeting>;
   findTimes(req: FindTimesRequest): Promise<FindTimesResponse>;
   getWorkingHours(): Promise<WorkingHours>;
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
@@ -569,13 +576,20 @@ export class HttpTransport implements ApiTransport {
     return this.request('PATCH', `/v1/meetings/${encodeURIComponent(meetingId)}`, req);
   }
 
-  cancelMeeting(meetingId: string): Promise<Meeting> {
-    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/cancel`, {});
+  cancelMeeting(meetingId: string, scope: SeriesScope = 'occurrence'): Promise<Meeting> {
+    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/cancel`, {
+      scope,
+    });
   }
 
-  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting> {
+  rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope: SeriesScope = 'occurrence',
+  ): Promise<Meeting> {
     return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/rsvp`, {
       response,
+      scope,
     });
   }
 

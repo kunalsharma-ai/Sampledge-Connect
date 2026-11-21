@@ -7,6 +7,15 @@ import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { PeoplePicker } from '../../components/PeoplePicker';
+import { RepeatPicker } from '../../components/RepeatPicker';
+import {
+  draftFromRecurrence,
+  draftToRecurrence,
+  newRepeatDraft,
+  repeatProblem,
+  sameRecurrence,
+  type RepeatDraft,
+} from '../../lib/recurrence';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import {
@@ -71,6 +80,11 @@ export default function ScheduleMeeting() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [repeat, setRepeat] = useState<RepeatDraft>(() => newRepeatDraft(null));
+  /** Editing a recurring meeting: just this one, or this and every upcoming one. */
+  const [scope, setScope] = useState<'occurrence' | 'series'>('occurrence');
+  const series = existing?.series ?? null;
+  const tz = existing?.timeZone ?? deviceTimeZone();
   const blocked = engine.serverActionBlocker();
 
   // Prefill when editing.
@@ -83,8 +97,25 @@ export default function ScheduleMeeting() {
     setReminders(existing.remindMinutes);
     setStart(new Date(existing.startsAt));
     setDay(dayKey(new Date(existing.startsAt)));
+    if (existing.series)
+      setRepeat(draftFromRecurrence(existing.series.recurrence, new Date(existing.startsAt)));
     setLoaded(true);
   }, [existing, loaded]);
+
+  // A new rule follows the chosen time: weekly on that day, ending three months later.
+  useEffect(() => {
+    if (!start || editing) return;
+    setRepeat((r) => {
+      const fresh = newRepeatDraft(start);
+      return r.frequency === 'none' || r.weekdays.length <= 1
+        ? {
+            ...r,
+            weekdays: fresh.weekdays,
+            endsOn: r.frequency === 'none' ? fresh.endsOn : r.endsOn,
+          }
+        : r;
+    });
+  }, [start, editing]);
 
   const already = useMemo(
     () => (existing ? existing.attendees.map((a) => a.userId) : []),
@@ -179,6 +210,22 @@ export default function ScheduleMeeting() {
     if (!title.trim()) return setError('Give the meeting a title.');
     if (!slot) return setError('Pick a time.');
     if (Date.parse(slot.startsAt) < Date.now()) return setError('Pick a time in the future.');
+    const forSeries = !editing || scope === 'series';
+    if (forSeries) {
+      const problem = repeatProblem(repeat, start);
+      if (problem) return setError(problem);
+    }
+    if (editing && series && scope === 'series' && repeat.frequency === 'none')
+      return setError('To stop the series, cancel the upcoming meetings instead.');
+    if (
+      editing &&
+      series &&
+      scope === 'occurrence' &&
+      (guests.length > 0 || removedGuests.length > 0)
+    )
+      return setError(
+        'Guests are invited to the whole series. Choose “This and all upcoming” to change them.',
+      );
     setBusy(true);
     setError(null);
     try {
@@ -186,7 +233,12 @@ export default function ScheduleMeeting() {
         const moved =
           slot.startsAt !== new Date(existing.startsAt).toISOString() ||
           slot.endsAt !== new Date(existing.endsAt).toISOString();
+        const rule = draftToRecurrence(repeat);
+        const ruleChanged =
+          !!series && scope === 'series' && !sameRecurrence(rule, series.recurrence);
         await engine.updateMeeting(existing.meetingId, {
+          ...(series ? { scope } : {}),
+          ...(ruleChanged && rule ? { recurrence: rule } : {}),
           title: title.trim(),
           agenda: agenda.trim(),
           media,
@@ -210,6 +262,7 @@ export default function ScheduleMeeting() {
           remindMinutes: reminders,
           attendeeIds: selected,
           guests,
+          ...(draftToRecurrence(repeat) ? { recurrence: draftToRecurrence(repeat) } : {}),
         });
         router.replace({ pathname: '/meeting/[id]', params: { id: m.meetingId } });
       }
@@ -530,6 +583,45 @@ export default function ScheduleMeeting() {
             </Text>
           ) : null}
         </Section>
+
+        {editing && series ? (
+          <Section
+            title="Change"
+            detail={
+              scope === 'series'
+                ? 'Changes every meeting of the series that hasn’t started. A new time or rule recreates them, so answers reset.'
+                : 'Changes only this meeting. The rest of the series stays as it is.'
+            }
+          >
+            <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Change">
+              {(
+                [
+                  ['occurrence', 'Only this meeting'],
+                  ['series', 'This and all upcoming'],
+                ] as const
+              ).map(([k, label]) => (
+                <Pressable
+                  key={k}
+                  onPress={() => setScope(k)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: scope === k }}
+                  accessibilityLabel={label}
+                  style={chip(scope === k)}
+                >
+                  <Text variant="label" tone={scope === k ? 'onAccent' : 'default'}>
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Section>
+        ) : null}
+
+        {!editing || (series && scope === 'series') ? (
+          <Section title="Repeat">
+            <RepeatPicker value={repeat} onChange={setRepeat} start={start} timeZone={tz} />
+          </Section>
+        ) : null}
 
         <Section title="Remind everyone">
           <View style={styles.wrap}>
