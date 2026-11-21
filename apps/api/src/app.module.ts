@@ -30,7 +30,7 @@ import {
 import { MessagesService } from './messages/messages.service.js';
 import { SyncService } from './sync/sync.service.js';
 import { SyncController } from './sync/sync.controller.js';
-import { RealtimePublisher } from './realtime/realtime.publisher.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 import { RealtimeGateway } from './realtime/realtime.gateway.js';
 import { HealthController } from './health/health.controller.js';
 import { Metrics } from './health/metrics.js';
@@ -94,7 +94,13 @@ export class AppModule {
     };
     return {
       module: AppModule,
-      imports: [configModule, DatabaseModule, RedisModule, IntegrationSettingsModule],
+      imports: [
+        configModule,
+        DatabaseModule,
+        RedisModule,
+        RealtimeModule,
+        IntegrationSettingsModule,
+      ],
       controllers: [
         TenantIntegrationsController,
         PlatformIntegrationsController,
@@ -142,7 +148,6 @@ export class AppModule {
         ConversationsService,
         MessagesService,
         SyncService,
-        RealtimePublisher,
         RealtimeGateway,
         AttachmentsService,
         NotificationsService,

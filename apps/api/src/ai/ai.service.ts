@@ -63,6 +63,7 @@ import {
 import { ModelEngine } from './model.js';
 import { AI_SETTINGS_SOURCE, type AiSettingsSource } from './settings.js';
 import { TranscriptsService } from './transcripts.service.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const RANGE_LIMIT = 400;
 const RECENT_LIMIT = 150;
@@ -139,6 +140,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(AI_SETTINGS_SOURCE) private readonly settings: AiSettingsSource,
     private readonly transcripts: TranscriptsService,
+    private readonly realtime: RealtimePublisher,
   ) {
     settings.onChange?.((tenantId) => {
       if (tenantId) this.engines.delete(tenantId);
@@ -237,6 +239,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       action: req.enabled ? 'ai.enabled' : 'ai.disabled',
       target: { type: 'tenant', id: ctx.tenantId },
     });
+    this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'ai' });
     return this.status(ctx);
   }
 

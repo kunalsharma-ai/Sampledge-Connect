@@ -140,6 +140,7 @@ export class DirectoryController {
       metadata: { role: req.role },
     });
     void this.billing.syncSeats(ctx.tenantId);
+    this.realtime.toTenant(ctx.tenantId, 'directory:updated', { userId: user._id });
     return toUserSummary(user, req.role);
   }
 
@@ -177,6 +178,7 @@ export class DirectoryController {
       metadata: req,
     });
     if (takesSeatNow !== tookSeat) void this.billing.syncSeats(ctx.tenantId);
+    this.realtime.toTenant(ctx.tenantId, 'directory:updated', { userId: id });
     const user = await t.users.findOne({ _id: id });
     return toUserSummary(user!, req.role ?? membership.role);
   }

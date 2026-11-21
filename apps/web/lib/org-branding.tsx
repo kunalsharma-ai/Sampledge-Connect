@@ -4,6 +4,7 @@ import { DEFAULT_APP_NAME, type BrandingView } from '@sampledge/contracts';
 import { useTheme } from '@sampledge/ui';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
+import { useTenantChange } from '@/lib/engine';
 
 interface OrgBrandingValue {
   branding: BrandingView | null;
@@ -73,6 +74,8 @@ export function OrgBrandingProvider({ children }: { children: React.ReactNode })
   React.useEffect(() => {
     void refresh();
   }, [refresh]);
+  // An admin changed the brand on another device: every member's app follows.
+  useTenantChange('branding', () => void refresh());
 
   // Apply the organization theme: always when enforced; once per change when offered.
   React.useEffect(() => {

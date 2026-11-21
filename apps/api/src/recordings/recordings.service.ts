@@ -42,6 +42,7 @@ import { ConversationsService } from '../conversations/conversations.service.js'
 import { MessagesService } from '../messages/messages.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { ZipWriter, safeName } from './zip.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const RETENTION_EVERY_MS = 60 * 60_000;
 const EXPORT_URL_TTL_S = 30 * 60;
@@ -65,6 +66,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
     readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   onModuleInit() {
@@ -119,6 +121,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
     // Apply a shorter policy straight away rather than waiting for the hourly run.
     if (req.retentionDays)
       void this.applyRetention(new Date(), ctx.tenantId).catch(() => undefined);
+    this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'recordings' });
     return req;
   }
 
