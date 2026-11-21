@@ -26,6 +26,8 @@ const POLICIES = {
   guest_link: { points: 240, duration: 60 },
   /** A Sampledge module's server calling the integration API (per tenant and module). */
   module_api: { points: 600, duration: 60 },
+  /** Two-step verification codes, per account (login and settings). */
+  mfa: { points: 10, duration: 300 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;
 

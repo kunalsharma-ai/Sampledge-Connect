@@ -40,6 +40,20 @@ export interface UserDoc extends TenantOwned {
   title: string | null;
   status: 'active' | 'deactivated';
   createdAt: Date;
+  /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
+  mfa?: UserMfaDoc | null;
+}
+
+export interface UserMfaDoc {
+  /** Sealed base32 TOTP secret; set once confirmed. */
+  totpSecret: string | null;
+  /** Sealed secret awaiting a first code. */
+  pendingSecret: string | null;
+  enabledAt: Date | null;
+  /** sha256 of unused recovery codes. */
+  recoveryCodeHashes: string[];
+  /** Last accepted TOTP step: a code is never accepted twice. */
+  lastStep: number;
 }
 
 export interface MembershipDoc extends TenantOwned {

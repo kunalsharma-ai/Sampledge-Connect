@@ -9,6 +9,7 @@ import { RecordingsController } from './recordings/recordings.controller.js';
 import { RecordingsService } from './recordings/recordings.service.js';
 import { TokenService } from './auth/token.service.js';
 import { SessionService } from './auth/session.service.js';
+import { MfaService } from './auth/mfa.service.js';
 import { AuthService } from './auth/auth.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { DirectoryController } from './directory/directory.controller.js';
@@ -112,6 +113,7 @@ export class AppModule {
         TokenService,
         SessionService,
         AuthService,
+        MfaService,
         ConversationsService,
         MessagesService,
         SyncService,
