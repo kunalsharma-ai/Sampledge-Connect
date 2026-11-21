@@ -6,6 +6,7 @@ import type {
   FindTimesResponse,
   Meeting,
   MeetingReminderEvent,
+  SeriesScope,
   UpdateMeetingRequest,
   WorkingHours,
 } from '@sampledge/contracts';
@@ -42,9 +43,13 @@ export function useMeetingsApi() {
       create: (body: CreateMeetingRequest) => req<Meeting>('POST', '/v1/meetings', body),
       update: (id: string, body: UpdateMeetingRequest) =>
         req<Meeting>('PATCH', `/v1/meetings/${id}`, body),
-      cancel: (id: string) => req<Meeting>('POST', `/v1/meetings/${id}/cancel`),
-      rsvp: (id: string, response: 'accepted' | 'tentative' | 'declined') =>
-        req<Meeting>('POST', `/v1/meetings/${id}/rsvp`, { response }),
+      cancel: (id: string, scope: SeriesScope = 'occurrence') =>
+        req<Meeting>('POST', `/v1/meetings/${id}/cancel`, { scope }),
+      rsvp: (
+        id: string,
+        response: 'accepted' | 'tentative' | 'declined',
+        scope: SeriesScope = 'occurrence',
+      ) => req<Meeting>('POST', `/v1/meetings/${id}/rsvp`, { response, scope }),
       guestLink: (id: string, guestId: string) =>
         req<{ url: string }>('GET', `/v1/meetings/${id}/guests/${guestId}/link`),
       resendGuest: (id: string, guestId: string) =>

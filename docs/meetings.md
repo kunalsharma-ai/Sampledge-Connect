@@ -23,9 +23,9 @@ Meetings run on the same self-hosted stack as calls (see `docs/calls.md`). Nothi
 | GET     | `/v1/meetings?from=&to=`  | My meetings overlapping the range (max 62 days). `includeCancelled=true` optional.                                                      |
 | POST    | `/v1/meetings`            | `{ title, agenda?, startsAt, endsAt, timeZone?, media?, remindMinutes?, attendeeIds?, optionalAttendeeIds?, conversationId?, guests? }` |
 | GET     | `/v1/meetings/:id`        | Attendees, or anyone who can read the meeting chat. Others get 404.                                                                     |
-| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too.                                                                   |
-| POST    | `/v1/meetings/:id/cancel` | Organizer only.                                                                                                                         |
-| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined' }`                                                                                 |
+| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too. `scope`, `recurrence` for series.                                 |
+| POST    | `/v1/meetings/:id/cancel` | Organizer only. `{ scope?: 'occurrence' \| 'series' }`.                                                                                 |
+| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined', scope? }`                                                                         |
 | POST    | `/v1/meetings/find-times` | `{ attendeeIds, durationMinutes, from, to, stepMinutes?, limit?, ignoreMeetingId? }` → `{ slots, busy }`                                |
 | GET/PUT | `/v1/me/working-hours`    | `{ timeZone, days: [{ day: 0-6, start: 'HH:MM', end: 'HH:MM' }] }`                                                                      |
 
@@ -33,7 +33,29 @@ Socket: `meeting:upsert` (a `Meeting`, to every attendee on create, change, canc
 `{ meeting, minutesBefore }`. Push data: `{ type: 'meeting', event: 'invite' | 'reminder' | 'updated' | 'cancelled', meetingId, conversationId, startsAt }`.
 Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetadata`).
 
+## Recurring meetings
+
+Create a meeting with `recurrence` to repeat it:
+
+```json
+{ "frequency": "weekly", "interval": 1, "weekdays": [1, 3], "endsAfter": 10 }
+```
+
+- `frequency`: `daily`, `weekly` (on `weekdays`, 0 = Sunday; defaults to the first meeting's day) or `monthly`
+  (on the first meeting's day of the month; months without that day are skipped). `interval`: every 1 to 30.
+- Ends after `endsAfter` meetings (2 to 200), on `endsOn` (a local date, at most 2 years out) or never.
+- Every occurrence is its own meeting (own RSVPs, reminders and call) in the same meeting chat, with
+  `meeting.series = { seriesId, recurrence, summary, detached }`. `summary` reads like "Weekly on Tuesday".
+- Meetings keep the same local time in the organizer's time zone across daylight-saving changes.
+- Series that never end are created 180 days ahead; a background job adds more as time passes.
+- `scope: 'occurrence'` (default) changes, cancels or answers one meeting. `scope: 'series'` applies to every
+  meeting that hasn't started. A series time change (or a new `recurrence`) recreates the upcoming meetings,
+  so their answers reset and one-off changes are replaced. Other series changes keep answers.
+- Guests are added and removed for the whole series. They get one invite with an `RRULE` (local time and
+  `VTIMEZONE`), `EXDATE` for cancelled meetings, and a `RECURRENCE-ID` update when one meeting changes. Their
+  one join link opens whichever meeting of the series is next, and their RSVP covers the series.
+
 ## Planned next
 
-Public booking pages (pick a slot from a team's availability) and recurring meetings. Guests from outside the
+Public booking pages (pick a slot from a team's availability). Guests from outside the
 organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.
