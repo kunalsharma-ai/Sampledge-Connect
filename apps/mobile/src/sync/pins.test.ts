@@ -62,6 +62,8 @@ describe('pins on the device', () => {
     await db.exec('ALTER TABLE messages DROP COLUMN poll');
     await db.exec('ALTER TABLE conversations DROP COLUMN posting_policy');
     await db.exec('DROP TABLE actions; DROP TABLE work_cache; DROP TABLE id_map;');
+    await db.exec('ALTER TABLE meetings DROP COLUMN rsvp_scope');
+    await db.exec('ALTER TABLE meetings DROP COLUMN rsvp_seq');
     await migrate(db);
     expect(await store.cursors()).toEqual([{ conversationId: 'c1', afterChangeSequence: 0 }]);
     // Same change as before (pinned before the upgrade), so it only applies after the reset.

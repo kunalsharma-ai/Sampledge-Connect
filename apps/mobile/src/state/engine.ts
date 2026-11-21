@@ -8,6 +8,7 @@ import {
   type Meeting,
   type MeetingReminderEvent,
   type RsvpResponse,
+  type SeriesScope,
   type UpdateMeetingRequest,
   type WorkingHours,
   type Message,
@@ -1430,9 +1431,13 @@ export class ConnectEngine {
   }
 
   /** Answers an invitation. Works offline: the answer shows at once and is sent when possible. */
-  async rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<void> {
-    if (this.session.state === 'demo') return this.store.applyLocalRsvp(meetingId, response);
-    await this.store.setRsvpLocally(meetingId, response);
+  async rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope: SeriesScope = 'occurrence',
+  ): Promise<void> {
+    if (this.session.state === 'demo') return this.store.applyLocalRsvp(meetingId, response, scope);
+    await this.store.setRsvpLocally(meetingId, response, scope);
     await this.flushRsvps();
   }
 
@@ -1447,16 +1452,22 @@ export class ConnectEngine {
 
   private async sendRsvps(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
-    for (const { meetingId, response } of await this.store.pendingRsvps()) {
+    for (const p of await this.store.pendingRsvps()) {
       try {
-        await this.store.upsertMeetings([await this.api.rsvp(meetingId, response)]);
+        await this.store.upsertMeetings([await this.api.rsvp(p.meetingId, p.response, p.scope)]);
+        // The other meetings of the series changed on the server too.
+        if (p.scope === 'series') {
+          await this.store.settleRsvp(p);
+          void this.refreshMeetings();
+          continue;
+        }
       } catch (err) {
         if (!(err instanceof TransportError) || err.kind === 'network') return;
         if (err.isAuth) return void this.handleAuthError(err);
         if (err.retryable) return;
         // Refused for good (cancelled, or no longer invited): fall back to the server's copy.
       }
-      await this.store.settleRsvp(meetingId, response);
+      await this.store.settleRsvp(p);
     }
   }
 
@@ -1475,13 +1486,17 @@ export class ConnectEngine {
     return this.serverAction(async () => {
       const m = await this.api.updateMeeting(meetingId, req);
       await this.store.upsertMeetings([m]);
+      // A series change recreates or edits the other upcoming meetings too.
+      if (req.scope === 'series') void this.refreshMeetings();
       return m;
     });
   }
 
-  cancelMeeting(meetingId: string): Promise<void> {
+  /** `scope: 'series'` cancels this and every later meeting of a recurring series. */
+  cancelMeeting(meetingId: string, scope: SeriesScope = 'occurrence'): Promise<void> {
     return this.serverAction(async () => {
-      await this.store.upsertMeetings([await this.api.cancelMeeting(meetingId)]);
+      await this.store.upsertMeetings([await this.api.cancelMeeting(meetingId, scope)]);
+      if (scope === 'series') void this.refreshMeetings();
     });
   }
 

@@ -69,6 +69,15 @@ Create a meeting with `recurrence` to repeat it:
   `VTIMEZONE`), `EXDATE` for cancelled meetings, and a `RECURRENCE-ID` update when one meeting changes. Their
   one join link opens whichever meeting of the series is next, and their RSVP covers the series.
 
+On mobile, Schedule a meeting has a Repeat section (daily, weekly on chosen days, or monthly; every 1 to 30;
+ending never, after a number of meetings, or on a date) with the same plain-English summary. The meeting
+screen shows the rule and lets you answer for "This meeting" or "All upcoming". Answers work offline: an
+all-upcoming answer shows on every upcoming meeting of the series at once, is sent once with
+`scope: 'series'`, and answers are sent in the order you gave them (so declining one meeting after
+accepting the series stays declined). Organizers edit "Only this meeting" or "This and all upcoming"
+(where the rule and guests can change) and can cancel one meeting or all upcoming ones.
+`scripts/e2e-recurring.cjs` runs this against a real server.
+
 ## Booking pages
 
 A booking page is a public link (`/book/<slug>`) where people outside the organization pick a free

@@ -245,6 +245,13 @@ export interface LocalMeeting extends Meeting {
 }
 
 type SentRsvp = Exclude<RsvpResponse, 'pending'>;
+/** An answer waiting to be sent: for one meeting, or for every upcoming meeting of its series. */
+export interface PendingRsvp {
+  meetingId: string;
+  response: SentRsvp;
+  scope: 'occurrence' | 'series';
+  seq: number;
+}
 
 interface MessageRow {
   client_id: string;
@@ -1658,43 +1665,112 @@ export class LocalStore {
     return { ...m, myResponse: r.pending_rsvp ?? mine, rsvpPending: r.pending_rsvp != null };
   }
 
-  /** Records your answer here at once; it is sent when online (last choice wins). */
-  async setRsvpLocally(meetingId: string, response: SentRsvp): Promise<void> {
-    await this.db.run('UPDATE meetings SET pending_rsvp = ? WHERE meeting_id = ?', [
-      response,
-      meetingId,
-    ]);
+  /** The other meetings of a series that a whole-series answer covers (not ended, not cancelled). */
+  private async seriesSiblings(meetingId: string, now: number): Promise<string[]> {
+    const m = await this.getMeeting(meetingId);
+    const seriesId = m?.series?.seriesId;
+    if (!seriesId) return [];
+    const rows = await this.db.all<{ meeting_id: string; data: string }>(
+      "SELECT meeting_id, data FROM meetings WHERE ends_at > ? AND status = 'scheduled' AND meeting_id != ?",
+      [new Date(now).toISOString(), meetingId],
+    );
+    return rows
+      .filter((r) => (JSON.parse(r.data) as Meeting).series?.seriesId === seriesId)
+      .map((r) => r.meeting_id);
+  }
+
+  /**
+   * Records your answer here at once; it is sent when online, in the order given. A
+   * whole-series answer also shows on every upcoming meeting of the series.
+   */
+  async setRsvpLocally(
+    meetingId: string,
+    response: SentRsvp,
+    scope: 'occurrence' | 'series' = 'occurrence',
+    now = Date.now(),
+  ): Promise<void> {
+    const siblings = scope === 'series' ? await this.seriesSiblings(meetingId, now) : [];
+    await this.db.transaction(async (tx) => {
+      const seq =
+        ((await tx.get<{ n: number | null }>('SELECT MAX(rsvp_seq) AS n FROM meetings'))?.n ?? 0) +
+        1;
+      await tx.run(
+        'UPDATE meetings SET pending_rsvp = ?, rsvp_scope = ?, rsvp_seq = ? WHERE meeting_id = ?',
+        [response, scope, seq, meetingId],
+      );
+      for (const id of siblings)
+        await tx.run(
+          "UPDATE meetings SET pending_rsvp = ?, rsvp_scope = 'shadow', rsvp_seq = ? WHERE meeting_id = ?",
+          [response, seq, id],
+        );
+    });
     this.events.emit('meetings', undefined);
   }
 
-  async pendingRsvps(): Promise<{ meetingId: string; response: SentRsvp }[]> {
-    const rows = await this.db.all<{ meeting_id: string; pending_rsvp: SentRsvp }>(
-      'SELECT meeting_id, pending_rsvp FROM meetings WHERE pending_rsvp IS NOT NULL',
+  /** Answers to send, oldest first. Shadows of a series answer are not sent on their own. */
+  async pendingRsvps(): Promise<PendingRsvp[]> {
+    const rows = await this.db.all<{
+      meeting_id: string;
+      pending_rsvp: SentRsvp;
+      rsvp_scope: string | null;
+      rsvp_seq: number | null;
+    }>(
+      `SELECT meeting_id, pending_rsvp, rsvp_scope, rsvp_seq FROM meetings
+       WHERE pending_rsvp IS NOT NULL AND (rsvp_scope IS NULL OR rsvp_scope != 'shadow')
+       ORDER BY rsvp_seq`,
     );
-    return rows.map((r) => ({ meetingId: r.meeting_id, response: r.pending_rsvp }));
+    return rows.map((r) => ({
+      meetingId: r.meeting_id,
+      response: r.pending_rsvp,
+      scope: r.rsvp_scope === 'series' ? 'series' : 'occurrence',
+      seq: r.rsvp_seq ?? 0,
+    }));
   }
 
   /** Demo workspace only: there is no server, so the answer is written straight into the copy. */
-  async applyLocalRsvp(meetingId: string, response: SentRsvp): Promise<void> {
-    const m = await this.getMeeting(meetingId);
-    if (!m) return;
-    const { myResponse: _r, rsvpPending: _p, ...meeting } = m;
-    const attendees = meeting.attendees.map((a) =>
-      a.userId === this.selfId ? { ...a, response } : a,
-    );
-    await this.db.run('UPDATE meetings SET data = ?, pending_rsvp = NULL WHERE meeting_id = ?', [
-      JSON.stringify({ ...meeting, attendees }),
+  async applyLocalRsvp(
+    meetingId: string,
+    response: SentRsvp,
+    scope: 'occurrence' | 'series' = 'occurrence',
+    now = Date.now(),
+  ): Promise<void> {
+    const ids = [
       meetingId,
-    ]);
+      ...(scope === 'series' ? await this.seriesSiblings(meetingId, now) : []),
+    ];
+    for (const id of ids) {
+      const m = await this.getMeeting(id);
+      if (!m) continue;
+      const { myResponse: _r, rsvpPending: _p, ...meeting } = m;
+      const attendees = meeting.attendees.map((a) =>
+        a.userId === this.selfId ? { ...a, response } : a,
+      );
+      await this.db.run(
+        'UPDATE meetings SET data = ?, pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL WHERE meeting_id = ?',
+        [JSON.stringify({ ...meeting, attendees }), id],
+      );
+    }
     this.events.emit('meetings', undefined);
   }
 
-  /** Clears a sent (or refused) answer, unless a newer one was chosen while it was in flight. */
-  async settleRsvp(meetingId: string, sent: SentRsvp): Promise<void> {
-    await this.db.run(
-      'UPDATE meetings SET pending_rsvp = NULL WHERE meeting_id = ? AND pending_rsvp = ?',
-      [meetingId, sent],
-    );
+  /**
+   * Clears a sent (or refused) answer, unless a newer one was chosen while it was in flight.
+   * A whole-series answer also clears the shadows it put on the other meetings.
+   */
+  async settleRsvp(sent: PendingRsvp): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE meetings SET pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL
+         WHERE meeting_id = ? AND rsvp_seq = ?`,
+        [sent.meetingId, sent.seq],
+      );
+      if (sent.scope === 'series')
+        await tx.run(
+          `UPDATE meetings SET pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL
+           WHERE rsvp_scope = 'shadow' AND rsvp_seq = ?`,
+          [sent.seq],
+        );
+    });
     this.events.emit('meetings', undefined);
   }
 
