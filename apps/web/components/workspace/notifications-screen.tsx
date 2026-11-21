@@ -6,7 +6,7 @@ import type { Conversation, Notification } from '@sampledge/contracts';
 import { Avatar, Button, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import type { NotificationsApi } from '@/lib/notifications';
-import { conversationTitle, formatDay, nameOf, relativeShort } from './helpers';
+import { avatarOf, conversationTitle, formatDay, nameOf, relativeShort } from './helpers';
 
 type Filter = 'all' | 'unread';
 
@@ -138,7 +138,7 @@ export function NotificationsScreen({
                           )}
                         >
                           <span className="relative shrink-0">
-                            <Avatar name={actor} size="md" />
+                            <Avatar name={actor} src={avatarOf(n.actorId, directory)} size="md" />
                             <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border-2 border-bg bg-accent text-accent-fg">
                               <Icon className="size-3" />
                             </span>

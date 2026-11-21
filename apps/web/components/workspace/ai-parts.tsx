@@ -6,7 +6,7 @@ import { Avatar, Badge, Button, Dialog, DialogContent, cn, useToast } from '@sam
 import type { DirectoryEntry } from '@/lib/engine';
 import { ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
 import { ApiFailure } from '@/lib/api';
-import { nameOf } from './helpers';
+import { avatarOf, nameOf } from './helpers';
 
 export const RISK_LABEL: Record<AiRiskCategory, string> = {
   financial: 'money or pricing',
@@ -43,7 +43,11 @@ export function ActionItemRow({
         <span className="mt-1 flex flex-wrap items-center gap-1.5 text-meta text-text-subtle">
           {item.assigneeId ? (
             <span className="inline-flex items-center gap-1">
-              <Avatar name={nameOf(item.assigneeId, directory)} size="xs" />
+              <Avatar
+                name={nameOf(item.assigneeId, directory)}
+                src={avatarOf(item.assigneeId, directory)}
+                size="xs"
+              />
               {item.assigneeId === me ? 'You' : nameOf(item.assigneeId, directory).split(' ')[0]}
             </span>
           ) : (

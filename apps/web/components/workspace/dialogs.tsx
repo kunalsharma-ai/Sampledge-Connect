@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { ProfileCard } from './profile-card';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Check, Hash, Lock, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
 import type { Conversation, CreateConversationRequest, UserSummary } from '@sampledge/contracts';
@@ -23,7 +24,7 @@ import { useOrgBranding } from '@/lib/org-branding';
 import { useEngine } from '@/lib/engine';
 import { BrowserNotificationsCard } from './browser-notifications';
 import { TwoStepCard } from './two-step-card';
-import { relativeShort } from './helpers';
+import { avatarUrl, relativeShort } from './helpers';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
 
@@ -200,7 +201,7 @@ export function NewConversationDialog({
                       on ? 'bg-accent-soft' : 'hover:bg-surface-raised',
                     )}
                   >
-                    <Avatar name={u.displayName} size="sm" />
+                    <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="sm" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-label text-text">{u.displayName}</span>
                       <span className="block truncate text-meta text-text-subtle">
@@ -418,8 +419,9 @@ export function SettingsDialog({
       <DialogContent
         className="w-[min(880px,calc(100vw-2rem))]"
         title="Settings"
-        description="Appearance, notifications and sign-in security."
+        description="Your profile, appearance, notifications and sign-in security."
       >
+        <ProfileCard />
         {themeLocked ? (
           <p className="mb-3 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-meta text-text-muted">
             {branding?.organizationName ?? 'Your organization'} sets the theme for everyone.

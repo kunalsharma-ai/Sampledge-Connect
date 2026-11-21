@@ -66,7 +66,7 @@ import {
   useMeetingsApi,
   usePendingRsvps,
 } from '@/lib/meetings';
-import { nameOf } from './helpers';
+import { avatarOf, avatarUrl, nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
 import { RepeatPicker } from './repeat-picker';
 import { BookingPagesDialog } from './booking-pages';
@@ -676,7 +676,11 @@ function MeetingDetails({
           <ul className="space-y-2">
             {m.attendees.map((a) => (
               <li key={a.userId} className="flex items-center gap-2.5">
-                <Avatar name={nameOf(a.userId, directory)} size="sm" />
+                <Avatar
+                  name={nameOf(a.userId, directory)}
+                  src={avatarOf(a.userId, directory)}
+                  size="sm"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-label text-text">
                     {a.userId === me ? 'You' : nameOf(a.userId, directory)}
@@ -992,7 +996,7 @@ export function NewMeetingDialog({
                   key={id}
                   className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised py-0.5 pl-1 pr-2 text-meta text-text"
                 >
-                  <Avatar name={nameOf(id, directory)} size="xs" />
+                  <Avatar name={nameOf(id, directory)} src={avatarOf(id, directory)} size="xs" />
                   {nameOf(id, directory)}
                   {conflicts.includes(id) ? <span className="text-warning">· busy</span> : null}
                   {existing.has(id) ? null : (
@@ -1024,7 +1028,7 @@ export function NewMeetingDialog({
                         setQ('');
                       }}
                     >
-                      <Avatar name={u.displayName} size="xs" />
+                      <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="xs" />
                       <span className="text-label text-text">{u.displayName}</span>
                       {u.title ? (
                         <span className="text-meta text-text-subtle">{u.title}</span>
