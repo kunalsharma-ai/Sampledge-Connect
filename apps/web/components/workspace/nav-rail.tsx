@@ -14,6 +14,7 @@ export function NavRail({
   onToggle,
   tenantName,
   userName,
+  userAvatar,
   isAdmin,
   unreadTotal,
   notificationCount = 0,
@@ -25,6 +26,8 @@ export function NavRail({
   onToggle: () => void;
   tenantName: string;
   userName: string;
+  /** Profile photo URL, or null for initials. */
+  userAvatar?: string | null;
   isAdmin: boolean;
   unreadTotal: number;
   notificationCount?: number;
@@ -121,7 +124,7 @@ export function NavRail({
             expanded ? '' : 'justify-center',
           )}
         >
-          <Avatar name={userName} size="sm" presence="online" />
+          <Avatar name={userName} src={userAvatar} size="sm" presence="online" />
           {expanded ? (
             <>
               <span className="min-w-0 flex-1 truncate text-label text-text">{userName}</span>

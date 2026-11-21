@@ -40,6 +40,11 @@ export function toUserSummary(u: UserDoc, role: UserSummary['role']): UserSummar
     role,
     title: u.title,
     status: u.status,
+    avatarUrl: u.avatarKey ? `/v1/avatars/${u.tenantId}/${u.avatarKey}` : null,
+    department: u.department ?? null,
+    phone: u.phone ?? null,
+    bio: u.bio ?? null,
+    timeZone: u.timeZone ?? null,
   };
 }
 
