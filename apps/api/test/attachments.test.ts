@@ -89,7 +89,13 @@ describe('attachments', () => {
     expect(Buffer.from(await res.arrayBuffer()).equals(bytes)).toBe(true);
 
     // Tampering or a non-member is refused.
-    expect((await fetch(h.url + u.body.url.replace(/sig=./, 'sig=x'))).status).toBe(403);
+    expect(
+      (
+        await fetch(
+          h.url + u.body.url.replace(/sig=(.)/, (_, c: string) => `sig=${c === 'x' ? 'y' : 'x'}`),
+        )
+      ).status,
+    ).toBe(403);
     expect(
       (
         await api(h, 'GET', `/v1/attachments/${a.attachmentId}/url`, {
