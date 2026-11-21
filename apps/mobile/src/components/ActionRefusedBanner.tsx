@@ -32,6 +32,7 @@ const WHAT: Record<ActionKind, string> = {
   'profile.update': 'Profile change',
   'avatar.set': 'New profile photo',
   'avatar.remove': 'Removing your photo',
+  'search.recent': 'Saving your recent searches',
 };
 
 /**

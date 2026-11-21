@@ -46,3 +46,13 @@ then replaces them with the server's answer when online, and labels them clearly
 `GET /v1/search/recent` and `PUT /v1/search/recent {recent: string[]}` (idempotent, max 10,
 deduplicated). Every change emits `search:recent` to the person's own devices. The web saves
 changes through the durable action queue (`search-recent` key), so they work offline.
+
+## Mobile
+
+The app's Search tab has the same box, filter chips and tabs (All, Messages, People, Channels &
+chats, Files, Tasks, Meetings) with highlighted results. Typed operators are resolved on the
+phone (`buildSearch` in `apps/mobile/src/lib/search.ts`) against cached people and
+conversations. While offline it searches the messages stored in the phone's database, including
+ones not sent yet, and labels them "Messages on this phone". Recent searches are kept on the
+phone, saved through the action queue (`search.recent`, coalesced to the latest list) and
+replaced live by `search:recent` from other devices.

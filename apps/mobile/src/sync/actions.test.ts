@@ -94,6 +94,7 @@ async function setup() {
     approvals: new Map<string, Approval>(),
     scheduled: new Map<string, ScheduledMessage>(),
     booking: new Map<string, BookingPage>(),
+    recent: ['wave 3'] as string[],
     users: new Map<string, DirectoryUser>([
       [
         SELF,
@@ -162,6 +163,15 @@ async function setup() {
       const next = { ...server.users.get(SELF)!, avatarUrl: null };
       server.users.set(SELF, next);
       return next;
+    },
+    getRecentSearches: async () => {
+      step('listRecentSearches');
+      return server.recent;
+    },
+    setRecentSearches: async (recent: string[]) => {
+      step(`setRecent ${recent.join('|')}`);
+      server.recent = [...recent];
+      return server.recent;
     },
     listNotifications: async () => ({ items: [], unreadCount: 0, nextBefore: null }),
     listMeetings: async () => [],
@@ -797,5 +807,63 @@ describe('your profile and photo offline', () => {
     t.rt.events.emit('directory', { userId: PEER });
     await new Promise((r) => setTimeout(r, 30));
     expect((await avatars(t))[PEER]).toBe('https://connect.test/v1/avatars/t1/new');
+  });
+});
+
+describe('recent searches on every device', () => {
+  it('saved offline at once, sent once as the latest list, and live changes from another device show', async () => {
+    const t = await setup();
+    await t.online();
+    expect(await t.engine.recentSearches()).toEqual(['wave 3']);
+    t.engine.setNetworkUp(false);
+    await t.engine.rememberSearch('quota from:@priya');
+    await t.engine.rememberSearch('Wave 3'); // moves to the top, not added twice
+    await t.engine.rememberSearch('incidence');
+    await t.engine.forgetSearch('quota from:@priya');
+    expect(await t.engine.recentSearches()).toEqual(['incidence', 'Wave 3']);
+    // A list from another device while this one has an unsent change: ours still shows.
+    t.rt.events.emit('searchRecent', { recent: ['elsewhere'] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await t.engine.recentSearches()).toEqual(['incidence', 'Wave 3']);
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setRecent'))).toEqual([
+      'setRecent incidence|Wave 3',
+    ]);
+    expect(await t.engine.recentSearches()).toEqual(['incidence', 'Wave 3']);
+    // Now another device clears them; this phone follows.
+    t.rt.events.emit('searchRecent', { recent: [] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await t.engine.recentSearches()).toEqual([]);
+  });
+
+  it('keeps at most ten', async () => {
+    const t = await setup();
+    await t.online();
+    for (let i = 0; i < 12; i++) await t.engine.rememberSearch(`q${i}`);
+    const r = await t.engine.recentSearches();
+    expect(r).toHaveLength(10);
+    expect(r[0]).toBe('q11');
+  });
+});
+
+describe('search on this phone', () => {
+  it('every word must match, in the text or a file name, with the same filters as the server', async () => {
+    const t = await setup();
+    await t.addMessage({
+      content: { text: 'Wave 3 quota by region', mentions: [] },
+      senderId: SELF,
+    });
+    await t.addMessage({ content: { text: 'quota is fine', mentions: [] }, senderId: PEER });
+    await t.engine.send('c1', 'unsent wave 3 quota note');
+    const terms = (q: string) => q.toLowerCase().split(' ');
+    const texts = async (q: Parameters<typeof t.engine.searchOnPhone>[0]) =>
+      (await t.engine.searchOnPhone(q)).map((m) => m.text).sort();
+    expect(await texts({ terms: terms('wave quota') })).toEqual([
+      'Wave 3 quota by region',
+      'unsent wave 3 quota note',
+    ]);
+    expect(await texts({ terms: ['quota'], from: PEER })).toEqual(['quota is fine']);
+    expect(await texts({ terms: ['quota'], in: 'c2' })).toEqual([]);
+    expect(await texts({ terms: ['quota'], hasFile: true })).toEqual([]);
   });
 });

@@ -515,3 +515,23 @@ export function usePeopleChoices(conversationId?: string): { key: string; label:
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
 }
+
+/** Your recent searches, newest first; follows changes here and on your other devices. */
+export function useRecentSearches(): string[] {
+  const { engine } = useWorkspace();
+  const [items, setItems] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void engine.recentSearches().then((r) => alive && setItems(r));
+    load();
+    const offs = [
+      engine.events.on('recentSearches', (r) => alive && setItems(r)),
+      engine.store.work.events.on('changed', (e) => e.kind === 'search' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine]);
+  return items;
+}

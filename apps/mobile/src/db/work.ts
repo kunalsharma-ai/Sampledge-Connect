@@ -57,7 +57,9 @@ export type ActionInput =
   | { kind: 'profile.update'; patch: UpdateProfileRequest }
   /** A cropped, compressed photo as a data URL, kept here until it reaches the server. */
   | { kind: 'avatar.set'; image: string }
-  | { kind: 'avatar.remove' };
+  | { kind: 'avatar.remove' }
+  /** Your recent searches as a whole list (synced to all your devices; the latest wins). */
+  | { kind: 'search.recent'; recent: string[] };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -97,7 +99,8 @@ export interface ApprovalFilter {
   status?: 'pending' | 'decided' | 'any';
 }
 
-type CacheKind = 'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking' | 'profile';
+type CacheKind =
+  'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking' | 'profile' | 'search';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -146,6 +149,8 @@ const targetOf = (a: ActionInput): string => {
     case 'avatar.set':
     case 'avatar.remove':
       return 'avatar:me';
+    case 'search.recent':
+      return 'search:recent';
   }
 };
 
@@ -394,9 +399,10 @@ export class WorkStore {
           else await insert(input);
           break;
         }
+        case 'search.recent':
         case 'avatar.set':
         case 'avatar.remove':
-          // Only the latest photo (or its removal) matters.
+          // Only the latest photo (or its removal, or recent list) matters.
           await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
           await insert(input);
           break;
@@ -845,6 +851,17 @@ export class WorkStore {
       if (a.input.kind === 'avatar.remove') out.avatar = null;
     }
     return out;
+  }
+
+  /** Your recent searches changed on this device and not on the server yet (null: none). */
+  async pendingRecentSearches(): Promise<string[] | null> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'search:recent' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'search.recent' ? last.recent : null;
   }
 
   /** Your choice in a poll as the server last told this device. */

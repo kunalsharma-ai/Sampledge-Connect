@@ -77,6 +77,17 @@ export interface MessagePin {
 }
 
 /** A file on a message: from the server snapshot, from this device, or both. */
+/** A search of the messages on this phone (terms lower-case; dates ISO). */
+export interface LocalSearch {
+  terms: string[];
+  from?: string;
+  in?: string;
+  hasFile?: boolean;
+  after?: string;
+  before?: string;
+  limit?: number;
+}
+
 export interface LocalAttachment {
   /** Null until the upload completes. */
   attachmentId: string | null;
@@ -1454,6 +1465,46 @@ export class LocalStore {
 
   async getConversation(id: string): Promise<LocalConversation | undefined> {
     return (await this.listConversations()).find((c) => c.conversationId === id);
+  }
+
+  /**
+   * Universal Search on this phone: messages (and their file names) where every term appears,
+   * newest first, with the same filters as the server. Includes messages not sent yet.
+   */
+  async searchMessagesBy(q: LocalSearch): Promise<LocalMessage[]> {
+    const where = ['m.deleted_at IS NULL'];
+    const args: (string | number)[] = [];
+    const like = (t: string) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    for (const t of q.terms) {
+      where.push("(m.text LIKE ? ESCAPE '\\' OR m.attachments LIKE ? ESCAPE '\\')");
+      args.push(like(t), like(t));
+    }
+    if (q.from) {
+      where.push('m.sender_id = ?');
+      args.push(q.from);
+    }
+    if (q.in) {
+      where.push('m.conversation_id = ?');
+      args.push(q.in);
+    }
+    if (q.after) {
+      where.push('m.created_at >= ?');
+      args.push(q.after);
+    }
+    if (q.before) {
+      where.push('m.created_at < ?');
+      args.push(q.before);
+    }
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC LIMIT ?`,
+      [...args, 400],
+    );
+    const out = (await this.hydrate(rows)).filter((m) => {
+      if (q.hasFile && m.attachments.length === 0) return false;
+      const hay = [m.text, ...m.attachments.map((f) => f.fileName)].join('\n').toLowerCase();
+      return q.terms.every((t) => hay.includes(t));
+    });
+    return out.slice(0, q.limit ?? 50);
   }
 
   async searchMessages(query: string, limit = 50): Promise<LocalMessage[]> {
