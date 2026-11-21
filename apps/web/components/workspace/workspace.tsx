@@ -3,6 +3,7 @@ import * as React from 'react';
 import { AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
+  CalendarPlus,
   Hash,
   Lock,
   MessageSquarePlus,
@@ -44,6 +45,8 @@ import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
+import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
+import type { MeetingSystemMetadata } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 
 const LS_RAIL = 'sampledge.rail';
@@ -95,6 +98,15 @@ export function Workspace() {
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
   const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings' | 'admin'>(null);
   const [palette, setPalette] = React.useState(false);
+  const [scheduleIn, setScheduleIn] = React.useState<string | null>(null);
+  const [focusMeeting, setFocusMeeting] = React.useState<{
+    meetingId: string;
+    startsAt: string;
+  } | null>(null);
+  const openConversation = React.useCallback((id: string) => {
+    setModule('messages');
+    setActiveId(id);
+  }, []);
   useTick(1000);
 
   const active = conversations?.find((c) => c.conversationId === activeId) ?? null;
@@ -187,7 +199,15 @@ export function Workspace() {
         onSignOut={() => void signOut()}
       />
 
-      {module === 'notifications' ? (
+      {module === 'meetings' ? (
+        <MeetingsScreen
+          me={me}
+          directory={directory}
+          conversations={conversations ?? []}
+          onOpenConversation={openConversation}
+          focus={focusMeeting}
+        />
+      ) : module === 'notifications' ? (
         <NotificationsScreen
           api={notifications}
           conversations={conversations ?? []}
@@ -273,6 +293,21 @@ export function Workspace() {
                       compact
                     />
                   </button>
+                  <Tooltip
+                    content={offline ? 'Scheduling needs a connection' : 'Schedule a meeting here'}
+                    side="bottom"
+                  >
+                    <span>
+                      <button
+                        className="rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40"
+                        aria-label="Schedule a meeting here"
+                        disabled={offline || readOnly}
+                        onClick={() => setScheduleIn(active.conversationId)}
+                      >
+                        <CalendarPlus className="size-4" />
+                      </button>
+                    </span>
+                  </Tooltip>
                   <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
                   <NotifyLevelMenu conversation={active} offline={offline} />
                   <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
@@ -319,6 +354,10 @@ export function Workspace() {
                   }}
                   onReply={(m) => setReplyTo(m)}
                   offline={offline}
+                  onOpenMeeting={(meta: MeetingSystemMetadata) => {
+                    setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
+                    setModule('meetings');
+                  }}
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -423,6 +462,18 @@ export function Workspace() {
         }}
       />
       <CallErrorToast />
+      <MeetingReminderToast onOpenConversation={openConversation} />
+      <NewMeetingDialog
+        open={!!scheduleIn}
+        onOpenChange={(o) => !o && setScheduleIn(null)}
+        me={me}
+        directory={directory}
+        conversationId={scheduleIn ?? undefined}
+        onCreated={(m) => {
+          setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
+          setModule('meetings');
+        }}
+      />
 
       <MobileNav
         active={module}
@@ -493,7 +544,7 @@ export function Workspace() {
   );
 }
 
-const MOBILE: ModuleId[] = ['messages', 'channels', 'notifications', 'settings'];
+const MOBILE: ModuleId[] = ['messages', 'channels', 'meetings', 'notifications', 'settings'];
 
 function MobileNav({
   active,

@@ -211,6 +211,36 @@ export interface CallDoc extends TenantOwned {
   lastActivityAt: Date;
 }
 
+export interface MeetingDoc extends TenantOwned {
+  conversationId: string;
+  title: string;
+  agenda: string;
+  startsAt: Date;
+  endsAt: Date;
+  timeZone: string;
+  organizerId: string;
+  attendees: {
+    userId: string;
+    response: 'pending' | 'accepted' | 'tentative' | 'declined';
+    optional: boolean;
+  }[];
+  media: 'audio' | 'video';
+  remindMinutes: number[];
+  /** Reminder offsets already delivered for the current start time. */
+  remindersSent: number[];
+  status: 'scheduled' | 'cancelled';
+  /** The meeting card posted in the meeting chat. */
+  messageId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface UserSettingsDoc extends TenantOwned {
+  userId: string;
+  workingHours: { timeZone: string; days: { day: number; start: string; end: string }[] };
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -225,4 +255,6 @@ export interface TenantCollections {
   attachments: AttachmentDoc;
   notifications: NotificationDoc;
   calls: CallDoc;
+  meetings: MeetingDoc;
+  user_settings: UserSettingsDoc;
 }

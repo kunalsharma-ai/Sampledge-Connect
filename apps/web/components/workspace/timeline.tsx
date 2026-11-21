@@ -15,6 +15,8 @@ import { formatDay, formatTime, nameOf } from './helpers';
 import { MessageAttachments } from './attachments';
 import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
 import { CallCard } from './calls';
+import { MeetingCard } from './meetings';
+import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 
@@ -30,6 +32,7 @@ export function Timeline({
   onReact,
   onReply,
   offline = false,
+  onOpenMeeting,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -42,6 +45,7 @@ export function Timeline({
   onReact?: (m: LocalMessage, emoji: string, add: boolean) => void;
   onReply?: (m: LocalMessage) => void;
   offline?: boolean;
+  onOpenMeeting?: (meta: MeetingSystemMetadata) => void;
 }) {
   const reduce = useReducedMotion();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -123,7 +127,14 @@ export function Timeline({
                   <span className="h-px flex-1 bg-border" />
                 </div>
               ) : null}
-              {m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
+              {m.messageType === 'system' && m.metadata?.meeting && !m.deletedAt ? (
+                <MeetingCard
+                  message={m}
+                  me={me}
+                  directory={directory}
+                  onOpen={() => onOpenMeeting?.(m.metadata.meeting as MeetingSystemMetadata)}
+                />
+              ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
                 <CallCard message={m} me={me} directory={directory} offline={offline} />
               ) : (
                 <motion.div

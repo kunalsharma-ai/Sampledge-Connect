@@ -138,6 +138,8 @@ export class TenantDb {
       attachments: c('attachments'),
       notifications: c('notifications'),
       calls: c('calls'),
+      meetings: c('meetings'),
+      user_settings: c('user_settings'),
     };
   }
 }
