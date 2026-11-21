@@ -204,16 +204,36 @@ export function Workspace() {
     return m;
   })();
 
-  // Deep link: /app?c=<conversationId> (used by the chat widget's "Open in Connect").
+  // Deep link: /app?c=<conversationId>[&m=<messageId>] (chat widget, browser notifications).
   React.useEffect(() => {
-    const c = new URLSearchParams(window.location.search).get('c');
+    const q = new URLSearchParams(window.location.search);
+    const c = q.get('c');
     if (!c) return;
     setModule('messages');
     setActiveId(c);
+    const m = q.get('m');
+    if (m) setTimeout(() => setHighlightId(m), 600);
     window.history.replaceState(null, '', window.location.pathname);
   }, []);
 
-  // Open the most recent conversation on wide screens.
+  // A click on a browser notification while this tab is open (see public/sw.js).
+  React.useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type !== 'open' || typeof e.data.url !== 'string') return;
+      const q = new URL(e.data.url, window.location.origin).searchParams;
+      const c = q.get('c');
+      if (!c) return;
+      setModule('messages');
+      setActiveId(c);
+      const m = q.get('m');
+      if (m) setTimeout(() => setHighlightId(m), 300);
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, []);
+
+    // Open the most recent conversation on wide screens.
   React.useEffect(() => {
     if (activeId || !conversations?.length || window.innerWidth < 1024) return;
     const first = [...conversations].sort((a, b) =>

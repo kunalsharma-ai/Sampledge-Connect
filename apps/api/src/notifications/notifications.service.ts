@@ -10,7 +10,7 @@ import {
   type PushData,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { PushProviders, type PushMessage } from '../push/push-provider.js';
+import { PushProviders, forProvider, type PushMessage } from '../push/push-provider.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import type {
@@ -182,23 +182,29 @@ export class NotificationsService {
         notificationId: n?._id ?? null,
         unreadCount: unread.get(d.userId)!,
       };
-      messages.push({
-        token: d.push!.token,
-        title,
-        body: provider.showPreviews
-          ? kind === 'mention'
-            ? `Mentioned you: ${preview}`
-            : kind === 'reply'
-              ? `Replied: ${preview}`
-              : preview
-          : kind === 'mention'
-            ? 'Mentioned you'
-            : kind === 'reply'
-              ? 'Replied to your message'
-              : 'New message',
-        data: { ...data },
-        badge: data.unreadCount,
-      });
+      const showPreviews = provider.showPreviewsFor(d.push!.provider);
+      messages.push(
+        forProvider(
+          {
+            token: d.push!.token,
+            title,
+            body: showPreviews
+              ? kind === 'mention'
+                ? `Mentioned you: ${preview}`
+                : kind === 'reply'
+                  ? `Replied: ${preview}`
+                  : preview
+              : kind === 'mention'
+                ? 'Mentioned you'
+                : kind === 'reply'
+                  ? 'Replied to your message'
+                  : 'New message',
+            data: { ...data },
+            badge: data.unreadCount,
+          },
+          d.push!.provider,
+        ),
+      );
     }
     if (messages.length === 0) return;
     const { invalidTokens } = await provider.send(messages);
@@ -266,7 +272,12 @@ export class NotificationsService {
         callerId: call.startedBy,
         expiresAt: expiresAt.toISOString(),
       };
-      messages.push({ token: d.push!.token, title: callerName, body, data: { ...data } });
+      messages.push(
+        forProvider(
+          { token: d.push!.token, title: callerName, body, data: { ...data } },
+          d.push!.provider,
+        ),
+      );
     }
     if (!messages.length) return;
     const { invalidTokens } = await provider.send(messages);
@@ -303,7 +314,7 @@ export class NotificationsService {
       if (!live.has(d.userId))
         live.set(d.userId, await this.realtime.liveSessions(tenantId, d.userId));
       if (live.get(d.userId)!.has(d._id)) continue;
-      messages.push({ token: d.push!.token, title, body, data });
+      messages.push(forProvider({ token: d.push!.token, title, body, data }, d.push!.provider));
     }
     if (!messages.length) return;
     const { invalidTokens } = await provider.send(messages);
