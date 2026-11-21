@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Sampledge Connect",
+    "name": "SampConnect",
     "slug": "sampledge-connect",
     "scheme": "sampledge",
     "version": "0.1.0",
@@ -50,15 +50,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Sampledge Connect uses your photos only when you attach them to a message.",
-          "cameraPermission": "Sampledge Connect uses your camera when you record a video message.",
-          "microphonePermission": "Sampledge Connect uses your microphone when you record a video message."
+          "photosPermission": "SampConnect uses your photos only when you attach them to a message.",
+          "cameraPermission": "SampConnect uses your camera when you record a video message.",
+          "microphonePermission": "SampConnect uses your microphone when you record a video message."
         }
       ],
       [
         "expo-audio",
         {
-          "microphonePermission": "Sampledge Connect uses your microphone for calls, voice messages and video messages."
+          "microphonePermission": "SampConnect uses your microphone for calls, voice messages and video messages."
         }
       ],
       "expo-video",
@@ -66,8 +66,8 @@
       [
         "@config-plugins/react-native-webrtc",
         {
-          "cameraPermission": "Sampledge Connect uses your camera for video calls and video messages.",
-          "microphonePermission": "Sampledge Connect uses your microphone for calls, voice messages and video messages."
+          "cameraPermission": "SampConnect uses your camera for video calls and video messages.",
+          "microphonePermission": "SampConnect uses your microphone for calls, voice messages and video messages."
         }
       ]
     ],

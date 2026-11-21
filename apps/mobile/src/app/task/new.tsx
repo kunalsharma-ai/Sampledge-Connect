@@ -24,7 +24,7 @@ import { useMessages, usePeopleChoices } from '../../state/hooks';
 import { radius, space, type as typeScale } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
-/** New task, from a message (chat-to-task) or on its own. Needs a connection. */
+/** New task, from a message (chat-to-task) or on its own. Works offline: it is created on reconnect. */
 export default function NewTask() {
   const {
     conversationId,
@@ -52,7 +52,7 @@ export default function NewTask() {
   const [dueKey, setDueKey] = useState('none');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
   const shownTitle = title ?? (titleParam ? titleParam.slice(0, 200) : titleFrom(source?.text));
 
   const input = [

@@ -6,6 +6,7 @@ import {
   type SetReactionRequest,
 } from '@sampledge/contracts';
 import type { LocalStore, MessageOp, PendingFile } from '../db/store';
+import type { QueuedAction } from '../db/work';
 import { TransportError } from './transport';
 
 export interface OutboxOptions {
@@ -20,6 +21,13 @@ export interface OutboxOptions {
   upload?: (file: PendingFile, conversationId: string) => Promise<string>;
   /** Adds or removes your reaction (socket `reaction:set`, REST PUT/DELETE as fallback). */
   react?: (req: SetReactionRequest) => Promise<Message>;
+  /**
+   * Sends one queued action (pin, save, poll, task, approval, scheduled message) and applies
+   * the server's answer to the store, completing the action.
+   */
+  runAction?: (action: QueuedAction) => Promise<void>;
+  /** The server refused an action for good: drop it (server state wins) or keep it as failed. */
+  refuseAction?: (action: QueuedAction, err: TransportError) => Promise<void>;
   /** Whether it is worth trying right now (network up, signed in, not paused). */
   canSend: () => boolean;
   /** Called when the server says the session is no longer valid. Sending pauses until resumed. */
@@ -143,6 +151,7 @@ export class OutboxProcessor {
     }
     await this.drainOps();
     await this.drainReactions();
+    await this.drainActions();
     await this.scheduleNext();
   }
 
@@ -223,6 +232,46 @@ export class OutboxProcessor {
           continue;
         }
         await store.settleReaction(op);
+      }
+    }
+  }
+
+  /**
+   * Everything else goes last, strictly in the order it was done: a backing-off action holds
+   * the ones behind it, so an edit never overtakes the create it depends on.
+   */
+  private async drainActions(): Promise<void> {
+    const { store, runAction, refuseAction } = this.opts;
+    if (!runAction || !refuseAction) return;
+    while (this.opts.canSend()) {
+      const a = await store.work.next();
+      if (!a?.due) break;
+      await store.work.markSending(a.id);
+      try {
+        await runAction(a);
+      } catch (raw) {
+        const err =
+          raw instanceof TransportError ? raw : new TransportError(String(raw), 'network');
+        const attempts = a.attempts + 1;
+        if (err.isAuth) {
+          await store.work.markRetry(a, this.now(), 'Waiting for sign-in');
+          this.opts.onAuthError(err);
+          break;
+        }
+        if (err.kind === 'network' || err.kind === 'not_configured') {
+          await store.work.markRetry(
+            a,
+            this.now() + backoffDelay(attempts, { random: this.opts.random }),
+            err.message,
+          );
+          break;
+        }
+        if (err.retryable && attempts < (this.opts.maxServerAttempts ?? 8)) {
+          const delay = err.retryAfterMs ?? backoffDelay(attempts, { random: this.opts.random });
+          await store.work.markRetry(a, this.now() + delay, err.message);
+          break;
+        }
+        await refuseAction(a, err);
       }
     }
   }

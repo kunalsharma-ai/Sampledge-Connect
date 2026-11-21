@@ -291,7 +291,7 @@ export interface HttpTransportOptions {
   timeoutMs?: number;
 }
 
-/** fetch-based client for the Sampledge Connect API (`/v1/...`). */
+/** fetch-based client for the SampConnect API (`/v1/...`). */
 export class HttpTransport implements ApiTransport {
   private readonly fetchImpl: typeof fetch;
 

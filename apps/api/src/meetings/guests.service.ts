@@ -277,7 +277,7 @@ export class GuestsService {
     return {
       name: user?.displayName ?? 'The organizer',
       email: user?.email ?? this.mailer.fromAddress?.email ?? 'no-reply@localhost',
-      organization: tenant?.name ?? 'Sampledge Connect',
+      organization: tenant?.name ?? 'SampConnect',
       poweredBy: BrandingService.resolve(tenant).hidePoweredBy
         ? null
         : BrandingService.displayName(tenant),

@@ -170,7 +170,11 @@ describe('personal changes', () => {
     const onB = nextEvent(b, 'bookmark:updated', (e) => e.messageId === m.messageId);
     const notRavi = silent(r, 'bookmark:updated');
     await api(h, 'PUT', `/v1/messages/${m.messageId}/bookmark`, as(owner));
-    expect(await onB).toEqual({ messageId: m.messageId, saved: true });
+    expect(await onB).toEqual({
+      messageId: m.messageId,
+      conversationId: group.conversationId,
+      saved: true,
+    });
     await notRavi;
     const off = nextEvent(b, 'bookmark:updated', (e) => e.messageId === m.messageId);
     await api(h, 'DELETE', `/v1/messages/${m.messageId}/bookmark`, as(owner));

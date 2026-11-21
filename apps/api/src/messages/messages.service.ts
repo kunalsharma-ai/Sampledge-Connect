@@ -525,7 +525,7 @@ export class MessagesService {
       throw new AppError('VALIDATION_FAILED', 'Unknown poll option');
     if (!m.poll.multiple && optionIds.length > 1)
       throw new AppError('VALIDATION_FAILED', 'This poll allows one choice');
-    return this.mutatePoll(ctx, m, (poll) => {
+    const dto = await this.mutatePoll(ctx, m, (poll) => {
       if (pollClosedAt(poll)) throw new AppError('CONFLICT', 'This poll is closed');
       const mine = poll.votes.find((v) => v.userId === ctx.userId);
       if (mine && mine.optionIds.join() === optionIds.join()) return false;
@@ -536,6 +536,9 @@ export class MessagesService {
         : poll.votes.filter((v) => v.userId !== ctx.userId);
       return true;
     });
+    // Your other devices learn your choice even when the poll hides who voted.
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'poll:myVote', { messageId, optionIds });
+    return dto;
   }
 
   /** Close voting. The author or a moderator can close. */

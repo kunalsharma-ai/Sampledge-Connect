@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { Approval } from '@sampledge/contracts';
+import type { LocalApproval } from '../../db/work';
+import { SyncBanner } from '../../components/SyncBanner';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -45,12 +46,15 @@ export default function ApprovalDetail() {
   const role = useTenantRole();
   const { conversations } = useConversations();
   const color = useStatusColor();
-  const one = useWorkList<Approval>(() => engine.getApproval(id).then((a) => [a]), [id]);
+  const one = useWorkList<LocalApproval>(
+    (fresh) => engine.getApproval(id, { fresh }).then((a) => [a]),
+    [id],
+  );
   const a = one.items?.[0];
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
 
   if (!a)
     return (
@@ -59,7 +63,7 @@ export default function ApprovalDetail() {
         <View style={styles.center}>
           {one.error || blocked ? (
             <Text tone="muted" style={{ textAlign: 'center' }}>
-              {one.error ?? `${blocked} Approvals are kept on the server.`}
+              {one.error ?? blocked}
             </Text>
           ) : (
             <ActivityIndicator color={c.accent} />
@@ -68,9 +72,11 @@ export default function ApprovalDetail() {
       </Screen>
     );
 
-  const turn = isMyTurn(a, selfId);
+  const turn = isMyTurn(a, selfId) && !a.local;
   const canCancel =
-    a.status === 'pending' && (a.requesterId === selfId || role === 'owner' || role === 'admin');
+    a.status === 'pending' &&
+    !a.syncError &&
+    (a.requesterId === selfId || role === 'owner' || role === 'admin');
   const who = (u: string) => (u === selfId ? 'You' : nameOf(u));
   const conv = a.conversationId
     ? conversations.find((x) => x.conversationId === a.conversationId)
@@ -115,6 +121,15 @@ export default function ApprovalDetail() {
               ) : null}
             </View>
           </View>
+          <SyncBanner
+            item={a}
+            what="approval request"
+            onRetry={() => void engine.retryLocal('approval', a.approvalId)}
+            onDiscard={() => {
+              void engine.discardLocal('approval', a.approvalId);
+              router.back();
+            }}
+          />
           {a.amount ? (
             <Text variant="display" accessibilityLabel={`Amount ${formatMoney(a.amount)}`}>
               {formatMoney(a.amount)}

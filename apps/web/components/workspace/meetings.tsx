@@ -13,6 +13,7 @@ import {
   HelpCircle,
   Mail,
   MailWarning,
+  Link2,
   MessagesSquare,
   Pencil,
   Repeat,
@@ -68,6 +69,7 @@ import {
 import { nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
 import { RepeatPicker } from './repeat-picker';
+import { BookingPagesDialog } from './booking-pages';
 
 const HOUR_PX = 56;
 const FIRST_HOUR = 7;
@@ -118,6 +120,7 @@ export function MeetingsScreen({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState<null | { startsAt?: Date }>(null);
   const [hoursOpen, setHoursOpen] = React.useState(false);
+  const [bookingOpen, setBookingOpen] = React.useState(false);
   const sel = items?.find((m) => m.meetingId === selected) ?? null;
   const upcoming = (items ?? []).filter((m) => Date.parse(m.endsAt) > Date.now());
   const title = `${fmtDay(weekStart)} – ${fmtDay(addDays(weekStart, 6))}`;
@@ -159,6 +162,15 @@ export function MeetingsScreen({
             Offline · showing saved meetings
           </Badge>
         ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setBookingOpen(true)}
+          aria-label="Booking pages"
+          disabled={!online}
+        >
+          <Link2 /> <span className="hidden md:inline">Booking pages</span>
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -233,6 +245,12 @@ export function MeetingsScreen({
         }}
       />
       <WorkingHoursDialog open={hoursOpen} onOpenChange={setHoursOpen} />
+      <BookingPagesDialog
+        open={bookingOpen}
+        onOpenChange={setBookingOpen}
+        me={me}
+        directory={directory}
+      />
     </main>
   );
 }

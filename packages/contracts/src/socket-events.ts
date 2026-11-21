@@ -68,8 +68,16 @@ export interface ServerToClientEvents {
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
-  /** You saved or unsaved a message on another device. */
-  'bookmark:updated': (e: { messageId: string; saved: boolean }) => void;
+  /**
+   * You saved or unsaved a message (sent to all of your devices; nobody else sees bookmarks).
+   * Saved lists refetch GET /v1/bookmarks after a reconnect, so a missed event is recovered.
+   */
+  'bookmark:updated': (e: { messageId: string; conversationId: string; saved: boolean }) => void;
+  /**
+   * Your own choice in a poll changed (sent to all of your devices). The only live source of it
+   * in anonymous polls, where `message:updated` carries counts without voter ids.
+   */
+  'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
   /** Someone in the organization joined, changed role or status, or edited their profile. */
   'directory:updated': (e: { userId: string }) => void;
   /** An organization-wide setting changed; refetch that area. */

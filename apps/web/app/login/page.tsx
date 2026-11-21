@@ -141,7 +141,7 @@ export default function LoginPage() {
         subtitle={
           useRecovery
             ? 'Enter one of the recovery codes you saved when you set this up. Each works once.'
-            : 'Open your authenticator app and enter the 6-digit code for Sampledge Connect.'
+            : 'Open your authenticator app and enter the 6-digit code for SampConnect.'
         }
         footer={
           <button
@@ -210,7 +210,7 @@ export default function LoginPage() {
       }
       footer={
         <>
-          New to Sampledge Connect?{' '}
+          New to SampConnect?{' '}
           <Link href="/register" className="font-semibold text-accent hover:underline">
             Create an organization
           </Link>

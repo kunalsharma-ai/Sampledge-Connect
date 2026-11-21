@@ -198,6 +198,40 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       "ALTER TABLE conversations ADD COLUMN posting_policy TEXT NOT NULL DEFAULT 'everyone';",
     );
   },
+  // v12: every other action works offline. `actions` is a durable queue of changes made on this
+  // device (pins, saved messages, polls, tasks, approvals, scheduled messages), drained in order
+  // after messages. `work_cache` keeps the server's copy of lists that do not ride on messages,
+  // so they open offline; queued actions are overlaid on it when read. `id_map` links a record
+  // created offline (local id) to the id the server gave it.
+  async (tx) => {
+    await tx.exec(`
+      CREATE TABLE actions (
+        id               TEXT PRIMARY KEY,
+        kind             TEXT NOT NULL,
+        target           TEXT NOT NULL,
+        payload          TEXT NOT NULL,
+        state            TEXT NOT NULL DEFAULT 'pending',
+        attempts         INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at  INTEGER NOT NULL DEFAULT 0,
+        last_error       TEXT,
+        enqueued_at      INTEGER NOT NULL
+      );
+      CREATE INDEX actions_due ON actions (state, enqueued_at);
+      CREATE INDEX actions_target ON actions (target);
+      CREATE TABLE work_cache (
+        kind             TEXT NOT NULL,
+        id               TEXT NOT NULL,
+        conversation_id  TEXT,
+        data             TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        PRIMARY KEY (kind, id)
+      );
+      CREATE TABLE id_map (
+        local_id         TEXT PRIMARY KEY,
+        server_id        TEXT NOT NULL
+      );
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -214,6 +248,7 @@ interface Salvage {
   messages: Record<string, unknown>[];
   outbox: Record<string, unknown>[];
   drafts: Record<string, unknown>[];
+  actions: Record<string, unknown>[];
 }
 
 export async function migrate(db: SqlDriver): Promise<MigrationResult> {
@@ -258,7 +293,17 @@ export async function rebuildPreservingUnsent(db: SqlDriver): Promise<void> {
     ),
     outbox: await tryAll(db, 'SELECT client_id, conversation_id, enqueued_at FROM outbox'),
     drafts: await tryAll(db, 'SELECT conversation_id, text, updated_at FROM drafts'),
+    actions: await tryAll(db, 'SELECT * FROM actions'),
   };
+  // Polls made offline wait in `actions`, not the outbox; never rescue one as a text message.
+  if ((await tryAll(db, 'PRAGMA table_info(messages)')).some((c) => c.name === 'poll')) {
+    const polls = new Set(
+      (await tryAll(db, 'SELECT client_id FROM messages WHERE poll IS NOT NULL')).map((r) =>
+        String(r.client_id),
+      ),
+    );
+    salvage.messages = salvage.messages.filter((m) => !polls.has(String(m.client_id)));
+  }
   const tables = await tryAll(
     db,
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
@@ -293,6 +338,13 @@ export async function rebuildPreservingUnsent(db: SqlDriver): Promise<void> {
           str(m.conversation_id),
           Number(salvage.outbox.find((o) => o.client_id === m.client_id)?.enqueued_at ?? now),
         ],
+      );
+    }
+    for (const a of salvage.actions) {
+      await tx.run(
+        `INSERT OR IGNORE INTO actions (id, kind, target, payload, state, enqueued_at)
+         VALUES (?, ?, ?, ?, 'pending', ?)`,
+        [str(a.id), str(a.kind), str(a.target), str(a.payload), Number(a.enqueued_at ?? now)],
       );
     }
     for (const d of salvage.drafts) {

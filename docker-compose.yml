@@ -155,7 +155,7 @@ services:
 
   # Test mailbox for trying guest invites without a real mail server (only with
   # `--profile mail-test`). Set SMTP_HOST=mailpit SMTP_PORT=1025
-  # SMTP_FROM="Sampledge Connect <meetings@example.test>" and read mail at http://localhost:8025.
+  # SMTP_FROM="SampConnect <meetings@example.test>" and read mail at http://localhost:8025.
   # Nothing leaves this machine. Don't run it in production.
   mailpit:
     image: axllent/mailpit:v1.27

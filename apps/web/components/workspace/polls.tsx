@@ -16,7 +16,7 @@ import {
 } from '@sampledge/ui';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '@/lib/auth';
-import { useEngine, type DirectoryEntry } from '@/lib/engine';
+import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { pollsApi, scheduledApi } from '@/lib/polls';
 import { nameOf } from './helpers';
 
@@ -73,6 +73,10 @@ export function PollCard({
     };
   }, [poll.anonymous, id, offline, getAccessToken, poll.totalVoters]);
 
+  // My vote changed on another device (the only live source of it in anonymous polls).
+  useEngineChange(['pollVote'], (e) => {
+    if (e.type === 'pollVote' && e.messageId === id) setAnonMine(e.optionIds);
+  });
   const mine =
     pendingVote ??
     (poll.anonymous

@@ -37,6 +37,9 @@ const PUBLIC = new Set([
   'POST /v1/calls/livekit/webhook', // LiveKit signature
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
   'GET /v1/recordings/export/:tenantId', // signed, expiring URL
+  'GET /v1/book/:slug', // public booking page (rate limited)
+  'GET /v1/book/:slug/slots',
+  'POST /v1/book/:slug',
   'GET /v1/guest/:token', // guest link token
   'GET /v1/guest/:token/calendar.ics',
   'GET /v1/guest/:token/chat',

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ScheduledMessage } from '@sampledge/contracts';
+import type { LocalScheduled } from '../db/work';
+import { SyncTag } from '../components/WorkRows';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -16,14 +17,15 @@ import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { confirmThen } from '../lib/confirm';
 import { formatSendAt } from '../lib/schedule';
-import { useWorkspace } from '../state/AppProvider';
+import { useApp, useWorkspace } from '../state/AppProvider';
 import { conversationTitle, useConversations, usePeople, useScheduled } from '../state/hooks';
 import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 
 /**
  * Messages you scheduled, soonest first: send now, change the time or delete. Only you see
- * them until they send. They live on the server, so this needs a connection.
+ * them until they send. The server holds and sends them; scheduling and changes made offline
+ * are kept on this phone and reach the server when you reconnect.
  */
 export default function Scheduled() {
   const { conversationId, title } = useLocalSearchParams<{
@@ -38,8 +40,10 @@ export default function Scheduled() {
   const { items, error: loadError, reload } = useScheduled(conversationId || undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [moving, setMoving] = useState<ScheduledMessage | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const [moving, setMoving] = useState<LocalScheduled | null>(null);
+  const blocked = engine.queueBlocker();
+  const { engineState } = useApp();
+  const offline = engineState?.connectivity === 'offline';
   const shown = (items ?? []).filter((m) => m.status === 'scheduled' || m.status === 'failed');
 
   const step = async (id: string, work: () => Promise<unknown>) => {
@@ -60,7 +64,10 @@ export default function Scheduled() {
   const note =
     error ??
     loadError ??
-    (blocked ? `${blocked} Scheduled messages are kept on the server.` : null);
+    blocked ??
+    (offline
+      ? 'You are offline. Changes here are kept on this phone and reach the server when you reconnect. Messages already on the server still send on time.'
+      : null);
 
   return (
     <Screen edges={['bottom']}>
@@ -90,10 +97,18 @@ export default function Scheduled() {
             <View
               style={[
                 styles.note,
-                { backgroundColor: alpha(error || loadError ? c.danger : c.warning, 0.12) },
+                {
+                  backgroundColor: alpha(
+                    error || loadError ? c.danger : offline ? c.accent : c.warning,
+                    0.12,
+                  ),
+                },
               ]}
             >
-              <Text variant="meta" style={{ color: error || loadError ? c.danger : c.warning }}>
+              <Text
+                variant="meta"
+                style={{ color: error || loadError ? c.danger : offline ? c.accent : c.warning }}
+              >
                 {note}
               </Text>
             </View>
@@ -136,6 +151,7 @@ export default function Scheduled() {
                   {m.error}
                 </Text>
               ) : null}
+              <SyncTag item={{ pending: m.pending }} />
               <View style={styles.actions}>
                 <Action
                   icon="send"

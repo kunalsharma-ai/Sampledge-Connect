@@ -38,13 +38,25 @@ export class BookmarksService {
     } catch (e) {
       if (!(e instanceof MongoServerError && e.code === 11000)) throw e; // already saved
     }
-    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', { messageId, saved: true });
+    // Every device of yours shows the same saved list (repeats are harmless).
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', {
+      messageId,
+      conversationId: m.conversationId,
+      saved: true,
+    });
     return { saved: true };
   }
 
   async remove(ctx: TenantContext, messageId: string): Promise<void> {
-    await this.db.for(ctx.tenantId).bookmarks.deleteMany({ userId: ctx.userId, messageId });
-    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', { messageId, saved: false });
+    const t = this.db.for(ctx.tenantId);
+    const row = await t.bookmarks.findOne({ userId: ctx.userId, messageId });
+    await t.bookmarks.deleteMany({ userId: ctx.userId, messageId });
+    if (row)
+      this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', {
+        messageId,
+        conversationId: row.conversationId,
+        saved: false,
+      });
   }
 
   /** Newest first. Messages in conversations the caller can no longer read are left out. */

@@ -129,7 +129,7 @@ export default function More() {
           </Glass>
         </View>
         <Text variant="meta" tone="subtle" style={{ textAlign: 'center' }}>
-          Sampledge Connect · One Workspace. Every Conversation. Connected.
+          SampConnect · One Workspace. Every Conversation. Connected.
         </Text>
       </ScrollView>
     </Screen>

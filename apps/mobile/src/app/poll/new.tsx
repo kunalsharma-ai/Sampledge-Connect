@@ -28,7 +28,7 @@ const CLOSES: { key: string; label: string; ms: number | null }[] = [
   { key: '1w', label: '1 week', ms: 7 * 86_400_000 },
 ];
 
-/** New poll for a conversation. Posting needs a connection. */
+/** New poll for a conversation. Works offline: it shows at once and is posted on reconnect. */
 export default function NewPoll() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const { theme } = useTheme();
@@ -41,7 +41,7 @@ export default function NewPoll() {
   const [closes, setCloses] = useState('never');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
 
   const input = [
     typeScale.body,

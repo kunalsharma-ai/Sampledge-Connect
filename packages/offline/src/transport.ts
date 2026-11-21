@@ -65,7 +65,8 @@ export interface RealtimeHandlers {
  * affected data. `reconnected` means live events may have been missed: refetch everything shown.
  */
 export type ChangeEvent =
-  | { type: 'bookmark'; messageId: string; saved: boolean }
+  | { type: 'bookmark'; messageId: string; conversationId: string; saved: boolean }
+  | { type: 'pollVote'; messageId: string; optionIds: string[] }
   | { type: 'directory'; userId: string }
   | { type: 'tenant'; area: TenantArea }
   | { type: 'project'; projectId: string }
@@ -256,6 +257,7 @@ export class HttpSocketTransport implements Transport {
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
+    s.on('poll:myVote', (e) => this.handlers?.onChange?.({ type: 'pollVote', ...e }));
     s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
     s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));
     s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
