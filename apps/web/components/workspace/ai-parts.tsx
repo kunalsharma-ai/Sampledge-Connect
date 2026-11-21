@@ -7,6 +7,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { AiTaskContext, ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
 import { ApiFailure } from '@/lib/api';
 import { nameOf } from './helpers';
+import { useConversationWork } from './work-cards';
 
 export const RISK_LABEL: Record<AiRiskCategory, string> = {
   financial: 'money or pricing',
@@ -39,7 +40,16 @@ export function ActionItemRow({
   conversationId?: string;
 }) {
   const tasks = React.useContext(AiTaskContext);
-  const created = !!(tasks && conversationId && tasks.isCreated(item, conversationId));
+  const work = useConversationWork();
+  // Created here, or a task already exists from the same message (e.g. after a reload).
+  const created = !!(
+    tasks &&
+    conversationId &&
+    (tasks.isCreated(item, conversationId) ||
+      (item.messageId &&
+        work?.conversationId === conversationId &&
+        work.tasks?.some((t) => t.sourceMessageId === item.messageId)))
+  );
   return (
     <li className="flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3 py-2">
       <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border-strong" />
