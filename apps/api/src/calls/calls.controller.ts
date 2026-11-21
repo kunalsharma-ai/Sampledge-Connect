@@ -22,8 +22,8 @@ export class CallsController {
   /** Whether calls are available on this deployment. Clients hide call buttons when disabled. */
   @Get('calls/config')
   @UseGuards(AuthGuard)
-  config() {
-    return this.calls.config();
+  config(@Ctx() ctx: TenantContext) {
+    return this.calls.config(ctx);
   }
 
   /** Live calls in the caller's conversations. */
@@ -80,6 +80,21 @@ export class CallsController {
   @HttpCode(200)
   end(@Ctx() ctx: TenantContext, @Param('callId') callId: string) {
     return this.calls.end(ctx, callId);
+  }
+
+  /** Start recording the call (anyone in it). Everyone sees the recording indicator. */
+  @Post('calls/:callId/recording/start')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  startRecording(@Ctx() ctx: TenantContext, @Param('callId') callId: string) {
+    return this.calls.startRecording(ctx, callId);
+  }
+
+  @Post('calls/:callId/recording/stop')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  stopRecording(@Ctx() ctx: TenantContext, @Param('callId') callId: string) {
+    return this.calls.stopRecording(ctx, callId);
   }
 
   /**

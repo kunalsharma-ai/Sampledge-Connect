@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ServerIdSchema } from './ids.js';
+import { CallRecordingStateSchema } from './recordings.js';
 
 /**
  * Voice and video calls inside a conversation.
@@ -47,6 +48,8 @@ export const CallSchema = z.object({
   endedAt: z.string().datetime().nullable(),
   /** Everyone invited (the conversation members when the call started) plus anyone who joined later. */
   participants: z.array(CallParticipantSchema),
+  /** Non-null while the call is being recorded: every client shows a "Recording" indicator. */
+  recording: CallRecordingStateSchema.nullable().optional(),
 });
 export type Call = z.infer<typeof CallSchema>;
 
@@ -72,6 +75,8 @@ export const CallsConfigSchema = z.object({
   provider: z.enum(['livekit']).nullable(),
   /** Seconds an invite rings before it counts as missed. */
   ringTimeoutSeconds: z.number().int().positive(),
+  /** Whether calls can be recorded here (egress configured and allowed by the organization). */
+  recordingEnabled: z.boolean().optional(),
 });
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 

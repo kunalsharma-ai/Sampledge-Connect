@@ -18,7 +18,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { CallDoc, CallParticipantDoc } from '../database/documents.js';
+import type { CallDoc, CallParticipantDoc, CallRecordingDoc } from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
@@ -26,7 +26,15 @@ import { MessagesService } from '../messages/messages.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS } from '../redis/redis.module.js';
-import { LiveKitClient, liveKitSettings, type LiveKitWebhookEvent } from './livekit.js';
+import { RecordingsService } from '../recordings/recordings.service.js';
+import {
+  LiveKitClient,
+  egressFinished,
+  liveKitSettings,
+  normalizeEgress,
+  type EgressInfo,
+  type LiveKitWebhookEvent,
+} from './livekit.js';
 
 const JOIN_TOKEN_TTL_S = 10 * 60;
 /** How long a "joined" participant may be missing from the SFU before we mark them left. */
@@ -47,7 +55,17 @@ export const toCall = (c: CallDoc): Call => ({
     joinedAt: p.joinedAt?.toISOString() ?? null,
     leftAt: p.leftAt?.toISOString() ?? null,
   })),
+  recording: c.recording
+    ? {
+        status: c.recording.status,
+        startedBy: c.recording.startedBy,
+        startedAt: c.recording.startedAt.toISOString(),
+      }
+    : null,
 });
+
+/** A starting/stopping recording that hasn't heard from egress for this long is re-checked. */
+const RECORDING_RECHECK_MS = 60_000;
 
 /**
  * Call records and SFU access. MongoDB is the source of truth for who was invited, who joined
@@ -71,6 +89,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     private readonly realtime: RealtimePublisher,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly recordings: RecordingsService,
   ) {
     const s = liveKitSettings(cfg);
     this.lk = s ? new LiveKitClient(s) : null;
@@ -85,12 +104,210 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
   }
 
-  config(): CallsConfig {
+  async config(ctx: TenantContext): Promise<CallsConfig> {
     return {
       enabled: !!this.lk,
       provider: this.lk ? 'livekit' : null,
       ringTimeoutSeconds: this.cfg.CALL_RING_TIMEOUT_SECONDS,
+      recordingEnabled: await this.recordingAllowed(ctx.tenantId),
     };
+  }
+
+  private async recordingAllowed(tenantId: string) {
+    if (!this.lk || !this.cfg.RECORDINGS_SPOOL_DIR) return false;
+    return (await this.recordings.settings(tenantId)).callRecordingEnabled;
+  }
+
+  // ---------- recording ----------
+
+  /**
+   * Starts recording the call (everyone, including screen shares) through the self-hosted
+   * egress service. Anyone in the call may start it; everyone sees the indicator at once.
+   */
+  async startRecording(ctx: TenantContext, callId: string): Promise<Call> {
+    const lk = this.requireSfu();
+    const call = await this.load(ctx, callId);
+    if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
+    if (!(await this.recordingAllowed(ctx.tenantId)))
+      throw new AppError(
+        'FORBIDDEN',
+        this.cfg.RECORDINGS_SPOOL_DIR
+          ? 'Call recording is turned off for your organization'
+          : 'Call recording is not set up on this server yet (RECORDINGS_SPOOL_DIR and the egress service)',
+      );
+    const me = call.participants.find((p) => p.userId === ctx.userId);
+    if (me?.state !== 'joined') throw forbidden('Join the call to record it');
+    if (call.recording) return toCall(call);
+    const now = new Date();
+    const audioOnly = call.media === 'audio';
+    const rec: CallRecordingDoc = {
+      egressId: null,
+      status: 'starting',
+      startedBy: ctx.userId,
+      startedAt: now,
+      audioOnly,
+      fileName: `${ctx.tenantId}-${call._id}-${now.getTime()}.${audioOnly ? 'm4a' : 'mp4'}`,
+    };
+    const t = this.db.for(ctx.tenantId);
+    const claimed = await t.calls.findOneAndUpdate(
+      { _id: call._id, status: 'live', recording: null },
+      { $set: { recording: rec } },
+      { returnDocument: 'after' },
+    );
+    if (!claimed) return toCall((await t.calls.findOne({ _id: call._id })) ?? call);
+    this.broadcast(ctx.tenantId, claimed);
+    let info: EgressInfo;
+    try {
+      info = await lk.startRoomRecording(call.room, {
+        filepath: `${this.cfg.LIVEKIT_EGRESS_OUTPUT_DIR.replace(/\/$/, '')}/${rec.fileName}`,
+        audioOnly,
+      });
+    } catch (e) {
+      this.log.warn(`recording start failed for ${call._id}: ${String(e)}`);
+      const cleared = await t.calls.findOneAndUpdate(
+        { _id: call._id, 'recording.startedAt': now },
+        { $set: { recording: null } },
+        { returnDocument: 'after' },
+      );
+      if (cleared) this.broadcast(ctx.tenantId, cleared);
+      throw new AppError(
+        'UNAVAILABLE',
+        "The recording service isn't reachable right now. Try again shortly.",
+      );
+    }
+    const active = await t.calls.findOneAndUpdate(
+      { _id: call._id, 'recording.startedAt': now, 'recording.egressId': null },
+      {
+        $set: {
+          'recording.egressId': info.egressId,
+          'recording.status': info.status === 'EGRESS_ACTIVE' ? 'active' : 'starting',
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (active) this.broadcast(ctx.tenantId, active);
+    await this.recordings.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'call.recording.start',
+      target: { type: 'call', id: call._id },
+    });
+    return toCall(active ?? claimed);
+  }
+
+  /** Stops the recording; the file arrives in the chat once egress has finished writing it. */
+  async stopRecording(ctx: TenantContext, callId: string): Promise<Call> {
+    const call = await this.load(ctx, callId);
+    if (!call.recording || call.recording.status === 'stopping') return toCall(call);
+    const me = call.participants.find((p) => p.userId === ctx.userId);
+    if (me?.state !== 'joined' && call.recording.startedBy !== ctx.userId)
+      throw forbidden('Join the call to stop the recording');
+    return toCall(await this.requestStop(ctx.tenantId, call));
+  }
+
+  private async requestStop(tenantId: string, call: CallDoc): Promise<CallDoc> {
+    const t = this.db.for(tenantId);
+    const stopping = await t.calls.findOneAndUpdate(
+      { _id: call._id, 'recording.startedAt': call.recording!.startedAt },
+      { $set: { 'recording.status': 'stopping' } },
+      { returnDocument: 'after' },
+    );
+    if (!stopping) return call;
+    this.broadcast(tenantId, stopping);
+    const egressId = stopping.recording?.egressId;
+    if (egressId && this.lk) {
+      try {
+        const info = await this.lk.stopEgress(egressId);
+        if (info && egressFinished(info.status)) await this.applyEgress(info);
+      } catch (e) {
+        // The sweeper re-checks it; egress also stops by itself when the room closes.
+        this.log.warn(`stop egress ${egressId} failed: ${String(e)}`);
+      }
+    }
+    return (await t.calls.findOne({ _id: call._id })) ?? stopping;
+  }
+
+  /** Applies an egress status (webhook, stop response or sweeper check). */
+  async applyEgress(info: EgressInfo): Promise<void> {
+    const call = await this.rawDb
+      .collection<CallDoc>('calls')
+      .findOne({ 'recording.egressId': info.egressId });
+    if (!call?.recording) return;
+    const t = this.db.for(call.tenantId);
+    if (info.status === 'EGRESS_ACTIVE' && call.recording.status === 'starting') {
+      const u = await t.calls.findOneAndUpdate(
+        { _id: call._id, 'recording.egressId': info.egressId, 'recording.status': 'starting' },
+        { $set: { 'recording.status': 'active' } },
+        { returnDocument: 'after' },
+      );
+      if (u) this.broadcast(call.tenantId, u);
+      return;
+    }
+    if (!egressFinished(info.status)) return;
+    // Exactly one path (webhook, stop, sweeper) gets to import the file.
+    const cleared = await t.calls.findOneAndUpdate(
+      { _id: call._id, 'recording.egressId': info.egressId },
+      { $set: { recording: null } },
+      { returnDocument: 'after' },
+    );
+    if (!cleared) return;
+    this.broadcast(call.tenantId, cleared);
+    const rec = call.recording;
+    const file = info.files[0];
+    if (info.status === 'EGRESS_COMPLETE' || info.status === 'EGRESS_LIMIT_REACHED') {
+      const durationMs = file?.durationMs || Math.max(0, Date.now() - rec.startedAt.getTime());
+      await this.recordings
+        .importCallRecording(call, rec, durationMs)
+        .catch((e) => this.log.warn(`import of recording for ${call._id} failed: ${String(e)}`));
+    } else {
+      this.log.warn(`recording ${info.egressId} ended ${info.status}: ${info.error}`);
+      await this.recordings.postFailed(call, rec);
+    }
+  }
+
+  private broadcast(tenantId: string, call: CallDoc) {
+    this.realtime.toConversation(tenantId, call.conversationId, 'call:updated', toCall(call));
+  }
+
+  /** Stops over-long recordings and re-checks ones egress hasn't reported on. */
+  private async sweepRecordings(now: Date) {
+    if (!this.lk) return;
+    const calls = await this.rawDb
+      .collection<CallDoc>('calls')
+      .find({ recording: { $type: 'object' } })
+      .limit(200)
+      .toArray();
+    for (const call of calls) {
+      const rec = call.recording!;
+      try {
+        const age = now.getTime() - rec.startedAt.getTime();
+        if (rec.status !== 'stopping' && age > this.cfg.RECORDING_MAX_MINUTES * 60_000) {
+          await this.requestStop(call.tenantId, call);
+          continue;
+        }
+        if (call.status === 'ended' && rec.status !== 'stopping') {
+          await this.requestStop(call.tenantId, call);
+          continue;
+        }
+        if (rec.status === 'active' && call.status === 'live') continue;
+        if (age < RECORDING_RECHECK_MS) continue;
+        if (!rec.egressId) {
+          // Start never got an egress id back (API crashed mid-start): drop it.
+          const t = this.db.for(call.tenantId);
+          const u = await t.calls.findOneAndUpdate(
+            { _id: call._id, 'recording.startedAt': rec.startedAt, 'recording.egressId': null },
+            { $set: { recording: null } },
+            { returnDocument: 'after' },
+          );
+          if (u) this.broadcast(call.tenantId, u);
+          continue;
+        }
+        const info = await this.lk.getEgress(rec.egressId);
+        if (info) await this.applyEgress(info);
+      } catch (e) {
+        this.log.warn(`recording sweep for ${call._id} failed: ${String(e)}`);
+      }
+    }
   }
 
   private requireSfu(): LiveKitClient {
@@ -153,6 +370,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
         ),
         messageId: null,
         lastActivityAt: now,
+        recording: null,
       });
     } catch (e) {
       // Someone else started a call here at the same moment: join theirs.
@@ -277,6 +495,11 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async applySfuEvent(event: LiveKitWebhookEvent): Promise<void> {
+    if (event.event?.startsWith('egress_')) {
+      const info = normalizeEgress(event.egressInfo ?? event.egress_info);
+      if (info) await this.applyEgress(info);
+      return;
+    }
     const room = event.room?.name;
     if (!room?.startsWith('sc_')) return;
     const call = await this.rawDb.collection<CallDoc>('calls').findOne({ room });
@@ -312,6 +535,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
         this.log.warn(`sweep of call ${call._id} failed: ${String(e)}`);
       }
     }
+    await this.sweepRecordings(now);
   }
 
   private async sweepOne(call: CallDoc, now: Date) {
@@ -478,6 +702,10 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       await this.messages
         .updateSystem(tenantId, ended.messageId, text, { call: meta })
         .catch((e) => this.log.warn(`call card update failed: ${String(e)}`));
+    }
+    if (ended.recording && ended.recording.status !== 'stopping') {
+      // Stop before closing the room so egress finalizes the file cleanly.
+      await this.requestStop(tenantId, ended).catch(() => undefined);
     }
     if (this.lk) void this.lk.deleteRoom(ended.room).catch(() => undefined);
     return ended;

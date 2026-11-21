@@ -47,6 +47,26 @@ const EnvSchema = z.object({
   LIVEKIT_API_SECRET: z.string().min(32).optional(),
   /** Seconds an unanswered call invite rings before it counts as missed. */
   CALL_RING_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(300).default(45),
+  /**
+   * Call recording through a self-hosted LiveKit Egress service. Enabled when this is set:
+   * the folder where this API reads finished recordings (a volume shared with egress).
+   */
+  RECORDINGS_SPOOL_DIR: z.string().min(1).optional(),
+  /** The same folder as the egress container sees it (where it writes files). */
+  LIVEKIT_EGRESS_OUTPUT_DIR: z.string().min(1).default('/out'),
+  /** Largest call recording kept (bytes). Default 2 GB. */
+  RECORDING_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2 * 1024 * 1024 * 1024),
+  /** Longest call recording (minutes); egress stops at this limit. */
+  RECORDING_MAX_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(4 * 60),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

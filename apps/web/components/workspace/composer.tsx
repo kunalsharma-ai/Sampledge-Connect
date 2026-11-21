@@ -7,9 +7,11 @@ import {
   CornerUpLeft,
   Italic,
   Mic,
+  MonitorUp,
   Paperclip,
   SendHorizontal,
   Smile,
+  Video,
   X,
 } from 'lucide-react';
 import {
@@ -20,13 +22,20 @@ import {
 import { Avatar, Kbd, Tooltip, cn } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
 import { rejectReason, uploadFile } from '@/lib/uploads';
+import { canRecord, type ClipKind, type RecordedClip } from '@/lib/recorder';
 import { DraftAttachments, type DraftAttachment } from './attachments';
+import { RecordClipDialog } from './recordings';
+
+const RECORD_TOOLS: { kind: ClipKind; icon: typeof Mic; label: string }[] = [
+  { kind: 'voice', icon: Mic, label: 'Record a voice message' },
+  { kind: 'video', icon: Video, label: 'Record a video message' },
+  { kind: 'screen', icon: MonitorUp, label: 'Record your screen' },
+];
 
 const PLANNED_TOOLS = [
   { icon: Bold, label: 'Bold (rich text is planned)' },
   { icon: Italic, label: 'Italic (rich text is planned)' },
   { icon: Smile, label: 'Emoji picker (planned)' },
-  { icon: Mic, label: 'Voice message (planned)' },
 ];
 
 export interface MentionCandidate {
@@ -87,6 +96,7 @@ export function Composer({
         getAccessToken,
         (f) => patch(d.key, { progress: f }),
         ac.signal,
+        d.recording ? { recording: d.recording.kind, durationMs: d.recording.durationMs } : {},
       )
         .then((attachment) => patch(d.key, { state: 'ready', progress: 1, attachment }))
         .catch((e: unknown) => {
@@ -116,6 +126,22 @@ export function Composer({
     });
     setDrafts((ds) => [...ds, ...next]);
     next.filter((d) => d.state === 'uploading').forEach(start);
+  };
+
+  const [recordKind, setRecordKind] = React.useState<ClipKind | null>(null);
+  const [sendWhenReady, setSendWhenReady] = React.useState(false);
+  const addRecording = (clip: RecordedClip, sendNow: boolean) => {
+    if (drafts.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
+    const d: DraftAttachment = {
+      key: crypto.randomUUID(),
+      file: clip.file,
+      progress: 0,
+      state: 'uploading',
+      recording: { kind: clip.kind, durationMs: clip.durationMs },
+    };
+    setDrafts((ds) => [...ds, d]);
+    start(d);
+    if (sendNow) setSendWhenReady(true);
   };
 
   const removeDraft = (key: string) => {
@@ -204,6 +230,18 @@ export function Composer({
   };
 
   const canSend = (trimmed.length > 0 || ready.length > 0) && !tooLong && !uploading;
+  const failed = drafts.some((d) => d.state === 'failed');
+
+  // "Send" in the recorder: send as soon as the clip has uploaded.
+  React.useEffect(() => {
+    if (!sendWhenReady) return;
+    if (failed) setSendWhenReady(false);
+    else if (canSend) {
+      setSendWhenReady(false);
+      void submit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendWhenReady, canSend, failed]);
 
   const submit = async () => {
     if (!canSend || disabled) return;
@@ -308,6 +346,15 @@ export function Composer({
           </div>
         ) : null}
         <DraftAttachments drafts={drafts} onRemove={removeDraft} onRetry={retryDraft} />
+        {recordKind ? (
+          <RecordClipDialog
+            key={recordKind}
+            kind={recordKind}
+            open
+            onOpenChange={(o) => !o && setRecordKind(null)}
+            onDone={addRecording}
+          />
+        ) : null}
         <input
           ref={fileInput}
           type="file"
@@ -422,6 +469,35 @@ export function Composer({
                 </button>
               </span>
             </Tooltip>
+            {RECORD_TOOLS.map((t) => {
+              const unavailable = offline
+                ? 'Recording needs a connection'
+                : drafts.length >= MAX_ATTACHMENTS_PER_MESSAGE
+                  ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`
+                  : null;
+              return (
+                <Tooltip key={t.kind} content={unavailable ?? t.label} side="top">
+                  <span>
+                    <button
+                      type="button"
+                      aria-label={t.label}
+                      disabled={!!unavailable}
+                      onClick={() => setRecordKind(t.kind)}
+                      className={cn(
+                        'flex size-8 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text disabled:opacity-40 disabled:hover:bg-transparent',
+                        t.kind !== 'voice' && 'hidden sm:flex',
+                        t.kind === 'screen' &&
+                          typeof window !== 'undefined' &&
+                          !canRecord('screen') &&
+                          '!hidden',
+                      )}
+                    >
+                      <t.icon className="size-4" />
+                    </button>
+                  </span>
+                </Tooltip>
+              );
+            })}
             {PLANNED_TOOLS.map((t) => (
               <Tooltip key={t.label} content={t.label} side="top">
                 <span>

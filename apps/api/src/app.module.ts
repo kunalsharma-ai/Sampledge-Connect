@@ -5,6 +5,8 @@ import { ApiExceptionFilter } from './common/errors.js';
 import { DatabaseModule } from './database/database.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { AuditService } from './audit/audit.service.js';
+import { RecordingsController } from './recordings/recordings.controller.js';
+import { RecordingsService } from './recordings/recordings.service.js';
 import { TokenService } from './auth/token.service.js';
 import { SessionService } from './auth/session.service.js';
 import { AuthService } from './auth/auth.service.js';
@@ -49,6 +51,7 @@ export class AppModule {
       imports: [configModule, DatabaseModule, RedisModule],
       controllers: [
         AuthController,
+        RecordingsController,
         DirectoryController,
         ConversationsController,
         MessagesController,
@@ -63,6 +66,7 @@ export class AppModule {
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
         AuditService,
+        RecordingsService,
         TokenService,
         SessionService,
         AuthService,

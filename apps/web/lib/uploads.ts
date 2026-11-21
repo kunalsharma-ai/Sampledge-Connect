@@ -70,6 +70,7 @@ export async function uploadFile(
   getToken: () => Promise<string | null>,
   onProgress: (fraction: number) => void,
   signal: AbortSignal,
+  extra: { recording?: 'voice' | 'video' | 'screen'; durationMs?: number } = {},
 ): Promise<Attachment> {
   const token = await getToken();
   if (!token) throw new ApiFailure(401, { code: 'UNAUTHENTICATED', message: 'Sign in again' });
@@ -78,9 +79,11 @@ export async function uploadFile(
     body: {
       conversationId,
       fileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType: (file.type || 'application/octet-stream').split(';')[0]!.trim(),
       sizeBytes: file.size,
       ...(await imageSize(file)),
+      ...(extra.recording ? { recording: extra.recording } : {}),
+      ...(extra.durationMs ? { durationMs: Math.round(extra.durationMs) } : {}),
     },
   });
   await putBytes(ticket.uploadUrl, file, token, onProgress, signal);

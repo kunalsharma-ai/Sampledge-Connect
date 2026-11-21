@@ -140,6 +140,7 @@ export class TenantDb {
       calls: c('calls'),
       meetings: c('meetings'),
       user_settings: c('user_settings'),
+      tenant_settings: c('tenant_settings'),
     };
   }
 }
