@@ -67,8 +67,8 @@ export function usePeople(): (userId: string) => string {
         .getSetting('people')
         .then((raw) => raw && setPeople(JSON.parse(raw) as Record<string, string>));
     load();
-    // Sync rewrites the directory and then touches conversations.
-    return store.events.on('conversations', load);
+    // Sync rewrites the directory after each successful pass.
+    return store.events.on('settings', ({ key }) => key === 'people' && load());
   }, [store]);
   return (id) => (id === selfId ? 'You' : (people[id] ?? `Member ${id.slice(-4)}`));
 }
