@@ -159,7 +159,12 @@ export function MeetingsScreen({
         >
           <Settings2 /> <span className="hidden md:inline">Working hours</span>
         </Button>
-        <Button size="sm" onClick={() => setCreating({})} disabled={!online}>
+        <Button
+          size="sm"
+          onClick={() => setCreating({})}
+          disabled={!online}
+          aria-label="New meeting"
+        >
           <CalendarPlus /> <span className="hidden sm:inline">New meeting</span>
         </Button>
       </header>

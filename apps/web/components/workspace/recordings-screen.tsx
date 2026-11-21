@@ -146,6 +146,7 @@ export function RecordingsScreen({
             size="sm"
             onClick={() => setAdminOpen((o) => !o)}
             aria-expanded={adminOpen}
+            aria-label="Retention & backup"
           >
             <ShieldCheck /> <span className="hidden sm:inline">Retention & backup</span>
           </Button>
