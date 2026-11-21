@@ -10,6 +10,7 @@ import {
   type Receipt,
   type SendMessageAck,
   type SendMessageRequest,
+  type SetReactionRequest,
   type ServerToClientEvents,
   type SyncRequest,
   type SyncResponse,
@@ -43,6 +44,7 @@ export interface Transport {
   send(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
+  react?(req: SetReactionRequest): Promise<Message>;
   setTyping?(conversationId: string, typing: boolean): void;
   connect?(handlers: RealtimeHandlers): void;
   disconnect?(): void;
@@ -110,7 +112,10 @@ export class HttpSocketTransport implements Transport {
     return json as T;
   }
 
-  private async emit<T>(event: 'message:send' | 'receipt:ack', payload: unknown): Promise<T> {
+  private async emit<T>(
+    event: 'message:send' | 'receipt:ack' | 'reaction:set',
+    payload: unknown,
+  ): Promise<T> {
     const s = this.socket!;
     let ack: Ack<T>;
     try {
@@ -141,6 +146,14 @@ export class HttpSocketTransport implements Transport {
   ackReceipt(req: AckReceiptRequest): Promise<Receipt> {
     if (this.connected) return this.emit('receipt:ack', req);
     return this.request('POST', '/v1/messages/receipts', req);
+  }
+
+  react(req: SetReactionRequest): Promise<Message> {
+    if (this.connected) return this.emit('reaction:set', req);
+    return this.request(
+      req.op === 'add' ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(req.messageId)}/reactions/${encodeURIComponent(req.emoji)}`,
+    );
   }
 
   setTyping(conversationId: string, typing: boolean) {

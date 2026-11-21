@@ -159,6 +159,11 @@ export class RealtimeGateway
     return wrap(() => this.messages.send(socket.data.ctx, body));
   }
 
+  @SubscribeMessage('reaction:set')
+  onReaction(@ConnectedSocket() socket: AppSocket, @MessageBody() body: unknown) {
+    return wrap(() => this.messages.react(socket.data.ctx, body));
+  }
+
   @SubscribeMessage('receipt:ack')
   onReceipt(@ConnectedSocket() socket: AppSocket, @MessageBody() body: unknown) {
     return wrap(() => this.messages.ackReceipt(socket.data.ctx, body));

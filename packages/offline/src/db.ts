@@ -45,12 +45,28 @@ export interface CursorRow {
 
 export type ReceiptRow = Receipt;
 
+/**
+ * A reaction change made on this device and not yet confirmed. Keyed by
+ * `messageId|emoji`, so toggling while offline coalesces to the last intent
+ * (the server treats add/remove idempotently).
+ */
+export interface PendingReaction {
+  key: string;
+  messageId: string;
+  conversationId: string;
+  emoji: string;
+  op: 'add' | 'remove';
+  createdAt: number;
+  attempts: number;
+  nextAttemptAt: number;
+}
+
 export interface MetaRow {
   key: string;
   value: unknown;
 }
 
-export const DB_SCHEMA_VERSION = 1;
+export const DB_SCHEMA_VERSION = 2;
 
 /**
  * One database per signed-in identity: `sampledge-connect:{tenantId}:{userId}`.
@@ -63,10 +79,11 @@ export class ConnectDb extends Dexie {
   cursors!: EntityTable<CursorRow, 'conversationId'>;
   receipts!: Table<ReceiptRow, [string, string]>;
   meta!: EntityTable<MetaRow, 'key'>;
+  reactionQueue!: EntityTable<PendingReaction, 'key'>;
 
   constructor(name: string, options?: ConstructorParameters<typeof Dexie>[1]) {
     super(name, options);
-    this.version(DB_SCHEMA_VERSION).stores({
+    this.version(1).stores({
       messages:
         'clientMessageId, messageId, [conversationId+serverSequence], [conversationId+localCreatedAt], status',
       outbox: 'clientMessageId, state, [state+nextAttemptAt], conversationId, createdAt',
@@ -75,7 +92,8 @@ export class ConnectDb extends Dexie {
       receipts: '[conversationId+userId], conversationId',
       meta: 'key',
     });
-    // Future versions: this.version(2).stores({...}).upgrade(tx => ...). Never edit version 1.
+    // v2: offline reaction queue. Never edit an earlier version; add a new one.
+    this.version(2).stores({ reactionQueue: 'key, nextAttemptAt, messageId' });
   }
 }
 

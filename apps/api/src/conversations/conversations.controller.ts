@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -98,6 +99,22 @@ export class MessagesController {
   @Delete(':id')
   remove(@Ctx() ctx: TenantContext, @Param('id') id: string) {
     return this.messages.remove(ctx, id);
+  }
+
+  /** Add a reaction. Idempotent. The emoji is URL-encoded in the path. */
+  @Put(':id/reactions/:emoji')
+  addReaction(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('emoji') emoji: string) {
+    return this.messages.react(ctx, { messageId: id, emoji, op: 'add' });
+  }
+
+  /** Remove the caller's reaction. Idempotent. */
+  @Delete(':id/reactions/:emoji')
+  removeReaction(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('emoji') emoji: string,
+  ) {
+    return this.messages.react(ctx, { messageId: id, emoji, op: 'remove' });
   }
 
   @Post('receipts')

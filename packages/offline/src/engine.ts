@@ -8,10 +8,11 @@ import {
   type Conversation,
   type Message,
   type MessageStatus,
+  type Reaction,
   type Receipt,
   type SyncResponse,
 } from '@sampledge/contracts';
-import type { ConnectDb, LocalMessage, OutboxItem } from './db.js';
+import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
 import { NetworkError, ServerError, type Transport } from './transport.js';
 
 export type ConnectivityState = 'offline' | 'connecting' | 'syncing' | 'online';
@@ -275,6 +276,7 @@ export class SyncEngine {
       editedAt: null,
       deletedAt: null,
       metadata: {},
+      reactions: [],
       status,
       localCreatedAt: it.createdAt,
       error: it.lastError,
@@ -328,6 +330,25 @@ export class SyncEngine {
 
   private async flushOnce() {
     if (!this.networkAvailable || this.state.authPaused || this.stopped) return;
+    const a = await this.flushMessages();
+    if (a === 'paused') return;
+    const b = await this.flushReactions();
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    const at = Math.min(a, b);
+    if (at !== Infinity) {
+      this.flushTimer = setTimeout(
+        () => {
+          this.flushTimer = null;
+          void this.flush();
+        },
+        Math.max(0, at - this.now()),
+      );
+    }
+  }
+
+  /** Sends due messages; returns when the next one is due (or 'paused'). */
+  private async flushMessages(): Promise<number | 'paused'> {
     const pending = await this.db.outbox.where('state').equals('queued').sortBy('createdAt');
     const blocked = new Set<string>();
     let nextWake = Infinity;
@@ -340,18 +361,95 @@ export class SyncEngine {
         continue;
       }
       const outcome = await this.sendOne(item);
-      if (outcome === 'paused') return;
+      if (outcome === 'paused') return 'paused';
       if (outcome === 'retry') {
         blocked.add(item.conversationId);
         const updated = await this.db.outbox.get(item.clientMessageId);
         if (updated) nextWake = Math.min(nextWake, updated.nextAttemptAt);
       }
     }
-    if (this.flushTimer) clearTimeout(this.flushTimer);
-    this.flushTimer = null;
-    if (nextWake !== Infinity) {
-      this.flushTimer = setTimeout(() => void this.flush(), Math.max(0, nextWake - this.now()));
+    return nextWake;
+  }
+
+  // ---------- reactions ----------
+
+  /**
+   * Toggle a reaction on a confirmed message. Saved locally first (the UI overlays
+   * pending changes), then sent; works offline and coalesces repeated toggles.
+   */
+  async react(
+    message: { messageId: string; conversationId: string },
+    emoji: string,
+    op: 'add' | 'remove',
+  ) {
+    const now = this.now();
+    await this.db.reactionQueue.put({
+      key: `${message.messageId}|${emoji}`,
+      messageId: message.messageId,
+      conversationId: message.conversationId,
+      emoji,
+      op,
+      createdAt: now,
+      attempts: 0,
+      nextAttemptAt: now,
+    });
+    void this.flush();
+  }
+
+  /** Sends due reaction changes; returns when the next one is due. */
+  private async flushReactions(): Promise<number> {
+    const due = await this.db.reactionQueue
+      .where('nextAttemptAt')
+      .belowOrEqual(this.now())
+      .toArray();
+    let nextWake = Infinity;
+    for (const r of due) {
+      if (!this.transport.react) return Infinity;
+      try {
+        const msg = await this.transport.react({
+          messageId: r.messageId,
+          emoji: r.emoji,
+          op: r.op,
+        });
+        await this.db.transaction(
+          'rw',
+          this.db.reactionQueue,
+          this.db.messages,
+          this.db.outbox,
+          async () => {
+            // Only clear the intent we sent; a newer toggle made meanwhile stays queued.
+            const cur = await this.db.reactionQueue.get(r.key);
+            if (cur && cur.createdAt === r.createdAt) await this.db.reactionQueue.delete(r.key);
+            await this.upsertServerMessage(msg);
+          },
+        );
+      } catch (e) {
+        const error = toError(e);
+        if (error.code === 'SESSION_EXPIRED' || error.code === 'UNAUTHENTICATED') {
+          this.handleSessionExpired();
+          return Infinity;
+        }
+        const attempts = r.attempts + 1;
+        const retryable = e instanceof NetworkError || isRetryable(error.code);
+        if (retryable && attempts < this.maxAttempts) {
+          const at =
+            this.now() +
+            Math.max(
+              error.retryAfterMs ?? 0,
+              backoffDelay(attempts - 1, { ...this.opts.backoff, random: this.random }),
+            );
+          await this.db.reactionQueue.update(r.key, { attempts, nextAttemptAt: at });
+          nextWake = Math.min(nextWake, at);
+          if (e instanceof NetworkError) break;
+        } else {
+          // Rejected (message deleted, no permission): drop the intent; the server state wins.
+          await this.db.reactionQueue.delete(r.key);
+        }
+      }
     }
+    const later = await this.db.reactionQueue.orderBy('nextAttemptAt').first();
+    if (later) nextWake = Math.min(nextWake, later.nextAttemptAt);
+    return nextWake;
   }
 
   private async sendOne(item: OutboxItem): Promise<'sent' | 'retry' | 'failed' | 'paused'> {
@@ -688,6 +786,44 @@ export function displayStatus(
 }
 
 /** Wipes the identity's local data (logout, device revoked). */
+/**
+ * Server reactions with this device's pending changes applied on top, so a
+ * reaction shows instantly (and offline) and never flickers back during sync.
+ */
+export function overlayReactions(
+  reactions: Reaction[],
+  pending: Pick<PendingReaction, 'emoji' | 'op'>[],
+  me: string,
+): (Reaction & { mine: boolean; pending: boolean })[] {
+  const out = reactions.map((r) => ({
+    ...r,
+    userIds: [...r.userIds],
+    mine: r.userIds.includes(me),
+    pending: false,
+  }));
+  for (const p of pending) {
+    let r = out.find((x) => x.emoji === p.emoji);
+    if (p.op === 'add') {
+      if (!r) {
+        r = { emoji: p.emoji, userIds: [], count: 0, mine: false, pending: true };
+        out.push(r);
+      }
+      if (!r.mine) {
+        r.mine = true;
+        r.count += 1;
+        r.userIds.push(me);
+        r.pending = true;
+      }
+    } else if (r?.mine) {
+      r.mine = false;
+      r.count -= 1;
+      r.userIds = r.userIds.filter((u) => u !== me);
+      r.pending = true;
+    }
+  }
+  return out.filter((r) => r.count > 0);
+}
+
 export async function wipeLocalData(db: ConnectDb) {
   db.close();
   await Dexie.delete(db.name);

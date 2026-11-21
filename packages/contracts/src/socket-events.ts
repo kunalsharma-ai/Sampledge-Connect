@@ -1,6 +1,11 @@
 import type { Ack } from './errors.js';
 import type { Conversation } from './conversations.js';
-import type { Message, SendMessageAck, SendMessageRequest } from './messages.js';
+import type {
+  Message,
+  SendMessageAck,
+  SendMessageRequest,
+  SetReactionRequest,
+} from './messages.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 
 /**
@@ -16,6 +21,8 @@ import type { AckReceiptRequest, Receipt } from './receipts.js';
  */
 export interface ClientToServerEvents {
   'message:send': (req: SendMessageRequest, ack: (res: Ack<SendMessageAck>) => void) => void;
+  /** Idempotent: adding an existing reaction or removing a missing one is a no-op. */
+  'reaction:set': (req: SetReactionRequest, ack: (res: Ack<Message>) => void) => void;
   'receipt:ack': (req: AckReceiptRequest, ack: (res: Ack<Receipt>) => void) => void;
   'typing:set': (req: { conversationId: string; typing: boolean }) => void;
   'presence:set': (req: { status: PresenceStatus }) => void;
@@ -27,7 +34,7 @@ export type PresenceStatus = (typeof PRESENCE_STATUSES)[number];
 export interface ServerToClientEvents {
   /** A message was created. Also sent to the sender's other devices. */
   'message:new': (message: Message) => void;
-  /** A message was edited or soft-deleted. */
+  /** A message was edited, soft-deleted, or its reactions changed. */
   'message:updated': (message: Message) => void;
   'receipt:updated': (receipt: Receipt) => void;
   'typing:update': (e: { conversationId: string; userId: string; typing: boolean }) => void;

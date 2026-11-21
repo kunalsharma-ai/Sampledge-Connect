@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openConnectDb, type ConnectDb } from './db.js';
-import { SyncEngine, displayStatus, listConversationMessages, wipeLocalData } from './engine.js';
+import {
+  SyncEngine,
+  displayStatus,
+  listConversationMessages,
+  overlayReactions,
+  wipeLocalData,
+} from './engine.js';
 import { FakeServer } from './fake-server.js';
 
 let n = 0;
@@ -105,7 +111,8 @@ describe('offline-first outbox', () => {
     const m = await engine.compose('c1', 'stubborn');
     await waitFor(async () => (await db.messages.get(m.clientMessageId))?.status === 'failed');
     expect(server.sendCalls).toBe(4);
-    expect(engine.getState().failed).toBe(1);
+    // Counts refresh right after the row is written, so wait for them rather than racing.
+    await waitFor(() => engine.getState().failed === 1);
     await engine.retry(m.clientMessageId);
     await waitFor(async () => (await db.messages.get(m.clientMessageId))?.status === 'sent');
     expect(server.messages).toHaveLength(1);
@@ -264,5 +271,56 @@ describe('sync and recovery', () => {
     await wipeLocalData(db);
     const reopened = await openConnectDb(name);
     expect(await reopened.db.messages.count()).toBe(0);
+  });
+});
+
+describe('reactions', () => {
+  it('queues reactions offline, coalesces toggles, and sends the final intent on reconnect', async () => {
+    const server = new FakeServer();
+    server.addConversation('c1', ['me', 'b']);
+    const msg = server.injectFrom('b', 'c1', 'ship it?');
+    const { db, engine } = await setup(server);
+    // offline: add, remove, add again -> one pending "add"
+    await engine.react(msg, '👍', 'add');
+    await engine.react(msg, '👍', 'remove');
+    await engine.react(msg, '👍', 'add');
+    expect(await db.reactionQueue.count()).toBe(1);
+    expect(server.reactCalls).toBe(0);
+    const pending = await db.reactionQueue.toArray();
+    expect(overlayReactions([], pending, 'me')).toEqual([
+      { emoji: '👍', userIds: ['me'], count: 1, mine: true, pending: true },
+    ]);
+
+    engine.setNetworkAvailable(true);
+    await waitFor(async () => (await db.reactionQueue.count()) === 0);
+    expect(server.reactCalls).toBe(1);
+    const local = await db.messages.where('messageId').equals(msg.messageId).first();
+    expect(local?.reactions).toEqual([{ emoji: '👍', userIds: ['me'], count: 1 }]);
+  });
+
+  it('retries a reaction after a network failure and drops a rejected one', async () => {
+    const server = new FakeServer();
+    server.addConversation('c1', ['me', 'b']);
+    const msg = server.injectFrom('b', 'c1', 'hi');
+    const { db, engine } = await setup(server);
+    engine.setNetworkAvailable(true);
+    server.online = false;
+    await engine.react(msg, '🎉', 'add');
+    await waitFor(
+      async () => ((await db.reactionQueue.get(`${msg.messageId}|🎉`))?.attempts ?? 0) >= 1,
+    );
+    server.online = true;
+    await waitFor(async () => (await db.reactionQueue.count()) === 0);
+    expect(server.messages[0]!.reactions[0]).toMatchObject({ emoji: '🎉', count: 1 });
+
+    await engine.react({ messageId: 'missing', conversationId: 'c1' }, '👀', 'add');
+    await waitFor(async () => (await db.reactionQueue.count()) === 0);
+  });
+
+  it('overlay removes my reaction while the removal is pending', () => {
+    const server = [{ emoji: '👍', userIds: ['me', 'b'], count: 2 }];
+    expect(overlayReactions(server, [{ emoji: '👍', op: 'remove' }], 'me')).toEqual([
+      { emoji: '👍', userIds: ['b'], count: 1, mine: false, pending: true },
+    ]);
   });
 });
