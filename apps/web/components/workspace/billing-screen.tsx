@@ -16,6 +16,7 @@ import {
 import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useTenantChange } from '@/lib/engine';
 
 type Tab = 'plan' | 'catalog' | 'organizations' | 'payments';
 interface OrgRow {
@@ -113,6 +114,7 @@ export function BillingScreen() {
   React.useEffect(() => {
     void load();
   }, [load]);
+  useTenantChange('billing', () => void load());
 
   // Back from the payment page.
   React.useEffect(() => {

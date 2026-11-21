@@ -2,3 +2,4 @@
 export const userRoom = (tenantId: string, userId: string) => `t:${tenantId}:u:${userId}`;
 export const conversationRoom = (tenantId: string, conversationId: string) =>
   `t:${tenantId}:c:${conversationId}`;
+export const tenantRoom = (tenantId: string) => `t:${tenantId}:all`;

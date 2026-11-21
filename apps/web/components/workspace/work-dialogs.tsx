@@ -10,7 +10,7 @@ import {
   type Task,
 } from '@sampledge/contracts';
 import { Button, Dialog, DialogContent, Field, Input, Textarea, cn, useToast } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useEngine, type DirectoryEntry } from '@/lib/engine';
 import { useWorkApi } from '@/lib/work';
 import {
   CATEGORY_LABEL,
@@ -454,6 +454,7 @@ export function DecideDialog({
   onDecided?: (a: Approval) => void;
 }) {
   const api = useWorkApi();
+  const { state } = useEngine();
   const { toast } = useToast();
   const [comment, setComment] = React.useState('');
   const [pending, setPending] = React.useState(false);
@@ -468,7 +469,18 @@ export function DecideDialog({
     setPending(true);
     setError(null);
     try {
-      const a = await api.decide(approval.approvalId, { decision, comment: comment.trim() });
+      const body = { decision, comment: comment.trim() };
+      if (state.connectivity !== 'online') {
+        await api.queueDecision(approval, body);
+        toast({
+          title: decision === 'approve' ? 'Approval saved' : 'Rejection saved',
+          description: 'It’s sent as soon as you’re back online.',
+          tone: 'success',
+        });
+        onOpenChange(false);
+        return;
+      }
+      const a = await api.decide(approval.approvalId, body);
       toast({ title: decision === 'approve' ? 'Approved' : 'Rejected', tone: 'success' });
       onDecided?.(a);
       onOpenChange(false);

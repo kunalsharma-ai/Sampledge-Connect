@@ -6,6 +6,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { WorkStore } from '../integrations/collections.js';
 import type { ProjectDoc } from '../integrations/docs.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const PROJECT_STATUSES = ['active', 'on_hold', 'at_risk', 'completed', 'cancelled'] as const;
 const asStatus = (v: unknown): ProjectDoc['status'] | null =>
@@ -27,6 +28,7 @@ export class ProjectsService {
   constructor(
     private readonly store: WorkStore,
     private readonly conversations: ConversationsService,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   private async counts(tenantId: string, conversationIds: string[]) {
@@ -137,6 +139,7 @@ export class ProjectsService {
       createdAt: now,
       updatedAt: now,
     });
+    this.realtime.toTenant(ctx.tenantId, 'project:changed', { projectId: p._id });
     return this.toDto(p, await this.counts(ctx.tenantId, [c.conversationId]));
   }
 
@@ -181,6 +184,10 @@ export class ProjectsService {
     } catch (e) {
       if (!(e instanceof MongoServerError && e.code === 11000)) throw e;
     }
+    const saved = await this.store
+      .for(tenantId)
+      .projects.findOne({ source: 'samptrek', externalId: record.id }, { projection: { _id: 1 } });
+    if (saved) this.realtime.toTenant(tenantId, 'project:changed', { projectId: saved._id });
   }
 
   /** milestone.* from Samptrek: keeps the project's milestone list current. */
@@ -220,5 +227,6 @@ export class ProjectsService {
       { _id: p._id },
       { $set: { milestones: ms.slice(-50), updatedAt: new Date() } },
     );
+    this.realtime.toTenant(tenantId, 'project:changed', { projectId: p._id });
   }
 }

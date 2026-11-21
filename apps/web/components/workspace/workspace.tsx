@@ -30,16 +30,19 @@ import {
   useToast,
 } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
-import { setPinned, threadCounts, useBookmarks } from '@/lib/bookmarks';
+import { threadCounts, useBookmarks } from '@/lib/bookmarks';
 import {
   useConversations,
   useEngine,
+  useEngineChange,
   useMessages,
+  usePendingMessageActions,
   usePendingReactions,
   useReceipts,
   useUnreadCounts,
 } from '@/lib/engine';
-import type { LocalMessage } from '@sampledge/offline';
+import { overlayMessage, type LocalMessage } from '@sampledge/offline';
+import { DeleteMessageDialog, EditMessageDialog } from './message-edit';
 import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
@@ -139,7 +142,22 @@ export function Workspace() {
   useTick(1000);
 
   const active = conversations?.find((c) => c.conversationId === activeId) ?? null;
-  const messages = useMessages(activeId);
+  const rawMessages = useMessages(activeId);
+  const pendingMessageActions = usePendingMessageActions(activeId);
+  // This device's queued edits, deletes and pins show right away, also offline.
+  const messages = React.useMemo(() => {
+    if (!rawMessages || pendingMessageActions.length === 0) return rawMessages;
+    const byMessage = new Map<string, typeof pendingMessageActions>();
+    for (const a of pendingMessageActions)
+      if (a.messageId) byMessage.set(a.messageId, [...(byMessage.get(a.messageId) ?? []), a]);
+    return rawMessages.map((m) =>
+      m.messageId && byMessage.has(m.messageId)
+        ? overlayMessage(m, byMessage.get(m.messageId)!, me)
+        : m,
+    );
+  }, [rawMessages, pendingMessageActions, me]);
+  const [editing, setEditing] = React.useState<LocalMessage | null>(null);
+  const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
@@ -160,18 +178,50 @@ export function Workspace() {
   const threadRoot = threadRootId
     ? (messages?.find((m) => m.messageId === threadRootId) ?? null)
     : null;
-  const pin = async (m: LocalMessage, on: boolean) => {
-    try {
-      await setPinned(getAccessToken, m.messageId!, on);
-      toast({ title: on ? 'Pinned for everyone' : 'Unpinned', tone: 'success' });
-    } catch (e) {
+  // Pins, edits and deletes go through the device's action queue: they work offline,
+  // survive a reload, and reach every device when the server confirms them.
+  const pin = (m: LocalMessage, on: boolean) => {
+    void engine.queueAction({
+      key: `pin|${m.messageId}`,
+      method: on ? 'PUT' : 'DELETE',
+      path: `/v1/messages/${m.messageId}/pin`,
+      label: on ? 'Pin message' : 'Unpin message',
+      conversationId: m.conversationId,
+      messageId: m.messageId!,
+      intent: { kind: 'pin', pinned: on },
+    });
+    toast({ title: on ? 'Pinned for everyone' : 'Unpinned', tone: 'success' });
+  };
+  const editMessage = (m: LocalMessage, text: string) =>
+    void engine.queueAction({
+      key: `edit|${m.messageId}`,
+      method: 'PATCH',
+      path: `/v1/messages/${m.messageId}`,
+      body: { content: { text, mentions: m.content.mentions ?? [] } },
+      label: 'Edit message',
+      conversationId: m.conversationId,
+      messageId: m.messageId!,
+      intent: { kind: 'edit', text },
+    });
+  const deleteMessage = (m: LocalMessage) =>
+    void engine.queueAction({
+      key: `delete|${m.messageId}`,
+      method: 'DELETE',
+      path: `/v1/messages/${m.messageId}`,
+      label: 'Delete message',
+      conversationId: m.conversationId,
+      messageId: m.messageId!,
+      intent: { kind: 'delete' },
+    });
+  // A queued change the server refused: say so, and point at the Sync Center.
+  useEngineChange(['action'], (e) => {
+    if (e.type === 'action' && !e.ok && e.error)
       toast({
-        title: 'Couldn’t change the pin',
-        description: (e as Error).message,
+        title: 'A change wasn’t saved',
+        description: `${e.error.message} Open the Sync Center to retry or discard it.`,
         tone: 'danger',
       });
-    }
-  };
+  });
   const bookmark = async (m: LocalMessage, on: boolean) => {
     try {
       await bookmarks.toggle(m as unknown as Message, on);
@@ -294,13 +344,22 @@ export function Workspace() {
   const readOnly = active
     ? active.myRole === null || !!active.archivedAt || announcementOnly
     : false;
-  const messageActions = (m: LocalMessage) => ({
-    onThread: () => setThreadRootId(m.messageId),
-    pinned: !!m.pinned,
-    onPin: readOnly || offline ? undefined : (on: boolean) => void pin(m, on),
-    saved: bookmarks.ids.has(m.messageId!),
-    onSave: offline ? undefined : (on: boolean) => void bookmark(m, on),
-  });
+  const messageActions = (m: LocalMessage) => {
+    const own = m.senderId === me;
+    const editable = own && !readOnly && m.messageType !== 'system' && !m.poll && !m.deletedAt;
+    return {
+      onThread: () => setThreadRootId(m.messageId),
+      pinned: !!m.pinned,
+      onPin: readOnly ? undefined : (on: boolean) => pin(m, on),
+      saved: bookmarks.ids.has(m.messageId!),
+      onSave: (on: boolean) => void bookmark(m, on),
+      onEdit: editable && m.content.text ? () => setEditing(m) : undefined,
+      onDelete:
+        (own || canModerate) && m.messageType !== 'system' && !m.deletedAt && !readOnly
+          ? () => setDeleting(m)
+          : undefined,
+    };
+  };
   const mentionMembers = (active?.memberIds ?? [])
     .filter((id) => id !== me && directory.has(id))
     .map((id) => ({
@@ -463,7 +522,7 @@ export function Workspace() {
                     <button onClick={() => setDialog('sync')} aria-label="Open Sync Center">
                       <ConnectivityIndicator
                         state={state.connectivity}
-                        queued={state.queued}
+                        queued={state.queued + state.pendingActions}
                         compact
                       />
                     </button>
@@ -839,6 +898,16 @@ export function Workspace() {
             setModule('messages');
             setActiveId(id);
           }}
+        />
+        <EditMessageDialog
+          message={editing}
+          onOpenChange={(o) => !o && setEditing(null)}
+          onSave={editMessage}
+        />
+        <DeleteMessageDialog
+          message={deleting}
+          onOpenChange={(o) => !o && setDeleting(null)}
+          onConfirm={deleteMessage}
         />
         <SyncCenterDialog
           open={dialog === 'sync'}
