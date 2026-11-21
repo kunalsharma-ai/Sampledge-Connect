@@ -7,7 +7,7 @@ import type {
 } from '@sampledge/contracts';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useEngine, useEngineChange } from './engine';
 
 interface Snapshot {
   items: Notification[];
@@ -19,7 +19,8 @@ const CACHE_KEY = 'notifications';
 
 /**
  * The signed-in user's notification inbox. Fetched over REST, kept live by socket events,
- * and cached in this identity's IndexedDB so it still shows (read-only) while offline.
+ * and cached in this identity's IndexedDB so it still shows while offline. Marking read
+ * offline is queued and sent on reconnect.
  */
 export function useNotifications() {
   const { db, engine, state } = useEngine();
@@ -56,6 +57,10 @@ export function useNotifications() {
   React.useEffect(() => {
     if (online) void refresh();
   }, [online, refresh]);
+  useEngineChange(['action'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'action' && e.key.startsWith('notif-read|')))
+      void refresh();
+  });
 
   React.useEffect(
     () =>
@@ -98,6 +103,16 @@ export function useNotifications() {
           unreadCount: 'all' in req ? 0 : Math.max(0, s.unreadCount - changed),
         };
       });
+      if (engine.getState().connectivity !== 'online') {
+        await engine.queueAction({
+          key: `notif-read|${JSON.stringify(req)}`,
+          method: 'POST',
+          path: '/v1/notifications/read',
+          body: req,
+          label: 'Mark notifications read',
+        });
+        return;
+      }
       try {
         const r = await apiRequest<{ unreadCount: number }>('POST', '/v1/notifications/read', {
           token: await getAccessToken(),
@@ -113,7 +128,7 @@ export function useNotifications() {
         // Not saved on the server (offline): the next refresh restores the true state.
       }
     },
-    [db, getAccessToken],
+    [db, engine, getAccessToken],
   );
 
   const loadMore = React.useCallback(async () => {

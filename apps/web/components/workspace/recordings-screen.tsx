@@ -13,7 +13,7 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { apiRequest } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import { attachmentUrl, formatBytes } from '@/lib/uploads';
 import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 import { nameOf } from './helpers';
@@ -106,6 +106,7 @@ export function RecordingsScreen({
     setItems(null);
     if (online) void load();
   }, [load, online]);
+  useTenantChange('recordings', () => void load());
   // Stay in step with other devices: new recordings and deletions show within 20 seconds,
   // and at once when this window comes back to the front.
   React.useEffect(() => {

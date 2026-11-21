@@ -71,6 +71,15 @@ Behaviour depends on the mode:
 
 Admins can subscribe URLs to these events: `message.created` (linked conversations only), `task.created`, `task.updated`, `approval.requested`, `approval.decided` and `record.linked`. Subscriptions can be filtered by module. Deliveries go through a durable Mongo outbox and are signed with the subscription's secret, which is shown once. Failed deliveries are retried after 10 s, 1 min, 5 min, 30 min, 2 h and 6 h, then marked dead. Delivery rows expire after 30 days.
 
+## Live sync across devices
+
+| Change                                                           | How other devices learn about it                                             | After being offline                          |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
+| A module record is linked to a conversation, or its facts change | `record:changed` `{conversationId, linkId, reason}` to the conversation room | Details panel refetches records on reconnect |
+| Someone runs a record action (e.g. Log to SampForce)             | `record:changed` with `reason: 'action'`, plus the action card as a message  | Messages sync as usual; records refetch      |
+| Module cards                                                     | Ordinary system messages (`message:new`)                                     | Message gap recovery                         |
+| Tasks and approvals                                              | `task:upsert` / `approval:upsert` to everyone involved                       | Lists refetch on reconnect (cached offline)  |
+
 ## Security notes
 
 - Module keys are scoped to one tenant and one module, stored hashed, revocable, and rate-limited (600 requests a minute). Issuing a key, revoking it and linking an identity are all audit-logged.

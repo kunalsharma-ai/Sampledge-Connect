@@ -43,10 +43,14 @@ export default function Assistant() {
 
   useEffect(() => {
     if (blocked) return;
-    engine
-      .aiStatus()
-      .then(setStatus)
-      .catch((e: unknown) => setStatusError(e instanceof Error ? e.message : String(e)));
+    const load = () =>
+      void engine
+        .aiStatus()
+        .then(setStatus)
+        .catch((e: unknown) => setStatusError(e instanceof Error ? e.message : String(e)));
+    load();
+    // An admin turning the assistant on or off elsewhere applies here at once.
+    return engine.events.on('tenant', (e) => e.area === 'ai' && load());
   }, [engine, blocked]);
 
   const toggle = async (enabled: boolean) => {

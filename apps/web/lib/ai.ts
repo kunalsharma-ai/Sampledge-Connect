@@ -20,7 +20,7 @@ import type {
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useEngine, useTenantChange } from './engine';
 
 /**
  * The private AI assistant client. Every call is an explicit user action over REST; nothing
@@ -49,6 +49,7 @@ export function useAi() {
   React.useEffect(() => {
     if (online) void refreshStatus();
   }, [online, refreshStatus]);
+  useTenantChange('ai', () => void refreshStatus());
 
   return React.useMemo(
     () => ({

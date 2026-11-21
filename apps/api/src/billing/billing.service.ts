@@ -32,6 +32,7 @@ import {
   verifyStripeSignature,
   type StripeConfig,
 } from './stripe.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 type StripeObj = Record<string, unknown> & { id: string };
 const s = (v: unknown) => (typeof v === 'string' ? v : null);
@@ -53,6 +54,7 @@ export class BillingService implements OnModuleInit {
     private readonly settings: IntegrationSettingsService,
     private readonly audit: AuditService,
     private readonly operators: PlatformAdmins,
+    private readonly realtime: RealtimePublisher,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
@@ -589,6 +591,7 @@ export class BillingService implements OnModuleInit {
         { $set: { ...set, updatedAt: new Date() }, $setOnInsert: insert },
         { upsert: true },
       );
+    this.realtime.toTenant(tenantId, 'tenant:updated', { area: 'billing' });
   }
 
   private async stripe(): Promise<StripeConfig | null> {
