@@ -12,7 +12,7 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                     | Planned                    |
 | Step 4 | MongoDB collections, validators, indexes, migrations                              | Built                      |
 | Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO  | Built                      |
-| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry           | In progress                |
+| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry           | Built                      |
 | Step 7 | Premium three-column interface                                                    | In progress (core screens) |
 |        | Threads, reactions, pins, bookmarks, polls, voice, scheduled messages, forwarding | Planned                    |
 | Step 8 | Nextcloud files                                                                   | Planned (Phase 1b)         |

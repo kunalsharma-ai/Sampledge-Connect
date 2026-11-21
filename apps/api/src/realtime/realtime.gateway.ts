@@ -109,9 +109,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     clearInterval(socket.data.timer);
     const { tenantId, userId } = socket.data.ctx;
     const key = `presence:${tenantId}:${userId}`;
-    await this.redis.hdel(key, socket.id);
-    if ((await this.redis.hlen(key)) === 0) {
-      this.server.to(tenantRoom(tenantId)).emit('presence:update', { userId, status: 'offline' });
+    try {
+      await this.redis.hdel(key, socket.id);
+      if ((await this.redis.hlen(key)) === 0) {
+        this.server.to(tenantRoom(tenantId)).emit('presence:update', { userId, status: 'offline' });
+      }
+    } catch (e) {
+      // During shutdown Redis may already be closed; presence keys expire on their own (TTL).
+      this.logger.debug(`presence cleanup skipped: ${(e as Error).message}`);
     }
   }
 
