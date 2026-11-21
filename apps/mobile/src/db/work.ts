@@ -15,6 +15,7 @@ import {
   type ScheduledMessage,
   type Task,
   type UpdateTaskRequest,
+  type UpdateProfileRequest,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -52,7 +53,11 @@ export type ActionInput =
   | { kind: 'scheduled.sendNow'; scheduledId: string }
   | { kind: 'booking.create'; localId: string; request: CreateBookingPageRequest }
   | { kind: 'booking.update'; bookingPageId: string; patch: UpdateBookingPageRequest }
-  | { kind: 'booking.delete'; bookingPageId: string };
+  | { kind: 'booking.delete'; bookingPageId: string }
+  | { kind: 'profile.update'; patch: UpdateProfileRequest }
+  /** A cropped, compressed photo as a data URL, kept here until it reaches the server. */
+  | { kind: 'avatar.set'; image: string }
+  | { kind: 'avatar.remove' };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -92,7 +97,7 @@ export interface ApprovalFilter {
   status?: 'pending' | 'decided' | 'any';
 }
 
-type CacheKind = 'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking';
+type CacheKind = 'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking' | 'profile';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -136,17 +141,24 @@ const targetOf = (a: ActionInput): string => {
     case 'booking.update':
     case 'booking.delete':
       return `booking:${a.bookingPageId}`;
+    case 'profile.update':
+      return 'profile:me';
+    case 'avatar.set':
+    case 'avatar.remove':
+      return 'avatar:me';
   }
 };
 
 const kindOfCache = (k: ActionKind): CacheKind =>
-  k === 'pin' || k === 'poll.create' || k === 'poll.close'
-    ? 'vote' // these show on messages; 'vote' listeners also reload polls
-    : k === 'bookmark'
-      ? 'bookmark'
-      : k === 'poll.vote'
-        ? 'vote'
-        : (k.split('.')[0] as CacheKind);
+  k.startsWith('avatar.')
+    ? 'profile'
+    : k === 'pin' || k === 'poll.create' || k === 'poll.close'
+      ? 'vote' // these show on messages; 'vote' listeners also reload polls
+      : k === 'bookmark'
+        ? 'bookmark'
+        : k === 'poll.vote'
+          ? 'vote'
+          : (k.split('.')[0] as CacheKind);
 
 interface ActionRow {
   id: string;
@@ -369,6 +381,25 @@ export class WorkStore {
           else await insert(input);
           break;
         }
+        case 'profile.update': {
+          // Last write wins per field: later edits merge into the one still waiting.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'profile.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'profile.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
+        case 'avatar.set':
+        case 'avatar.remove':
+          // Only the latest photo (or its removal) matters.
+          await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
+          await insert(input);
+          break;
         case 'booking.delete':
           if (create && create.state !== 'sending') {
             // Never reached the server: forget it here.
@@ -795,6 +826,25 @@ export class WorkStore {
     return !!(await this.db.get(`SELECT 1 FROM work_cache WHERE kind = 'bookmark' AND id = ?`, [
       messageId,
     ]));
+  }
+
+  /**
+   * Your profile changes not on the server yet: the fields you edited, and the photo you picked
+   * (a data URL) or removed (null). Refused changes are not included.
+   */
+  async pendingProfile(): Promise<{ patch: UpdateProfileRequest; avatar?: string | null }> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target IN ('profile:me', 'avatar:me') AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const out: { patch: UpdateProfileRequest; avatar?: string | null } = { patch: {} };
+    for (const a of rows) {
+      if (a.input.kind === 'profile.update') out.patch = { ...out.patch, ...a.input.patch };
+      if (a.input.kind === 'avatar.set') out.avatar = a.input.image;
+      if (a.input.kind === 'avatar.remove') out.avatar = null;
+    }
+    return out;
   }
 
   /** Your choice in a poll as the server last told this device. */

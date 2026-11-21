@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
@@ -267,12 +267,23 @@ export default function ConversationInfo() {
                   },
                 ]}
               >
-                <Avatar name={nameOf(userId, { asWritten: true })} size={36} />
-                <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
-                  {userId === selfId
-                    ? `${nameOf(userId, { asWritten: true })} (you)`
-                    : nameOf(userId)}
-                </Text>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/person/[id]', params: { id: userId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Profile of ${nameOf(userId, { asWritten: true })}`}
+                  style={styles.person}
+                >
+                  <PersonAvatar
+                    userId={userId}
+                    name={nameOf(userId, { asWritten: true })}
+                    size={36}
+                  />
+                  <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+                    {userId === selfId
+                      ? `${nameOf(userId, { asWritten: true })} (you)`
+                      : nameOf(userId)}
+                  </Text>
+                </Pressable>
                 {canRemove && userId !== selfId ? (
                   <Pressable
                     onPress={() => remove(userId)}
@@ -329,6 +340,7 @@ export default function ConversationInfo() {
 }
 
 const styles = StyleSheet.create({
+  person: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
   hero: { alignItems: 'center', gap: space.xs, paddingVertical: space.md },
   row: {
     flexDirection: 'row',

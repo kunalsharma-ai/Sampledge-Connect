@@ -26,6 +26,8 @@ export interface WorkSource {
   conversation: Conversation;
   messageId?: string | null;
   text?: string;
+  /** Prefill from an AI suggested task; the person still reviews and creates it. */
+  prefill?: { assigneeIds?: string[]; dueDate?: string | null; description?: string };
 }
 
 function candidatesFor(conv: Conversation | null, directory: Map<string, DirectoryEntry>) {
@@ -69,11 +71,11 @@ export function CreateTaskDialog({
   React.useEffect(() => {
     if (!open) return;
     setTitle(firstLine(source?.text));
-    setDescription('');
+    setDescription(source?.prefill?.description ?? '');
     setKind('task');
     setPriority('normal');
-    setDue('');
-    setAssignees([me]);
+    setDue(source?.prefill?.dueDate ?? '');
+    setAssignees(source?.prefill?.assigneeIds?.length ? source.prefill.assigneeIds : [me]);
     setError(null);
     requestId.current = crypto.randomUUID();
   }, [open, source, me]);

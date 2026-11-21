@@ -1,6 +1,7 @@
 import type { CallJoin, CallMedia } from '@sampledge/contracts';
 import {
   ConnectionState,
+  LocalVideoTrack,
   Room,
   RoomEvent,
   Track,
@@ -8,7 +9,16 @@ import {
   type TrackPublication,
 } from 'livekit-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { setupCallMedia, startCallAudio, stopCallAudio } from './mediaSetup';
+import { defaultOutput, type AudioOutput } from '../lib/audioRoute';
+import {
+  hasRoutePicker,
+  listAudioOutputs,
+  selectAudioOutput,
+  setupCallMedia,
+  showRoutePicker,
+  startCallAudio,
+  stopCallAudio,
+} from './mediaSetup';
 
 export interface CallTile {
   /** The member's userId (the SFU identity). */
@@ -42,6 +52,10 @@ export function useCallMedia(
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(media === 'video');
   const [handUp, setHandUp] = useState(false);
+  /** Which camera is sending: front ("user") or back ("environment"). */
+  const [facing, setFacing] = useState<'user' | 'environment'>('user');
+  const [outputs, setOutputs] = useState<AudioOutput[]>([]);
+  const [output, setOutput] = useState<string | null>(null);
   const onTokenExpired = useRef(opts.onTokenExpired);
   onTokenExpired.current = opts.onTokenExpired;
 
@@ -109,6 +123,16 @@ export function useCallMedia(
         if (media === 'video')
           await room.localParticipant.setCameraEnabled(true).catch(() => setCamOn(false));
         snapshot();
+        // Video calls start on the speaker, voice calls on the earpiece (a headset wins).
+        const outs = await listAudioOutputs().catch(() => []);
+        if (cancelled) return;
+        setOutputs(outs);
+        const first = defaultOutput(outs, media === 'video');
+        if (first)
+          await selectAudioOutput(room, first).then(
+            () => setOutput(first),
+            () => {},
+          );
       } catch (err) {
         if (cancelled) return;
         // A token that expired before connecting: ask the API for a fresh one once.
@@ -157,6 +181,32 @@ export function useCallMedia(
     );
   }, [camOn]);
 
+  /** Front to back camera and back, without leaving the call. */
+  const flipCamera = useCallback(async () => {
+    const room = roomRef.current;
+    const track = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.track;
+    if (!(track instanceof LocalVideoTrack)) return;
+    const next = facing === 'user' ? 'environment' : 'user';
+    await track.restartTrack({ facingMode: next }).then(
+      () => setFacing(next),
+      () => setError('Could not switch camera'),
+    );
+  }, [facing]);
+
+  /** Re-reads where audio can go (a headset or Bluetooth device may have connected). */
+  const refreshOutputs = useCallback(async () => {
+    const outs = await listAudioOutputs().catch(() => []);
+    setOutputs(outs);
+    return outs;
+  }, []);
+
+  const chooseOutput = useCallback(async (id: string) => {
+    await selectAudioOutput(roomRef.current, id).then(
+      () => setOutput(id),
+      () => setError('Could not switch audio'),
+    );
+  }, []);
+
   const toggleHand = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
@@ -167,5 +217,23 @@ export function useCallMedia(
       .catch(() => setError('Could not raise your hand'));
   }, [handUp]);
 
-  return { status, tiles, error, micOn, camOn, handUp, toggleMic, toggleCamera, toggleHand };
+  return {
+    status,
+    tiles,
+    error,
+    micOn,
+    camOn,
+    handUp,
+    facing,
+    outputs,
+    output,
+    hasRoutePicker,
+    toggleMic,
+    toggleCamera,
+    toggleHand,
+    flipCamera,
+    refreshOutputs,
+    chooseOutput,
+    showRoutePicker,
+  };
 }

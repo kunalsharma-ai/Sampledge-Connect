@@ -14,9 +14,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CallVideo } from '../../calls/CallVideo';
 import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
-import { Avatar } from '../../components/Avatar';
+import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Text } from '../../components/Text';
 import type { LocalConversation } from '../../db/store';
+import { outputIcon, outputLabel } from '../../lib/audioRoute';
 import { guestLabel } from '../../lib/guests';
 import { formatDuration } from '../../lib/systemMessages';
 import { useWorkspace } from '../../state/AppProvider';
@@ -36,6 +37,7 @@ export default function CallScreen() {
   const { current, config, error: callError } = useCalls();
   const [recBusy, setRecBusy] = useState(false);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [audioOpen, setAudioOpen] = useState(false);
   const { conversations } = useConversations();
   const lobbySeen = useRef(new Set<string>());
   const call = current?.call.callId === id ? current : null;
@@ -221,10 +223,11 @@ export default function CallScreen() {
             accessibilityLabel={`${t.isLocal ? 'You' : who(t.userId)}${t.ringing ? ', ringing' : ''}${t.micOn ? '' : ', muted'}${t.handUp ? ', hand raised' : ''}`}
           >
             {t.video ? (
-              <CallVideo video={t.video} mirror={t.isLocal} />
+              <CallVideo video={t.video} mirror={t.isLocal && media.facing === 'user'} />
             ) : (
               <View style={styles.center}>
-                <Avatar
+                <PersonAvatar
+                  userId={t.isLocal ? selfId : t.userId}
                   name={t.isLocal ? nameOf(selfId, { asWritten: true }) : who(t.userId)}
                   size={cols === 1 ? 96 : 64}
                 />
@@ -299,6 +302,58 @@ export default function CallScreen() {
           ))}
         </View>
       ) : null}
+      {audioOpen ? (
+        <View
+          style={[styles.lobby, { borderColor: alpha('#FFFFFF', 0.18) }]}
+          accessibilityLabel="Audio output"
+        >
+          <Text variant="label" style={{ color: '#FFFFFF' }}>
+            Play the call through
+          </Text>
+          {media.outputs.map((o) => {
+            const on = media.output === o.id;
+            return (
+              <Pressable
+                key={o.id}
+                onPress={() => {
+                  void media.chooseOutput(o.id);
+                  setAudioOpen(false);
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+                accessibilityLabel={o.label}
+                style={styles.lobbyRow}
+              >
+                <Ionicons name={outputIcon(o.id)} size={20} color="#FFFFFF" />
+                <Text variant="bodyStrong" style={{ flex: 1, color: '#FFFFFF' }}>
+                  {o.label}
+                </Text>
+                {on ? <Ionicons name="checkmark" size={20} color="#86EFAC" /> : null}
+              </Pressable>
+            );
+          })}
+          {!media.outputs.length ? (
+            <Text variant="meta" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              Only this device's own speaker is available.
+            </Text>
+          ) : null}
+          {media.hasRoutePicker ? (
+            <Pressable
+              onPress={() => {
+                void media.showRoutePicker();
+                setAudioOpen(false);
+              }}
+              accessibilityRole="button"
+              style={styles.lobbyRow}
+            >
+              <Ionicons name="bluetooth" size={20} color="#FFFFFF" />
+              <Text variant="bodyStrong" style={{ flex: 1, color: '#FFFFFF' }}>
+                Bluetooth, AirPlay and more…
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <View style={[styles.controls, { paddingBottom: insets.bottom + space.lg }]}>
         <Control
           icon={media.micOn ? 'mic' : 'mic-off'}
@@ -311,6 +366,18 @@ export default function CallScreen() {
           label={media.camOn ? 'Camera off' : 'Camera on'}
           active={!media.camOn}
           onPress={() => void media.toggleCamera()}
+        />
+        {media.camOn ? (
+          <Control icon="camera-reverse" label="Flip" onPress={() => void media.flipCamera()} />
+        ) : null}
+        <Control
+          icon={media.output ? outputIcon(media.output) : 'volume-high'}
+          label={media.output ? outputLabel(media.output) : 'Audio'}
+          active={audioOpen}
+          onPress={() => {
+            void media.refreshOutputs();
+            setAudioOpen((o) => !o);
+          }}
         />
         <Control
           icon="hand-left"

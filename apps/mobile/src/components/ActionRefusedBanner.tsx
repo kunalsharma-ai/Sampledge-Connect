@@ -29,6 +29,9 @@ const WHAT: Record<ActionKind, string> = {
   'booking.create': 'New booking page',
   'booking.update': 'Booking page change',
   'booking.delete': 'Deleting the booking page',
+  'profile.update': 'Profile change',
+  'avatar.set': 'New profile photo',
+  'avatar.remove': 'Removing your photo',
 };
 
 /**

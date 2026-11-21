@@ -56,6 +56,10 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Forward a message (with its files)              | `message:new` in each target conversation               | Queued (outbox, like any send)         |
 | Turn forwarding on/off (private channel, group) | `conversation:updated`                                  | Needs a connection (moderators)        |
 | Availability, custom status, quiet hours        | `directory:updated` (everyone in the organization)      | Queued, shown at once on this device   |
+| AI draft created, sent or dismissed             | `ai:proposal` (own devices only)                        | Send and dismiss queued                |
+| Dismiss / restore a suggested AI task           | `ai:suggestion` (own devices only)                      | Queued                                 |
+| Create a task from an AI suggestion             | `task:upsert`                                           | Needs a connection                     |
+| AI summaries, digest, search                    | Computed on request, cached on the server               | Needs a connection by nature           |
 | Typing, presence                                | `typing:update`, `presence:update`                      | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.

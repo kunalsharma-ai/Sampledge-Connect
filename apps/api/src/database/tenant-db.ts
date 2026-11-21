@@ -157,6 +157,7 @@ export class TenantDb {
       ai_summaries: c('ai_summaries'),
       ai_proposals: c('ai_proposals'),
       ai_transcripts: c('ai_transcripts'),
+      ai_suggestion_dismissals: c('ai_suggestion_dismissals'),
       billing_subscriptions: c('billing_subscriptions'),
       billing_invoices: c('billing_invoices'),
     };

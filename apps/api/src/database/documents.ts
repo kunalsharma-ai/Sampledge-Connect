@@ -506,6 +506,14 @@ export interface AiProposalDoc extends TenantOwned {
   confirmedAt: Date | null;
 }
 
+/** A suggested task the person dismissed. Private to them; expires after 180 days. */
+export interface AiSuggestionDismissalDoc extends TenantOwned {
+  userId: string;
+  /** aiSuggestionId(conversationId, messageId, text) from @sampledge/contracts. */
+  suggestionId: string;
+  createdAt: Date;
+}
+
 /** One transcript per recording or voice message, from the tenant's own speech-to-text server. */
 export interface AiTranscriptDoc extends TenantOwned {
   attachmentId: string;
@@ -571,6 +579,7 @@ export interface TenantCollections {
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
   ai_transcripts: AiTranscriptDoc;
+  ai_suggestion_dismissals: AiSuggestionDismissalDoc;
   billing_subscriptions: BillingSubscriptionDoc;
   billing_invoices: BillingInvoiceDoc;
 }

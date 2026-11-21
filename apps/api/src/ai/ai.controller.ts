@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { AiService } from './ai.service.js';
@@ -90,6 +100,22 @@ export class AiController {
   @HttpCode(200)
   confirm(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
     return this.ai.confirmProposal(ctx, id, body);
+  }
+
+  /** Suggested tasks the caller dismissed, on any of their devices. */
+  @Get('suggestions/dismissed')
+  dismissedSuggestions(@Ctx() ctx: TenantContext) {
+    return this.ai.dismissedSuggestions(ctx);
+  }
+
+  @Put('suggestions/:id/dismissed')
+  dismissSuggestion(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.ai.setSuggestionDismissed(ctx, id, true);
+  }
+
+  @Delete('suggestions/:id/dismissed')
+  restoreSuggestion(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.ai.setSuggestionDismissed(ctx, id, false);
   }
 
   @Post('proposals/:id/dismiss')
