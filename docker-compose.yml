@@ -54,10 +54,16 @@ services:
       RECORDINGS_SPOOL_DIR: /recordings
       LIVEKIT_EGRESS_OUTPUT_DIR: /out
       FILES_URL_SECRET: ${FILES_URL_SECRET:?set FILES_URL_SECRET (openssl rand -base64 48)}
+      # Encrypts integration secrets stored in the database (SMTP, Stripe, SSO, AI, …).
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?set SETTINGS_ENCRYPTION_KEY (openssl rand -base64 32)}
+      # Public address of this API (SSO redirect URI, signed links).
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+      # Prometheus scrape token for /health/metrics. Leave empty to turn the endpoint off.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       # Links in emails (guest join links) point here.
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
-      # Email to external meeting guests, through your own mail server. Leave SMTP_HOST empty
-      # to turn email off (organizers then copy guest links by hand). See docs/guests.md.
+      # Optional first-run default for email. After start, manage SMTP in Admin → Integrations
+      # (stored encrypted in the database); these values only seed the platform default.
       # To try it locally: docker compose --profile mail-test up, then open http://localhost:8025.
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -68,6 +74,18 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
     volumes: [recordings-spool:/recordings]
     ports: ['4000:4000']
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Compiled into the browser bundle: the public addresses people's browsers use.
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_RTC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ['3000:3000']
 
   # Self-hosted SFU for voice/video calls and screen sharing (LiveKit, Apache-2.0).
   # Media goes browser/phone <-> this server only; no third-party media or STUN service is used.

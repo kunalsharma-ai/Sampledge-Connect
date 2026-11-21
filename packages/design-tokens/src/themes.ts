@@ -1,4 +1,4 @@
-import { ensureContrast, mix, pickForeground, withAlpha } from './color.js';
+import { contrastRatio, ensureContrast, mix, pickForeground, withAlpha } from './color.js';
 
 export const THEME_IDS = [
   'midnight-executive',
@@ -83,7 +83,16 @@ function buildColors(seed: ThemeSeed, mode: 'dark' | 'light'): ThemeColors {
     borderStrong: dark ? mix(surface, text, 0.2) : mix(bg, text, 0.18),
     text,
     textMuted: mix(text, surface, dark ? 0.3 : 0.28),
-    textSubtle: mix(text, surface, dark ? 0.45 : 0.42),
+    textSubtle: readableSubtle(
+      text,
+      [
+        surface,
+        bg,
+        dark ? mix(surface, text, 0.05) : '#FFFFFF',
+        dark ? mix(surface, bg, 0.55) : mix(bg, text, 0.025),
+      ],
+      dark,
+    ),
     accent,
     accentHover: dark ? mix(accent, '#FFFFFF', 0.12) : mix(accent, '#000000', 0.12),
     accentFg,
@@ -209,4 +218,16 @@ export function themeToCssVars(theme: Theme): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(theme.colors)) out[`--sc-color-${kebab(k)}`] = v;
   return out;
+}
+
+/**
+ * The quietest text tone that is still readable at small sizes: as close to the surface as
+ * possible while keeping 4.5:1 (WCAG AA) against every background it is drawn on.
+ */
+function readableSubtle(text: string, backgrounds: string[], dark: boolean): string {
+  for (let t = dark ? 0.45 : 0.42; t > 0; t -= 0.01) {
+    const c = mix(text, backgrounds[0]!, t);
+    if (backgrounds.every((b) => contrastRatio(c, b) >= 4.6)) return c;
+  }
+  return text;
 }

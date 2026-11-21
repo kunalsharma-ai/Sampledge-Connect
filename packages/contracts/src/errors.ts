@@ -12,6 +12,7 @@ export const ERROR_CODES = {
   FORBIDDEN: { status: 403, retryable: false },
   NOT_FOUND: { status: 404, retryable: false },
   CONFLICT: { status: 409, retryable: false },
+  PAYLOAD_TOO_LARGE: { status: 413, retryable: false },
   RATE_LIMITED: { status: 429, retryable: true },
   INTERNAL: { status: 500, retryable: true },
   UNAVAILABLE: { status: 503, retryable: true },

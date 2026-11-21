@@ -97,13 +97,18 @@ const EnvSchema = z.object({
   SETTINGS_ENCRYPTION_KEY: z.string().optional(),
   /** Comma-separated emails of platform operators who may edit platform-wide integration defaults. */
   PLATFORM_ADMIN_EMAILS: z.string().default(''),
+  /** Bearer token for GET /health/metrics (Prometheus). Unset = the endpoint answers 404. */
+  METRICS_TOKEN: z.string().min(24).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & { corsOrigins: string[] };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = EnvSchema.safeParse(env);
+  // An empty variable (common in docker compose: `X: ${X:-}`) means "not set".
+  const parsed = EnvSchema.safeParse(
+    Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')),
+  );
   if (!parsed.success) {
     throw new Error(`Invalid configuration:\n${z.prettifyError(parsed.error)}`);
   }

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import type { NextConfig } from 'next';
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -25,6 +26,13 @@ const csp = [
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // The Docker image (apps/web/Dockerfile) ships the self-contained server only.
+  ...(process.env.NEXT_OUTPUT === 'standalone'
+    ? {
+        output: 'standalone' as const,
+        outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
+      }
+    : {}),
   poweredByHeader: false,
   async headers() {
     return [

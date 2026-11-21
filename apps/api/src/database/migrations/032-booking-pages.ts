@@ -3,7 +3,7 @@ import { date, ensureCollection, str, tenantScoped } from './001-initial.js';
 
 /** Public booking pages. The public link carries only the slug, so slugs are unique globally. */
 export const bookingPagesMigration: Migration = {
-  id: '031-booking-pages',
+  id: '032-booking-pages',
   async up(db) {
     await ensureCollection(
       db,
