@@ -118,6 +118,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       editedAt: null,
       deletedAt: null,
       metadata: {},
+      reactions: [],
     };
   });
   await store.applyServerMessages(messages);

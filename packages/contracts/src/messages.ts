@@ -37,6 +37,39 @@ export const MessageContentSchema = z.object({
 });
 export type MessageContent = z.infer<typeof MessageContentSchema>;
 
+/** Most distinct emoji a single message can carry. */
+export const MAX_REACTIONS_PER_MESSAGE = 50;
+/** userIds returned per reaction; `count` is always the full total. */
+export const REACTION_USER_IDS_LIMIT = 20;
+
+/** One emoji grapheme (including ZWJ sequences, skin tones and flags). */
+export const ReactionEmojiSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .refine(
+    (e) =>
+      /^(\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)/u.test(e) &&
+      [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(e)].length === 1,
+    'must be a single emoji',
+  );
+
+export const ReactionSchema = z.object({
+  emoji: ReactionEmojiSchema,
+  /** First reactors, oldest first, capped at REACTION_USER_IDS_LIMIT. */
+  userIds: z.array(ServerIdSchema),
+  count: z.number().int().positive(),
+});
+export type Reaction = z.infer<typeof ReactionSchema>;
+
+/** Body of PUT/DELETE reaction and of the `reaction:set` socket event. */
+export const SetReactionRequestSchema = z.object({
+  messageId: ServerIdSchema,
+  emoji: ReactionEmojiSchema,
+  op: z.enum(['add', 'remove']),
+});
+export type SetReactionRequest = z.input<typeof SetReactionRequestSchema>;
+
 /** Message as stored and returned by the server. */
 export const MessageSchema = z.object({
   messageId: ServerIdSchema,
@@ -59,6 +92,8 @@ export const MessageSchema = z.object({
   editedAt: z.string().datetime().nullable().default(null),
   deletedAt: z.string().datetime().nullable().default(null),
   metadata: z.record(z.string(), z.unknown()).default({}),
+  /** In first-reacted order. A reaction change bumps changeSequence, so sync carries it. */
+  reactions: z.array(ReactionSchema).default([]),
 });
 export type Message = z.infer<typeof MessageSchema>;
 

@@ -36,6 +36,7 @@ export type TenantPermission = (typeof TENANT_PERMISSIONS)[number];
 export const CONVERSATION_PERMISSIONS = [
   'conversation.read',
   'message.send',
+  'message.react',
   'message.edit.own',
   'message.delete.own',
   'message.delete.any', // moderation
@@ -70,6 +71,7 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
     moderator: [
       'conversation.read',
       'message.send',
+      'message.react',
       'message.edit.own',
       'message.delete.own',
       'message.delete.any',
@@ -77,7 +79,13 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
       'members.remove',
       'conversation.rename',
     ],
-    member: ['conversation.read', 'message.send', 'message.edit.own', 'message.delete.own'],
+    member: [
+      'conversation.read',
+      'message.send',
+      'message.react',
+      'message.edit.own',
+      'message.delete.own',
+    ],
   };
 
 export function tenantCan(role: TenantRole, permission: TenantPermission): boolean {
@@ -95,6 +103,7 @@ export interface ConversationAccess {
 
 const WRITE_PERMISSIONS: ReadonlySet<ConversationPermission> = new Set([
   'message.send',
+  'message.react',
   'message.edit.own',
   'members.add',
   'conversation.rename',

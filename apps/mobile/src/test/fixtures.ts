@@ -42,6 +42,7 @@ export function serverMessage(
     editedAt: null,
     deletedAt: null,
     metadata: {},
+    reactions: [],
     ...over,
   };
 }

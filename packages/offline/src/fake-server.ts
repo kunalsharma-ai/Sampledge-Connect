@@ -21,6 +21,7 @@ export class FakeServer {
   seq = new Map<string, number>();
   conversations = new Map<string, Conversation>();
   sendCalls = 0;
+  reactCalls = 0;
   private failures: (ApiError | 'network' | 'drop-ack')[] = [];
 
   addConversation(id: string, memberIds: string[]) {
@@ -73,6 +74,7 @@ export class FakeServer {
       editedAt: null,
       deletedAt: null,
       metadata: {},
+      reactions: [],
     };
     this.messages.push(m);
     const c = this.conversations.get(req.conversationId);
@@ -125,6 +127,31 @@ export class FakeServer {
           ),
           serverTime: new Date().toISOString(),
         };
+      },
+      react: async (req): Promise<Message> => {
+        this.reactCalls++;
+        if (!this.online) throw new NetworkError('offline');
+        const i = this.messages.findIndex((m) => m.messageId === req.messageId);
+        const m = this.messages[i];
+        if (!m) throw new ServerError({ code: 'NOT_FOUND', message: 'Message not found' });
+        const reactions = m.reactions.map((r) => ({ ...r, userIds: [...r.userIds] }));
+        let r = reactions.find((x) => x.emoji === req.emoji);
+        const has = r?.userIds.includes(userId) ?? false;
+        if (req.op === 'add' ? has : !has) return m;
+        if (req.op === 'add') {
+          if (!r) reactions.push((r = { emoji: req.emoji, userIds: [], count: 0 }));
+          r.userIds.push(userId);
+        } else r!.userIds = r!.userIds.filter((u) => u !== userId);
+        for (const x of reactions) x.count = x.userIds.length;
+        const n = (this.seq.get(m.conversationId) ?? 0) + 1;
+        this.seq.set(m.conversationId, n);
+        const updated = {
+          ...m,
+          reactions: reactions.filter((x) => x.count > 0),
+          changeSequence: n,
+        };
+        this.messages[i] = updated;
+        return updated;
       },
       ackReceipt: async (r): Promise<Receipt> => ({
         conversationId: r.conversationId,

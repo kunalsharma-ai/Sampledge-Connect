@@ -1,4 +1,4 @@
-import type { Message, Receipt } from '@sampledge/contracts';
+import { REACTION_USER_IDS_LIMIT, type Message, type Receipt } from '@sampledge/contracts';
 import type { MessageDoc, ReceiptDoc } from '../database/documents.js';
 
 export function toMessage(m: MessageDoc): Message {
@@ -18,6 +18,13 @@ export function toMessage(m: MessageDoc): Message {
     editedAt: m.editedAt?.toISOString() ?? null,
     deletedAt: m.deletedAt?.toISOString() ?? null,
     metadata: m.metadata,
+    reactions: (m.reactions ?? [])
+      .filter((r) => r.userIds.length > 0)
+      .map((r) => ({
+        emoji: r.emoji,
+        userIds: r.userIds.slice(0, REACTION_USER_IDS_LIMIT),
+        count: r.userIds.length,
+      })),
   };
 }
 
