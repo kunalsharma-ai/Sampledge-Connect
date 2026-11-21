@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@n
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { AiService } from './ai.service.js';
+import { TranscriptsService } from './transcripts.service.js';
 
 /**
  * Private AI assistant. Every route reads only what the caller can read, and none of them
@@ -10,7 +11,10 @@ import { AiService } from './ai.service.js';
 @Controller('v1/ai')
 @UseGuards(AuthGuard)
 export class AiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(
+    private readonly ai: AiService,
+    private readonly transcripts: TranscriptsService,
+  ) {}
 
   @Get('status')
   status(@Ctx() ctx: TenantContext) {
@@ -92,5 +96,18 @@ export class AiController {
   @HttpCode(200)
   dismiss(@Ctx() ctx: TenantContext, @Param('id') id: string) {
     return this.ai.dismissProposal(ctx, id);
+  }
+
+  /** A recording's transcript (same access as playing the recording). */
+  @Get('transcripts/:attachmentId')
+  transcript(@Ctx() ctx: TenantContext, @Param('attachmentId') id: string) {
+    return this.transcripts.get(ctx, id);
+  }
+
+  /** Queue a transcript on the organization's own speech-to-text server (or retry). */
+  @Post('transcripts/:attachmentId')
+  @HttpCode(202)
+  requestTranscript(@Ctx() ctx: TenantContext, @Param('attachmentId') id: string) {
+    return this.transcripts.request(ctx, id);
   }
 }

@@ -6,6 +6,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import type { Filter } from 'mongodb';
 import {
   AI_FEATURES,
   AI_PROPOSAL_TTL_MINUTES,
@@ -52,7 +53,7 @@ import { toMessage } from '../messages/message.mapper.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { BasicEngine, cosine } from './basic.js';
+import { BasicEngine, cosine, sentences, stem, tokenize } from './basic.js';
 import {
   ModelUnavailableError,
   type AiEngineImpl,
@@ -61,6 +62,7 @@ import {
 } from './engine.js';
 import { ModelEngine } from './model.js';
 import { AI_SETTINGS_SOURCE, type AiSettingsSource } from './settings.js';
+import { TranscriptsService } from './transcripts.service.js';
 
 const RANGE_LIMIT = 400;
 const RECENT_LIMIT = 150;
@@ -98,7 +100,19 @@ const URGENT_RE =
 const ATTENTION_RE =
   /\b(blocked|blocker|delay(?:ed)?|late|issue|problem|risk|urgent|escalat\w*|overdue|stuck|concern)\b/i;
 
-type Readable = TranscriptLine & { conversationId: string; serverSequence: number };
+type Readable = TranscriptLine & {
+  conversationId: string;
+  serverSequence: number;
+  /** The line includes a recording transcript. */
+  transcribed: boolean;
+};
+
+/** Text messages, plus call recordings (system messages) that may carry a transcript. */
+const READABLE_TYPES: Filter<MessageDoc> = {
+  $or: [{ messageType: 'text' }, { 'metadata.recording.attachmentId': { $exists: true } }],
+};
+/** Characters of a transcript embedded for search (one vector per message). */
+const EMBED_TRANSCRIPT_CHARS = 2_000;
 
 /**
  * The private AI assistant. Every method first works out what the caller can read (the same
@@ -124,6 +138,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(AI_SETTINGS_SOURCE) private readonly settings: AiSettingsSource,
+    private readonly transcripts: TranscriptsService,
   ) {
     settings.onChange?.((tenantId) => {
       if (tenantId) this.engines.delete(tenantId);
@@ -200,6 +215,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       features: FEATURE_LEVELS[engine.kind],
       canManage: tenantCan(ctx.role, 'ai.manage'),
       lastError: this.lastError.get(ctx.tenantId) ?? null,
+      transcription: await this.transcripts.config(ctx.tenantId),
     };
   }
 
@@ -234,12 +250,24 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     return new Map(users.map((u) => [u._id, u.displayName]));
   }
 
-  private toLines(docs: MessageDoc[], names: Map<string, string>): Readable[] {
+  private toLines(
+    docs: MessageDoc[],
+    names: Map<string, string>,
+    transcripts: Map<string, string> = new Map(),
+  ): Readable[] {
     return docs
-      .filter((m) => !m.deletedAt && m.messageType === 'text')
+      .filter((m) => !m.deletedAt && (m.messageType === 'text' || transcripts.has(m._id)))
       .map((m) => {
-        const files = (m.attachments ?? []).filter((a) => !a.deletedAt).map((a) => a.fileName);
-        const text = [m.content.text.trim(), files.length ? `[shared ${files.join(', ')}]` : '']
+        const heard = transcripts.get(m._id);
+        // Recordings with a transcript are read as speech, not listed as shared files.
+        const files = (m.attachments ?? [])
+          .filter((a) => !a.deletedAt && !(heard && a.recording))
+          .map((a) => a.fileName);
+        const text = [
+          m.messageType === 'text' ? m.content.text.trim() : '',
+          files.length ? `[shared ${files.join(', ')}]` : '',
+          heard ?? '',
+        ]
           .filter(Boolean)
           .join(' ');
         return {
@@ -250,9 +278,24 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
           senderName: names.get(m.senderId) ?? 'Someone',
           text,
           at: m.createdAt,
+          transcribed: !!heard,
         };
       })
       .filter((l) => l.text);
+  }
+
+  /** Names and finished transcripts for these (already access-checked) messages. */
+  private async linesFor(tenantId: string, docs: MessageDoc[], extraIds: string[] = []) {
+    const [names, transcripts] = await Promise.all([
+      this.names(tenantId, [...docs.map((d) => d.senderId), ...extraIds]),
+      this.transcripts.textsForMessages(
+        tenantId,
+        docs
+          .filter((d) => (d.attachments ?? []).some((a) => a.recording && !a.deletedAt))
+          .map((d) => d._id),
+      ),
+    ]);
+    return { names, lines: this.toLines(docs, names, transcripts) };
   }
 
   private async members(ctx: TenantContext, conv: { conversationId: string }): Promise<Member[]> {
@@ -266,7 +309,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     const filter: Record<string, unknown> = {
       conversationId,
       deletedAt: null,
-      messageType: 'text',
+      ...READABLE_TYPES,
     };
     if (range === 'day') filter.createdAt = { $gte: new Date(Date.now() - 86_400_000) };
     if (range === 'week') filter.createdAt = { $gte: new Date(Date.now() - 7 * 86_400_000) };
@@ -282,13 +325,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       })
       .toArray();
     docs.reverse();
-    return this.toLines(
-      docs,
-      await this.names(
-        ctx.tenantId,
-        docs.map((d) => d.senderId),
-      ),
-    );
+    return (await this.linesFor(ctx.tenantId, docs)).lines;
   }
 
   private mapActionItems(
@@ -336,7 +373,8 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     const fromSequence = lines[0]?.serverSequence ?? 0;
     const toSequence = lines.at(-1)?.serverSequence ?? 0;
     const engine = await this.engineFor(ctx.tenantId);
-    const key = `${req.range}:${fromSequence}:${toSequence}:${lines.length}:${engine.kind}:${engine.chatModel ?? ''}`;
+    const heard = lines.filter((l) => l.transcribed).length;
+    const key = `${req.range}:${fromSequence}:${toSequence}:${lines.length}:t${heard}:${engine.kind}:${engine.chatModel ?? ''}`;
     const t = this.db.for(ctx.tenantId);
 
     const cached = lines.length ? await t.ai_summaries.findOne({ conversationId, key }) : null;
@@ -398,20 +436,15 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
         {
           conversationId: m.conversationId,
           deletedAt: null,
-          messageType: 'text',
+          ...READABLE_TYPES,
           createdAt: { $gte: from, $lte: to },
         },
         { sort: { serverSequence: -1 }, limit: RANGE_LIMIT },
       )
       .toArray();
     docs.reverse();
-    const lines = this.toLines(
-      docs,
-      await this.names(
-        ctx.tenantId,
-        docs.map((d) => d.senderId),
-      ),
-    );
+    const { lines } = await this.linesFor(ctx.tenantId, docs);
+    const heard = lines.filter((l) => l.transcribed).length;
     const members = await this.members(ctx, { conversationId: m.conversationId });
     const { value, engine } = await this.run(ctx.tenantId, (e) =>
       e.summarize({ title: m.title, agenda: m.agenda, lines, members }),
@@ -421,7 +454,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       actorId: ctx.userId,
       action: 'ai.meeting_summary',
       target: { type: 'meeting', id: meetingId },
-      metadata: { messages: lines.length, engine },
+      metadata: { messages: lines.length, transcripts: heard, engine },
     });
     return {
       conversationId: m.conversationId,
@@ -439,7 +472,8 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       toSequence: lines.at(-1)?.serverSequence ?? 0,
       engine,
       generatedAt: new Date().toISOString(),
-      transcriptIncluded: false,
+      transcriptIncluded: heard > 0,
+      transcriptCount: heard,
     };
   }
 
@@ -471,14 +505,21 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
           )
           .toArray();
         if (!batch.length) break;
-        const live = batch.filter(
-          (m) => !m.deletedAt && m.messageType === 'text' && m.content.text.trim(),
+        const heard = await this.transcripts.textsForMessages(
+          tenantId,
+          batch.filter((m) => m.attachments?.some((a) => a.recording)).map((m) => m._id),
         );
+        const embedText = (m: MessageDoc) => {
+          const h = heard.get(m._id)?.slice(0, EMBED_TRANSCRIPT_CHARS);
+          if (m.messageType !== 'text') return h ?? '';
+          return [m.content.text.trim(), h ?? ''].filter(Boolean).join(' ');
+        };
+        const live = batch.filter((m) => !m.deletedAt && embedText(m));
         const gone = batch.filter((m) => !live.includes(m)).map((m) => m._id);
         if (gone.length) await t.ai_embeddings.deleteMany({ messageId: { $in: gone }, model });
         for (let i = 0; i < live.length; i += EMBED_BATCH) {
           const chunk = live.slice(i, i + EMBED_BATCH);
-          const vectors = await engine.embed(chunk.map((m) => m.content.text));
+          const vectors = await engine.embed(chunk.map(embedText));
           for (let j = 0; j < chunk.length; j++) {
             const m = chunk[j]!;
             await t.ai_embeddings.updateOne(
@@ -639,20 +680,35 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       })
       .toArray();
     const byId = new Map(docs.map((d) => [d._id, d]));
-    const hits = top
-      .filter((x) => byId.has(x.id))
-      .slice(0, limit)
-      .map((x) => {
-        const d = byId.get(x.id)!;
-        return {
+    const picked = top.filter((x) => byId.has(x.id)).slice(0, limit);
+    const heard = await this.transcripts.textsForMessages(
+      ctx.tenantId,
+      picked
+        .map((x) => byId.get(x.id)!)
+        .filter((d) => d.attachments?.some((a) => a.recording))
+        .map((d) => d._id),
+    );
+    const hits = picked.flatMap((x) => {
+      const d = byId.get(x.id)!;
+      const h = heard.get(d._id);
+      // A recording whose transcript is gone (recording deleted) no longer matches.
+      if (d.messageType !== 'text' && !h) return [];
+      const excerpt = h ? bestExcerpt(h, text) : '';
+      return [
+        {
           messageId: d._id,
           conversationId: d.conversationId,
           senderId: d.senderId,
-          text: d.content.text,
+          text:
+            d.messageType === 'text'
+              ? [d.content.text, excerpt && `(voice: “${excerpt}”)`].filter(Boolean).join(' ')
+              : `${d.content.text}: “${excerpt}”`,
           createdAt: d.createdAt.toISOString(),
           score: Math.round(Math.max(0, Math.min(1, x.score)) * 1000) / 1000,
-        };
-      });
+          fromTranscript: !!h,
+        },
+      ];
+    });
     return { hits, engine, pendingIndex: value.pending };
   }
 
@@ -813,20 +869,14 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
           {
             conversationId: c.conversationId,
             deletedAt: null,
-            messageType: 'text',
+            ...READABLE_TYPES,
             createdAt: { $gte: since },
           },
           { sort: { serverSequence: -1 }, limit: 200 },
         )
         .toArray();
       docs.reverse();
-      const lines = this.toLines(
-        docs,
-        await this.names(
-          ctx.tenantId,
-          docs.map((d) => d.senderId),
-        ),
-      );
+      const { lines } = await this.linesFor(ctx.tenantId, docs);
       const members = await this.members(ctx, c);
       if (!lines.length) {
         items.push({
@@ -1046,4 +1096,22 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       );
     return this.toProposal(updated ?? p);
   }
+}
+
+/** The transcript sentence (with its neighbour) that shares the most words with the query. */
+export function bestExcerpt(transcript: string, query: string, max = 280): string {
+  const q = new Set(tokenize(query).map(stem));
+  const parts = sentences(transcript);
+  if (!parts.length) return transcript.slice(0, max);
+  let best = 0;
+  let bestScore = -1;
+  parts.forEach((p, i) => {
+    const score = tokenize(p).filter((t) => q.has(stem(t))).length;
+    if (score > bestScore) {
+      best = i;
+      bestScore = score;
+    }
+  });
+  const out = [parts[best], parts[best + 1]].filter(Boolean).join(' ');
+  return out.length > max ? `${out.slice(0, max - 1)}…` : out;
 }

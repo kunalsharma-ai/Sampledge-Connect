@@ -33,6 +33,7 @@ import {
 import { formatBytes, useAttachmentUrl } from '@/lib/uploads';
 import type { DirectoryEntry } from '@/lib/engine';
 import { formatTime, nameOf } from './helpers';
+import { TranscriptToggle } from './transcript';
 
 export const KIND_ICON: Record<RecordingKind, typeof Mic> = {
   voice: Mic,
@@ -365,9 +366,12 @@ export function RecordingAttachment({ a, own }: { a: Attachment; own: boolean })
   if (deleted) return <DeletedRecording kind={kind} />;
   if (isAudioAttachment(a))
     return (
-      <div className="flex items-center gap-1.5">
-        <VoicePlayer src={url} durationMs={a.durationMs} own={own} label={KIND_LABEL[kind]} />
-        {url && kind !== 'voice' ? <DownloadButton url={url} name={a.fileName} /> : null}
+      <div>
+        <div className="flex items-center gap-1.5">
+          <VoicePlayer src={url} durationMs={a.durationMs} own={own} label={KIND_LABEL[kind]} />
+          {url && kind !== 'voice' ? <DownloadButton url={url} name={a.fileName} /> : null}
+        </div>
+        <TranscriptToggle a={a} compact />
       </div>
     );
   const Icon = KIND_ICON[kind];
@@ -396,6 +400,9 @@ export function RecordingAttachment({ a, own }: { a: Attachment; own: boolean })
         </span>
         {url ? <DownloadButton url={url} name={a.fileName} /> : null}
       </figcaption>
+      <div className="px-2 pb-2">
+        <TranscriptToggle a={a} compact />
+      </div>
     </figure>
   );
 }
