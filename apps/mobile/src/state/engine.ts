@@ -13,6 +13,7 @@ import { Emitter } from '../lib/emitter';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
 import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
 import { OutboxProcessor } from '../sync/outbox';
+import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
 import { TransportError, type ApiTransport } from '../sync/transport';
@@ -48,6 +49,8 @@ export class ConnectEngine {
     notification: LocalNotification;
   }>();
   private readonly outbox: OutboxProcessor;
+  /** Call signalling (live calls, ringing, the call you are in). */
+  readonly calls: CallController;
   private readonly sync: SyncEngine;
   private _state: EngineState = {
     connectivity: 'offline',
@@ -73,6 +76,7 @@ export class ConnectEngine {
     private readonly realtime: RealtimeClient | null,
   ) {
     this.sync = new SyncEngine(store, api);
+    this.calls = new CallController(api, store.selfUserId);
     this.outbox = new OutboxProcessor({
       store,
       send: (req) => this.sendOne(req),
@@ -119,9 +123,11 @@ export class ConnectEngine {
       }),
     );
     if (this.realtime) {
+      this.calls.attach(this.realtime);
       this.unsubs.push(
         this.realtime.events.on('state', (socket) => this.patch({ socket })),
         this.realtime.events.on('needsSync', () => void this.resume()),
+        this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
         this.realtime.events.on('notificationsRead', ({ unreadCount }) => {
           void this.store.setNotificationUnread(unreadCount);
@@ -137,6 +143,7 @@ export class ConnectEngine {
   }
 
   stop(): void {
+    this.calls.stop();
     this.unsubs.forEach((u) => u());
     this.unsubs = [];
     this.outbox.stop();
@@ -172,6 +179,7 @@ export class ConnectEngine {
       this.runSync(),
       this.refreshNotifications(),
       this.flushNotifyLevels(),
+      this.calls.refresh(),
     ]);
   }
 

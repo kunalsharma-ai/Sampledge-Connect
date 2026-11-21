@@ -327,6 +327,11 @@ export class LocalStore {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Signed-in user's id. */
+  get selfUserId(): string {
+    return this.selfId;
+  }
+
   // ---------------------------------------------------------------- composing
 
   async saveDraft(conversationId: string, text: string): Promise<void> {

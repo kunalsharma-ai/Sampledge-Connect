@@ -50,6 +50,12 @@ node scripts/serve-web.mjs dist-web 8099 &
 node scripts/e2e-real-server.cjs screenshots/e2e   # API=… APP=… override the defaults
 ```
 
+The calls part runs when the API has `LIVEKIT_*` set and a LiveKit server is up (for example
+`docker compose up livekit`, or `livekit/livekit-server` with `--network host` and the webhook at
+`http://127.0.0.1:4000/v1/calls/livekit/webhook`). It signs in a second phone as Priya, rings,
+answers with a fake camera and microphone, and checks media, raised hand, end for everyone, the
+join banner and decline. Without a media server it is skipped.
+
 ## How offline-first works
 
 | Piece              | File                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -95,11 +101,16 @@ and replies to you from `GET /v1/notifications`, cached for offline use, with a 
 banner when one arrives while you are elsewhere, and read marks that work offline and match your
 other devices; opening a conversation clears its items), a per-conversation notification level
 (all activity, @mentions only or nothing; set from the bell in the conversation header, works
-offline and follows changes made on other devices), on-device search, themes, offline and storage settings, sign-out with a warning
+offline and follows changes made on other devices), voice and video calls in any conversation
+through the self-hosted LiveKit server (call buttons when the server has one configured, a
+full-screen incoming call with accept, voice only or decline, a join banner for live calls,
+mute, camera, raise hand, leave and end for everyone, call cards in the timeline that render
+offline; media uses livekit-client, with @livekit/react-native on iOS and Android, so calls on a
+phone need a dev build, not Expo Go), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
+Inbox, scheduled Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)

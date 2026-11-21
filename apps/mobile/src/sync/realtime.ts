@@ -2,6 +2,8 @@ import { io, type Socket } from 'socket.io-client';
 import type {
   Ack,
   AckReceiptRequest,
+  Call,
+  CallRingingEvent,
   ClientToServerEvents,
   Message,
   PresenceStatus,
@@ -30,6 +32,9 @@ type RealtimeEvents = {
   notification: ServerNotification;
   /** Another of your devices marked notifications read. */
   notificationsRead: { unreadCount: number };
+  callRinging: CallRingingEvent;
+  /** A call changed or ended (sent to the conversation's members). */
+  callUpdated: Call;
 };
 
 /**
@@ -89,6 +94,9 @@ export class RealtimeClient {
     socket.on('typing:update', (t) => this.events.emit('typing', t));
     socket.on('notification:new', (n) => this.events.emit('notification', n));
     socket.on('notification:read', (r) => this.events.emit('notificationsRead', r));
+    socket.on('call:ringing', (e) => this.events.emit('callRinging', e));
+    socket.on('call:updated', (c) => this.events.emit('callUpdated', c));
+    socket.on('call:ended', (c) => this.events.emit('callUpdated', c));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

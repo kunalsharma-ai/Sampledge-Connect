@@ -24,8 +24,15 @@ async function api(method, path, body, token) {
   return t ? JSON.parse(t) : undefined;
 }
 (async () => {
-  const b = await chromium.launch();
-  const ctx = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+  // Fake camera and microphone so calls connect real media through the local SFU.
+  const b = await chromium.launch({
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  });
+  const ctx = await b.newContext({
+    ...devices['iPhone 13'],
+    colorScheme: 'dark',
+    permissions: ['camera', 'microphone'],
+  });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => console.log('pageerror:', e.message.slice(0, 300)));
   p.on('console', (m) => m.type() === 'error' && console.log('console:', m.text().slice(0, 200)));
@@ -524,6 +531,104 @@ async function api(method, path, body, token) {
     (await p.getByRole('button', { name: /^Notifications:/ }).getAttribute('aria-label')) ===
       'Notifications: all activity',
   );
+
+  // ---- Calls through the self-hosted SFU (skipped when the API has no LiveKit configured)
+  const callsConfig = await api('GET', '/v1/calls/config', undefined, samApi);
+  if (!callsConfig.enabled) {
+    console.log('SKIP calls: the API has no media server configured');
+  } else {
+    // Priya's phone, signed in through the same web preview.
+    const ctx2 = await b.newContext({
+      ...devices['iPhone 13'],
+      colorScheme: 'dark',
+      permissions: ['camera', 'microphone'],
+    });
+    const p2 = await ctx2.newPage();
+    p2.on('pageerror', (e) => console.log('pageerror (priya):', e.message.slice(0, 300)));
+    await p2.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p2.waitForTimeout(1500);
+    const in2 = p2.locator('input');
+    await in2.nth(0).fill(API);
+    await in2.nth(1).fill('northwind');
+    await in2.nth(2).fill('priya@northwind.test');
+    await in2.nth(3).fill(pw);
+    await p2.getByRole('button', { name: 'Sign in' }).click();
+    await p2.waitForTimeout(4000);
+
+    await p.goto(`${APP}/conversation/${ch.conversationId}`);
+    await p.waitForTimeout(2500);
+    check(
+      'call buttons shown when the server has a media server',
+      (await p.getByRole('button', { name: 'Start video call' }).count()) === 1,
+    );
+    await p.getByRole('button', { name: 'Start video call' }).click();
+    await p.waitForTimeout(5000);
+    await shot('33-call-started');
+    check(
+      'caller connected to the SFU',
+      !/Could not connect|Connecting/.test(await p.innerText('body')),
+    );
+    await p2.waitForTimeout(1000);
+    await p2.screenshot({ path: `${out}/34-incoming-call.png` });
+    console.log('shot 34-incoming-call');
+    check(
+      'incoming call rings on the other phone',
+      /Incoming video call/.test(await p2.innerText('body')),
+    );
+    await p2.getByRole('button', { name: 'Accept' }).click();
+    await p2.waitForTimeout(6000);
+    await shot('35-call-two-people');
+    const active = await api('GET', '/v1/calls/active', undefined, samApi);
+    const live = (Array.isArray(active) ? active : active.calls)[0];
+    check(
+      'both people joined on the server',
+      live?.participants.filter((x) => x.state === 'joined').length === 2,
+    );
+    check('other person shown in the call with video', (await p.locator('video').count()) >= 2);
+    await p2.getByRole('button', { name: 'Raise hand' }).click();
+    await p.waitForTimeout(2500);
+    check(
+      'raised hand shown to the others',
+      (await p.locator('[aria-label*="hand raised"]').count()) === 1,
+    );
+    await shot('36-hand-raised');
+    // Priya leaves; Sam returns to the chat and comes back through the banner, then ends it.
+    await p2.getByRole('button', { name: 'Leave' }).click();
+    await p2.waitForTimeout(2000);
+    await p.getByRole('button', { name: 'End for all' }).click();
+    await p.waitForTimeout(4000);
+    await shot('37-call-ended-card');
+    check('ended call card in the timeline', /Video call ended/.test(await p.innerText('body')));
+    const after = await api('GET', '/v1/calls/active', undefined, samApi);
+    check(
+      'no live call left on the server',
+      (Array.isArray(after) ? after : after.calls).length === 0,
+    );
+
+    // Priya calls from her phone; Sam sees the join banner, joins late, then declines the next one.
+    await p.goto(`${APP}/messages`);
+    await p.waitForTimeout(1500);
+    await p2.goto(`${APP}/conversation/${ch.conversationId}`);
+    await p2.waitForTimeout(2500);
+    await p2.getByRole('button', { name: 'Start voice call' }).click();
+    await p.waitForTimeout(3000);
+    await p.getByRole('button', { name: 'Decline' }).click();
+    await p.waitForTimeout(1500);
+    await p.goto(`${APP}/conversation/${ch.conversationId}`);
+    await p.waitForTimeout(2500);
+    await shot('38-join-banner');
+    check('join banner for a live call', /Voice call in progress/.test(await p.innerText('body')));
+    await p.getByRole('button', { name: 'Join voice call' }).click();
+    await p.waitForTimeout(5000);
+    check(
+      'joined late from the banner',
+      !/Could not connect|Connecting/.test(await p.innerText('body')),
+    );
+    await p.getByRole('button', { name: 'Leave' }).click();
+    await p2.getByRole('button', { name: 'Leave' }).click();
+    await p2.waitForTimeout(3000);
+    await ctx2.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
