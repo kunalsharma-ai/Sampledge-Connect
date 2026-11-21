@@ -20,6 +20,8 @@ import {
   type SendMessageRequest,
   type SetReactionRequest,
   type RecordingList,
+  type FileList,
+  type ListFilesQuery,
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
@@ -67,6 +69,8 @@ import type {
   LocalMessage,
   LocalNotification,
   LocalSearch,
+  LocalFile,
+  LocalFilesQuery,
   LocalStore,
   PendingFileInput,
 } from '../db/store';
@@ -516,6 +520,16 @@ export class ConnectEngine {
   }
 
   /** Recordings library (needs a connection: recordings are streamed, not cached). */
+  /** The Files screen from the server. Offline, the screen uses {@link filesOnPhone}. */
+  listFiles(q: ListFilesQuery): Promise<FileList> {
+    return this.serverAction(() => this.api.listFiles(q));
+  }
+
+  /** Files in the messages saved on this phone, including ones still waiting to upload. */
+  filesOnPhone(q: LocalFilesQuery): Promise<LocalFile[]> {
+    return this.store.filesOnPhone(q);
+  }
+
   listRecordings(q: RecordingsQuery): Promise<RecordingList> {
     return this.serverAction(() => this.api.listRecordings(q));
   }
