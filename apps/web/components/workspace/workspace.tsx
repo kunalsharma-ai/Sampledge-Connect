@@ -39,6 +39,8 @@ import { ConversationList } from './conversation-list';
 import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
 import { conversationTitle, nameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
+import { NotificationsScreen } from './notifications-screen';
+import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 
@@ -100,6 +102,18 @@ export function Workspace() {
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
   React.useEffect(() => setReplyTo(null), [activeId]);
   const unreadTotal = [...unread.values()].reduce((a, b) => a + b, 0);
+  const notifications = useNotifications();
+  const unreadNotifIn = React.useMemo(
+    () =>
+      new Set((notifications.items ?? []).filter((n) => !n.readAt).map((n) => n.conversationId)),
+    [notifications.items],
+  );
+  const { markRead: markNotificationsRead } = notifications;
+  // Opening a conversation clears its mention and reply notifications.
+  React.useEffect(() => {
+    if (activeId && module !== 'notifications' && unreadNotifIn.has(activeId))
+      void markNotificationsRead({ conversationId: activeId });
+  }, [activeId, module, unreadNotifIn, markNotificationsRead]);
   const directoryWithPresence = (() => {
     const m = new Map(directory);
     for (const [id, p] of engine.presence) {
@@ -167,10 +181,23 @@ export function Workspace() {
         userName={session!.user.displayName}
         isAdmin={isAdmin}
         unreadTotal={unreadTotal}
+        notificationCount={notifications.unreadCount}
         onSignOut={() => void signOut()}
       />
 
-      {mod.built ? (
+      {module === 'notifications' ? (
+        <NotificationsScreen
+          api={notifications}
+          conversations={conversations ?? []}
+          me={me}
+          directory={directory}
+          onOpen={(n) => {
+            if (!n.readAt) void notifications.markRead({ notificationIds: [n.notificationId] });
+            setModule('messages');
+            setActiveId(n.conversationId);
+          }}
+        />
+      ) : mod.built ? (
         <>
           <div
             className={cn(
@@ -379,7 +406,12 @@ export function Workspace() {
         </main>
       )}
 
-      <MobileNav active={module} onSelect={selectModule} unreadTotal={unreadTotal} />
+      <MobileNav
+        active={module}
+        onSelect={selectModule}
+        unreadTotal={unreadTotal}
+        notificationCount={notifications.unreadCount}
+      />
 
       <NewConversationDialog
         open={dialog === 'new'}
@@ -449,10 +481,12 @@ function MobileNav({
   active,
   onSelect,
   unreadTotal,
+  notificationCount,
 }: {
   active: ModuleId;
   onSelect: (m: ModuleId) => void;
   unreadTotal: number;
+  notificationCount: number;
 }) {
   return (
     <nav
@@ -476,6 +510,11 @@ function MobileNav({
             {m.label.split(' ')[0]}
             {id === 'messages' && unreadTotal > 0 ? (
               <span className="absolute right-[calc(50%-18px)] top-2 size-2 rounded-full bg-accent" />
+            ) : null}
+            {id === 'notifications' && notificationCount > 0 ? (
+              <span className="absolute left-[calc(50%+4px)] top-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-semibold leading-4 text-accent-fg">
+                {notificationCount > 99 ? '99+' : notificationCount}
+              </span>
             ) : null}
           </button>
         );

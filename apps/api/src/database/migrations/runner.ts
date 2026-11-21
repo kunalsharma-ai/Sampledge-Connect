@@ -1,6 +1,7 @@
 import type { Db } from 'mongodb';
 import { initialMigration } from './001-initial.js';
 import { attachmentsMigration } from './002-attachments.js';
+import { notificationsMigration } from './003-notifications.js';
 
 export interface Migration {
   id: string;
@@ -8,7 +9,11 @@ export interface Migration {
 }
 
 /** Ordered list. Append only; never edit a migration that has shipped. */
-export const MIGRATIONS: Migration[] = [initialMigration, attachmentsMigration];
+export const MIGRATIONS: Migration[] = [
+  initialMigration,
+  attachmentsMigration,
+  notificationsMigration,
+];
 
 /**
  * Applies pending migrations in order. A lock document prevents two API

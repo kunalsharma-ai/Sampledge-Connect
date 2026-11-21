@@ -166,6 +166,17 @@ export interface AttachmentDoc extends TenantOwned {
   completedAt: Date | null;
 }
 
+export interface NotificationDoc extends TenantOwned {
+  userId: string;
+  kind: 'mention' | 'reply';
+  conversationId: string;
+  messageId: string;
+  actorId: string;
+  preview: string;
+  createdAt: Date;
+  readAt: Date | null;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -178,4 +189,5 @@ export interface TenantCollections {
   sync_checkpoints: SyncCheckpointDoc;
   audit_logs: AuditLogDoc;
   attachments: AttachmentDoc;
+  notifications: NotificationDoc;
 }

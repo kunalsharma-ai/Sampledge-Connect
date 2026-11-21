@@ -14,7 +14,7 @@ import {
   type SyncResponse,
 } from '@sampledge/contracts';
 import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
-import { NetworkError, ServerError, type Transport } from './transport.js';
+import { NetworkError, ServerError, type NotificationEvent, type Transport } from './transport.js';
 
 export type ConnectivityState = 'offline' | 'connecting' | 'syncing' | 'online';
 
@@ -74,6 +74,7 @@ export class SyncEngine {
     authPaused: false,
   };
   private listeners = new Set<Listener>();
+  private notificationListeners = new Set<(e: NotificationEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -104,6 +105,11 @@ export class SyncEngine {
     this.listeners.add(fn);
     fn(this.state);
     return () => this.listeners.delete(fn);
+  }
+  /** Live in-app notification events (the inbox itself is fetched over REST by the app). */
+  onNotification(fn: (e: NotificationEvent) => void): () => void {
+    this.notificationListeners.add(fn);
+    return () => this.notificationListeners.delete(fn);
   }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
@@ -209,6 +215,9 @@ export class SyncEngine {
       onRevoked: (id) => void this.purgeConversation(id),
       onConnectionChange: (c) => this.onSocketChange(c),
       onSessionExpired: () => this.handleSessionExpired(),
+      onNotification: (e) => {
+        for (const l of this.notificationListeners) l(e);
+      },
     });
   }
 
