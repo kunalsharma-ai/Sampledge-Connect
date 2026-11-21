@@ -32,6 +32,9 @@ interface Props {
   highlighted: boolean;
   onOpenActions: (message: LocalMessage) => void;
   onPressReply: (messageId: string) => void;
+  onToggleReaction: (message: LocalMessage, emoji: string) => void;
+  /** Names for the accessibility label of reaction chips. */
+  nameOf: (userId: string) => string;
 }
 
 const time = (iso: string) =>
@@ -49,6 +52,8 @@ function MessageBubbleImpl({
   highlighted,
   onOpenActions,
   onPressReply,
+  onToggleReaction,
+  nameOf,
 }: Props) {
   const { theme, motion } = useTheme();
   const c = theme.colors;
@@ -168,6 +173,38 @@ function MessageBubbleImpl({
           {own ? <StatusIcon status={m.status} onAccent /> : null}
         </View>
       </Pressable>
+      {m.reactions.length && !deleted ? (
+        <View style={[styles.chips, own ? styles.chipsOwn : null]}>
+          {m.reactions.map((r) => {
+            const who = r.userIds.map((u) => (u === selfId ? 'you' : nameOf(u)));
+            const more = r.count - who.length;
+            return (
+              <Pressable
+                key={r.emoji}
+                onPress={() => onToggleReaction(m, r.emoji)}
+                onLongPress={() => onOpenActions(m)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: r.mine }}
+                accessibilityLabel={`${r.emoji} ${r.count}: ${who.join(', ')}${more > 0 ? ` and ${more} more` : ''}. ${r.mine ? 'Double tap to remove yours' : 'Double tap to add yours'}`}
+                style={({ pressed }) => [
+                  styles.chip,
+                  {
+                    backgroundColor: r.mine ? alpha(c.accent, 0.2) : c.surfaceRaised,
+                    borderColor: r.mine ? c.accent : c.border,
+                    opacity: r.pending ? 0.75 : 1,
+                    transform: [{ scale: pressed ? 0.94 : 1 }],
+                  },
+                ]}
+              >
+                <RNText style={{ fontSize: 14 }}>{r.emoji}</RNText>
+                <Text variant="meta" style={{ color: r.mine ? c.accent : c.textMuted }}>
+                  {r.count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       {own && m.status === 'failed' ? (
         <Text variant="meta" tone="danger" style={styles.failNote}>
           Not sent. Tap to retry.
@@ -215,4 +252,15 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   failNote: { marginTop: 3, marginRight: space.xs },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 4, maxWidth: '82%' },
+  chipsOwn: { justifyContent: 'flex-end' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
 });

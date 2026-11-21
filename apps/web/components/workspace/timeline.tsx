@@ -3,10 +3,16 @@ import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import type { Conversation, Receipt } from '@sampledge/contracts';
-import { displayStatus, type LocalMessage } from '@sampledge/offline';
+import {
+  displayStatus,
+  overlayReactions,
+  type LocalMessage,
+  type PendingReaction,
+} from '@sampledge/offline';
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { formatDay, formatTime, nameOf } from './helpers';
+import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 
@@ -18,6 +24,9 @@ export function Timeline({
   directory,
   onRetry,
   onDiscard,
+  pendingReactions = [],
+  onReact,
+  onReply,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -26,6 +35,9 @@ export function Timeline({
   directory: Map<string, DirectoryEntry>;
   onRetry: (id: string) => void;
   onDiscard: (id: string) => void;
+  pendingReactions?: PendingReaction[];
+  onReact?: (m: LocalMessage, emoji: string, add: boolean) => void;
+  onReply?: (m: LocalMessage) => void;
 }) {
   const reduce = useReducedMotion();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -62,6 +74,11 @@ export function Timeline({
     );
   }
 
+  const byId = new Map(messages.filter((x) => x.messageId).map((x) => [x.messageId!, x]));
+  const pendingByMessage = new Map<string, PendingReaction[]>();
+  for (const p of pendingReactions) {
+    pendingByMessage.set(p.messageId, [...(pendingByMessage.get(p.messageId) ?? []), p]);
+  }
   let lastDay = '';
   return (
     <div
@@ -129,23 +146,75 @@ export function Timeline({
                       <span className="text-meta text-text-subtle">{formatTime(m.createdAt)}</span>
                     </div>
                   ) : null}
-                  <div
-                    className={cn(
-                      'relative whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
-                      own
-                        ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
-                        : 'rounded-tl-sm border border-border bg-bubble-other text-text',
-                      grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
-                      m.deletedAt && 'italic opacity-60',
-                      (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                      m.status === 'failed' && 'ring-1 ring-danger',
-                    )}
-                  >
-                    {m.deletedAt ? 'This message was deleted' : m.content.text}
-                    {m.editedAt && !m.deletedAt ? (
-                      <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                  {m.replyToMessageId ? (
+                    <ReplyQuote
+                      parent={(() => {
+                        const p = byId.get(m.replyToMessageId);
+                        return p
+                          ? { senderId: p.senderId, text: p.content.text, deleted: !!p.deletedAt }
+                          : null;
+                      })()}
+                      directory={directory}
+                      me={me}
+                      own={own}
+                    />
+                  ) : null}
+                  <div className="relative max-w-full">
+                    {m.messageId && !m.deletedAt && onReact && onReply ? (
+                      <MessageActions
+                        own={own}
+                        onReact={(e) => {
+                          const mine = overlayReactions(
+                            m.reactions ?? [],
+                            pendingByMessage.get(m.messageId!) ?? [],
+                            me,
+                          ).find((r) => r.emoji === e)?.mine;
+                          onReact(m, e, !mine);
+                        }}
+                        onReply={() => onReply(m)}
+                      />
                     ) : null}
+                    <div
+                      className={cn(
+                        'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
+                        own
+                          ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
+                          : 'rounded-tl-sm border border-border bg-bubble-other text-text',
+                        grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
+                        m.deletedAt && 'italic opacity-60',
+                        (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                        m.status === 'failed' && 'ring-1 ring-danger',
+                      )}
+                    >
+                      {m.deletedAt ? (
+                        'This message was deleted'
+                      ) : (
+                        <MessageText
+                          text={m.content.text}
+                          mentions={m.content.mentions}
+                          directory={directory}
+                          me={me}
+                          own={own}
+                        />
+                      )}
+                      {m.editedAt && !m.deletedAt ? (
+                        <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                      ) : null}
+                    </div>
                   </div>
+                  {m.messageId && !m.deletedAt ? (
+                    <ReactionChips
+                      reactions={overlayReactions(
+                        m.reactions ?? [],
+                        pendingByMessage.get(m.messageId) ?? [],
+                        me,
+                      )}
+                      directory={directory}
+                      me={me}
+                      own={own}
+                      onToggle={(e, add) => onReact?.(m, e, add)}
+                    />
+                  ) : null}
                   {own ? (
                     <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">
                       {grouped ? (

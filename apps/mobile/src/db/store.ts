@@ -5,6 +5,7 @@ import {
   type ConversationKind,
   type Message,
   type MessageStatus,
+  type Reaction,
   type Receipt,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
@@ -30,6 +31,67 @@ export interface LocalMessage {
   error: string | null;
   /** An edit or delete made on this device that the server has not confirmed yet. */
   pendingOp: MessageOpKind | null;
+  /** Server reactions with your unconfirmed changes applied on top. */
+  reactions: LocalReaction[];
+}
+
+export interface LocalReaction {
+  emoji: string;
+  count: number;
+  userIds: string[];
+  /** You reacted with this emoji (as far as this device knows). */
+  mine: boolean;
+  /** Your change to this emoji is still queued. */
+  pending: boolean;
+}
+
+export interface ReactionOp {
+  messageId: string;
+  emoji: string;
+  op: 'add' | 'remove';
+  conversationId: string;
+  attempts: number;
+}
+
+/**
+ * Applies queued add/remove intents to the server's reactions for display.
+ * `userIds` is capped by the server, so "mine" can only be known from the ids it lists.
+ */
+export function overlayReactions(
+  server: readonly Reaction[],
+  ops: readonly Pick<ReactionOp, 'emoji' | 'op'>[],
+  selfId: string,
+): LocalReaction[] {
+  const out: LocalReaction[] = server.map((r) => ({
+    emoji: r.emoji,
+    count: r.count,
+    userIds: [...r.userIds],
+    mine: r.userIds.includes(selfId),
+    pending: false,
+  }));
+  for (const o of ops) {
+    let r = out.find((x) => x.emoji === o.emoji);
+    if (o.op === 'add') {
+      if (!r) {
+        r = { emoji: o.emoji, count: 0, userIds: [], mine: false, pending: true };
+        out.push(r);
+      }
+      if (!r.mine) {
+        r.count += 1;
+        r.userIds.push(selfId);
+        r.mine = true;
+      }
+      r.pending = true;
+    } else if (r) {
+      if (r.mine) {
+        r.count -= 1;
+        r.userIds = r.userIds.filter((u) => u !== selfId);
+        r.mine = false;
+      }
+      r.pending = true;
+    }
+  }
+  return out.filter((r) => r.count > 0);
 }
 
 export type MessageOpKind = 'edit' | 'delete';
@@ -94,6 +156,7 @@ interface MessageRow {
   sender_id: string;
   text: string;
   mentions: string;
+  reactions?: string;
   reply_to: string | null;
   server_seq: number | null;
   change_seq: number | null;
@@ -134,7 +197,17 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   deletedAt: r.deleted_at,
   error: r.error,
   pendingOp: r.pending_op ?? null,
+  reactions: [],
 });
+
+const parseReactions = (raw: string | undefined): Reaction[] => {
+  try {
+    const v = JSON.parse(raw ?? '[]') as unknown;
+    return Array.isArray(v) ? (v as Reaction[]) : [];
+  } catch {
+    return [];
+  }
+};
 
 /** Statuses only the server can confirm. A local row in one of these is never downgraded by local code. */
 const CONFIRMED: ReadonlySet<MessageStatus> = new Set(['sent', 'delivered', 'read']);
@@ -256,6 +329,7 @@ export class LocalStore {
           `SELECT MIN(t) AS t FROM (
              SELECT MIN(next_attempt_at) AS t FROM outbox WHERE state = 'pending'
              UNION ALL SELECT MIN(next_attempt_at) FROM message_ops
+             UNION ALL SELECT MIN(next_attempt_at) FROM reaction_ops
            )`,
         )
       )?.t ?? undefined
@@ -266,7 +340,7 @@ export class LocalStore {
     return (
       (
         await this.db.get<{ n: number }>(
-          "SELECT (SELECT COUNT(*) FROM outbox WHERE state != 'failed') + (SELECT COUNT(*) FROM message_ops) AS n",
+          "SELECT (SELECT COUNT(*) FROM outbox WHERE state != 'failed') + (SELECT COUNT(*) FROM message_ops) + (SELECT COUNT(*) FROM reaction_ops) AS n",
         )
       )?.n ?? 0
     );
@@ -515,13 +589,116 @@ export class LocalStore {
 
   /** Messages that mention you, newest first (for Activity). */
   async listMentions(limit = 50): Promise<LocalMessage[]> {
-    return (
+    return this.hydrate(
       await this.db.all<MessageRow>(
         `${MESSAGE_SELECT} WHERE m.deleted_at IS NULL AND m.sender_id != ? AND m.mentions LIKE ?
          ORDER BY m.created_at DESC LIMIT ?`,
         [this.selfId, `%"${this.selfId.replace(/[%_"]/g, '')}"%`, limit],
-      )
-    ).map(toMessage);
+      ),
+    );
+  }
+
+  /** Row to LocalMessage, with your queued reaction changes overlaid. */
+  private async hydrate(rows: readonly MessageRow[]): Promise<LocalMessage[]> {
+    const ids = rows.map((r) => r.message_id).filter((id): id is string => !!id);
+    const ops = ids.length
+      ? await this.db.all<{ message_id: string; emoji: string; op: 'add' | 'remove' }>(
+          `SELECT message_id, emoji, op FROM reaction_ops WHERE message_id IN (${ids.map(() => '?').join(',')})
+           ORDER BY enqueued_at`,
+          ids,
+        )
+      : [];
+    return rows.map((r) => ({
+      ...toMessage(r),
+      reactions: overlayReactions(
+        parseReactions(r.reactions),
+        ops.filter((o) => o.message_id === r.message_id),
+        this.selfId,
+      ),
+    }));
+  }
+
+  // ---------------------------------------------------------------- reactions
+
+  /**
+   * Adds your reaction if you have not reacted with this emoji, otherwise removes it.
+   * Shows at once; offline toggles collapse into the last intent per message and emoji.
+   */
+  async toggleReaction(clientId: string, emoji: string): Promise<'add' | 'remove'> {
+    const msg = await this.getMessage(clientId);
+    if (!msg?.messageId) throw new Error('This message has not been sent yet');
+    if (msg.deletedAt) throw new Error('This message was deleted');
+    const mine = msg.reactions.some((r) => r.emoji === emoji && r.mine);
+    const op = mine ? 'remove' : 'add';
+    const server = parseReactions(
+      (
+        await this.db.get<{ reactions: string }>(
+          'SELECT reactions FROM messages WHERE client_id = ?',
+          [clientId],
+        )
+      )?.reactions,
+    );
+    const serverMine = server.some((r) => r.emoji === emoji && r.userIds.includes(this.selfId));
+    if ((op === 'add') !== serverMine) {
+      await this.db.run(
+        `INSERT INTO reaction_ops (message_id, emoji, op, conversation_id, enqueued_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(message_id, emoji) DO UPDATE SET op = excluded.op, attempts = 0, next_attempt_at = 0, last_error = NULL`,
+        [msg.messageId, emoji, op, msg.conversationId, this.now()],
+      );
+    } else {
+      // Back to what the server already has: nothing to send.
+      await this.db.run('DELETE FROM reaction_ops WHERE message_id = ? AND emoji = ?', [
+        msg.messageId,
+        emoji,
+      ]);
+    }
+    this.events.emit('messages', { conversationId: msg.conversationId });
+    this.events.emit('outbox', undefined);
+    return op;
+  }
+
+  async nextDueReaction(): Promise<ReactionOp | undefined> {
+    const r = await this.db.get<{
+      message_id: string;
+      emoji: string;
+      op: 'add' | 'remove';
+      conversation_id: string;
+      attempts: number;
+    }>(
+      'SELECT * FROM reaction_ops WHERE next_attempt_at <= ? ORDER BY enqueued_at, message_id, emoji LIMIT 1',
+      [this.now()],
+    );
+    return (
+      r && {
+        messageId: r.message_id,
+        emoji: r.emoji,
+        op: r.op,
+        conversationId: r.conversation_id,
+        attempts: r.attempts,
+      }
+    );
+  }
+
+  async markReactionRetry(op: ReactionOp, at: number, error: string): Promise<void> {
+    await this.db.run(
+      'UPDATE reaction_ops SET attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE message_id = ? AND emoji = ?',
+      [at, error, op.messageId, op.emoji],
+    );
+    this.events.emit('outbox', undefined);
+  }
+
+  /** Server confirmed (or refused) the intent. A newer opposite intent made meanwhile stays queued. */
+  async settleReaction(op: ReactionOp, server?: Message): Promise<void> {
+    await this.db.run('DELETE FROM reaction_ops WHERE message_id = ? AND emoji = ? AND op = ?', [
+      op.messageId,
+      op.emoji,
+      op.op,
+    ]);
+    if (server) await this.applyServerMessages([server]);
+    else {
+      this.events.emit('messages', { conversationId: op.conversationId });
+      this.events.emit('outbox', undefined);
+    }
   }
 
   // ---------------------------------------------------------------- applying server state
@@ -557,13 +734,13 @@ export class LocalStore {
     const status: MessageStatus =
       existing && CONFIRMED.has(existing.status) ? existing.status : 'sent';
     await tx.run(
-      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(client_id) DO UPDATE SET
          message_id = excluded.message_id, text = excluded.text, mentions = excluded.mentions,
          reply_to = excluded.reply_to, server_seq = excluded.server_seq, change_seq = excluded.change_seq,
          status = excluded.status, created_at = excluded.created_at, edited_at = excluded.edited_at,
-         deleted_at = excluded.deleted_at, error = NULL`,
+         deleted_at = excluded.deleted_at, reactions = excluded.reactions, error = NULL`,
       [
         m.clientMessageId,
         m.messageId,
@@ -578,6 +755,7 @@ export class LocalStore {
         m.createdAt,
         m.editedAt ?? null,
         m.deletedAt ?? null,
+        JSON.stringify(m.deletedAt ? [] : (m.reactions ?? [])),
       ],
     );
     // Server accepted it: the send is done, whichever device sent it.
@@ -637,6 +815,7 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const id of ids) {
         for (const table of [
+          'reaction_ops',
           'message_ops',
           'outbox',
           'messages',
@@ -743,7 +922,7 @@ export class LocalStore {
 
   async getMessage(clientId: string): Promise<LocalMessage | undefined> {
     const r = await this.db.get<MessageRow>(`${MESSAGE_SELECT} WHERE m.client_id = ?`, [clientId]);
-    return r && toMessage(r);
+    return r && (await this.hydrate([r]))[0];
   }
 
   /** Looks a message up by its server id (used for reply previews). */
@@ -751,7 +930,7 @@ export class LocalStore {
     const r = await this.db.get<MessageRow>(`${MESSAGE_SELECT} WHERE m.message_id = ?`, [
       messageId,
     ]);
-    return r && toMessage(r);
+    return r && (await this.hydrate([r]))[0];
   }
 
   /**
@@ -767,7 +946,7 @@ export class LocalStore {
        ) ORDER BY server_seq IS NULL, server_seq, created_at, client_id`,
       [conversationId, limit],
     );
-    return rows.map(toMessage);
+    return this.hydrate(rows);
   }
 
   async listConversations(): Promise<LocalConversation[]> {
@@ -814,12 +993,12 @@ export class LocalStore {
 
   async searchMessages(query: string, limit = 50): Promise<LocalMessage[]> {
     const q = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    return (
+    return this.hydrate(
       await this.db.all<MessageRow>(
         `${MESSAGE_SELECT} WHERE m.deleted_at IS NULL AND m.text LIKE ? ESCAPE '\\' ORDER BY m.created_at DESC LIMIT ?`,
         [q, limit],
-      )
-    ).map(toMessage);
+      ),
+    );
   }
 
   // ---------------------------------------------------------------- settings
@@ -922,7 +1101,16 @@ export class LocalStore {
   /** Sign-out wipe of every cached row. Callers check pendingCount() first so the user can be warned. */
   async wipe(): Promise<void> {
     await this.db.transaction(async (tx) => {
-      for (const table of ['outbox', 'messages', 'receipts', 'drafts', 'conversations', 'kv'])
+      for (const table of [
+        'reaction_ops',
+        'message_ops',
+        'outbox',
+        'messages',
+        'receipts',
+        'drafts',
+        'conversations',
+        'kv',
+      ])
         await tx.run(`DELETE FROM ${table}`);
     });
     this.events.emit('conversations', undefined);
