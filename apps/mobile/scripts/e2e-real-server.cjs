@@ -2325,6 +2325,102 @@ function totp(secret, offset = 0) {
       await api('PUT', '/v1/branding', restore, priyaTok);
     }
   }
+  // ---- Administration: Priya (owner) sees the overview, adds a member, changes their role,
+  // deactivates and reactivates them, filters the audit log and sees everyone's devices.
+  {
+    const ctx9 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p9 = await ctx9.newPage();
+    await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p9.waitForTimeout(1500);
+    const f9 = p9.locator('input');
+    await f9.nth(0).fill(API);
+    await f9.nth(1).fill('northwind');
+    await f9.nth(2).fill('priya@northwind.test');
+    await f9.nth(3).fill(pw);
+    await p9.getByRole('button', { name: 'Sign in' }).click();
+    await p9.waitForTimeout(4000);
+    await p9.goto(`${APP}/admin`);
+    await p9.waitForTimeout(3000);
+    check('admin overview shows members', await p9.getByText('active members').first().isVisible());
+    check(
+      'admin overview shows two-step share',
+      await p9.getByText('use two-step sign-in').isVisible(),
+    );
+    await p9.screenshot({ path: `${out}/111-admin-overview.png` });
+    console.log('shot 111-admin-overview');
+
+    await p9.goto(`${APP}/admin/members`);
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/112-admin-members.png` });
+    console.log('shot 112-admin-members');
+    await p9.getByRole('button', { name: 'Add member' }).first().click();
+    await p9.waitForTimeout(1500);
+    const tag = Date.now().toString(36);
+    const email = `ana.${tag}@northwind.test`;
+    const anaName = `Ana Costa ${tag.slice(-4)}`;
+    await p9.getByLabel('Name', { exact: true }).fill(anaName);
+    await p9.getByLabel('Work email').fill(email);
+    await p9.getByLabel('Temporary password').fill('welcome-to-northwind-1');
+    await p9.screenshot({ path: `${out}/113-admin-add-member.png` });
+    console.log('shot 113-admin-add-member');
+    await p9.getByRole('button', { name: 'Add member' }).last().click();
+    await p9.waitForTimeout(3000);
+    await p9.getByLabel('Search members').fill(anaName);
+    await p9.waitForTimeout(800);
+    const row = p9.getByRole('button', { name: `${anaName}, Member` });
+    check('new member is listed', (await row.count()) === 1);
+    await row.click();
+    await p9.waitForTimeout(800);
+    await p9.getByRole('radio', { name: 'Admin', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('role changed to admin', await p9.getByText(`${anaName} is now admin.`).isVisible());
+    await p9.screenshot({ path: `${out}/114-admin-member-role.png` });
+    console.log('shot 114-admin-member-role');
+    await p9.getByRole('button', { name: 'Deactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check(
+      'member deactivated',
+      await p9.getByText(/is deactivated and signed out everywhere/).isVisible(),
+    );
+    await p9.getByRole('button', { name: 'Reactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check('member reactivated', await p9.getByText(`${anaName} can sign in again.`).isVisible());
+    const users = await api(
+      'GET',
+      '/v1/users',
+      undefined,
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email: 'priya@northwind.test',
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken,
+    );
+    const ana = (users.items ?? users).find((u) => u.email === email);
+    check('server has Ana as active admin', ana?.role === 'admin' && ana?.status === 'active');
+    await p9.getByRole('button', { name: 'Activity' }).click();
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/115-admin-audit-person.png` });
+    console.log('shot 115-admin-audit-person');
+    await p9.goto(`${APP}/admin/audit`);
+    await p9.waitForTimeout(2500);
+    await p9.getByRole('radio', { name: 'Members', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('audit log lists member changes', (await p9.getByText(anaName).count()) > 0);
+    await p9.screenshot({ path: `${out}/116-admin-audit.png` });
+    console.log('shot 116-admin-audit');
+    await p9.goto(`${APP}/admin/devices`);
+    await p9.waitForTimeout(2500);
+    check(
+      'org devices listed',
+      (await p9.getByRole('button', { name: /^Sign out .+ on / }).count()) > 0,
+    );
+    await p9.screenshot({ path: `${out}/117-admin-devices.png` });
+    console.log('shot 117-admin-devices');
+    await ctx9.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
