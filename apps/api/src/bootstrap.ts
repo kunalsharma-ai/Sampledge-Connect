@@ -32,6 +32,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('json', { limit: '256kb' });
   // LiveKit webhooks are verified against a hash of the exact bytes, so keep them raw.
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
+  // Live caption clips (a few seconds of compressed audio).
+  app.useBodyParser('raw', { type: 'audio/*', limit: '512kb' });
   // Chat widget origins are configured per module in the database (Integrations), not env.
   const moduleSettings = app.get(ModuleSettingsService);
   app.enableCors({

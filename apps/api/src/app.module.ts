@@ -22,6 +22,7 @@ import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
+import { AvatarsController, ProfileController } from './directory/profile.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
   ConversationsController,
@@ -62,6 +63,7 @@ import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
 import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
 import { BookingService } from './meetings/booking.service.js';
+import { CaptionsService } from './calls/captions.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -114,6 +116,8 @@ export class AppModule {
         AdminController,
         RecordingsController,
         DirectoryController,
+        ProfileController,
+        AvatarsController,
         ConversationsController,
         MessagesController,
         SyncController,
@@ -161,6 +165,7 @@ export class AppModule {
         MeetingsService,
         GuestsService,
         BookingService,
+        CaptionsService,
         MailerService,
         WorkStore,
         ModuleSettingsService,

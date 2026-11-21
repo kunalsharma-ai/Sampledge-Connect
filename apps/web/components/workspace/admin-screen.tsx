@@ -24,7 +24,7 @@ import { Avatar, Badge, Button, Input, StateView, cn, useToast } from '@sampledg
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
-import { relativeShort } from './helpers';
+import { avatarUrl, relativeShort } from './helpers';
 import type { ModuleId } from './modules';
 
 type Tab = 'overview' | 'members' | 'devices' | 'audit';
@@ -410,7 +410,7 @@ function MembersTab({ onShowActivity }: { onShowActivity: (userId: string) => vo
                 u.status !== 'active' && 'opacity-60',
               )}
             >
-              <Avatar name={u.displayName} size="sm" />
+              <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-label text-text">
                   {u.displayName} {me ? <span className="text-text-subtle">(you)</span> : null}

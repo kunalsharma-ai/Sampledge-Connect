@@ -82,8 +82,30 @@ export const CallsConfigSchema = z.object({
   ringTimeoutSeconds: z.number().int().positive(),
   /** Whether calls can be recorded here (egress configured and allowed by the organization). */
   recordingEnabled: z.boolean().optional(),
+  /** Live captions are available (the organization has a speech-to-text server). */
+  captionsEnabled: z.boolean().optional(),
 });
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
+
+/**
+ * Live captions. POST /v1/calls/:callId/captions (members) or /v1/guest/:token/captions
+ * (admitted guests) with a few seconds of the sender's own microphone as the raw body
+ * (Content-Type audio/webm, audio/ogg or audio/mp4, at most 512 KB). The text comes back and
+ * the sender's app shares it with the call over the media server's data channel, topic
+ * `captions`, as JSON `CallCaptionPacket`. A participant attribute `captions: "1"` means that
+ * person wants captions; apps send clips only while someone in the call has it set.
+ */
+export const CallCaptionResponseSchema = z.object({ text: z.string() });
+export type CallCaptionResponse = z.infer<typeof CallCaptionResponseSchema>;
+
+export const CALL_CAPTIONS_TOPIC = 'captions';
+export const CallCaptionPacketSchema = z.object({
+  /** Unique per clip, so a repeated packet is shown once. */
+  id: z.string().max(64),
+  name: z.string().max(80),
+  text: z.string().max(500),
+});
+export type CallCaptionPacket = z.infer<typeof CallCaptionPacketSchema>;
 
 /** Unanswered invites become `missed` after this long. */
 export const CALL_RING_TIMEOUT_SECONDS = 45;

@@ -58,8 +58,75 @@ export const UserSummarySchema = z.object({
   role: TenantRoleSchema,
   title: z.string().nullable(),
   status: z.enum(['active', 'deactivated']),
+  /**
+   * Profile photo: a path on the API (`/v1/avatars/<tenantId>/<key>`), resolve it against the
+   * API base URL. The key changes with every new photo, so it can be cached forever.
+   * null = no photo (show initials). Optional for older servers.
+   */
+  avatarUrl: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  bio: z.string().nullable().optional(),
+  /** IANA time zone, e.g. "Asia/Kolkata". */
+  timeZone: z.string().nullable().optional(),
 });
 export type UserSummary = z.infer<typeof UserSummarySchema>;
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+
+/** PATCH /v1/me/profile. Omitted fields stay as they are; empty text or null clears a field. */
+export const UpdateProfileRequestSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(80).optional(),
+    title: optionalText(80),
+    department: optionalText(80),
+    phone: z
+      .string()
+      .trim()
+      .max(32)
+      .regex(/^[+()\d\s.-]*$/, 'Use digits, spaces and + ( ) - . only')
+      .transform((v) => (v === '' ? null : v))
+      .nullable()
+      .optional(),
+    bio: optionalText(500),
+    timeZone: z
+      .string()
+      .trim()
+      .max(64)
+      .refine((v) => v === '' || isTimeZone(v), 'Unknown time zone')
+      .transform((v) => (v === '' ? null : v))
+      .nullable()
+      .optional(),
+  })
+  .strict();
+export type UpdateProfileRequest = z.input<typeof UpdateProfileRequestSchema>;
+
+function isTimeZone(tz: string) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Largest profile photo accepted (bytes, after base64 decoding). Clients crop to 512 px and compress first. */
+export const MAX_AVATAR_BYTES = 160 * 1024;
+/** PUT /v1/me/avatar: a cropped square PNG, JPEG or WebP as a data URL. */
+export const SetAvatarRequestSchema = z.object({
+  image: z
+    .string()
+    .max(Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 64)
+    .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG, JPEG or WebP image'),
+});
+export type SetAvatarRequest = z.input<typeof SetAvatarRequestSchema>;
 
 export const SessionSchema = z.object({
   accessToken: z.string(),

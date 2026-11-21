@@ -12,7 +12,7 @@ import { Avatar, Badge, Button, StateView, Tooltip, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import type { BookmarksApi } from '@/lib/bookmarks';
 import { threadReplies } from '@/lib/bookmarks';
-import { conversationTitle, formatDay, formatTime, nameOf } from './helpers';
+import { avatarOf, conversationTitle, formatDay, formatTime, nameOf } from './helpers';
 import { Composer } from './composer';
 import { Timeline } from './timeline';
 import type { ExtraActions } from './message-parts';
@@ -83,7 +83,13 @@ export function ThreadPanel({
         </div>
         <div className="hidden -space-x-2 sm:flex" aria-hidden>
           {participants.slice(0, 4).map((id) => (
-            <Avatar key={id} name={nameOf(id, directory)} size="xs" className="ring-2 ring-bg" />
+            <Avatar
+              key={id}
+              name={nameOf(id, directory)}
+              src={avatarOf(id, directory)}
+              size="xs"
+              className="ring-2 ring-bg"
+            />
           ))}
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close thread">
@@ -210,7 +216,11 @@ export function PinsMenu({
                     }}
                     className="flex w-full gap-3 rounded-lg p-2.5 text-left hover:bg-surface-raised"
                   >
-                    <Avatar name={nameOf(m.senderId, directory)} size="sm" />
+                    <Avatar
+                      name={nameOf(m.senderId, directory)}
+                      src={avatarOf(m.senderId, directory)}
+                      size="sm"
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
                         <span className="truncate text-label text-text">
@@ -305,7 +315,11 @@ export function SavedScreen({
                       saved {formatDay(b.createdAt)}
                     </span>
                     <span className="mt-2 flex gap-3">
-                      <Avatar name={nameOf(m.senderId, directory)} size="sm" />
+                      <Avatar
+                        name={nameOf(m.senderId, directory)}
+                        src={avatarOf(m.senderId, directory)}
+                        size="sm"
+                      />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-2">
                           <span className="text-label text-text">

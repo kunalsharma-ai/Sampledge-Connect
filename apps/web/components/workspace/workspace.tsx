@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Plug,
   ShieldCheck,
+  UserRound,
   Users,
 } from 'lucide-react';
 import {
@@ -49,7 +50,7 @@ import { ContextPanel } from './context-panel';
 import { ConversationList } from './conversation-list';
 import { NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
 import { AdminScreen } from './admin-screen';
-import { conversationTitle, nameOf, senderNameOf } from './helpers';
+import { avatarOf, conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
@@ -391,6 +392,7 @@ export function Workspace() {
       userId: id,
       displayName: directory.get(id)!.displayName,
       subtitle: directory.get(id)!.title ?? undefined,
+      avatarUrl: avatarOf(id, directory),
     }));
 
   return (
@@ -402,7 +404,8 @@ export function Workspace() {
           expanded={railExpanded}
           onToggle={() => setRailExpanded(!railExpanded)}
           tenantName={session!.tenant.name}
-          userName={session!.user.displayName}
+          userName={directory.get(me)?.displayName ?? session!.user.displayName}
+          userAvatar={avatarOf(me, directory)}
           isAdmin={isAdmin}
           unreadTotal={unreadTotal}
           notificationCount={notifications.unreadCount}
@@ -533,7 +536,14 @@ export function Workspace() {
                       <ArrowLeft className="size-4" />
                     </button>
                     {active.kind === 'dm' ? (
-                      <Avatar name={conversationTitle(active, me, directory)} size="sm" />
+                      <Avatar
+                        name={conversationTitle(active, me, directory)}
+                        src={avatarOf(
+                          active.memberIds.find((id) => id !== me),
+                          directory,
+                        )}
+                        size="sm"
+                      />
                     ) : (
                       <span className="flex size-8 items-center justify-center rounded-md bg-accent-soft text-accent">
                         {active.kind === 'channel_private' ? (
@@ -986,6 +996,12 @@ export function Workspace() {
               label: 'Open Sync Center',
               icon: RefreshCw,
               run: () => setDialog('sync'),
+            },
+            {
+              id: 'a:profile',
+              label: 'Edit profile and settings',
+              icon: UserRound,
+              run: () => setDialog('settings'),
             },
             {
               id: 'a:tasks',

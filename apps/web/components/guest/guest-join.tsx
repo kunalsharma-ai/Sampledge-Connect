@@ -35,8 +35,10 @@ import { Wordmark } from '@/components/brand';
 import { ControlButton, RemoteAudio, Tile, TrackVideo } from '@/components/workspace/calls';
 import { CallChatView, type ChatLine } from '@/components/workspace/call-chat';
 import { CallDeviceSettings } from '@/components/workspace/call-devices';
+import { CaptionsButton, CaptionsOverlay } from '@/components/workspace/call-captions';
+import { useLiveCaptions } from '@/lib/captions';
 import { deviceOptions } from '@/lib/call-devices';
-import { ApiFailure, apiRequest } from '@/lib/api';
+import { ApiFailure, apiRequest, postCaptionClip } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { screenTrackOf } from '@/lib/calls';
 
@@ -74,6 +76,7 @@ function useGuestApi(token: string) {
       chat: () => apiRequest<GuestChatResponse>('GET', `${base}/chat`),
       sendChat: (text: string) =>
         apiRequest<GuestChatResponse>('POST', `${base}/chat`, { body: { text } }),
+      caption: (clip: Blob) => postCaptionClip(`${base}/captions`, clip),
       icsUrl: `${API_URL}${base}/calendar.ics`,
     };
   }, [token]);
@@ -218,6 +221,8 @@ export function GuestJoin({ token }: { token: string }) {
         api={api}
         title={view.title}
         recording={!!state?.recording}
+        captionsEnabled={!!state?.captions}
+        myName={name.trim() || view.guest.name}
         onLeave={() => {
           // Only a leave we didn't already explain (ended / removed) counts as "you left".
           setPhase((p) => (p.kind === 'in-call' ? { kind: 'left', reason: 'left' } : p));
@@ -625,15 +630,24 @@ function GuestCall({
   api,
   title,
   recording,
+  captionsEnabled,
+  myName,
   onLeave,
 }: {
   room: Room;
   api: ReturnType<typeof useGuestApi>;
   title: string;
   recording: boolean;
+  captionsEnabled: boolean;
+  myName: string;
   onLeave: () => void;
 }) {
   const reduce = useReducedMotion();
+  const captions = useLiveCaptions(room, {
+    enabled: captionsEnabled,
+    myName: `${myName} (guest)`,
+    transcribe: api.caption,
+  });
   const [, setVersion] = React.useState(0);
   const [chatOpen, setChatOpen] = React.useState(false);
   const [lines, setLines] = React.useState<ChatLine[]>([]);
@@ -756,6 +770,7 @@ function GuestCall({
               ))}
             </div>
           )}
+          <CaptionsOverlay state={captions} />
           {chatOpen ? (
             <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
               <CallChatView
@@ -807,6 +822,7 @@ function GuestCall({
               </span>
             ) : null}
           </span>
+          {captionsEnabled ? <CaptionsButton state={captions} /> : null}
           <CallDeviceSettings room={room} />
           <ControlButton tone="danger" label="Leave meeting" onClick={onLeave}>
             <PhoneOff />

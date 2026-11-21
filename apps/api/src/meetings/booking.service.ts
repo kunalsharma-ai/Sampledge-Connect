@@ -18,6 +18,7 @@ import type { BookingPageDoc } from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { REDIS } from '../redis/redis.module.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { GuestsService } from './guests.service.js';
 import { MeetingsService } from './meetings.service.js';
 import { localParts } from './time.js';
@@ -39,7 +40,14 @@ export class BookingService {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly meetings: MeetingsService,
     private readonly guests: GuestsService,
+    private readonly realtime: RealtimePublisher,
   ) {}
+
+  /** Every host (old and new) refetches their booking pages on all of their devices. */
+  private changed(tenantId: string, ...hostLists: string[][]) {
+    for (const id of new Set(hostLists.flat()))
+      this.realtime.toUser(tenantId, id, 'meetings:changed', { area: 'booking_pages' });
+  }
 
   private url(slug: string) {
     const base = (
@@ -110,6 +118,7 @@ export class BookingService {
         updatedAt: now,
       })
       .catch((e) => this.slugTaken(e));
+    this.changed(ctx.tenantId, hostIds);
     return this.toDto(doc);
   }
 
@@ -122,7 +131,7 @@ export class BookingService {
 
   async update(ctx: TenantContext, id: string, input: unknown): Promise<BookingPage> {
     const req = parse(UpdateBookingPageSchema, input);
-    await this.mine(ctx, id);
+    const before = await this.mine(ctx, id);
     if (req.hostIds) await this.checkHosts(ctx.tenantId, [...new Set(req.hostIds)]);
     const updated = await this.db
       .for(ctx.tenantId)
@@ -138,12 +147,14 @@ export class BookingService {
         { returnDocument: 'after' },
       )
       .catch((e) => this.slugTaken(e));
+    this.changed(ctx.tenantId, before.hostIds, updated!.hostIds);
     return this.toDto(updated!);
   }
 
   async remove(ctx: TenantContext, id: string): Promise<{ deleted: true }> {
-    await this.mine(ctx, id);
+    const p = await this.mine(ctx, id);
     await this.db.for(ctx.tenantId).booking_pages.deleteMany({ _id: id });
+    this.changed(ctx.tenantId, p.hostIds);
     return { deleted: true };
   }
 
@@ -189,7 +200,7 @@ export class BookingService {
         .map((id) => byId.get(id))
         .filter((u) => !!u)
         .map((u) => ({ name: u!.displayName, title: u!.title ?? null })),
-      organizationName: tenant?.name ?? 'Sampledge Connect',
+      organizationName: tenant?.name ?? 'SampConnect',
       media: p.media,
       opensAt: w.opens.toISOString(),
       closesAt: w.closes.toISOString(),
@@ -272,7 +283,7 @@ export class BookingService {
         title: p.title,
         hostNames: names.map((u) => u.displayName),
         joinUrl: url,
-        emailed: this.guests.emailEnabled,
+        emailed: await this.guests.emailEnabled(p.tenantId),
       };
     } finally {
       await this.redis.del(lock).catch(() => undefined);

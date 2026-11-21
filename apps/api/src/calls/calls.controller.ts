@@ -14,10 +14,22 @@ import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { AppError } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { CallsService } from './calls.service.js';
+import { CaptionsService } from './captions.service.js';
 
 @Controller('v1')
 export class CallsController {
-  constructor(private readonly calls: CallsService) {}
+  constructor(
+    private readonly calls: CallsService,
+    private readonly captions: CaptionsService,
+  ) {}
+
+  /** Live captions: a few seconds of the caller's own microphone (raw audio body). */
+  @Post('calls/:callId/captions')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  caption(@Ctx() ctx: TenantContext, @Param('callId') callId: string, @Req() req: Request) {
+    return this.captions.member(ctx, callId, req.body, req.headers['content-type']);
+  }
 
   /** Whether calls are available on this deployment. Clients hide call buttons when disabled. */
   @Get('calls/config')
