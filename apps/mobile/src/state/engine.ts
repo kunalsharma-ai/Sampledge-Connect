@@ -6,8 +6,9 @@ import {
   type SetReactionRequest,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
-import type { LocalStore, PendingFileInput } from '../db/store';
+import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
 import { Emitter } from '../lib/emitter';
+import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
 import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
 import { OutboxProcessor } from '../sync/outbox';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
@@ -30,6 +31,8 @@ export interface EngineState {
   syncing: boolean;
   lastSyncAt: string | null;
   lastSyncError: string | null;
+  /** Why the notification feed could not be loaded (null when it is current or not tried yet). */
+  notificationsError: string | null;
 }
 
 /**
@@ -37,7 +40,11 @@ export interface EngineState {
  * to connectivity, app foregrounding and session changes.
  */
 export class ConnectEngine {
-  readonly events = new Emitter<{ state: EngineState }>();
+  readonly events = new Emitter<{
+    state: EngineState;
+    /** A new unread notification arrived live (drives the in-app banner). */
+    notification: LocalNotification;
+  }>();
   private readonly outbox: OutboxProcessor;
   private readonly sync: SyncEngine;
   private _state: EngineState = {
@@ -48,10 +55,13 @@ export class ConnectEngine {
     syncing: false,
     lastSyncAt: null,
     lastSyncError: null,
+    notificationsError: null,
   };
   private unsubs: (() => void)[] = [];
   private syncAttempt = 0;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
+  private notificationsRun: Promise<void> | null = null;
+  private notificationsAgain = false;
 
   constructor(
     readonly store: LocalStore,
@@ -109,6 +119,11 @@ export class ConnectEngine {
       this.unsubs.push(
         this.realtime.events.on('state', (socket) => this.patch({ socket })),
         this.realtime.events.on('needsSync', () => void this.resume()),
+        this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
+        this.realtime.events.on('notificationsRead', ({ unreadCount }) => {
+          void this.store.setNotificationUnread(unreadCount);
+          void this.refreshNotifications();
+        }),
         this.realtime.events.on(
           'sessionExpired',
           () => void this.handleAuthError(new TransportError('expired', 'api', 'SESSION_EXPIRED')),
@@ -136,10 +151,96 @@ export class ConnectEngine {
     }
   }
 
+  /**
+   * The app left or returned to the foreground. In the background the realtime link is closed
+   * so the server treats this device as away (and can push to it); it reopens on return.
+   */
+  setForeground(foreground: boolean): void {
+    if (!foreground) return this.realtime?.disconnect();
+    if (this._state.networkUp && this.session.state === 'active') this.realtime?.connect();
+    void this.resume();
+  }
+
   /** App returned to the foreground or the user pulled to refresh. */
   async resume(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
-    await Promise.all([this.outbox.kick(), this.runSync()]);
+    await Promise.all([this.outbox.kick(), this.runSync(), this.refreshNotifications()]);
+  }
+
+  /**
+   * Marks notifications read on this device right away; the mark is queued and sent when
+   * online, so read state matches your other devices. Opening a conversation calls this.
+   */
+  async markNotificationsRead(target: MarkNotificationsReadRequest): Promise<void> {
+    const changed = await this.store.markNotificationsReadLocally(target, {
+      queue: this.session.state !== 'demo',
+    });
+    if (changed > 0 || 'all' in target) void this.refreshNotifications();
+  }
+
+  /**
+   * Sends queued read marks, then reloads the newest page of the feed. A call made while a
+   * refresh is running waits for it, and that refresh runs once more to pick up the change.
+   */
+  refreshNotifications(): Promise<void> {
+    if (!this._state.networkUp || this.session.state !== 'active') return Promise.resolve();
+    if (this.notificationsRun) {
+      this.notificationsAgain = true;
+      return this.notificationsRun;
+    }
+    this.notificationsRun = this.runNotifications().finally(() => {
+      this.notificationsRun = null;
+    });
+    return this.notificationsRun;
+  }
+
+  private async runNotifications(): Promise<void> {
+    try {
+      do {
+        this.notificationsAgain = false;
+        if (!(await this.flushNotificationReads())) return;
+        const page = await this.api.listNotifications({ limit: 50 });
+        // A read mark made while the request was in flight is sent (and reloaded) next pass.
+        if ((await this.store.pendingNotificationReads()) === 0)
+          await this.store.replaceNotifications(page);
+        else this.notificationsAgain = true;
+        this.patch({ notificationsError: null });
+      } while (this.notificationsAgain);
+    } catch (err) {
+      const e = err instanceof TransportError ? err : new TransportError(String(err), 'network');
+      this.patch({
+        notificationsError:
+          e.code === 'NOT_FOUND' ? 'This server does not provide notifications yet.' : e.message,
+      });
+      if (e.isAuth) void this.handleAuthError(e);
+    }
+  }
+
+  /** Returns true once nothing is left to send. */
+  private async flushNotificationReads(): Promise<boolean> {
+    for (;;) {
+      const next = await this.store.nextNotificationRead();
+      if (!next) return true;
+      try {
+        const { unreadCount } = await this.api.markNotificationsRead(next.body);
+        await this.store.settleNotificationRead(next.id);
+        if ((await this.store.pendingNotificationReads()) === 0)
+          await this.store.setNotificationUnread(unreadCount);
+      } catch (err) {
+        if (!(err instanceof TransportError)) throw err;
+        if (err.kind === 'network' || err.isAuth) throw err;
+        if (err.retryable && next.attempts + 1 < 8) {
+          await this.store.retryNotificationRead(next.id);
+          throw err;
+        }
+        // Rejected for good (e.g. a conversation you were removed from): the next reload corrects it.
+        await this.store.settleNotificationRead(next.id);
+      }
+    }
+  }
+
+  private async receiveNotification(n: LocalNotification): Promise<void> {
+    if ((await this.store.addNotification(n)) && !n.readAt) this.events.emit('notification', n);
   }
 
   async send(

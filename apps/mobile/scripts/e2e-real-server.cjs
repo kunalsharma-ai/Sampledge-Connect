@@ -377,6 +377,91 @@ async function api(method, path, body, token) {
     'mention of you listed in Activity',
     (await p.innerText('body')).includes('please share the boost brief'),
   );
+
+  // ---- Notifications: server feed, live in-app banner, tab badge, read state across devices
+  const samApi = (
+    await api('POST', '/v1/auth/login', {
+      tenantSlug: 'northwind',
+      email: 'sam@northwind.test',
+      password: pw,
+      device: { deviceId: crypto.randomUUID(), name: 'e2e second device', platform: 'web' },
+    })
+  ).accessToken;
+  const feed = () => api('GET', '/v1/notifications?limit=50', undefined, samApi);
+  check(
+    'mention was read when the conversation was open',
+    (await feed()).items.some((n) => n.kind === 'mention' && n.readAt),
+  );
+  await p.goto(`${APP}/messages`);
+  await p.waitForTimeout(2500);
+  const samMsg = (await serverMsgs()).find(
+    (m) => m.senderId === idOf('Sam Okafor') && !m.deletedAt && m.content.text.includes('Sam here'),
+  );
+  await api(
+    'POST',
+    `/v1/conversations/${ch.conversationId}/messages`,
+    {
+      conversationId: ch.conversationId,
+      clientMessageId: crypto.randomUUID(),
+      messageType: 'text',
+      content: { text: 'Got the brief, thanks. Forwarding it to the client now.', mentions: [] },
+      replyToMessageId: samMsg.messageId,
+    },
+    priya,
+  );
+  await p.waitForTimeout(1500);
+  await p.screenshot({ path: `${out}/23-in-app-banner.png` });
+  console.log('shot 23-in-app-banner');
+  const bannerText = await p.innerText('body');
+  check(
+    'in-app banner shows the live reply',
+    bannerText.includes('replied to you') && bannerText.includes('Forwarding it to the client'),
+  );
+  check('server counts the reply unread', (await feed()).unreadCount === 1);
+  await p.goto(`${APP}/activity`);
+  await p.waitForTimeout(2500);
+  await shot('24-activity-unread');
+  check(
+    'Activity shows the unread reply and mark-all',
+    /1 unread/.test(await p.innerText('body')) &&
+      (await p.innerText('body')).includes('Mark all read'),
+  );
+  // Read on another device: this phone follows.
+  await api('POST', '/v1/notifications/read', { all: true }, samApi);
+  await p.waitForTimeout(2500);
+  await shot('25-read-on-other-device');
+  check(
+    'read on another device clears the badge here',
+    !/1 unread/.test(await p.innerText('body')),
+  );
+  // Offline mark-read reaches the server after reconnecting.
+  await api(
+    'POST',
+    `/v1/conversations/${ch.conversationId}/messages`,
+    {
+      conversationId: ch.conversationId,
+      clientMessageId: crypto.randomUUID(),
+      messageType: 'text',
+      content: {
+        text: '@Sam Okafor client approved the boost. Thanks!',
+        mentions: [idOf('Sam Okafor')],
+      },
+    },
+    priya,
+  );
+  await p.waitForTimeout(2500);
+  await ctx.setOffline(true);
+  await p.waitForTimeout(1500);
+  await p.getByRole('button', { name: 'Mark all read' }).click();
+  await shot('26-marked-read-offline');
+  check('offline mark stays local until reconnect', (await feed()).unreadCount === 1);
+  await ctx.setOffline(false);
+  await p.waitForTimeout(5000);
+  check('offline mark reached the server', (await feed()).unreadCount === 0);
+  await p.goto(`${APP}/settings/notifications`);
+  await p.waitForTimeout(2000);
+  await shot('27-notification-settings');
+  check('push shown as needing setup', (await p.innerText('body')).includes('Needs setup'));
   await b.close();
   if (failures.length) process.exit(1);
 })();

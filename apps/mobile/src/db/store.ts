@@ -10,7 +10,23 @@ import {
   type Receipt,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
+import type {
+  ListNotificationsResponse,
+  MarkNotificationsReadRequest,
+  NotificationKind,
+  ServerNotification,
+} from '../sync/notificationTypes';
 import type { SqlDriver, SqlExecutor } from './driver';
+
+/** A notification from the server feed as cached on this device. */
+export type LocalNotification = ServerNotification;
+
+/** A read mark made on this device, waiting to reach the server. */
+export interface PendingNotificationRead {
+  id: number;
+  body: MarkNotificationsReadRequest;
+  attempts: number;
+}
 
 /** A message as rendered by the UI: server-confirmed or still local. */
 export interface LocalMessage {
@@ -178,6 +194,7 @@ type StoreEvents = {
   conversations: undefined;
   outbox: undefined;
   settings: { key: string };
+  notifications: undefined;
 };
 
 interface MessageRow {
@@ -875,6 +892,9 @@ export class LocalStore {
     for (const id of touched) this.events.emit('messages', { conversationId: id });
     this.events.emit('conversations', undefined);
     this.events.emit('outbox', undefined);
+    // The server removes notifications for deleted messages; drop the cached copies right away.
+    const deleted = messages.filter((m) => m.deletedAt).map((m) => m.messageId);
+    if (deleted.length) await this.removeNotificationsFor(deleted);
   }
 
   private async applyOne(tx: SqlExecutor, m: Message): Promise<void> {
@@ -976,6 +996,7 @@ export class LocalStore {
           'messages',
           'receipts',
           'drafts',
+          'notifications',
           'conversations',
         ]) {
           await tx.run(`DELETE FROM ${table} WHERE conversation_id = ?`, [id]);
@@ -1264,12 +1285,151 @@ export class LocalStore {
         'receipts',
         'drafts',
         'conversations',
+        'notifications',
+        'notification_reads',
         'kv',
       ])
         await tx.run(`DELETE FROM ${table}`);
     });
     this.events.emit('conversations', undefined);
     this.events.emit('outbox', undefined);
+    this.events.emit('notifications', undefined);
+  }
+
+  // ---------------------------------------------------------------- notifications
+
+  /** Cached feed, newest first. */
+  async listNotifications(limit = 50): Promise<LocalNotification[]> {
+    const rows = await this.db.all<NotificationRow>(
+      'SELECT * FROM notifications ORDER BY created_at DESC, notification_id DESC LIMIT ?',
+      [limit],
+    );
+    return rows.map(fromNotificationRow);
+  }
+
+  /** Unread count as the server last reported it, less what you have read here since. */
+  async notificationUnread(): Promise<number> {
+    return Number((await this.getSetting('notifications.unread')) ?? 0);
+  }
+
+  /**
+   * Replaces the cache with the newest page from the server. Called only once read marks made
+   * here have been sent, so the server's read state already includes them.
+   */
+  async replaceNotifications(page: ListNotificationsResponse): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM notifications');
+      for (const n of page.items) await insertNotification(tx, n);
+      await setKv(tx, 'notifications.unread', String(page.unreadCount));
+    });
+    this.events.emit('notifications', undefined);
+  }
+
+  /** A notification pushed over the socket. Returns false when it was already cached. */
+  async addNotification(n: ServerNotification): Promise<boolean> {
+    let added = false;
+    await this.db.transaction(async (tx) => {
+      added = (await insertNotification(tx, n)) > 0;
+      if (added && !n.readAt) {
+        const unread = Number((await getKv(tx, 'notifications.unread')) ?? 0);
+        await setKv(tx, 'notifications.unread', String(unread + 1));
+      }
+    });
+    if (added) this.events.emit('notifications', undefined);
+    return added;
+  }
+
+  async setNotificationUnread(count: number): Promise<void> {
+    await this.setSetting('notifications.unread', String(Math.max(0, count)));
+    this.events.emit('notifications', undefined);
+  }
+
+  /**
+   * Marks notifications read here at once and, when `queue` is set, records the mark so it
+   * reaches the server later (it works offline). Returns how many cached items changed.
+   */
+  async markNotificationsReadLocally(
+    target: MarkNotificationsReadRequest,
+    opts: { queue: boolean },
+  ): Promise<number> {
+    const at = new Date(this.now()).toISOString();
+    let changed = 0;
+    await this.db.transaction(async (tx) => {
+      if ('all' in target) {
+        changed = (await tx.run('UPDATE notifications SET read_at = ? WHERE read_at IS NULL', [at]))
+          .changes;
+        await setKv(tx, 'notifications.unread', '0');
+      } else {
+        const [clause, params] =
+          'conversationId' in target
+            ? ['conversation_id = ?', [target.conversationId]]
+            : [
+                `notification_id IN (${target.notificationIds.map(() => '?').join(',')})`,
+                target.notificationIds,
+              ];
+        if (params.length === 0) return;
+        changed = (
+          await tx.run(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND ${clause}`, [
+            at,
+            ...params,
+          ])
+        ).changes;
+        const unread = Number((await getKv(tx, 'notifications.unread')) ?? 0);
+        await setKv(tx, 'notifications.unread', String(Math.max(0, unread - changed)));
+      }
+      // Nothing cached changed for a conversation or id list: the server has nothing for us either.
+      if (opts.queue && (changed > 0 || 'all' in target))
+        await tx.run('INSERT INTO notification_reads (body) VALUES (?)', [JSON.stringify(target)]);
+    });
+    if (changed > 0 || 'all' in target) this.events.emit('notifications', undefined);
+    return changed;
+  }
+
+  async nextNotificationRead(): Promise<PendingNotificationRead | null> {
+    const r = await this.db.get<{ id: number; body: string; attempts: number }>(
+      'SELECT * FROM notification_reads ORDER BY id LIMIT 1',
+    );
+    return r
+      ? { id: r.id, body: JSON.parse(r.body) as MarkNotificationsReadRequest, attempts: r.attempts }
+      : null;
+  }
+
+  async pendingNotificationReads(): Promise<number> {
+    return (
+      (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM notification_reads'))?.n ?? 0
+    );
+  }
+
+  async settleNotificationRead(id: number): Promise<void> {
+    await this.db.run('DELETE FROM notification_reads WHERE id = ?', [id]);
+  }
+
+  async retryNotificationRead(id: number): Promise<void> {
+    await this.db.run('UPDATE notification_reads SET attempts = attempts + 1 WHERE id = ?', [id]);
+  }
+
+  /** Drops cached notifications for messages that were deleted. */
+  async removeNotificationsFor(messageIds: readonly string[]): Promise<void> {
+    if (messageIds.length === 0) return;
+    let removed = 0;
+    await this.db.transaction(async (tx) => {
+      const marks = messageIds.map(() => '?').join(',');
+      const unreadGone =
+        (
+          await tx.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL AND message_id IN (${marks})`,
+            [...messageIds],
+          )
+        )?.n ?? 0;
+      removed = (
+        await tx.run(`DELETE FROM notifications WHERE message_id IN (${marks})`, [...messageIds])
+      ).changes;
+      if (unreadGone > 0) {
+        const unread = Number((await getKv(tx, 'notifications.unread')) ?? 0);
+        await setKv(tx, 'notifications.unread', String(Math.max(0, unread - unreadGone)));
+      }
+    });
+    if (removed > 0) this.events.emit('notifications', undefined);
   }
 
   private async emitForMessage(clientId: string): Promise<void> {
@@ -1289,3 +1449,55 @@ const RANK: Record<MessageStatus, number> = {
   read: 6,
 };
 const rank = (s: MessageStatus) => RANK[s];
+
+interface NotificationRow {
+  notification_id: string;
+  kind: NotificationKind;
+  conversation_id: string;
+  message_id: string;
+  actor_id: string;
+  preview: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+const fromNotificationRow = (r: NotificationRow): LocalNotification => ({
+  notificationId: r.notification_id,
+  kind: r.kind,
+  conversationId: r.conversation_id,
+  messageId: r.message_id,
+  actorId: r.actor_id,
+  preview: r.preview,
+  createdAt: r.created_at,
+  readAt: r.read_at,
+});
+
+async function insertNotification(tx: SqlExecutor, n: ServerNotification): Promise<number> {
+  return (
+    await tx.run(
+      `INSERT OR IGNORE INTO notifications (notification_id, kind, conversation_id, message_id, actor_id, preview, created_at, read_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        n.notificationId,
+        n.kind,
+        n.conversationId,
+        n.messageId,
+        n.actorId,
+        n.preview,
+        n.createdAt,
+        n.readAt ?? null,
+      ],
+    )
+  ).changes;
+}
+
+async function getKv(tx: SqlExecutor, key: string): Promise<string | undefined> {
+  return (await tx.get<{ value: string }>('SELECT value FROM kv WHERE key = ?', [key]))?.value;
+}
+
+async function setKv(tx: SqlExecutor, key: string, value: string): Promise<void> {
+  await tx.run(
+    'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [key, value],
+  );
+}

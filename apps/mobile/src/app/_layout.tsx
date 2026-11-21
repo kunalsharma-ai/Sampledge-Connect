@@ -13,6 +13,7 @@ import * as SystemUI from 'expo-system-ui';
 import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NotificationBanner } from '../components/NotificationBanner';
 import { AppProvider, useApp } from '../state/AppProvider';
 import { fonts } from '../theme/themes';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
@@ -60,6 +61,7 @@ function RootStack() {
           <Stack.Screen name="search" options={{ title: 'Search', presentation: 'modal' }} />
           <Stack.Screen name="settings/appearance" options={{ title: 'Appearance' }} />
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
+          <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="planned/[module]" options={{ title: '' }} />
         </Stack.Protected>
         <Stack.Screen
@@ -67,6 +69,7 @@ function RootStack() {
           options={{ headerShown: false, presentation: signedIn ? 'modal' : 'card' }}
         />
       </Stack>
+      {signedIn ? <NotificationBanner /> : null}
     </>
   );
 }

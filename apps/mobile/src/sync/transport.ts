@@ -19,6 +19,12 @@ import {
 } from '@sampledge/contracts';
 
 import { putFileBytes } from '../lib/localFiles';
+import type {
+  ListNotificationsQuery,
+  ListNotificationsResponse,
+  MarkNotificationsReadRequest,
+  MarkNotificationsReadResponse,
+} from './notificationTypes';
 
 /** Why a request failed, in terms the offline queue can act on. */
 export class TransportError extends Error {
@@ -58,6 +64,8 @@ export interface ApiTransport {
   /** Short-lived signed download URL, absolute. */
   attachmentUrl(attachmentId: string): Promise<AttachmentUrl>;
   listUsers(): Promise<DirectoryUser[]>;
+  listNotifications(q?: ListNotificationsQuery): Promise<ListNotificationsResponse>;
+  markNotificationsRead(req: MarkNotificationsReadRequest): Promise<MarkNotificationsReadResponse>;
 }
 
 export interface DirectoryUser {
@@ -173,6 +181,21 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', '/v1/users', undefined);
   }
 
+  /** Mentions and replies addressed to you, newest first. */
+  listNotifications(q: ListNotificationsQuery = {}): Promise<ListNotificationsResponse> {
+    const params = new URLSearchParams();
+    if (q.unread) params.set('unread', 'true');
+    if (q.before) params.set('before', q.before);
+    if (q.limit) params.set('limit', String(q.limit));
+    const qs = params.toString();
+    return this.request('GET', `/v1/notifications${qs ? `?${qs}` : ''}`, undefined);
+  }
+
+  /** Idempotent; returns your unread count after the change. */
+  markNotificationsRead(req: MarkNotificationsReadRequest): Promise<MarkNotificationsReadResponse> {
+    return this.request('POST', '/v1/notifications/read', req);
+  }
+
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
     const hasBody = method !== 'GET' && body !== undefined;
     const headers: Record<string, string> = { accept: 'application/json' };
@@ -261,4 +284,6 @@ export class NoServerTransport implements ApiTransport {
   uploadFile = async (): Promise<Attachment> => this.fail();
   attachmentUrl = async (): Promise<AttachmentUrl> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
+  listNotifications = async (): Promise<ListNotificationsResponse> => this.fail();
+  markNotificationsRead = async (): Promise<MarkNotificationsReadResponse> => this.fail();
 }
