@@ -5,8 +5,10 @@ import {
   AckReceiptRequestSchema,
   EditMessageRequestSchema,
   ListMessagesQuerySchema,
+  MAX_REACTIONS_PER_MESSAGE,
   RECEIPT_TRACKING_MAX_MEMBERS,
   SendMessageRequestSchema,
+  SetReactionRequestSchema,
   type Message,
   type Receipt,
   type SendMessageAck,
@@ -191,6 +193,62 @@ export class MessagesService {
     );
     const dto = toMessage(updated!);
     this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    return dto;
+  }
+
+  /**
+   * Idempotent reaction toggle. A real change bumps changeSequence (so cursor sync
+   * carries it to every device) and is broadcast as `message:updated`; a no-op returns
+   * the current message without touching the sequence.
+   */
+  async react(ctx: TenantContext, input: unknown): Promise<Message> {
+    const req = parse(SetReactionRequestSchema, input);
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: req.messageId });
+    if (!m) throw notFound('Message');
+    await this.conversations.authorize(ctx, m.conversationId, 'message.react');
+    if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    await this.rateLimit.consume('reaction', `${ctx.tenantId}:${ctx.userId}`);
+
+    const result = await withLock(
+      this.redis,
+      this.lockKey(ctx.tenantId, m.conversationId),
+      async () => {
+        // Re-read inside the lock: every reaction write for this conversation is serialized here.
+        const cur = await t.messages.findOne({ _id: req.messageId });
+        if (!cur || cur.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+        const reactions = (cur.reactions ?? []).map((r) => ({ ...r, userIds: [...r.userIds] }));
+        const existing = reactions.find((r) => r.emoji === req.emoji);
+        const has = existing?.userIds.includes(ctx.userId) ?? false;
+        if (req.op === 'add' ? has : !has) return { doc: cur, changed: false };
+        if (req.op === 'add') {
+          if (existing) existing.userIds.push(ctx.userId);
+          else {
+            if (reactions.length >= MAX_REACTIONS_PER_MESSAGE) {
+              throw new AppError(
+                'VALIDATION_FAILED',
+                'This message has too many different reactions',
+              );
+            }
+            reactions.push({ emoji: req.emoji, userIds: [ctx.userId] });
+          }
+        } else {
+          existing!.userIds = existing!.userIds.filter((u) => u !== ctx.userId);
+        }
+        const next = reactions.filter((r) => r.userIds.length > 0);
+        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        const doc = await t.messages.findOneAndUpdate(
+          { _id: req.messageId },
+          { $set: { reactions: next, changeSequence: seq } },
+          { returnDocument: 'after' },
+        );
+        return { doc: doc!, changed: true };
+      },
+    );
+    const dto = toMessage(result.doc);
+    if (result.changed) {
+      this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    }
     return dto;
   }
 

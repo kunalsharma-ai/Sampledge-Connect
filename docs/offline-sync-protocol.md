@@ -14,7 +14,7 @@ Code: `packages/offline` (client), `apps/api/src/messages`, `apps/api/src/sync` 
 
 Not guaranteed (and never claimed): delivery to a remote user while there is no network path; background sending while the app is closed (Background Sync is used opportunistically where the browser supports it).
 
-## Local database (Dexie) schema, version 1
+## Local database (Dexie) schema, version 2
 
 Database name: `sampledge-connect:{tenantId}:{userId}`. One database per signed-in identity, so another user on the same browser never opens it.
 
@@ -26,6 +26,7 @@ Database name: `sampledge-connect:{tenantId}:{userId}`. One database per signed-
 | `cursors`       | `conversationId`          |                                                                                             | Highest applied `changeSequence`                                |
 | `receipts`      | `[conversationId+userId]` | `conversationId`                                                                            | Delivery/read watermarks                                        |
 | `meta`          | `key`                     |                                                                                             | Schema version, deviceId, last sync time                        |
+| `reactionQueue` | `messageId\|emoji`        | `nextAttemptAt`, `messageId`                                                                | Pending reaction intents (v2)                                   |
 
 Migrations: Dexie version upgrades with `upgrade()` functions. If opening fails (corruption, failed upgrade), the engine exports the `outbox` rows it can read, deletes the database, recreates it and re-inserts the outbox, then performs a full sync (cache recovery).
 
@@ -73,6 +74,14 @@ POST /v1/sync
 Conversations without a client cursor start at `afterChangeSequence = max(0, lastChangeSequence - limit)` (recent window); older history loads on scroll-back.
 
 Edits and deletes bump `changeSequence` so they flow through the same cursor. Deleted messages are returned as tombstones (`deletedAt` set, `content.text` emptied) so every device converges.
+
+## Reactions
+
+A reaction is an idempotent intent, not an append-only operation: `PUT /v1/messages/:id/reactions/:emoji` adds the caller's reaction and `DELETE` removes it (or `reaction:set { messageId, emoji, op }` over the socket). Repeating either is a no-op that returns the current message without bumping anything.
+
+- **Server:** reactions live on the message document. A real change runs inside the conversation lock, bumps the message's `changeSequence` and is broadcast as `message:updated`. Cursor sync therefore carries reactions with no new sync field; a missed event is recovered like any other change.
+- **Wire shape:** `message.reactions: [{ emoji, userIds, count }]` in first-reacted order. `userIds` is capped at 20; `count` is the full total. A message holds at most 50 distinct emoji; one emoji grapheme per reaction.
+- **Client:** `engine.react(message, emoji, op)` writes to `reactionQueue` keyed by `messageId|emoji`, so toggling offline coalesces to the final intent. The UI renders `overlayReactions(serverReactions, pending, me)`, so the change shows instantly and never flickers back during sync. The queue flushes after messages with the same backoff; a rejected intent (message deleted, no access) is dropped and the server state wins.
 
 ## Conflict handling
 

@@ -91,6 +91,8 @@ export interface MessageDoc extends TenantOwned {
   editedAt: Date | null;
   deletedAt: Date | null;
   metadata: Record<string, unknown>;
+  /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
+  reactions?: { emoji: string; userIds: string[] }[];
 }
 
 export interface ReceiptDoc extends TenantOwned {
