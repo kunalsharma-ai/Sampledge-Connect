@@ -2,6 +2,8 @@ import {
   ERROR_CODES,
   type Attachment,
   type Bookmark,
+  type CreatePollRequest,
+  type MyPollVote,
   type AttachmentUrl,
   type CreateUploadRequest,
   type UploadTicket,
@@ -132,6 +134,11 @@ export interface ApiTransport {
   /** Messages you saved for later, newest first. */
   listBookmarks(): Promise<Bookmark[]>;
   setBookmark(messageId: string, saved: boolean): Promise<void>;
+  createPoll(conversationId: string, req: CreatePollRequest): Promise<Message>;
+  /** Replaces your choice; [] withdraws it. Returns the message with new counts. */
+  votePoll(messageId: string, optionIds: string[]): Promise<Message>;
+  myPollVote(messageId: string): Promise<MyPollVote>;
+  closePoll(messageId: string): Promise<Message>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -463,6 +470,32 @@ export class HttpTransport implements ApiTransport {
     return r.items;
   }
 
+  createPoll(conversationId: string, req: CreatePollRequest): Promise<Message> {
+    return this.request(
+      'POST',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/polls`,
+      req,
+    );
+  }
+
+  votePoll(messageId: string, optionIds: string[]): Promise<Message> {
+    return this.request('PUT', `/v1/messages/${encodeURIComponent(messageId)}/poll/vote`, {
+      optionIds,
+    });
+  }
+
+  myPollVote(messageId: string): Promise<MyPollVote> {
+    return this.request(
+      'GET',
+      `/v1/messages/${encodeURIComponent(messageId)}/poll/vote`,
+      undefined,
+    );
+  }
+
+  closePoll(messageId: string): Promise<Message> {
+    return this.request('POST', `/v1/messages/${encodeURIComponent(messageId)}/poll/close`, {});
+  }
+
   async setBookmark(messageId: string, saved: boolean): Promise<void> {
     await this.request(
       saved ? 'PUT' : 'DELETE',
@@ -658,6 +691,10 @@ export class NoServerTransport implements ApiTransport {
   pinMessage = async (): Promise<Message> => this.fail();
   listBookmarks = async (): Promise<Bookmark[]> => this.fail();
   setBookmark = async (): Promise<void> => this.fail();
+  createPoll = async (): Promise<Message> => this.fail();
+  votePoll = async (): Promise<Message> => this.fail();
+  myPollVote = async (): Promise<MyPollVote> => this.fail();
+  closePoll = async (): Promise<Message> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();

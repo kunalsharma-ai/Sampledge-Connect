@@ -82,6 +82,7 @@ function RootStack() {
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
+          <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
           <Stack.Screen name="conversation-info/[id]" options={{ title: 'Details' }} />
           <Stack.Screen
             name="add-members/[id]"

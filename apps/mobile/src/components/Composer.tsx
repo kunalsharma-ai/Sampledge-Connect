@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -372,6 +373,20 @@ export function Composer({
           >
             <Ionicons name="document-attach-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Files</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setAttachOpen(false);
+              router.push({ pathname: '/poll/new', params: { conversationId } });
+            }}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="stats-chart-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Poll</Text>
           </Pressable>
           {Platform.OS !== 'web' ? (
             <Pressable

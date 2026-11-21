@@ -1,4 +1,5 @@
 import {
+  uuidv7,
   backoffDelay,
   type CreateConversationRequest,
   type CreateMeetingRequest,
@@ -20,6 +21,8 @@ import {
   type IntegrationValues,
   type IntegrationView,
   type Bookmark,
+  type CreatePollRequest,
+  type Poll,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -71,6 +74,8 @@ export class ConnectEngine {
     /** The set of messages you saved for later changed. */
     bookmarks: ReadonlySet<string>;
   }>();
+  /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
+  private myVotes = new Map<string, string[]>();
   /** Message ids you saved, as of the last list or change on this device. */
   private saved = new Set<string>();
   private readonly outbox: OutboxProcessor;
@@ -416,6 +421,51 @@ export class ConnectEngine {
       if (saved) this.saved.add(messageId);
       else this.saved.delete(messageId);
       this.events.emit('bookmarks', this.saved);
+    });
+  }
+
+  /** Posts a poll (online; idempotent on its clientMessageId, so a retry never doubles it). */
+  createPoll(
+    conversationId: string,
+    poll: Omit<CreatePollRequest, 'clientMessageId'>,
+  ): Promise<void> {
+    const clientMessageId = uuidv7();
+    return this.serverAction(async () => {
+      const m = await this.api.createPoll(conversationId, { ...poll, clientMessageId });
+      this.myVotes.set(m.messageId, []);
+      await this.store.applyServerMessages([m]);
+    });
+  }
+
+  /** Your current choice in a poll; asks the server once when the poll hides voters. */
+  async myPollVote(messageId: string, poll: Poll): Promise<string[] | null> {
+    const known = this.myVotes.get(messageId);
+    if (known) return known;
+    if (!poll.anonymous) {
+      const self = this.session.current?.user.userId;
+      return poll.options.filter((o) => self && o.voterIds.includes(self)).map((o) => o.optionId);
+    }
+    if (this.serverActionBlocker()) return null;
+    try {
+      const v = await this.api.myPollVote(messageId);
+      this.myVotes.set(messageId, v.optionIds);
+      return v.optionIds;
+    } catch {
+      return null;
+    }
+  }
+
+  votePoll(messageId: string, optionIds: string[]): Promise<void> {
+    return this.serverAction(async () => {
+      const m = await this.api.votePoll(messageId, optionIds);
+      this.myVotes.set(messageId, optionIds);
+      await this.store.applyServerMessages([m]);
+    });
+  }
+
+  closePoll(messageId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.applyServerMessages([await this.api.closePoll(messageId)]);
     });
   }
 
