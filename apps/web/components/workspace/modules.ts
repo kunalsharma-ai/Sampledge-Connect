@@ -12,6 +12,7 @@ import {
   Hash,
   House,
   Inbox,
+  Palette,
   MessagesSquare,
   Plug,
   Search,
@@ -37,6 +38,7 @@ export type ModuleId =
   | 'analytics'
   | 'integrations'
   | 'billing'
+  | 'branding'
   | 'admin'
   | 'settings';
 
@@ -73,6 +75,7 @@ export const MODULES: ModuleDef[] = [
     phase: 'Phase 4',
   },
   { id: 'integrations', label: 'Integrations', icon: Plug, built: true, adminOnly: true },
+  { id: 'branding', label: 'Branding', icon: Palette, built: true, adminOnly: true },
   { id: 'billing', label: 'Billing', icon: CreditCard, built: true, adminOnly: true },
   { id: 'admin', label: 'Administration', icon: ShieldCheck, built: true, adminOnly: true },
   { id: 'settings', label: 'Settings', icon: Settings, built: true },

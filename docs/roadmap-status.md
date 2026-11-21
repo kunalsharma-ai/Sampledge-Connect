@@ -52,11 +52,12 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 
 ## Phase 3 and later
 
-Connector gateway and unified client inbox (in progress in its own thread); white-label: Planned.
+Connector gateway and unified client inbox (in progress in its own thread).
 
 ## Phase 4: enterprise
 
-| Item                                                                                                                                                     | Status                      |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| Billing: plan catalog in the database (no hardcoded prices), Stripe checkout, portal and signed webhooks, invoices, member limits, invoice billing (web) | Built (see docs/billing.md) |
-| Enforcing storage and recording limits, other payment providers, billing on mobile                                                                       | Planned                     |
+| Item                                                                                                                                                     | Status                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Billing: plan catalog in the database (no hardcoded prices), Stripe checkout, portal and signed webhooks, invoices, member limits, invoice billing (web) | Built (see docs/billing.md)     |
+| White-label: app name, logo, colors, enforced theme, branded sign-in page and guest emails, support contacts (web)                                       | Built (see docs/white-label.md) |
+| Enforcing storage and recording limits, other payment providers, billing and branding on mobile, custom domains                                          | Planned                         |
