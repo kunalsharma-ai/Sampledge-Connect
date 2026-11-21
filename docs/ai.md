@@ -90,6 +90,32 @@ assignee (when they can be assigned in that conversation), a due date worked out
 created until the person presses **Create**, which calls `POST /v1/tasks` as them, with its normal
 access checks and an idempotency key. The assistant has no endpoint that creates tasks.
 
+A suggestion the person doesn't need can be dismissed with **×** ("Not needed"), and brought back
+with **Undo**. Dismissals are private to the person and kept for 180 days:
+
+| Route                                     | What it does                                |
+| ----------------------------------------- | ------------------------------------------- |
+| `GET /v1/ai/suggestions/dismissed`        | The caller's dismissed suggestion ids       |
+| `PUT /v1/ai/suggestions/:id/dismissed`    | Dismiss (idempotent); emits `ai:suggestion` |
+| `DELETE /v1/ai/suggestions/:id/dismissed` | Undo (idempotent); emits `ai:suggestion`    |
+
+The id is `aiSuggestionId(conversationId, messageId, text)` from `@sampledge/contracts`, so every
+device and the server compute the same one.
+
+## Sync across devices and offline
+
+AI output follows the person across their devices (see docs/sync-coverage.md):
+
+- Drafts: creating, sending or dismissing a draft emits `ai:proposal` to the person's own room.
+  A draft open on another device closes with a note ("Sent from another device").
+- Sending and dismissing a draft go through the durable action queue (`aiproposal|<id>`), so they
+  work offline. Offline, the edited text is checked for sensitive topics on the device the same
+  way the server checks it, and the tick is required before it is queued. Confirm and dismiss are
+  idempotent, so a retry never sends twice, and the server rechecks everything when it arrives.
+- Dismissed suggestions go through the queue too (`aisuggestion|<id>`) and emit `ai:suggestion`.
+- Summaries, the digest and search are computed on request and cached on the server, so there is
+  no per-device state to sync; every device sees the same cached summary.
+
 ## Project status (Samptrek and Connect projects)
 
 Each digest row whose conversation is a project channel carries `project`: name, source

@@ -438,3 +438,37 @@ export function resolveDueHint(hint: string | null | undefined, now = new Date()
   }
   return null;
 }
+
+/**
+ * A stable id for a suggested task, the same on every device and on the server: two 32-bit
+ * FNV-1a hashes of the conversation, source message and text. Used to remember a dismissal.
+ */
+export function aiSuggestionId(
+  conversationId: string,
+  messageId: string | null | undefined,
+  text: string,
+): string {
+  const input = `${conversationId}|${messageId ?? ''}|${text.trim()}`;
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995);
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  return hex(a) + hex(b);
+}
+export const AiSuggestionIdSchema = z.string().regex(/^[0-9a-f]{16}$/);
+
+/** GET /v1/ai/suggestions/dismissed: the caller's dismissed suggestions, newest first. */
+export const AiDismissedSuggestionsSchema = z.object({
+  suggestionIds: z.array(AiSuggestionIdSchema),
+});
+export type AiDismissedSuggestions = z.infer<typeof AiDismissedSuggestionsSchema>;
+
+/** `ai:suggestion`: sent to the person's own devices after PUT or DELETE /dismissed. */
+export interface AiSuggestionEvent {
+  suggestionId: string;
+  dismissed: boolean;
+}

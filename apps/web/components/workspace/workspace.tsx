@@ -72,10 +72,11 @@ import {
   languageName,
   preferredLanguage,
   suggestionKey,
+  useAiDismissals,
   useAi,
   type AiTaskActions,
 } from '@/lib/ai';
-import { resolveDueHint } from '@sampledge/contracts';
+import { aiSuggestionId, resolveDueHint } from '@sampledge/contracts';
 import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
@@ -145,8 +146,13 @@ export function Workspace() {
   } | null>(null);
   const [aiTaskKey, setAiTaskKey] = React.useState<string | null>(null);
   const [aiTasksCreated, setAiTasksCreated] = React.useState<Set<string>>(() => new Set());
+  const { isDismissed: isAiDismissed, setDismissed: setAiDismissed } = useAiDismissals();
   const aiTasks = React.useMemo<AiTaskActions>(
     () => ({
+      isDismissed: (item, conversationId) =>
+        isAiDismissed(aiSuggestionId(conversationId, item.messageId, item.text)),
+      setDismissed: (item, conversationId, dismissed) =>
+        setAiDismissed(aiSuggestionId(conversationId, item.messageId, item.text), dismissed),
       isCreated: (item, conversationId) => aiTasksCreated.has(suggestionKey(item, conversationId)),
       createTask: (item, conversationId) => {
         const conversation = conversations?.find((c) => c.conversationId === conversationId);
@@ -172,7 +178,7 @@ export function Workspace() {
         });
       },
     }),
-    [conversations, aiTasksCreated],
+    [conversations, aiTasksCreated, isAiDismissed, setAiDismissed],
   );
   const openConversation = React.useCallback((id: string) => {
     setModule('messages');

@@ -34,6 +34,9 @@ import {
   type AiMeetingSummary,
   type AiPrioritizedNotifications,
   type AiProposal,
+  type AiDismissedSuggestions,
+  type AiSuggestionEvent,
+  AiSuggestionIdSchema,
   type AiSearchHit,
   type AiSearchResponse,
   type AiStatus,
@@ -1038,7 +1041,14 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       expiresAt: new Date(now.getTime() + AI_PROPOSAL_TTL_MINUTES * 60_000),
       confirmedAt: null,
     });
-    return this.toProposal(doc);
+    return this.publishProposal(ctx, doc);
+  }
+
+  /** Drafts follow the person across their devices: a draft sent or dismissed on one closes everywhere. */
+  private publishProposal(ctx: TenantContext, doc: AiProposalDoc): AiProposal {
+    const proposal = this.toProposal(doc);
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'ai:proposal', proposal);
+    return proposal;
   }
 
   private async ownProposal(ctx: TenantContext, proposalId: string): Promise<AiProposalDoc> {
@@ -1107,7 +1117,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       target: { type: 'message', id: ack.message.messageId },
       metadata: { proposalId: p._id, risk: risk.categories, edited: text !== p.text },
     });
-    return { proposal: this.toProposal(updated ?? p), message: ack.message };
+    return { proposal: this.publishProposal(ctx, updated ?? p), message: ack.message };
   }
 
   async dismissProposal(ctx: TenantContext, proposalId: string): Promise<AiProposal> {
@@ -1116,11 +1126,45 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     const updated = await this.db
       .for(ctx.tenantId)
       .ai_proposals.findOneAndUpdate(
-        { _id: p._id, userId: ctx.userId },
+        { _id: p._id, userId: ctx.userId, status: 'pending' },
         { $set: { status: 'dismissed' } },
         { returnDocument: 'after' },
       );
-    return this.toProposal(updated ?? p);
+    // Sent or dismissed meanwhile (another device): report what it is now.
+    if (!updated) return this.toProposal(await this.ownProposal(ctx, proposalId));
+    return this.publishProposal(ctx, updated);
+  }
+
+  /** The caller's dismissed suggested tasks (private to them, kept 180 days). */
+  async dismissedSuggestions(ctx: TenantContext): Promise<AiDismissedSuggestions> {
+    const rows = await this.db
+      .for(ctx.tenantId)
+      .ai_suggestion_dismissals.find(
+        { userId: ctx.userId },
+        { sort: { createdAt: -1 }, limit: 2000 },
+      )
+      .toArray();
+    return { suggestionIds: rows.map((r) => r.suggestionId) };
+  }
+
+  /** Idempotent: dismissing twice, or restoring one that isn't dismissed, changes nothing. */
+  async setSuggestionDismissed(
+    ctx: TenantContext,
+    suggestionId: string,
+    dismissed: boolean,
+  ): Promise<AiSuggestionEvent> {
+    const id = parse(AiSuggestionIdSchema, suggestionId);
+    const t = this.db.for(ctx.tenantId);
+    if (dismissed)
+      await t.ai_suggestion_dismissals.updateOne(
+        { userId: ctx.userId, suggestionId: id },
+        { $setOnInsert: { createdAt: new Date() } },
+        { upsert: true },
+      );
+    else await t.ai_suggestion_dismissals.deleteMany({ userId: ctx.userId, suggestionId: id });
+    const e = { suggestionId: id, dismissed };
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'ai:suggestion', e);
+    return e;
   }
 }
 

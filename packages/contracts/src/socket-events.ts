@@ -12,6 +12,7 @@ import type {
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
+import type { AiProposal, AiSuggestionEvent } from './ai.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -93,6 +94,10 @@ export interface ServerToClientEvents {
   'tenant:updated': (e: { area: TenantArea }) => void;
   /** A project was created or changed; refetch it (the list endpoint applies visibility). */
   'project:changed': (e: { projectId: string }) => void;
+  /** One of your AI drafts was created, sent or dismissed (your devices only). */
+  'ai:proposal': (proposal: AiProposal) => void;
+  /** You dismissed a suggested task, or brought it back (your devices only). */
+  'ai:suggestion': (e: AiSuggestionEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

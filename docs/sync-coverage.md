@@ -47,6 +47,10 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Invite / change member, edit profile           | `directory:updated`                                     | Needs a connection (admin)             |
 | Branding                                       | `tenant:updated` `branding`                             | Needs a connection (admin)             |
 | Billing, integrations, AI, recordings settings | `tenant:updated` with that area                         | Needs a connection (admin)             |
+| AI draft created, sent or dismissed            | `ai:proposal` (own devices only)                        | Send and dismiss queued                |
+| Dismiss / restore a suggested AI task          | `ai:suggestion` (own devices only)                      | Queued                                 |
+| Create a task from an AI suggestion            | `task:upsert`                                           | Needs a connection                     |
+| AI summaries, digest, search                   | Computed on request, cached on the server               | Needs a connection by nature           |
 | Typing, presence                               | `typing:update`, `presence:update`                      | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.
