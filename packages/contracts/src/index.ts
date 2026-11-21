@@ -20,3 +20,4 @@ export * from './integration-settings.js';
 export * from './integrations.js';
 export * from './work.js';
 export * from './modules-catalog.js';
+export * from './billing.js';

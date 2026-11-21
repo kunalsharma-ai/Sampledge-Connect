@@ -21,6 +21,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { ARGON2_OPTIONS, toUserSummary } from '../auth/auth.service.js';
 import { MfaService } from '../auth/mfa.service.js';
+import { BillingService } from '../billing/billing.service.js';
 import { SessionService } from '../auth/session.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantDb } from '../database/tenant-db.js';
@@ -43,6 +44,7 @@ export class DirectoryController {
     private readonly realtime: RealtimePublisher,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly mfa: MfaService,
+    private readonly billing: BillingService,
   ) {}
 
   @Get('me')
@@ -92,6 +94,7 @@ export class DirectoryController {
   async invite(@Ctx() ctx: TenantContext, @Body() body: unknown) {
     if (!tenantCan(ctx.role, 'members.invite')) throw forbidden();
     const req = parse(InviteMemberRequestSchema, body);
+    if (req.role !== 'guest') await this.billing.assertSeatAvailable(ctx.tenantId);
     const t = this.db.for(ctx.tenantId);
     const now = new Date();
     let user;
@@ -136,6 +139,7 @@ export class DirectoryController {
       target: { type: 'user', id: user._id },
       metadata: { role: req.role },
     });
+    void this.billing.syncSeats(ctx.tenantId);
     return toUserSummary(user, req.role);
   }
 
@@ -150,6 +154,11 @@ export class DirectoryController {
     if (!membership) throw notFound('User');
     if (membership.role === 'owner')
       throw forbidden('The organization owner cannot be changed here');
+    const current = await t.users.findOne({ _id: id }, { projection: { status: 1 } });
+    const takesSeatNow =
+      (req.role ?? membership.role) !== 'guest' && (req.status ?? current?.status) === 'active';
+    const tookSeat = membership.role !== 'guest' && current?.status === 'active';
+    if (takesSeatNow && !tookSeat) await this.billing.assertSeatAvailable(ctx.tenantId);
     if (req.role) await t.memberships.updateOne({ userId: id }, { $set: { role: req.role } });
     if (req.status) {
       await t.users.updateOne({ _id: id }, { $set: { status: req.status } });
@@ -167,6 +176,7 @@ export class DirectoryController {
       target: { type: 'user', id },
       metadata: req,
     });
+    if (takesSeatNow !== tookSeat) void this.billing.syncSeats(ctx.tenantId);
     const user = await t.users.findOne({ _id: id });
     return toUserSummary(user!, req.role ?? membership.role);
   }

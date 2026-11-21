@@ -9,6 +9,7 @@ import { AppError } from '../common/errors.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { BillingService } from '../billing/billing.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { ARGON2_OPTIONS, AuthService, type RequestMeta } from './auth.service.js';
 import { OIDC_PROVIDER, readOidcSettings, type OidcSettings } from './sso-settings.js';
@@ -49,6 +50,7 @@ export class SsoService implements OnModuleInit {
     private readonly settings: IntegrationSettingsService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
+    private readonly billing: BillingService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
@@ -241,6 +243,7 @@ export class SsoService implements OnModuleInit {
 
   /** Creates a member on first SSO sign-in. Their password is random and unusable. */
   private async provision(tenantId: string, email: string, claims: JWTPayload) {
+    await this.billing.assertSeatAvailable(tenantId);
     const t = this.db.for(tenantId);
     const ws = await t.workspaces.findOne({ isDefault: true });
     if (!ws) throw new AppError('INTERNAL', 'Workspace missing');
