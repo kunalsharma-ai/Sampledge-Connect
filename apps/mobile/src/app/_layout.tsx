@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IncomingCall } from '../calls/IncomingCall';
+import { ActionRefusedBanner } from '../components/ActionRefusedBanner';
 import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
@@ -117,6 +118,7 @@ function RootStack() {
         <>
           <NotificationBanner />
           <MeetingReminderBanner />
+          <ActionRefusedBanner />
           <PushOpenHandler />
           <IncomingCall />
         </>

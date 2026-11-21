@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { Bookmark } from '@sampledge/contracts';
+import type { LocalBookmark } from '../db/work';
 import { router, Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
@@ -20,34 +20,39 @@ export default function Saved() {
   const { engineState } = useApp();
   const nameOf = usePeople();
   const { conversations } = useConversations();
-  const [items, setItems] = useState<Bookmark[] | null>(null);
+  const [items, setItems] = useState<LocalBookmark[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
+  const offline = engineState?.connectivity === 'offline';
 
-  const load = useCallback(async () => {
-    if (engine.serverActionBlocker()) return;
-    setLoading(true);
-    try {
-      setItems(await engine.listBookmarks());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [engine]);
+  const load = useCallback(
+    async (fresh = true) => {
+      if (engine.queueBlocker()) return;
+      setLoading(fresh);
+      try {
+        setItems(await engine.listBookmarks({ fresh }));
+        setError(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [engine],
+  );
 
   useEffect(() => {
     void load();
-  }, [load, engineState?.networkUp]);
+    // Saves and unsaves here or on your other devices.
+    return engine.events.on('bookmarks', () => void load(false));
+  }, [load, engine, engineState?.networkUp]);
 
-  const remove = async (b: Bookmark) => {
+  const remove = async (b: LocalBookmark) => {
     setBusy(b.messageId);
     try {
       await engine.setBookmark(b.messageId, false);
-      setItems((all) => (all ?? []).filter((x) => x.messageId !== b.messageId));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -75,16 +80,21 @@ export default function Saved() {
           />
         }
         ListHeaderComponent={
-          blocked || error ? (
+          blocked || error || offline ? (
             <View
               style={{
                 padding: space.md,
                 borderRadius: radius.md,
-                backgroundColor: alpha(error ? c.danger : c.warning, 0.12),
+                backgroundColor: alpha(error ? c.danger : blocked ? c.warning : c.accent, 0.12),
               }}
             >
-              <Text variant="meta" style={{ color: error ? c.danger : c.warning }}>
-                {error ?? `${blocked} Saved messages are kept on the server.`}
+              <Text
+                variant="meta"
+                style={{ color: error ? c.danger : blocked ? c.warning : c.accent }}
+              >
+                {error ??
+                  blocked ??
+                  'You are offline. These are the saved messages on this phone; changes sync when you reconnect.'}
               </Text>
             </View>
           ) : undefined
@@ -96,7 +106,7 @@ export default function Saved() {
               senderName={
                 m.senderId === selfId ? 'You' : (guestSenderLabel(m.metadata) ?? nameOf(m.senderId))
               }
-              context={`${where(b.conversationId)} · saved ${shortDate(b.createdAt)}`}
+              context={`${where(b.conversationId)} · saved ${shortDate(b.createdAt)}${b.pending ? ' · waiting to sync' : ''}`}
               text={m.content.text}
               createdAt={m.createdAt}
               deleted={!!m.deletedAt}

@@ -45,6 +45,10 @@ type RealtimeEvents = {
   scheduledUpdated: ScheduledMessage;
   /** A task or approval you are involved in was created or changed. */
   work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
+  /** You saved or unsaved a message (on this or another of your devices). */
+  bookmark: { messageId: string; conversationId: string; saved: boolean };
+  /** Your own choice in a poll changed (the only live source of it in anonymous polls). */
+  myVote: { messageId: string; optionIds: string[] };
 };
 
 /**
@@ -117,6 +121,8 @@ export class RealtimeClient {
     socket.on('approval:upsert', (approval) =>
       this.events.emit('work', { kind: 'approval', approval }),
     );
+    socket.on('bookmark:updated', (e) => this.events.emit('bookmark', e));
+    socket.on('poll:myVote', (e) => this.events.emit('myVote', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

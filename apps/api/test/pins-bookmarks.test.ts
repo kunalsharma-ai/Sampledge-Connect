@@ -123,6 +123,28 @@ describe('bookmarks', () => {
     expect((await saved(owner)).map((i) => i.messageId)).toEqual([a.messageId]);
   });
 
+  it('tell all of your devices, and only yours, when you save or unsave', async () => {
+    const m = await send(ravi, 'Save me for later');
+    const mine = await connect(h, owner.accessToken);
+    const theirs = await connect(h, ravi.accessToken);
+    let leaked = false;
+    theirs.on('bookmark:updated', () => (leaked = true));
+    const on = nextEvent(mine, 'bookmark:updated', (e) => e.messageId === m.messageId);
+    await save(owner, m.messageId);
+    expect(await on).toEqual({
+      messageId: m.messageId,
+      conversationId: group.conversationId,
+      saved: true,
+    });
+    const off = nextEvent(mine, 'bookmark:updated', (e) => e.messageId === m.messageId);
+    await save(owner, m.messageId, false);
+    expect((await off).saved).toBe(false);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(leaked).toBe(false);
+    mine.disconnect();
+    theirs.disconnect();
+  });
+
   it('cannot save messages you cannot read, and hides ones you lost access to', async () => {
     const m = await send(owner, 'Confidential budget');
     expect((await save(outsider, m.messageId)).status).toBeGreaterThanOrEqual(403);

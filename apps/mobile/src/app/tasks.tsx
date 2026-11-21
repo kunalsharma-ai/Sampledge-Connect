@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { Approval, Task } from '@sampledge/contracts';
+import type { LocalApproval, LocalTask } from '../db/work';
 import { router, Stack } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -14,7 +14,7 @@ import {
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { ApprovalRow, TaskRow } from '../components/WorkRows';
-import { useWorkspace } from '../state/AppProvider';
+import { useApp, useWorkspace } from '../state/AppProvider';
 import { conversationTitle, useConversations, usePeople, useWorkList } from '../state/hooks';
 import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
@@ -27,7 +27,10 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'requested', label: 'Requested' },
 ];
 
-/** Tasks & Approvals: your work across conversations. Kept on the server; needs a connection. */
+/**
+ * Tasks & Approvals: your work across conversations. Opens from the copy on this phone, works
+ * offline (changes are queued and sent on reconnect) and updates live from your other devices.
+ */
 export default function Tasks() {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -39,25 +42,30 @@ export default function Tasks() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const taskTab = tab === 'mine' || tab === 'created';
-  const tasks = useWorkList<Task>(
-    () =>
+  const tasks = useWorkList<LocalTask>(
+    (fresh) =>
       taskTab
-        ? engine.listTasks({ scope: tab, status: done ? 'done' : 'active' })
+        ? engine.listTasks({ scope: tab, status: done ? 'done' : 'active' }, { fresh })
         : Promise.resolve([]),
     [tab, done],
   );
-  const approvals = useWorkList<Approval>(
-    () =>
+  const approvals = useWorkList<LocalApproval>(
+    (fresh) =>
       !taskTab
-        ? engine.listApprovals({
-            scope: tab as 'to_decide' | 'requested',
-            status: done ? 'decided' : 'pending',
-          })
+        ? engine.listApprovals(
+            {
+              scope: tab as 'to_decide' | 'requested',
+              status: done ? 'decided' : 'pending',
+            },
+            { fresh },
+          )
         : Promise.resolve([]),
     [tab, done],
   );
   const list = taskTab ? tasks : approvals;
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
+  const { engineState } = useApp();
+  const offline = engineState?.connectivity === 'offline';
 
   const where = (id: string | null) => {
     if (!id) return 'No conversation';
@@ -67,7 +75,7 @@ export default function Tasks() {
   const people = (ids: string[]) =>
     ids.length ? ids.map((u) => (u === selfId ? 'you' : nameOf(u))).join(', ') : 'Unassigned';
 
-  const toggle = async (t: Task) => {
+  const toggle = async (t: LocalTask) => {
     setBusy(t.taskId);
     setError(null);
     try {
@@ -82,7 +90,10 @@ export default function Tasks() {
   const note =
     error ??
     list.error ??
-    (blocked ? `${blocked} Tasks and approvals are kept on the server.` : null);
+    blocked ??
+    (offline
+      ? 'You are offline. This is the copy on this phone; changes are sent when you reconnect.'
+      : null);
 
   return (
     <Screen edges={['bottom']}>
@@ -133,8 +144,8 @@ export default function Tasks() {
           })}
         </ScrollView>
       </View>
-      <FlatList<Task | Approval>
-        data={(list.items ?? []) as (Task | Approval)[]}
+      <FlatList<LocalTask | LocalApproval>
+        data={(list.items ?? []) as (LocalTask | LocalApproval)[]}
         keyExtractor={(x) => ('taskId' in x ? x.taskId : x.approvalId)}
         contentContainerStyle={{
           padding: space.lg,
@@ -155,10 +166,20 @@ export default function Tasks() {
               <View
                 style={[
                   styles.note,
-                  { backgroundColor: alpha(error || list.error ? c.danger : c.warning, 0.12) },
+                  {
+                    backgroundColor: alpha(
+                      error || list.error ? c.danger : offline ? c.accent : c.warning,
+                      0.12,
+                    ),
+                  },
                 ]}
               >
-                <Text variant="meta" style={{ color: error || list.error ? c.danger : c.warning }}>
+                <Text
+                  variant="meta"
+                  style={{
+                    color: error || list.error ? c.danger : offline ? c.accent : c.warning,
+                  }}
+                >
                   {note}
                 </Text>
               </View>

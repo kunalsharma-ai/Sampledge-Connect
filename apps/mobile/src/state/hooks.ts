@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
-import type { ScheduledMessage, TenantRole } from '@sampledge/contracts';
+import type { TenantRole } from '@sampledge/contracts';
+import type { LocalScheduled } from '../db/work';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -271,35 +272,42 @@ export function usePinned(conversationId: string): LocalMessage[] {
   return pins;
 }
 
-/** Ids of messages you saved; loads the list once when a connection allows. */
+/** Ids of messages you saved (queued saves included); refreshed from the server when online. */
 export function useSavedIds(): ReadonlySet<string> {
   const { engine } = useWorkspace();
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
-    const off = engine.events.on('bookmarks', setIds);
-    if (!engine.serverActionBlocker()) void engine.listBookmarks().catch(() => undefined);
-    return off;
+    let alive = true;
+    const off = engine.events.on('bookmarks', (s) => alive && setIds(s));
+    void engine.savedIds().then((s) => alive && setIds(s));
+    void engine.listBookmarks().catch(() => undefined);
+    return () => {
+      alive = false;
+      off();
+    };
   }, [engine]);
   return ids;
 }
 
-/** Your scheduled messages (optionally for one conversation), kept fresh from the server. */
+/**
+ * Your scheduled messages (optionally for one conversation): the copy on this device at once,
+ * then the server's when online. Changes made offline show straight away.
+ */
 export function useScheduled(conversationId?: string): {
-  items: ScheduledMessage[] | null;
+  items: LocalScheduled[] | null;
   error: string | null;
   reload: () => void;
 } {
   const { engine } = useWorkspace();
   const { engineState } = useApp();
-  const [items, setItems] = useState<ScheduledMessage[] | null>(null);
+  const [items, setItems] = useState<LocalScheduled[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = () => {
-      if (engine.serverActionBlocker()) return;
+    const load = (fresh = false) => {
       void engine
-        .listScheduled(conversationId)
+        .listScheduled(conversationId, { fresh })
         .then((l) => {
           if (!alive) return;
           setItems(l);
@@ -307,22 +315,26 @@ export function useScheduled(conversationId?: string): {
         })
         .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
     };
-    load();
-    const off = engine.events.on('scheduled', load);
+    load(true);
+    const offs = [
+      engine.events.on('scheduled', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'scheduled' && load()),
+    ];
     return () => {
       alive = false;
-      off();
+      offs.forEach((o) => o());
     };
   }, [engine, conversationId, engineState?.networkUp, tick]);
   return { items, error, reload: () => setTick((t) => t + 1) };
 }
 
 /**
- * A list of tasks or approvals from the server, reloaded when one changes (here or live).
- * Null until the first load; needs a connection.
+ * A list of tasks or approvals: the copy on this device at once (with changes made offline),
+ * refreshed from the server when online, and reloaded when one changes here or live.
  */
 export function useWorkList<T>(
-  load: () => Promise<T[]>,
+  /** `fresh`: also ask the server (when online); otherwise read the copy on this device. */
+  load: (fresh: boolean) => Promise<T[]>,
   deps: readonly unknown[],
 ): { items: T[] | null; error: string | null; loading: boolean; reload: () => void } {
   const { engine } = useWorkspace();
@@ -333,10 +345,9 @@ export function useWorkList<T>(
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const run = () => {
-      if (engine.serverActionBlocker()) return;
-      setLoading(true);
-      load()
+    const run = (fresh = false) => {
+      setLoading(fresh);
+      load(fresh)
         .then((l) => {
           if (!alive) return;
           setItems(l);
@@ -345,11 +356,17 @@ export function useWorkList<T>(
         .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
         .finally(() => alive && setLoading(false));
     };
-    run();
-    const off = engine.events.on('work', run);
+    run(true);
+    const offs = [
+      engine.events.on('work', () => run()),
+      engine.store.work.events.on(
+        'changed',
+        (e) => (e.kind === 'task' || e.kind === 'approval') && run(),
+      ),
+    ];
     return () => {
       alive = false;
-      off();
+      offs.forEach((o) => o());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, engineState?.networkUp, tick, ...deps]);

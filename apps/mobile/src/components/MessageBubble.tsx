@@ -182,6 +182,14 @@ function MessageBubbleImpl({
           {m.pendingOp ? (
             <Ionicons name="time-outline" size={12} color={alpha(textColor, 0.7)} />
           ) : null}
+          {m.actionPending && !deleted ? (
+            <Ionicons
+              name="cloud-upload-outline"
+              size={12}
+              color={alpha(textColor, 0.7)}
+              accessibilityLabel="Your change is waiting to sync"
+            />
+          ) : null}
           {m.editedAt && !deleted ? (
             <Text variant="meta" style={{ color: textColor, opacity: 0.7 }}>
               {m.pendingOp === 'edit' ? 'saving edit' : 'edited'}
