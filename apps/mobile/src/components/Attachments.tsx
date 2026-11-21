@@ -33,7 +33,8 @@ const ICONS: [RegExp, keyof typeof Ionicons.glyphMap][] = [
   [/^audio\//, 'musical-notes-outline'],
   [/^video\//, 'videocam-outline'],
 ];
-export const iconFor = (mime: string) => ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
+export const iconFor = (mime: string) =>
+  ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
 
 // Signed links are valid for ten minutes; reuse them for a little less.
 const urlCache = new Map<string, { url: string; until: number }>();
