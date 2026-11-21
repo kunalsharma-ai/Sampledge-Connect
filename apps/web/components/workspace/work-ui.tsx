@@ -135,7 +135,13 @@ export function PeopleStack({
     >
       <span className="flex -space-x-2">
         {ids.slice(0, max).map((id) => (
-          <Avatar key={id} name={nameOf(id, directory)} src={avatarOf(id, directory)} size="sm" className="ring-2 ring-surface" />
+          <Avatar
+            key={id}
+            name={nameOf(id, directory)}
+            src={avatarOf(id, directory)}
+            size="sm"
+            className="ring-2 ring-surface"
+          />
         ))}
       </span>
       {ids.length === 1 ? (

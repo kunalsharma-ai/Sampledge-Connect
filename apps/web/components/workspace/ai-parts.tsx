@@ -43,7 +43,11 @@ export function ActionItemRow({
         <span className="mt-1 flex flex-wrap items-center gap-1.5 text-meta text-text-subtle">
           {item.assigneeId ? (
             <span className="inline-flex items-center gap-1">
-              <Avatar name={nameOf(item.assigneeId, directory)} src={avatarOf(item.assigneeId, directory)} size="xs" />
+              <Avatar
+                name={nameOf(item.assigneeId, directory)}
+                src={avatarOf(item.assigneeId, directory)}
+                size="xs"
+              />
               {item.assigneeId === me ? 'You' : nameOf(item.assigneeId, directory).split(' ')[0]}
             </span>
           ) : (

@@ -71,7 +71,11 @@ function SourceCard({
           {index}
         </span>
       ) : (
-        <Avatar name={nameOf(hit.senderId, directory)} src={avatarOf(hit.senderId, directory)} size="xs" />
+        <Avatar
+          name={nameOf(hit.senderId, directory)}
+          src={avatarOf(hit.senderId, directory)}
+          size="xs"
+        />
       )}
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-meta text-text-subtle">
@@ -505,7 +509,11 @@ function AttentionTab({
               className="w-full rounded-lg border border-border bg-surface p-3 text-left transition-all hover:-translate-y-px hover:border-border-strong hover:shadow-sm"
             >
               <span className="flex items-center gap-2">
-                <Avatar name={nameOf(n.actorId, directory)} src={avatarOf(n.actorId, directory)} size="xs" />
+                <Avatar
+                  name={nameOf(n.actorId, directory)}
+                  src={avatarOf(n.actorId, directory)}
+                  size="xs"
+                />
                 <span className="min-w-0 flex-1 truncate text-meta text-text-muted">
                   <span className="font-semibold text-text">{nameOf(n.actorId, directory)}</span> in{' '}
                   {where(byId.get(n.conversationId), me, directory)}

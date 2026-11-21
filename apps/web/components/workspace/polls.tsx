@@ -198,7 +198,9 @@ export function PollCard({
                       <span className="hidden -space-x-1.5 sm:flex" aria-hidden>
                         {o.voterIds.slice(0, 3).map((v) => (
                           <Avatar
-                            key={v} name={nameOf(v, directory)} src={avatarOf(v, directory)}
+                            key={v}
+                            name={nameOf(v, directory)}
+                            src={avatarOf(v, directory)}
                             size="xs"
                             className="ring-2 ring-surface"
                           />

@@ -123,7 +123,9 @@ describe('profile photo', () => {
   });
 
   it('refuses files that are not PNG, JPEG or WebP, whatever they claim to be', async () => {
-    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    );
     const html = Buffer.from('<html><script>alert(1)</script></html>');
     for (const image of [
       dataUrl(html, 'png'),
@@ -131,8 +133,7 @@ describe('profile photo', () => {
       'not a data url',
     ])
       expect(
-        (await api(h, 'PUT', '/v1/me/avatar', { token: ravi.accessToken, body: { image } }))
-          .status,
+        (await api(h, 'PUT', '/v1/me/avatar', { token: ravi.accessToken, body: { image } })).status,
       ).toBe(400);
     const big = Buffer.concat([PNG, Buffer.alloc(170 * 1024)]);
     expect(

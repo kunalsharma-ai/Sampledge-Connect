@@ -144,11 +144,7 @@ export class AvatarsController {
 
   @Get('avatars/:tenantId/:key')
   @HttpCode(200)
-  async get(
-    @Param('tenantId') tenantId: string,
-    @Param('key') key: string,
-    @Res() res: Response,
-  ) {
+  async get(@Param('tenantId') tenantId: string, @Param('key') key: string, @Res() res: Response) {
     if (!/^[a-f0-9]{24}$/.test(tenantId) || !/^[a-f0-9]{32}$/.test(key)) throw notFound('Photo');
     const a = await this.db.for(tenantId).user_avatars.findOne({ _id: key });
     if (!a) throw notFound('Photo');

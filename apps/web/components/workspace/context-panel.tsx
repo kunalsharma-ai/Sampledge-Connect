@@ -174,7 +174,9 @@ export function ContextPanel({
               const online = id === me || presence.get(id) === 'online';
               return (
                 <li key={id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
-                  <Avatar name={nameOf(id, directory)} src={avatarOf(id, directory)}
+                  <Avatar
+                    name={nameOf(id, directory)}
+                    src={avatarOf(id, directory)}
                     size="sm"
                     presence={online ? 'online' : 'offline'}
                   />

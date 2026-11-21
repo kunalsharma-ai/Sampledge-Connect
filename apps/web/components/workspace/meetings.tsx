@@ -676,7 +676,11 @@ function MeetingDetails({
           <ul className="space-y-2">
             {m.attendees.map((a) => (
               <li key={a.userId} className="flex items-center gap-2.5">
-                <Avatar name={nameOf(a.userId, directory)} src={avatarOf(a.userId, directory)} size="sm" />
+                <Avatar
+                  name={nameOf(a.userId, directory)}
+                  src={avatarOf(a.userId, directory)}
+                  size="sm"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-label text-text">
                     {a.userId === me ? 'You' : nameOf(a.userId, directory)}
