@@ -152,7 +152,7 @@ export class SessionService {
       .for(tenantId)
       .devices.updateOne(
         { _id: sessionId },
-        { $set: { revokedAt: new Date(), revokedReason: reason } },
+        { $set: { revokedAt: new Date(), revokedReason: reason, push: null } },
       );
     await this.redis.set(`sess:${tenantId}:${sessionId}`, '0', 'EX', 3600);
   }

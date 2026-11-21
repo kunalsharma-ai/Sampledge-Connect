@@ -39,6 +39,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     lastChangeSequence: 0,
     lastMessageAt: null,
     myRole: 'member',
+    myNotifyLevel: 'all',
   });
   const all = Object.keys(DEMO_PEOPLE);
   const conversations = [

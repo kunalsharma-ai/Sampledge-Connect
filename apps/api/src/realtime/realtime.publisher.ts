@@ -66,6 +66,23 @@ export class RealtimePublisher {
     });
   }
 
+  /**
+   * Session ids with a connected socket for this user (on any node). socket.io drops a
+   * socket that misses its ping timeout, so a backgrounded app stops counting quickly.
+   */
+  async liveSessions(tenantId: string, userId: string): Promise<Set<string>> {
+    try {
+      const sockets = (await this.server?.in(userRoom(tenantId, userId)).fetchSockets()) ?? [];
+      return new Set(
+        sockets
+          .map((s) => (s.data as { ctx?: { sessionId: string } }).ctx?.sessionId)
+          .filter((id): id is string => !!id),
+      );
+    } catch {
+      return new Set(); // Unknown: prefer sending a push over silently dropping it.
+    }
+  }
+
   private safe(fn: () => unknown) {
     try {
       const r = fn();

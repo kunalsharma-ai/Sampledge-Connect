@@ -112,3 +112,10 @@ The engine calls `navigator.storage.persist()` on first sign-in and checks `navi
 - Device revocation: next contact returns `UNAUTHENTICATED` with `revoked`; the client wipes local data.
 - Access tokens live in memory; the refresh token is stored in IndexedDB (needed to resume offline sessions). Moving refresh tokens to an HttpOnly cookie for web is Planned (see threat model).
 - IndexedDB is not encrypted by browsers; at-rest protection relies on OS disk encryption. Optional client-side encryption with a WebCrypto key is Planned.
+
+## Notifications and push
+
+- **In-app feed:** `GET /v1/notifications` and `POST /v1/notifications/read` are online-only REST. Clients cache the last page locally (web: Dexie `meta` key `notifications`) and show it read-only offline. The feed is not part of `/v1/sync`.
+- **Live events:** `notification:new` and `notification:read` reach every socket of the user. Like all realtime events they are an optimization: a client refetches the feed when it reconnects.
+- **Notify level:** `Conversation.myNotifyLevel` (`all` / `mentions` / `none`) travels with the conversation in `/v1/sync`, `GET /v1/conversations` and `conversation:upsert`, so a change on one device reaches the others. Setting it (`PUT /v1/conversations/:id/notify-level`) needs a connection.
+- **Push:** each device session can hold one push token (`POST /v1/push/token`). When the server has a provider configured (`PUSH_PROVIDER=expo`), pushes go out for mentions, replies and DM messages, filtered by notify level. A push is skipped for a session with a connected socket. socket.io's ping timeout drops a backgrounded app's socket, so a phone that has gone to the background stops counting as connected. The payload carries `conversationId`, `messageId`, `notificationId` and `unreadCount` for badges. Tokens are cleared on sign-out, on revoke, and when Expo reports `DeviceNotRegistered`.

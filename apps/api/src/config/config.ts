@@ -25,6 +25,16 @@ const EnvSchema = z.object({
   FILE_STORAGE: z.enum(['gridfs']).default('gridfs'),
   /** Public base URL of this API, used to build absolute signed URLs. */
   PUBLIC_API_URL: z.string().url().optional(),
+  /** Push delivery. `expo` sends through Expo Push; `none` stores tokens but sends nothing. FCM/APNs direct are planned. */
+  PUSH_PROVIDER: z.enum(['none', 'expo']).default('none'),
+  EXPO_PUSH_URL: z.string().url().default('https://exp.host/--/api/v2/push/send'),
+  /** Optional Expo access token (enhanced push security). */
+  EXPO_ACCESS_TOKEN: z.string().optional(),
+  /** When false, push bodies say "New message" instead of including message text. */
+  PUSH_SHOW_PREVIEWS: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

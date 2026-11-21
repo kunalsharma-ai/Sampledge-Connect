@@ -18,6 +18,7 @@ export function conversation(id: string, over: Partial<Conversation> = {}): Conv
     lastChangeSequence: 0,
     lastMessageAt: null,
     myRole: 'member',
+    myNotifyLevel: 'all',
     ...over,
   } as Conversation;
 }

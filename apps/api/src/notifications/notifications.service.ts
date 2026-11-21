@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MongoBulkWriteError, MongoServerError } from 'mongodb';
 import {
   ListNotificationsQuerySchema,
@@ -6,10 +6,13 @@ import {
   NOTIFICATION_PREVIEW_LENGTH,
   type Notification,
   type NotificationPage,
+  type PushData,
 } from '@sampledge/contracts';
+import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { PUSH_PROVIDER, type PushMessage, type PushProvider } from '../push/push-provider.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { MessageDoc, NotificationDoc } from '../database/documents.js';
+import type { ConversationDoc, MessageDoc, NotificationDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
@@ -37,57 +40,166 @@ export function previewOf(m: Pick<MessageDoc, 'content' | 'attachments'>): strin
 
 @Injectable()
 export class NotificationsService {
+  private readonly log = new Logger(NotificationsService.name);
+
   constructor(
     private readonly db: TenantDb,
     private readonly realtime: RealtimePublisher,
+    @Inject(PUSH_PROVIDER) private readonly provider: PushProvider,
+    @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
   /**
-   * Fan-out for a newly created message. Recipients must be current members of the
-   * conversation and never the sender. A mention wins over a reply for the same user.
-   * Runs after the message is committed; failures are logged by the caller, not thrown,
-   * because the message itself has already been delivered.
+   * Fan-out for a newly created message, honouring each member's notify level:
+   *  - mention: in-app + push, unless the level is 'none'.
+   *  - reply to your message: in-app + push, only at level 'all'.
+   *  - any message in a DM: push only (unread badges cover it in-app), only at level 'all'.
+   * Recipients must be current members and never the sender. A mention wins over a reply.
+   * Runs after the message is committed; the caller logs failures instead of failing the send.
    */
   async onMessageCreated(
     tenantId: string,
     message: MessageDoc,
     replyParentSenderId: string | null,
-    memberIds: string[],
   ): Promise<void> {
-    const members = new Set(memberIds);
-    const kinds = new Map<string, NotificationDoc['kind']>();
-    if (replyParentSenderId) kinds.set(replyParentSenderId, 'reply');
-    for (const u of message.content.mentions) kinds.set(u, 'mention');
-    kinds.delete(message.senderId);
-    for (const u of kinds.keys()) if (!members.has(u)) kinds.delete(u);
-    if (kinds.size === 0) return;
-
     const t = this.db.for(tenantId);
+    const [conversation, members] = await Promise.all([
+      t.conversations.findOne({ _id: message.conversationId }),
+      t.conversation_members
+        .find(
+          { conversationId: message.conversationId },
+          { projection: { userId: 1, notifyLevel: 1 } },
+        )
+        .toArray(),
+    ]);
+    if (!conversation) return;
+    const mentioned = new Set(message.content.mentions);
+    const targets = new Map<string, NotificationDoc['kind'] | 'dm'>();
+    for (const m of members) {
+      if (m.userId === message.senderId) continue;
+      const level = m.notifyLevel ?? 'all';
+      if (level === 'none') continue;
+      if (mentioned.has(m.userId)) targets.set(m.userId, 'mention');
+      else if (level === 'all' && m.userId === replyParentSenderId) targets.set(m.userId, 'reply');
+      else if (level === 'all' && conversation.kind === 'dm') targets.set(m.userId, 'dm');
+    }
+    if (targets.size === 0) return;
+
     const preview = previewOf(message);
     const now = new Date();
-    let docs: NotificationDoc[];
-    try {
-      docs = await t.notifications.insertMany(
-        [...kinds].map(([userId, kind]) => ({
-          userId,
-          kind,
-          conversationId: message.conversationId,
-          messageId: message._id,
-          actorId: message.senderId,
-          preview,
-          createdAt: now,
-          readAt: null,
-        })),
-      );
-    } catch (e) {
-      // A duplicate means this fan-out already ran (e.g. a retried request); nothing to add.
-      if ((e instanceof MongoBulkWriteError || e instanceof MongoServerError) && e.code === 11000) {
-        return;
+    const inApp = [...targets].filter((x): x is [string, NotificationDoc['kind']] => x[1] !== 'dm');
+    let created: NotificationDoc[] = [];
+    if (inApp.length) {
+      try {
+        created = await t.notifications.insertMany(
+          inApp.map(([userId, kind]) => ({
+            userId,
+            kind,
+            conversationId: message.conversationId,
+            messageId: message._id,
+            actorId: message.senderId,
+            preview,
+            createdAt: now,
+            readAt: null,
+          })),
+        );
+      } catch (e) {
+        // A duplicate means this fan-out already ran (a retried request): send nothing twice.
+        if (
+          (e instanceof MongoBulkWriteError || e instanceof MongoServerError) &&
+          e.code === 11000
+        ) {
+          return;
+        }
+        throw e;
       }
-      throw e;
+      for (const d of created)
+        this.realtime.toUser(tenantId, d.userId, 'notification:new', toNotification(d));
     }
-    for (const d of docs)
-      this.realtime.toUser(tenantId, d.userId, 'notification:new', toNotification(d));
+
+    void this.push(tenantId, message, conversation, targets, created, preview).catch((e) =>
+      this.log.warn(`push fan-out failed for ${message._id}: ${String(e)}`),
+    );
+  }
+
+  private async push(
+    tenantId: string,
+    message: MessageDoc,
+    conversation: ConversationDoc,
+    targets: Map<string, NotificationDoc['kind'] | 'dm'>,
+    created: NotificationDoc[],
+    preview: string,
+  ) {
+    if (this.provider.name === null) return;
+    const t = this.db.for(tenantId);
+    const devices = await t.devices
+      .find({
+        userId: { $in: [...targets.keys()] },
+        revokedAt: null,
+        'push.token': { $exists: true },
+      })
+      .toArray();
+    const sendable = devices.filter((d) => d.push && this.provider.accepts(d.push.provider));
+    if (sendable.length === 0) return;
+
+    const sender = await t.users.findOne(
+      { _id: message.senderId },
+      { projection: { displayName: 1 } },
+    );
+    const senderName = sender?.displayName ?? 'Someone';
+    const title =
+      conversation.kind === 'dm'
+        ? senderName
+        : `${senderName} in ${conversation.kind === 'group' ? (conversation.name ?? 'a group') : `#${conversation.name ?? 'channel'}`}`;
+    const byUser = new Map(created.map((n) => [n.userId, n]));
+    const live = new Map<string, Set<string>>();
+    const unread = new Map<string, number>();
+    const messages: PushMessage[] = [];
+    for (const d of sendable) {
+      if (!live.has(d.userId))
+        live.set(d.userId, await this.realtime.liveSessions(tenantId, d.userId));
+      // The app is open on this device: it already shows the message in real time.
+      if (live.get(d.userId)!.has(d._id)) continue;
+      if (!unread.has(d.userId))
+        unread.set(
+          d.userId,
+          await t.notifications.countDocuments({ userId: d.userId, readAt: null }),
+        );
+      const kind = targets.get(d.userId)!;
+      const n = byUser.get(d.userId) ?? null;
+      const data: PushData = {
+        type: 'message',
+        conversationId: message.conversationId,
+        messageId: message._id,
+        kind,
+        notificationId: n?._id ?? null,
+        unreadCount: unread.get(d.userId)!,
+      };
+      messages.push({
+        token: d.push!.token,
+        title,
+        body: this.cfg.PUSH_SHOW_PREVIEWS
+          ? kind === 'mention'
+            ? `Mentioned you: ${preview}`
+            : kind === 'reply'
+              ? `Replied: ${preview}`
+              : preview
+          : kind === 'mention'
+            ? 'Mentioned you'
+            : kind === 'reply'
+              ? 'Replied to your message'
+              : 'New message',
+        data: { ...data },
+        badge: data.unreadCount,
+      });
+    }
+    if (messages.length === 0) return;
+    const { invalidTokens } = await this.provider.send(messages);
+    if (invalidTokens.length)
+      await t.devices.updateMany(
+        { 'push.token': { $in: invalidTokens } },
+        { $set: { push: null } },
+      );
   }
 
   /** A deleted message no longer notifies anyone. */

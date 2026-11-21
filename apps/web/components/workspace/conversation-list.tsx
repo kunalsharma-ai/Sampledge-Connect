@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { Hash, Lock, Plus, Search, Users } from 'lucide-react';
+import { AtSign, BellOff, Hash, Lock, Plus, Search, Users } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Kbd, Skeleton, Tooltip, UnreadCounter, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -153,7 +153,12 @@ export function ConversationList({
                             >
                               {title}
                             </span>
-                            <span className="shrink-0 text-meta text-text-subtle">
+                            <span className="flex shrink-0 items-center gap-1 text-meta text-text-subtle">
+                              {c.myNotifyLevel === 'none' ? (
+                                <BellOff aria-label="Muted" className="size-3" />
+                              ) : c.myNotifyLevel === 'mentions' ? (
+                                <AtSign aria-label="Mentions only" className="size-3" />
+                              ) : null}
                               {relativeShort(c.lastMessageAt)}
                             </span>
                           </span>
