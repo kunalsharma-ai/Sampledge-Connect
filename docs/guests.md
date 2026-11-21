@@ -30,8 +30,20 @@ mail goes through **your SMTP server**, media through your self-hosted LiveKit (
    Recording is shown to guests in the lobby and in the call.
 
 Guests see only the meeting's title, agenda, time, organizer name and organization name. They
-don't see other attendees' or guests' emails, the meeting chat or files. (In-meeting chat for
-guests is planned.)
+don't see other attendees' or guests' emails, the conversation's history or files.
+
+## Meeting chat
+
+Everyone in a call, guests included, can open **Chat** in the call controls. Messages go into
+the meeting's own conversation, so members also see them in the timeline afterwards, with the
+sender shown as "Name (guest)".
+
+- A guest sees only text messages sent since the current call started, and only while they are
+  admitted to it. Earlier history and later messages stay hidden from them.
+- Attachments members send show to guests by file name only; guests can't open them or upload.
+- A guest message is a normal `text` message whose `senderId` is `guest:<guestId>` (never a user
+  id) and whose `metadata.guest` is `{ guestId, name }`. Apps should show `metadata.guest.name`.
+- Guest messages share the `message_send` rate limit, keyed per guest.
 
 ## Email setup
 
@@ -97,19 +109,21 @@ arrive with the usual `call:updated` event.
 
 Guests (the link token is the credential, no account):
 
-| Method | Path                            | Notes                                                   |
-| ------ | ------------------------------- | ------------------------------------------------------- |
-| GET    | `/v1/guest/:token`              | `GuestMeetingView`.                                     |
-| POST   | `/v1/guest/:token/rsvp`         | `{ response: 'accepted' \| 'tentative' \| 'declined' }` |
-| GET    | `/v1/guest/:token/calendar.ics` | The invite as a file.                                   |
-| GET    | `/v1/guest/:token/lobby`        | `GuestJoinState` `{ state, callId, recording, join }`.  |
-| POST   | `/v1/guest/:token/lobby`        | `{ name }`: ask to join (repeat while waiting).         |
-| POST   | `/v1/guest/:token/lobby/leave`  | Leave the lobby.                                        |
+| Method | Path                            | Notes                                                       |
+| ------ | ------------------------------- | ----------------------------------------------------------- |
+| GET    | `/v1/guest/:token`              | `GuestMeetingView`.                                         |
+| POST   | `/v1/guest/:token/rsvp`         | `{ response: 'accepted' \| 'tentative' \| 'declined' }`     |
+| GET    | `/v1/guest/:token/calendar.ics` | The invite as a file.                                       |
+| GET    | `/v1/guest/:token/lobby`        | `GuestJoinState` `{ state, callId, recording, join }`.      |
+| POST   | `/v1/guest/:token/lobby`        | `{ name }`: ask to join (repeat while waiting).             |
+| POST   | `/v1/guest/:token/lobby/leave`  | Leave the lobby.                                            |
+| GET    | `/v1/guest/:token/chat`         | `{ messages: GuestChatMessage[] }`. 403 unless admitted.    |
+| POST   | `/v1/guest/:token/chat`         | `{ text }` (1–4000). Returns the chat. 403 unless admitted. |
 
 States: `too_early`, `not_started`, `ready`, `waiting`, `admitted` (with `join: { url, token,
 expiresAt }`), `denied`, `ended`, `cancelled`.
 
 ## Planned
 
-In-meeting chat for guests, reading guests' calendar replies (iTIP REPLY) by email, public
+Reading guests' calendar replies (iTIP REPLY) by email, public
 booking pages, recurring meetings, the lobby on mobile.

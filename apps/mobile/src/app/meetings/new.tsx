@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { FindTimesResponse } from '@sampledge/contracts';
+import type { FindTimesResponse, GuestInput } from '@sampledge/contracts';
+import { checkGuestEmail, INVITE_LABEL } from '../../lib/guests';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -55,6 +56,10 @@ export default function ScheduleMeeting() {
   const [title, setTitle] = useState('');
   const [agenda, setAgenda] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [guests, setGuests] = useState<GuestInput[]>([]);
+  const [removedGuests, setRemovedGuests] = useState<string[]>([]);
+  const [guestText, setGuestText] = useState('');
+  const [guestError, setGuestError] = useState<string | null>(null);
   const [duration, setDuration] = useState(30);
   const [media, setMedia] = useState<'video' | 'audio'>('video');
   const [reminders, setReminders] = useState<number[]>([10]);
@@ -152,6 +157,19 @@ export default function ScheduleMeeting() {
     return out.filter((d) => d.getTime() > Date.now());
   }, [day]);
 
+  const keptGuests = (existing?.guests ?? []).filter((g) => !removedGuests.includes(g.guestId));
+  const addGuest = () => {
+    if (!guestText.trim()) return;
+    const r = checkGuestEmail(guestText, {
+      taken: [...keptGuests.map((g) => g.email), ...guests.map((g) => g.email.toLowerCase())],
+      directory: people,
+    });
+    if ('error' in r) return setGuestError(r.error);
+    setGuests((g) => [...g, { email: r.email }]);
+    setGuestText('');
+    setGuestError(null);
+  };
+
   const toggleReminder = (r: number) =>
     setReminders((cur) =>
       cur.includes(r) ? cur.filter((x) => x !== r) : cur.length >= 3 ? cur : [...cur, r],
@@ -177,6 +195,8 @@ export default function ScheduleMeeting() {
             ? { startsAt: slot.startsAt, endsAt: slot.endsAt, timeZone: deviceTimeZone() }
             : {}),
           addAttendeeIds: selected,
+          addGuests: guests,
+          removeGuestIds: removedGuests,
         });
         router.back();
       } else {
@@ -189,6 +209,7 @@ export default function ScheduleMeeting() {
           media,
           remindMinutes: reminders,
           attendeeIds: selected,
+          guests,
         });
         router.replace({ pathname: '/meeting/[id]', params: { id: m.meetingId } });
       }
@@ -277,6 +298,89 @@ export default function ScheduleMeeting() {
           {!editing ? (
             <Text variant="meta" tone="subtle">
               A meeting chat is created for everyone invited. Joining the meeting joins its call.
+            </Text>
+          ) : null}
+        </Section>
+
+        <Section title="Guests from outside">
+          <View style={styles.wrap}>
+            {keptGuests.map((g) => (
+              <Pressable
+                key={g.guestId}
+                onPress={() => setRemovedGuests((r) => [...r, g.guestId])}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove guest ${g.email}. They get a cancellation`}
+                style={[styles.person, { borderColor: c.border }]}
+              >
+                <Ionicons name="mail-outline" size={13} color={c.textMuted} />
+                <Text variant="label" tone="muted">
+                  {g.email}
+                </Text>
+                <Ionicons name="close" size={13} color={c.textSubtle} />
+              </Pressable>
+            ))}
+            {guests.map((g) => (
+              <Pressable
+                key={g.email}
+                onPress={() => setGuests((all) => all.filter((x) => x.email !== g.email))}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove guest ${g.email}`}
+                style={[
+                  styles.person,
+                  {
+                    backgroundColor: alpha(c.accentSecondary, 0.14),
+                    borderColor: alpha(c.accentSecondary, 0.45),
+                  },
+                ]}
+              >
+                <Ionicons name="mail-outline" size={13} color={c.accentSecondary} />
+                <Text variant="label" style={{ color: c.accentSecondary }}>
+                  {g.email}
+                </Text>
+                <Ionicons name="close" size={13} color={c.accentSecondary} />
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.guestRow}>
+            <TextInput
+              value={guestText}
+              onChangeText={(t) => {
+                setGuestText(t);
+                if (guestError) setGuestError(null);
+              }}
+              onSubmitEditing={addGuest}
+              placeholder="name@client.com"
+              placeholderTextColor={c.textSubtle}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              accessibilityLabel="Guest email"
+              style={[field, { flex: 1 }]}
+            />
+            <Button
+              title="Add"
+              kind="quiet"
+              icon="add"
+              onPress={addGuest}
+              disabled={!guestText.trim()}
+              accessibilityLabel="Add guest"
+            />
+          </View>
+          {guestError ? (
+            <Text variant="meta" tone="danger" accessibilityLiveRegion="polite">
+              {guestError}
+            </Text>
+          ) : (
+            <Text variant="meta" tone="subtle">
+              Guests get an email with a calendar invite and a personal join link. They wait in the
+              lobby until someone in the call lets them in.
+            </Text>
+          )}
+          {removedGuests.length ? (
+            <Text variant="meta" style={{ color: c.warning }}>
+              {removedGuests.length} guest{removedGuests.length === 1 ? '' : 's'} will get a
+              cancellation and their link stops working.
             </Text>
           ) : null}
         </Section>
@@ -553,6 +657,7 @@ const styles = StyleSheet.create({
   },
   note: { padding: space.md, borderRadius: radius.md },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  guestRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
