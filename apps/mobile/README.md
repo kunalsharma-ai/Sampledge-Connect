@@ -36,6 +36,20 @@ the demo workspace:
 pnpm web:export && pnpm screenshots   # needs Playwright with Chromium; writes screenshots/*.png
 ```
 
+## End-to-end against a real API
+
+With `apps/api` running locally (Mongo and Redis up, default `http://localhost:4000`) and an empty
+database, this seeds a workspace (Northwind Research, four members, a channel and a DM), signs in as
+Sam through the web preview and checks sign-in, cursor sync, a live Socket.IO message, an offline
+queued send and recovery of a message missed while offline. It exits non-zero on any failure.
+
+```bash
+pnpm web:export
+node scripts/e2e-seed.mjs
+node scripts/serve-web.mjs dist-web 8099 &
+node scripts/e2e-real-server.cjs screenshots/e2e   # API=… APP=… override the defaults
+```
+
 ## How offline-first works
 
 | Piece              | File                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                           |
