@@ -461,7 +461,7 @@ export function Composer({
           className="block max-h-[200px] w-full resize-none bg-transparent px-4 pt-3.5 text-message text-text outline-none placeholder:text-text-subtle"
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
-          <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
+          <div className="flex min-w-0 items-center gap-0.5 overflow-hidden [&>*]:shrink-0">
             <Tooltip content="Mention someone" side="top">
               <button
                 type="button"

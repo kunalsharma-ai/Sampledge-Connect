@@ -88,6 +88,7 @@ export function NotificationsScreen({
             size="sm"
             disabled={api.unreadCount === 0 || !api.online}
             onClick={() => void api.markRead({ all: true })}
+            aria-label="Mark all read"
           >
             <CheckCheck />
             <span className="hidden sm:inline">Mark all read</span>

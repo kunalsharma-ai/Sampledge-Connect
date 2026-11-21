@@ -14,6 +14,7 @@ import { aiMigration } from './011-ai.js';
 import { aiTranscriptsMigration } from './013-ai-transcripts.js';
 import { billingMigration } from './021-billing.js';
 import { meetingSeriesMigration } from './030-meeting-series.js';
+import { launchIndexesMigration } from './031-launch-indexes.js';
 
 export interface Migration {
   id: string;
@@ -37,6 +38,7 @@ export const MIGRATIONS: Migration[] = [
   scheduledMessagesMigration,
   billingMigration,
   meetingSeriesMigration,
+  launchIndexesMigration,
 ];
 
 /**
