@@ -12,3 +12,11 @@ export async function pushPermission(): Promise<PushPermission> {
 export async function requestPushPermission(): Promise<PushPermission> {
   return 'unsupported';
 }
+
+export async function expoPushToken(): Promise<string | null> {
+  return null;
+}
+
+export function onPushOpened(_cb: (data: Record<string, unknown>) => void): () => void {
+  return () => undefined;
+}

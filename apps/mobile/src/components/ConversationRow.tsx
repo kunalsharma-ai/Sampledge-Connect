@@ -59,6 +59,14 @@ export function ConversationRow({
             {c.kind === 'channel_private' ? (
               <Ionicons name="lock-closed" size={12} color={theme.colors.textSubtle} />
             ) : null}
+            {c.notifyLevel !== 'all' ? (
+              <Ionicons
+                name={c.notifyLevel === 'none' ? 'notifications-off' : 'at'}
+                size={13}
+                color={theme.colors.textSubtle}
+                accessibilityLabel={c.notifyLevel === 'none' ? 'Muted' : 'Mentions only'}
+              />
+            ) : null}
           </View>
           <Text variant="meta" tone={c.unread ? 'accent' : 'subtle'}>
             {relativeTime(c.lastMessageAt)}

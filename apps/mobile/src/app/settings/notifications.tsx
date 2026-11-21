@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { PushStatus } from '@sampledge/contracts';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Glass } from '../../components/Glass';
@@ -6,13 +7,14 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import {
   easProjectId,
+  expoPushToken,
   pushPermission,
   requestPushPermission,
   type PushPermission,
 } from '../../lib/push';
-import { useApp } from '../../state/AppProvider';
+import { devicePlatform, useApp, useWorkspace } from '../../state/AppProvider';
 import { useNotifications } from '../../state/hooks';
-import { alpha, radius, space } from '../../theme/themes';
+import { radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
 type Status = 'ok' | 'setup' | 'off';
@@ -29,6 +31,8 @@ export default function NotificationSettings() {
   const { theme } = useTheme();
   const c = theme.colors;
   const { sessionState, engineState } = useApp();
+  const { engine } = useWorkspace();
+  const [server, setServer] = useState<PushStatus | null | 'error'>(null);
   const { unread } = useNotifications();
   const [permission, setPermission] = useState<PushPermission>('undetermined');
   const projectId = easProjectId();
@@ -36,7 +40,22 @@ export default function NotificationSettings() {
 
   useEffect(() => {
     void pushPermission().then(setPermission);
-  }, []);
+    if (!demo)
+      void engine
+        .pushStatus()
+        .then(setServer)
+        .catch(() => setServer('error'));
+  }, [engine, demo]);
+
+  const allow = async () => {
+    const p = await requestPushPermission();
+    setPermission(p);
+    const token = p === 'granted' ? await expoPushToken().catch(() => null) : null;
+    const s = token ? await engine.registerPush(token, devicePlatform) : null;
+    if (s) setServer(s);
+  };
+
+  const live = server && server !== 'error' ? server : null;
 
   const feedOk = !demo && !engineState?.notificationsError;
   const rows: { title: string; detail: string; status: Status }[] = [
@@ -55,17 +74,30 @@ export default function NotificationSettings() {
       status: permission === 'granted' ? 'ok' : permission === 'unsupported' ? 'off' : 'setup',
     },
     {
-      title: 'Push token',
-      detail: projectId
-        ? 'Ready to register once the server accepts tokens.'
-        : 'Needs setup: this build has no EAS project ID, so the device cannot get a push token.',
-      status: 'setup',
+      title: 'This phone registered for push',
+      detail: live?.tokenRegistered
+        ? 'Yes. The server has this phone’s push token.'
+        : !projectId
+          ? 'Needs setup: this build has no EAS project ID, so the phone cannot get a push token.'
+          : permission !== 'granted'
+            ? 'Waiting for permission on this device.'
+            : 'Not yet. It registers the next time the app opens online.',
+      status: live?.tokenRegistered ? 'ok' : 'setup',
     },
     {
       title: 'Push delivery from the server',
-      detail:
-        'Needs setup: the server cannot register devices or send push yet. Until then, nothing is sent to this phone while the app is closed.',
-      status: 'setup',
+      detail: demo
+        ? 'No server in the demo workspace.'
+        : live
+          ? live.enabled
+            ? `On, through ${live.provider === 'expo' ? 'Expo Push' : live.provider}.`
+            : 'Needs setup: the server has no push provider configured. Tokens are stored meanwhile.'
+          : server === 'error'
+            ? 'Could not check the server.'
+            : engineState?.connectivity === 'offline'
+              ? 'Offline. Checked when you reconnect.'
+              : 'Checking…',
+      status: live?.enabled ? 'ok' : demo || !live ? 'off' : 'setup',
     },
   ];
 
@@ -94,7 +126,7 @@ export default function NotificationSettings() {
 
         {permission === 'undetermined' ? (
           <Pressable
-            onPress={() => void requestPushPermission().then(setPermission)}
+            onPress={() => void allow()}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.btn,
@@ -126,7 +158,7 @@ export default function NotificationSettings() {
               'An Expo (EAS) project ID in the app config, and a device build made with EAS.',
               'iOS: an Apple Developer account and an APNs key uploaded to EAS.',
               'Android: a Firebase project, its google-services.json, and FCM credentials uploaded to EAS.',
-              'Server: the push-token endpoint and an Expo access token on the server.',
+              'Server: PUSH_PROVIDER=expo, plus EXPO_ACCESS_TOKEN if your Expo account requires one.',
             ].map((t) => (
               <View key={t} style={{ flexDirection: 'row', gap: space.sm }}>
                 <Text tone="subtle">•</Text>
@@ -138,22 +170,9 @@ export default function NotificationSettings() {
           </Glass>
         </View>
 
-        <View style={{ gap: space.sm }}>
-          <Text variant="overline" tone="subtle" style={{ marginLeft: space.xs }}>
-            Per-conversation mute
-          </Text>
-          <Glass style={[styles.row, { alignItems: 'center' }]}>
-            <Ionicons name="volume-mute-outline" size={20} color={c.accent} />
-            <Text variant="meta" tone="muted" style={{ flex: 1 }}>
-              Choose all messages, mentions only, or nothing for each conversation.
-            </Text>
-            <View style={[styles.tag, { backgroundColor: alpha(c.accentSecondary, 0.14) }]}>
-              <Text variant="meta" style={{ color: c.accentSecondary }}>
-                Planned
-              </Text>
-            </View>
-          </Glass>
-        </View>
+        <Text variant="meta" tone="subtle">
+          To mute a conversation or limit it to @mentions, open it and tap the bell at the top.
+        </Text>
       </ScrollView>
     </Screen>
   );
@@ -172,5 +191,4 @@ export default function NotificationSettings() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: space.md, padding: space.lg },
   btn: { height: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  tag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill },
 });

@@ -6,6 +6,7 @@ import {
   type Attachment,
   type Message,
   type MessageStatus,
+  type NotifyLevel,
   type Reaction,
   type Receipt,
 } from '@sampledge/contracts';
@@ -166,6 +167,10 @@ export interface LocalConversation {
   lastPreview: string | null;
   unread: number;
   pending: number;
+  /** What notifies you here: everything, @mentions only, or nothing. Includes a change not yet sent. */
+  notifyLevel: NotifyLevel;
+  /** True while a level set on this device has not reached the server. */
+  notifyLevelPending: boolean;
 }
 
 export interface OutboxItem {
@@ -960,11 +965,11 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const c of conversations) {
         await tx.run(
-          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id) DO UPDATE SET
              kind = excluded.kind, name = excluded.name, topic = excluded.topic, member_ids = excluded.member_ids,
-             archived_at = excluded.archived_at, my_role = excluded.my_role,
+             archived_at = excluded.archived_at, my_role = excluded.my_role, notify_level = excluded.notify_level,
              last_change_seq = MAX(conversations.last_change_seq, excluded.last_change_seq),
              last_message_at = COALESCE(MAX(conversations.last_message_at, excluded.last_message_at), excluded.last_message_at, conversations.last_message_at)`,
           [
@@ -977,6 +982,7 @@ export class LocalStore {
             c.myRole,
             c.lastChangeSequence,
             c.lastMessageAt,
+            c.myNotifyLevel ?? 'all',
           ],
         );
       }
@@ -1139,6 +1145,8 @@ export class LocalStore {
       last_preview: string | null;
       unread: number;
       pending: number;
+      notify_level: NotifyLevel;
+      pending_notify_level: NotifyLevel | null;
     }>(
       `SELECT c.*,
          (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.conversation_id AND m.sender_id != ? AND m.server_seq > c.read_up_to AND m.deleted_at IS NULL) AS unread,
@@ -1160,7 +1168,49 @@ export class LocalStore {
       lastPreview: r.last_preview,
       unread: r.unread,
       pending: r.pending,
+      notifyLevel: r.pending_notify_level ?? r.notify_level,
+      notifyLevelPending: r.pending_notify_level != null,
     }));
+  }
+
+  // ---------------------------------------------------------------- notification level
+
+  /** Sets your level here at once; it is sent when online (offline-safe, last choice wins). */
+  async setNotifyLevelLocally(conversationId: string, level: NotifyLevel): Promise<void> {
+    await this.db.run(
+      `UPDATE conversations SET pending_notify_level = CASE WHEN notify_level = ? THEN NULL ELSE ? END
+       WHERE conversation_id = ?`,
+      [level, level, conversationId],
+    );
+    this.events.emit('conversations', undefined);
+  }
+
+  /** Demo workspace only: there is no server to confirm the level. */
+  async upsertLocalNotifyLevel(conversationId: string, level: NotifyLevel): Promise<void> {
+    await this.db.run(
+      'UPDATE conversations SET notify_level = ?, pending_notify_level = NULL WHERE conversation_id = ?',
+      [level, conversationId],
+    );
+    this.events.emit('conversations', undefined);
+  }
+
+  async pendingNotifyLevels(): Promise<{ conversationId: string; level: NotifyLevel }[]> {
+    const rows = await this.db.all<{ conversation_id: string; pending_notify_level: NotifyLevel }>(
+      'SELECT conversation_id, pending_notify_level FROM conversations WHERE pending_notify_level IS NOT NULL',
+    );
+    return rows.map((r) => ({ conversationId: r.conversation_id, level: r.pending_notify_level }));
+  }
+
+  /**
+   * Clears a sent (or refused) change. Only clears it if it is still the level that was sent,
+   * so a newer choice made while the request was in flight is kept and sent next.
+   */
+  async settleNotifyLevel(conversationId: string, sent: NotifyLevel): Promise<void> {
+    await this.db.run(
+      'UPDATE conversations SET pending_notify_level = NULL WHERE conversation_id = ? AND pending_notify_level = ?',
+      [conversationId, sent],
+    );
+    this.events.emit('conversations', undefined);
   }
 
   async getConversation(id: string): Promise<LocalConversation | undefined> {

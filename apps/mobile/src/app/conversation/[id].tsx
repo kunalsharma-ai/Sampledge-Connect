@@ -1,10 +1,20 @@
+import { Ionicons } from '@expo/vector-icons';
 import { TYPING_TTL_MS } from '@sampledge/contracts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import {
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Composer, type ComposerMode } from '../../components/Composer';
 import { ConnectivityBanner } from '../../components/Connectivity';
+import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
 import { MessageActions, type MessageAction } from '../../components/MessageActions';
 import { MessageBubble, type ReplyPreview } from '../../components/MessageBubble';
 import { Screen } from '../../components/Screen';
@@ -14,9 +24,11 @@ import type { MentionCandidate } from '../../lib/mentions';
 import { useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useMessages, usePeople } from '../../state/hooks';
 import { space } from '../../theme/themes';
+import { useTheme } from '../../theme/ThemeProvider';
 
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { theme } = useTheme();
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
   const { messages } = useMessages(id);
@@ -27,6 +39,7 @@ export default function ConversationScreen() {
   const [sheetFor, setSheetFor] = useState<LocalMessage | null>(null);
   const [mode, setMode] = useState<ComposerMode>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const atBottom = useRef(true);
 
   useEffect(() => {
@@ -173,7 +186,36 @@ export default function ConversationScreen() {
               ) : null}
             </View>
           ),
+          headerRight: () =>
+            conv ? (
+              <Pressable
+                onPress={() => setNotifyOpen(true)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Notifications: ${
+                  conv.notifyLevel === 'all'
+                    ? 'all activity'
+                    : conv.notifyLevel === 'mentions'
+                      ? 'mentions only'
+                      : 'off'
+                }`}
+                style={{ paddingHorizontal: space.sm }}
+              >
+                <Ionicons
+                  name={NOTIFY_ICON[conv.notifyLevel]}
+                  size={22}
+                  color={conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning}
+                />
+              </Pressable>
+            ) : null,
         }}
+      />
+      <NotifyLevelSheet
+        visible={notifyOpen}
+        level={conv?.notifyLevel ?? 'all'}
+        pending={!!conv?.notifyLevelPending}
+        onPick={(level) => void engine.setNotifyLevel(id, level)}
+        onClose={() => setNotifyOpen(false)}
       />
       <KeyboardAvoidingView
         style={{ flex: 1 }}

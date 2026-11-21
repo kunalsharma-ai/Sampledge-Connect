@@ -93,13 +93,16 @@ file attachments (copied into app storage when picked, uploaded with the message
 opened through short-lived signed links), in-app notifications (Activity lists mentions of you
 and replies to you from `GET /v1/notifications`, cached for offline use, with a tab badge, a live
 banner when one arrives while you are elsewhere, and read marks that work offline and match your
-other devices; opening a conversation clears its items), on-device search, themes, offline and storage settings, sign-out with a warning
+other devices; opening a conversation clears its items), a per-conversation notification level
+(all activity, @mentions only or nothing; set from the bell in the conversation header, works
+offline and follows changes made on other devices), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
 Inbox, Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
-push notifications (Settings, Notifications shows what is missing: an EAS project ID, APNs and
-FCM credentials, and server push), per-conversation mute, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
+push delivery to a device (the app registers its Expo push token and opens the conversation
+when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
+PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
 Not yet verified on a device or simulator. This cloud environment has no KVM (so no Android
