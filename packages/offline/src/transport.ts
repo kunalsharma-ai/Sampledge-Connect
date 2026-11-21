@@ -24,6 +24,7 @@ import {
   type SyncResponse,
   type MeetingsArea,
   type TenantArea,
+  type AiProposal,
 } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
@@ -71,6 +72,10 @@ export type ChangeEvent =
   | { type: 'directory'; userId: string }
   | { type: 'tenant'; area: TenantArea }
   | { type: 'project'; projectId: string }
+  /** One of my AI drafts was created, sent or dismissed (on any of my devices). */
+  | { type: 'aiProposal'; proposal: AiProposal }
+  /** I dismissed or restored a suggested task (on any of my devices). */
+  | { type: 'aiSuggestion'; suggestionId: string; dismissed: boolean }
   | { type: 'meetings'; area: MeetingsArea }
   | { type: 'recording'; recordingId: string; conversationId: string; deleted: boolean }
   /** A module record in this conversation was linked or updated, or a record action ran. */
@@ -271,6 +276,8 @@ export class HttpSocketTransport implements Transport {
     s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
     s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));
     s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
+    s.on('ai:proposal', (proposal) => this.handlers?.onChange?.({ type: 'aiProposal', proposal }));
+    s.on('ai:suggestion', (e) => this.handlers?.onChange?.({ type: 'aiSuggestion', ...e }));
     s.on('meetings:changed', (e) => this.handlers?.onChange?.({ type: 'meetings', ...e }));
     s.on('recording:changed', (e) => this.handlers?.onChange?.({ type: 'recording', ...e }));
     s.on('record:changed', (e) => this.handlers?.onChange?.({ type: 'records', ...e }));

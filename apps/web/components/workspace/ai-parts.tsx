@@ -1,12 +1,28 @@
 'use client';
 import * as React from 'react';
-import { AlertTriangle, Bot, Check, ShieldCheck } from 'lucide-react';
-import type { ActionItem, AiEngine, AiProposal, AiRiskCategory } from '@sampledge/contracts';
+import {
+  AlertTriangle,
+  Bot,
+  Check,
+  CheckCircle2,
+  ListPlus,
+  ShieldCheck,
+  Undo2,
+  X,
+} from 'lucide-react';
+import {
+  classifyActionRisk,
+  type ActionItem,
+  type AiEngine,
+  type AiProposal,
+  type AiRiskCategory,
+} from '@sampledge/contracts';
 import { Avatar, Badge, Button, Dialog, DialogContent, cn, useToast } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
-import { ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
+import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
+import { AiTaskContext, ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
 import { ApiFailure } from '@/lib/api';
 import { avatarOf, nameOf } from './helpers';
+import { useConversationWork } from './work-cards';
 
 export const RISK_LABEL: Record<AiRiskCategory, string> = {
   financial: 'money or pricing',
@@ -30,11 +46,44 @@ export function ActionItemRow({
   item,
   directory,
   me,
+  conversationId,
 }: {
   item: ActionItem;
   directory: Map<string, DirectoryEntry>;
   me: string;
+  /** Where the suggestion came from; enables "Create task". */
+  conversationId?: string;
 }) {
+  const tasks = React.useContext(AiTaskContext);
+  const work = useConversationWork();
+  // Created here, or a task already exists from the same message (e.g. after a reload).
+  const created = !!(
+    tasks &&
+    conversationId &&
+    (tasks.isCreated(item, conversationId) ||
+      (item.messageId &&
+        work?.conversationId === conversationId &&
+        work.tasks?.some((t) => t.sourceMessageId === item.messageId)))
+  );
+  const dismissed =
+    !created && !!(tasks && conversationId && tasks.isDismissed(item, conversationId));
+  if (dismissed)
+    return (
+      <li
+        className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-1.5 text-meta text-text-subtle"
+        data-testid="suggestion-dismissed"
+      >
+        <span className="min-w-0 flex-1 truncate line-through">{item.text}</span>
+        <span>Not needed</span>
+        <button
+          type="button"
+          onClick={() => tasks!.setDismissed(item, conversationId!, false)}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <Undo2 className="size-3" /> Undo
+        </button>
+      </li>
+    );
   return (
     <li className="flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3 py-2">
       <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border-strong" />
@@ -57,6 +106,32 @@ export function ActionItemRow({
             <Badge tone="warning" className="px-1.5 text-[10px]">
               {item.due}
             </Badge>
+          ) : null}
+          {tasks && conversationId ? (
+            created ? (
+              <span className="ml-auto inline-flex items-center gap-1 text-success">
+                <CheckCircle2 className="size-3" /> Task created
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => tasks.createTask(item, conversationId)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <ListPlus className="size-3" /> Create task
+              </button>
+            )
+          ) : null}
+          {tasks && conversationId && !created ? (
+            <button
+              type="button"
+              aria-label="Not needed"
+              title="Not needed (hides it on all your devices)"
+              onClick={() => tasks.setDismissed(item, conversationId, true)}
+              className="inline-flex items-center rounded-md p-0.5 text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              <X className="size-3.5" />
+            </button>
           ) : null}
         </span>
       </span>
@@ -95,9 +170,38 @@ export function ConfirmDraftDialog({
   const categories = edited ?? proposal?.risk.categories ?? [];
   const sensitive = categories.length > 0;
 
-  const close = (sent: boolean) => {
-    if (!sent && proposal) void ai.dismiss(proposal.proposalId).catch(() => undefined);
+  const { engine } = useEngine();
+  // Sent or dismissed on another of my devices: close here too.
+  useEngineChange(['aiProposal'], (e) => {
+    if (e.type !== 'aiProposal' || !proposal) return;
+    if (e.proposal.proposalId !== proposal.proposalId || e.proposal.status === 'pending') return;
+    toast({
+      title: e.proposal.status === 'confirmed' ? 'Sent from another device' : 'Draft closed',
+      description:
+        e.proposal.status === 'confirmed'
+          ? `This draft was already posted to ${where}.`
+          : 'You dismissed this draft on another device.',
+    });
     onOpenChange(false);
+  });
+
+  // Dismissing goes through the action queue, so it reaches the server (and my other devices)
+  // even when closed offline.
+  const close = (sent: boolean) => {
+    if (!sent && proposal)
+      void engine.queueAction({
+        key: `aiproposal|${proposal.proposalId}`,
+        method: 'POST',
+        path: `/v1/ai/proposals/${proposal.proposalId}/dismiss`,
+        label: 'Dismiss AI draft',
+        conversationId: proposal.conversationId,
+      });
+    onOpenChange(false);
+  };
+  /** Offline: check the edited text here, the same way the server will. */
+  const localCategories = (t: string): AiRiskCategory[] => {
+    const external = proposal?.risk.categories.includes('client_facing') ?? false;
+    return classifyActionRisk(t, { externalAudience: external }).categories;
   };
 
   return (
@@ -145,15 +249,40 @@ export function ConfirmDraftDialog({
               </Button>
               <Button
                 loading={busy}
-                disabled={!text.trim() || (sensitive && !ack) || !ai.online}
+                disabled={!text.trim() || (sensitive && !ack)}
                 onClick={async () => {
+                  const edit = text.trim() === proposal.text ? undefined : text.trim();
+                  if (!ai.online) {
+                    // Queue the confirmation; it sends when the device reconnects. A change
+                    // the server refuses shows up in the Sync Center.
+                    const cats = edit ? localCategories(edit) : categories;
+                    if (cats.length && !ack) {
+                      setEdited(cats);
+                      setError('Your edit touches a sensitive topic. Tick the box to confirm.');
+                      return;
+                    }
+                    await engine.queueAction({
+                      key: `aiproposal|${proposal.proposalId}`,
+                      method: 'POST',
+                      path: `/v1/ai/proposals/${proposal.proposalId}/confirm`,
+                      body: { confirm: true, acknowledgeRisk: ack, text: edit },
+                      label: 'Send AI draft',
+                      conversationId: proposal.conversationId,
+                    });
+                    toast({
+                      title: 'Will send when you’re back online',
+                      description: `Queued for ${where}. See the Sync Center for its progress.`,
+                    });
+                    onOpenChange(false);
+                    return;
+                  }
                   setBusy(true);
                   setError(null);
                   try {
                     await ai.confirm(proposal.proposalId, {
                       confirm: true,
                       acknowledgeRisk: ack,
-                      text: text.trim() === proposal.text ? undefined : text.trim(),
+                      text: edit,
                     });
                     toast({ title: 'Sent', description: `Posted to ${where}.`, tone: 'success' });
                     close(true);

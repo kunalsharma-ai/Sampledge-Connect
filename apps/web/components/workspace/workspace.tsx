@@ -67,7 +67,17 @@ import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetin
 import { RecordingsScreen } from './recordings-screen';
 import { AiScreen } from './ai-screen';
 import { AiSummaryCard } from './ai-summary-card';
-import { AiContext, languageName, preferredLanguage, useAi } from '@/lib/ai';
+import {
+  AiContext,
+  AiTaskContext,
+  languageName,
+  preferredLanguage,
+  suggestionKey,
+  useAi,
+  useAiDismissals,
+  type AiTaskActions,
+} from '@/lib/ai';
+import { aiSuggestionId, resolveDueHint } from '@sampledge/contracts';
 import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
@@ -135,6 +145,42 @@ export function Workspace() {
     kind: 'task' | 'approval';
     source: WorkSource;
   } | null>(null);
+  const [aiTaskKey, setAiTaskKey] = React.useState<string | null>(null);
+  const [aiTasksCreated, setAiTasksCreated] = React.useState<Set<string>>(() => new Set());
+  const { isDismissed: isAiDismissed, setDismissed: setAiDismissed } = useAiDismissals();
+  const aiTasks = React.useMemo<AiTaskActions>(
+    () => ({
+      isDismissed: (item, conversationId) =>
+        isAiDismissed(aiSuggestionId(conversationId, item.messageId, item.text)),
+      setDismissed: (item, conversationId, dismissed) =>
+        setAiDismissed(aiSuggestionId(conversationId, item.messageId, item.text), dismissed),
+      isCreated: (item, conversationId) => aiTasksCreated.has(suggestionKey(item, conversationId)),
+      createTask: (item, conversationId) => {
+        const conversation = conversations?.find((c) => c.conversationId === conversationId);
+        if (!conversation) return;
+        // Only people who can be assigned there: members, or anyone in a public channel.
+        const assignable =
+          item.assigneeId &&
+          (conversation.kind === 'channel_public' ||
+            conversation.memberIds.includes(item.assigneeId));
+        setAiTaskKey(suggestionKey(item, conversationId));
+        setWorkDialog({
+          kind: 'task',
+          source: {
+            conversation,
+            messageId: item.messageId,
+            text: item.text,
+            prefill: {
+              assigneeIds: assignable ? [item.assigneeId!] : undefined,
+              dueDate: resolveDueHint(item.due),
+              description: 'Suggested by the AI assistant from this conversation.',
+            },
+          },
+        });
+      },
+    }),
+    [conversations, aiTasksCreated, isAiDismissed, setAiDismissed],
+  );
   const openConversation = React.useCallback((id: string) => {
     setModule('messages');
     setActiveId(id);
@@ -371,626 +417,635 @@ export function Workspace() {
 
   return (
     <AiContext.Provider value={ai}>
-      <div className="flex h-dvh overflow-hidden">
-        <NavRail
-          active={module}
-          onSelect={selectModule}
-          expanded={railExpanded}
-          onToggle={() => setRailExpanded(!railExpanded)}
-          tenantName={session!.tenant.name}
-          userName={directory.get(me)?.displayName ?? session!.user.displayName}
-          userAvatar={avatarOf(me, directory)}
-          isAdmin={isAdmin}
-          unreadTotal={unreadTotal}
-          notificationCount={notifications.unreadCount}
-          onSignOut={() => void signOut()}
-        />
-
-        {module === 'meetings' ? (
-          <MeetingsScreen
-            me={me}
-            directory={directory}
-            conversations={conversations ?? []}
-            onOpenConversation={openConversation}
-            focus={focusMeeting}
-          />
-        ) : module === 'recordings' ? (
-          <RecordingsScreen
-            me={me}
-            directory={directory}
+      <AiTaskContext.Provider value={aiTasks}>
+        <div className="flex h-dvh overflow-hidden">
+          <NavRail
+            active={module}
+            onSelect={selectModule}
+            expanded={railExpanded}
+            onToggle={() => setRailExpanded(!railExpanded)}
+            tenantName={session!.tenant.name}
+            userName={directory.get(me)?.displayName ?? session!.user.displayName}
+            userAvatar={avatarOf(me, directory)}
             isAdmin={isAdmin}
-            online={state.connectivity === 'online'}
-            onOpenConversation={openConversation}
+            unreadTotal={unreadTotal}
+            notificationCount={notifications.unreadCount}
+            onSignOut={() => void signOut()}
           />
-        ) : module === 'tasks' ? (
-          <TasksScreen
-            me={me}
-            directory={directory}
-            conversations={conversations ?? []}
-            onOpenConversation={openConversation}
-          />
-        ) : module === 'projects' ? (
-          <ProjectsScreen me={me} directory={directory} onOpenConversation={openConversation} />
-        ) : module === 'ai' ? (
-          <AiScreen
-            ai={ai}
-            conversations={conversations ?? []}
-            notifications={notifications.items ?? []}
-            me={me}
-            directory={directory}
-            onOpenConversation={openConversation}
-          />
-        ) : module === 'integrations' ? (
-          <IntegrationsScreen online={state.connectivity === 'online'} />
-        ) : module === 'billing' ? (
-          <BillingScreen />
-        ) : module === 'branding' ? (
-          <BrandingScreen />
-        ) : module === 'admin' && isAdmin ? (
-          <AdminScreen onOpenModule={selectModule} />
-        ) : module === 'saved' ? (
-          <SavedScreen
-            api={bookmarks}
-            conversations={conversations ?? []}
-            me={me}
-            directory={directory}
-            onOpen={(b) => {
-              setModule('messages');
-              setActiveId(b.conversationId);
-              setTimeout(() => setHighlightId(b.messageId), 300);
-            }}
-          />
-        ) : module === 'notifications' ? (
-          <NotificationsScreen
-            api={notifications}
-            conversations={conversations ?? []}
-            me={me}
-            directory={directory}
-            onOpen={(n) => {
-              if (!n.readAt) void notifications.markRead({ notificationIds: [n.notificationId] });
-              setModule('messages');
-              setActiveId(n.conversationId);
-            }}
-          />
-        ) : mod.built ? (
-          <ConversationWorkProvider conversationId={active?.conversationId ?? null} me={me}>
-            <div
-              className={cn(
-                'h-full min-w-0 pb-16 md:pb-0 lg:block',
-                active ? 'hidden' : 'block w-full lg:w-auto',
-              )}
-            >
-              <ConversationList
-                conversations={conversations}
-                activeId={activeId}
-                onSelect={setActiveId}
-                me={me}
-                directory={directoryWithPresence}
-                unread={unread}
-                onNew={() => setDialog('new')}
-                onOpenPalette={() => setPalette(true)}
-                filter={module === 'channels' ? 'channels' : 'all'}
-              />
-            </div>
 
-            <main
-              className={cn(
-                'relative min-w-0 flex-1 flex-col pb-16 md:pb-0 lg:flex',
-                active ? 'flex' : 'hidden',
-              )}
-            >
-              {active ? (
-                <>
-                  <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
-                    <button
-                      onClick={() => setActiveId(null)}
-                      aria-label="Back to conversations"
-                      className="-ml-1 rounded-sm p-1.5 text-text-muted hover:bg-surface-raised lg:hidden"
-                    >
-                      <ArrowLeft className="size-4" />
-                    </button>
-                    {active.kind === 'dm' ? (
-                      <Avatar
-                        name={conversationTitle(active, me, directory)}
-                        src={avatarOf(
-                          active.memberIds.find((id) => id !== me),
-                          directory,
-                        )}
-                        size="sm"
-                      />
-                    ) : (
-                      <span className="flex size-8 items-center justify-center rounded-md bg-accent-soft text-accent">
-                        {active.kind === 'channel_private' ? (
-                          <Lock className="size-3.5" />
-                        ) : active.kind === 'group' ? (
-                          <Users className="size-3.5" />
-                        ) : (
-                          <Hash className="size-3.5" />
-                        )}
-                      </span>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <h1 className="truncate font-display text-h3 text-text">
-                        {conversationTitle(active, me, directory)}
-                      </h1>
-                      <div className="h-4 min-w-0 text-meta text-text-subtle">
-                        {typingNames.length ? (
-                          <TypingIndicator names={typingNames} />
-                        ) : (
-                          <span className="block truncate">
-                            {active.kind === 'dm'
-                              ? (directory.get(active.memberIds.find((id) => id !== me) ?? '')
-                                  ?.title ?? 'Direct message')
-                              : (active.topic ?? `${active.memberIds.length} members`)}
-                          </span>
-                        )}
+          {module === 'meetings' ? (
+            <MeetingsScreen
+              me={me}
+              directory={directory}
+              conversations={conversations ?? []}
+              onOpenConversation={openConversation}
+              focus={focusMeeting}
+            />
+          ) : module === 'recordings' ? (
+            <RecordingsScreen
+              me={me}
+              directory={directory}
+              isAdmin={isAdmin}
+              online={state.connectivity === 'online'}
+              onOpenConversation={openConversation}
+            />
+          ) : module === 'tasks' ? (
+            <TasksScreen
+              me={me}
+              directory={directory}
+              conversations={conversations ?? []}
+              onOpenConversation={openConversation}
+            />
+          ) : module === 'projects' ? (
+            <ProjectsScreen me={me} directory={directory} onOpenConversation={openConversation} />
+          ) : module === 'ai' ? (
+            <AiScreen
+              ai={ai}
+              conversations={conversations ?? []}
+              notifications={notifications.items ?? []}
+              me={me}
+              directory={directory}
+              onOpenConversation={openConversation}
+            />
+          ) : module === 'integrations' ? (
+            <IntegrationsScreen online={state.connectivity === 'online'} />
+          ) : module === 'billing' ? (
+            <BillingScreen />
+          ) : module === 'branding' ? (
+            <BrandingScreen />
+          ) : module === 'admin' && isAdmin ? (
+            <AdminScreen onOpenModule={selectModule} />
+          ) : module === 'saved' ? (
+            <SavedScreen
+              api={bookmarks}
+              conversations={conversations ?? []}
+              me={me}
+              directory={directory}
+              onOpen={(b) => {
+                setModule('messages');
+                setActiveId(b.conversationId);
+                setTimeout(() => setHighlightId(b.messageId), 300);
+              }}
+            />
+          ) : module === 'notifications' ? (
+            <NotificationsScreen
+              api={notifications}
+              conversations={conversations ?? []}
+              me={me}
+              directory={directory}
+              onOpen={(n) => {
+                if (!n.readAt) void notifications.markRead({ notificationIds: [n.notificationId] });
+                setModule('messages');
+                setActiveId(n.conversationId);
+              }}
+            />
+          ) : mod.built ? (
+            <ConversationWorkProvider conversationId={active?.conversationId ?? null} me={me}>
+              <div
+                className={cn(
+                  'h-full min-w-0 pb-16 md:pb-0 lg:block',
+                  active ? 'hidden' : 'block w-full lg:w-auto',
+                )}
+              >
+                <ConversationList
+                  conversations={conversations}
+                  activeId={activeId}
+                  onSelect={setActiveId}
+                  me={me}
+                  directory={directoryWithPresence}
+                  unread={unread}
+                  onNew={() => setDialog('new')}
+                  onOpenPalette={() => setPalette(true)}
+                  filter={module === 'channels' ? 'channels' : 'all'}
+                />
+              </div>
+
+              <main
+                className={cn(
+                  'relative min-w-0 flex-1 flex-col pb-16 md:pb-0 lg:flex',
+                  active ? 'flex' : 'hidden',
+                )}
+              >
+                {active ? (
+                  <>
+                    <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
+                      <button
+                        onClick={() => setActiveId(null)}
+                        aria-label="Back to conversations"
+                        className="-ml-1 rounded-sm p-1.5 text-text-muted hover:bg-surface-raised lg:hidden"
+                      >
+                        <ArrowLeft className="size-4" />
+                      </button>
+                      {active.kind === 'dm' ? (
+                        <Avatar
+                          name={conversationTitle(active, me, directory)}
+                          src={avatarOf(
+                            active.memberIds.find((id) => id !== me),
+                            directory,
+                          )}
+                          size="sm"
+                        />
+                      ) : (
+                        <span className="flex size-8 items-center justify-center rounded-md bg-accent-soft text-accent">
+                          {active.kind === 'channel_private' ? (
+                            <Lock className="size-3.5" />
+                          ) : active.kind === 'group' ? (
+                            <Users className="size-3.5" />
+                          ) : (
+                            <Hash className="size-3.5" />
+                          )}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h1 className="truncate font-display text-h3 text-text">
+                          {conversationTitle(active, me, directory)}
+                        </h1>
+                        <div className="h-4 min-w-0 text-meta text-text-subtle">
+                          {typingNames.length ? (
+                            <TypingIndicator names={typingNames} />
+                          ) : (
+                            <span className="block truncate">
+                              {active.kind === 'dm'
+                                ? (directory.get(active.memberIds.find((id) => id !== me) ?? '')
+                                    ?.title ?? 'Direct message')
+                                : (active.topic ?? `${active.memberIds.length} members`)}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <button onClick={() => setDialog('sync')} aria-label="Open Sync Center">
-                      <ConnectivityIndicator
-                        state={state.connectivity}
-                        queued={state.queued + state.pendingActions}
-                        compact
+                      <button onClick={() => setDialog('sync')} aria-label="Open Sync Center">
+                        <ConnectivityIndicator
+                          state={state.connectivity}
+                          queued={state.queued + state.pendingActions}
+                          compact
+                        />
+                      </button>
+                      <Tooltip
+                        content={
+                          offline ? 'Scheduling needs a connection' : 'Schedule a meeting here'
+                        }
+                        side="bottom"
+                      >
+                        <span>
+                          <button
+                            className="rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40"
+                            aria-label="Schedule a meeting here"
+                            disabled={offline || readOnly}
+                            onClick={() => setScheduleIn(active.conversationId)}
+                          >
+                            <CalendarPlus className="size-4" />
+                          </button>
+                        </span>
+                      </Tooltip>
+                      <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
+                      <PinsMenu
+                        messages={messages ?? []}
+                        me={me}
+                        directory={directory}
+                        onJump={(m) => setHighlightId(m.messageId)}
+                        canUnpin={!readOnly && !offline}
+                        onUnpin={(m) => void pin(m, false)}
                       />
-                    </button>
-                    <Tooltip
-                      content={
-                        offline ? 'Scheduling needs a connection' : 'Schedule a meeting here'
-                      }
-                      side="bottom"
-                    >
-                      <span>
+                      <NotifyLevelMenu conversation={active} offline={offline} />
+                      <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
                         <button
-                          className="rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40"
-                          aria-label="Schedule a meeting here"
-                          disabled={offline || readOnly}
-                          onClick={() => setScheduleIn(active.conversationId)}
+                          onClick={() => setPanelOpen(!panelOpen)}
+                          aria-label={panelOpen ? 'Hide details' : 'Show details'}
+                          className="hidden rounded-sm p-1.5 text-text-muted hover:bg-surface-raised hover:text-text min-[1400px]:block"
                         >
-                          <CalendarPlus className="size-4" />
+                          {panelOpen ? (
+                            <PanelRightClose className="size-4" />
+                          ) : (
+                            <PanelRightOpen className="size-4" />
+                          )}
                         </button>
-                      </span>
-                    </Tooltip>
-                    <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
-                    <PinsMenu
-                      messages={messages ?? []}
+                      </Tooltip>
+                    </header>
+                    <LiveCallBanner conversation={active} directory={directory} offline={offline} />
+                    {state.failed > 0 ? (
+                      <button
+                        onClick={() => setDialog('sync')}
+                        className="border-b border-danger/30 bg-danger/10 px-6 py-2 text-left text-meta text-danger"
+                      >
+                        {state.failed} message{state.failed === 1 ? '' : 's'} couldn’t be sent. Open
+                        the Sync Center to retry.
+                      </button>
+                    ) : null}
+                    <Timeline
+                      key={active.conversationId}
+                      conversation={active}
+                      messages={messages}
+                      receipts={receipts}
                       me={me}
                       directory={directory}
-                      onJump={(m) => setHighlightId(m.messageId)}
-                      canUnpin={!readOnly && !offline}
-                      onUnpin={(m) => void pin(m, false)}
-                    />
-                    <NotifyLevelMenu conversation={active} offline={offline} />
-                    <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
-                      <button
-                        onClick={() => setPanelOpen(!panelOpen)}
-                        aria-label={panelOpen ? 'Hide details' : 'Show details'}
-                        className="hidden rounded-sm p-1.5 text-text-muted hover:bg-surface-raised hover:text-text min-[1400px]:block"
-                      >
-                        {panelOpen ? (
-                          <PanelRightClose className="size-4" />
-                        ) : (
-                          <PanelRightOpen className="size-4" />
-                        )}
-                      </button>
-                    </Tooltip>
-                  </header>
-                  <LiveCallBanner conversation={active} directory={directory} offline={offline} />
-                  {state.failed > 0 ? (
-                    <button
-                      onClick={() => setDialog('sync')}
-                      className="border-b border-danger/30 bg-danger/10 px-6 py-2 text-left text-meta text-danger"
-                    >
-                      {state.failed} message{state.failed === 1 ? '' : 's'} couldn’t be sent. Open
-                      the Sync Center to retry.
-                    </button>
-                  ) : null}
-                  <Timeline
-                    key={active.conversationId}
-                    conversation={active}
-                    messages={messages}
-                    receipts={receipts}
-                    me={me}
-                    directory={directory}
-                    onRetry={(id) => void engine.retry(id)}
-                    onDiscard={(id) => void engine.discard(id)}
-                    pendingReactions={pendingReactions}
-                    onReact={(m, emoji, add) => {
-                      if (m.messageId)
-                        void engine.react(
-                          { messageId: m.messageId, conversationId: m.conversationId },
-                          emoji,
-                          add ? 'add' : 'remove',
-                        );
-                    }}
-                    onReply={(m) => setReplyTo(m)}
-                    actions={messageActions}
-                    replyCounts={replyCounts}
-                    onOpenThread={(m) => setThreadRootId(m.messageId)}
-                    highlightId={highlightId}
-                    canModerate={canModerate}
-                    offline={offline}
-                    onOpenMeeting={(meta: MeetingSystemMetadata) => {
-                      setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
-                      setModule('meetings');
-                    }}
-                    onCreateTask={
-                      offline || readOnly
-                        ? undefined
-                        : (m) =>
-                            setWorkDialog({
-                              kind: 'task',
-                              source: {
-                                conversation: active,
-                                messageId: m.messageId,
-                                text: m.content.text,
-                              },
-                            })
-                    }
-                    onRequestApproval={
-                      offline || readOnly
-                        ? undefined
-                        : (m) =>
-                            setWorkDialog({
-                              kind: 'approval',
-                              source: {
-                                conversation: active,
-                                messageId: m.messageId,
-                                text: m.content.text,
-                              },
-                            })
-                    }
-                    onTranslate={
-                      ai.available
-                        ? async (messageId) => {
-                            const lang = preferredLanguage();
-                            const r = await ai.translate(messageId, lang);
-                            return { text: r.text, label: languageName(lang) };
-                          }
-                        : undefined
-                    }
-                  />
-                  <ScheduledBar items={scheduled.items} offline={offline} />
-                  <CreatePollDialog
-                    open={pollOpen}
-                    onOpenChange={setPollOpen}
-                    conversationId={active.conversationId}
-                  />
-                  <Composer
-                    placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
-                    disabled={readOnly}
-                    disabledReason={
-                      active.archivedAt
-                        ? 'This conversation is archived.'
-                        : announcementOnly
-                          ? 'This is an announcement channel. Only moderators can post here.'
-                          : 'Join this channel to send messages.'
-                    }
-                    onCreatePoll={() => setPollOpen(true)}
-                    onSchedule={async (text, mentions, sendAt) => {
-                      const reply = replyTo?.messageId ?? null;
-                      try {
-                        await scheduledApi.create(
-                          getAccessToken,
-                          active.conversationId,
-                          text,
-                          mentions,
-                          sendAt,
-                          reply,
-                        );
-                        setReplyTo(null);
-                        void scheduled.refresh();
-                        toast({
-                          title: 'Message scheduled',
-                          description: sendAt.toLocaleString(undefined, {
-                            weekday: 'short',
-                            hour: 'numeric',
-                            minute: '2-digit',
-                          }),
-                          tone: 'success',
-                        });
-                      } catch (e) {
-                        toast({
-                          title: 'Couldn’t schedule',
-                          description: (e as Error).message,
-                          tone: 'danger',
-                        });
-                        throw e;
+                      onRetry={(id) => void engine.retry(id)}
+                      onDiscard={(id) => void engine.discard(id)}
+                      pendingReactions={pendingReactions}
+                      onReact={(m, emoji, add) => {
+                        if (m.messageId)
+                          void engine.react(
+                            { messageId: m.messageId, conversationId: m.conversationId },
+                            emoji,
+                            add ? 'add' : 'remove',
+                          );
+                      }}
+                      onReply={(m) => setReplyTo(m)}
+                      actions={messageActions}
+                      replyCounts={replyCounts}
+                      onOpenThread={(m) => setThreadRootId(m.messageId)}
+                      highlightId={highlightId}
+                      canModerate={canModerate}
+                      offline={offline}
+                      onOpenMeeting={(meta: MeetingSystemMetadata) => {
+                        setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
+                        setModule('meetings');
+                      }}
+                      onCreateTask={
+                        offline || readOnly
+                          ? undefined
+                          : (m) =>
+                              setWorkDialog({
+                                kind: 'task',
+                                source: {
+                                  conversation: active,
+                                  messageId: m.messageId,
+                                  text: m.content.text,
+                                },
+                              })
                       }
-                    }}
-                    offline={offline}
-                    conversationId={active.conversationId}
-                    onSend={async (text, mentions, attachments) => {
-                      const reply = replyTo?.messageId ?? null;
-                      setReplyTo(null);
-                      await engine.compose(active.conversationId, text, {
-                        mentions,
-                        replyToMessageId: reply,
-                        attachments,
-                      });
-                    }}
-                    members={mentionMembers}
-                    replyTo={
-                      replyTo
-                        ? {
-                            name:
-                              replyTo.senderId === me
-                                ? 'yourself'
-                                : senderNameOf(replyTo, directory),
-                            text:
-                              replyTo.content.text ||
-                              `${replyTo.attachments?.length ?? 0} attachment(s)`,
-                          }
-                        : null
-                    }
-                    onCancelReply={() => setReplyTo(null)}
-                    onTyping={(t) => engine.setTyping(active.conversationId, t)}
-                    prefill={prefill}
-                  />
-                </>
-              ) : (
-                <div className="flex flex-1 items-center justify-center p-6">
-                  <StateView
-                    state="empty"
-                    title={
-                      conversations?.length === 0
-                        ? 'Your workspace is ready'
-                        : 'Pick a conversation'
-                    }
-                    description={
-                      conversations?.length === 0
-                        ? 'Start a direct message, a group, or a channel for your team.'
-                        : 'Choose a conversation from the list, or press Ctrl+K to jump to one.'
-                    }
-                  />
-                </div>
-              )}
-            </main>
-
-            {active && threadRoot ? (
-              <ThreadPanel
-                key={threadRoot.messageId}
-                root={threadRoot}
-                messages={messages ?? []}
-                conversation={active}
-                receipts={receipts}
-                me={me}
-                directory={directory}
-                offline={offline}
-                readOnly={readOnly}
-                members={mentionMembers}
-                pendingReactions={pendingReactions}
-                onReact={(m, emoji, add) => {
-                  if (m.messageId)
-                    void engine.react(
-                      { messageId: m.messageId, conversationId: m.conversationId },
-                      emoji,
-                      add ? 'add' : 'remove',
-                    );
-                }}
-                actions={messageActions}
-                onRetry={(id) => void engine.retry(id)}
-                onDiscard={(id) => void engine.discard(id)}
-                onSend={async (text, mentions, attachments, replyToMessageId) => {
-                  await engine.compose(active.conversationId, text, {
-                    mentions,
-                    replyToMessageId,
-                    attachments,
-                  });
-                }}
-                onTyping={(t) => engine.setTyping(active.conversationId, t)}
-                onClose={() => setThreadRootId(null)}
-              />
-            ) : null}
-            <AnimatePresence>
-              {active && panelOpen && !threadRoot ? (
-                <div key="panel" className="hidden min-[1400px]:block">
-                  <ContextPanel
-                    conversation={active}
-                    me={me}
-                    directory={directory}
-                    presence={engine.presence}
-                    onClose={() => setPanelOpen(false)}
-                    canManage={canModerate && !offline && !active.archivedAt}
-                    onSetPostingPolicy={(policy) =>
-                      void pollsApi
-                        .setPostingPolicy(getAccessToken, active.conversationId, policy)
-                        .then(() =>
+                      onRequestApproval={
+                        offline || readOnly
+                          ? undefined
+                          : (m) =>
+                              setWorkDialog({
+                                kind: 'approval',
+                                source: {
+                                  conversation: active,
+                                  messageId: m.messageId,
+                                  text: m.content.text,
+                                },
+                              })
+                      }
+                      onTranslate={
+                        ai.available
+                          ? async (messageId) => {
+                              const lang = preferredLanguage();
+                              const r = await ai.translate(messageId, lang);
+                              return { text: r.text, label: languageName(lang) };
+                            }
+                          : undefined
+                      }
+                    />
+                    <ScheduledBar items={scheduled.items} offline={offline} />
+                    <CreatePollDialog
+                      open={pollOpen}
+                      onOpenChange={setPollOpen}
+                      conversationId={active.conversationId}
+                    />
+                    <Composer
+                      placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
+                      disabled={readOnly}
+                      disabledReason={
+                        active.archivedAt
+                          ? 'This conversation is archived.'
+                          : announcementOnly
+                            ? 'This is an announcement channel. Only moderators can post here.'
+                            : 'Join this channel to send messages.'
+                      }
+                      onCreatePoll={() => setPollOpen(true)}
+                      onSchedule={async (text, mentions, sendAt) => {
+                        const reply = replyTo?.messageId ?? null;
+                        try {
+                          await scheduledApi.create(
+                            getAccessToken,
+                            active.conversationId,
+                            text,
+                            mentions,
+                            sendAt,
+                            reply,
+                          );
+                          setReplyTo(null);
+                          void scheduled.refresh();
                           toast({
-                            title:
-                              policy === 'moderators'
-                                ? 'Only moderators can post now'
-                                : 'Everyone can post now',
+                            title: 'Message scheduled',
+                            description: sendAt.toLocaleString(undefined, {
+                              weekday: 'short',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            }),
                             tone: 'success',
-                          }),
-                        )
-                        .catch((e: Error) =>
+                          });
+                        } catch (e) {
                           toast({
-                            title: 'Couldn’t change that',
-                            description: e.message,
+                            title: 'Couldn’t schedule',
+                            description: (e as Error).message,
                             tone: 'danger',
-                          }),
-                        )
-                    }
-                    aiCard={
-                      ai.status?.enabled !== false ? (
-                        <AiSummaryCard
-                          ai={ai}
-                          conversationId={active.conversationId}
-                          where={
-                            active.kind === 'dm'
-                              ? conversationTitle(active, me, directory)
-                              : `#${conversationTitle(active, me, directory)}`
-                          }
-                          me={me}
-                          directory={directory}
-                          canPost={!readOnly}
-                          onUseReply={(text) => setPrefill({ text, nonce: Date.now() })}
-                        />
-                      ) : null
-                    }
-                  />
-                </div>
+                          });
+                          throw e;
+                        }
+                      }}
+                      offline={offline}
+                      conversationId={active.conversationId}
+                      onSend={async (text, mentions, attachments) => {
+                        const reply = replyTo?.messageId ?? null;
+                        setReplyTo(null);
+                        await engine.compose(active.conversationId, text, {
+                          mentions,
+                          replyToMessageId: reply,
+                          attachments,
+                        });
+                      }}
+                      members={mentionMembers}
+                      replyTo={
+                        replyTo
+                          ? {
+                              name:
+                                replyTo.senderId === me
+                                  ? 'yourself'
+                                  : senderNameOf(replyTo, directory),
+                              text:
+                                replyTo.content.text ||
+                                `${replyTo.attachments?.length ?? 0} attachment(s)`,
+                            }
+                          : null
+                      }
+                      onCancelReply={() => setReplyTo(null)}
+                      onTyping={(t) => engine.setTyping(active.conversationId, t)}
+                      prefill={prefill}
+                    />
+                  </>
+                ) : (
+                  <div className="flex flex-1 items-center justify-center p-6">
+                    <StateView
+                      state="empty"
+                      title={
+                        conversations?.length === 0
+                          ? 'Your workspace is ready'
+                          : 'Pick a conversation'
+                      }
+                      description={
+                        conversations?.length === 0
+                          ? 'Start a direct message, a group, or a channel for your team.'
+                          : 'Choose a conversation from the list, or press Ctrl+K to jump to one.'
+                      }
+                    />
+                  </div>
+                )}
+              </main>
+
+              {active && threadRoot ? (
+                <ThreadPanel
+                  key={threadRoot.messageId}
+                  root={threadRoot}
+                  messages={messages ?? []}
+                  conversation={active}
+                  receipts={receipts}
+                  me={me}
+                  directory={directory}
+                  offline={offline}
+                  readOnly={readOnly}
+                  members={mentionMembers}
+                  pendingReactions={pendingReactions}
+                  onReact={(m, emoji, add) => {
+                    if (m.messageId)
+                      void engine.react(
+                        { messageId: m.messageId, conversationId: m.conversationId },
+                        emoji,
+                        add ? 'add' : 'remove',
+                      );
+                  }}
+                  actions={messageActions}
+                  onRetry={(id) => void engine.retry(id)}
+                  onDiscard={(id) => void engine.discard(id)}
+                  onSend={async (text, mentions, attachments, replyToMessageId) => {
+                    await engine.compose(active.conversationId, text, {
+                      mentions,
+                      replyToMessageId,
+                      attachments,
+                    });
+                  }}
+                  onTyping={(t) => engine.setTyping(active.conversationId, t)}
+                  onClose={() => setThreadRootId(null)}
+                />
               ) : null}
-            </AnimatePresence>
-          </ConversationWorkProvider>
-        ) : (
-          <main className="flex flex-1 items-center justify-center p-6 pb-20 md:pb-6">
-            <div className="max-w-md text-center">
-              <span className="mx-auto flex size-14 items-center justify-center rounded-xl border border-dashed border-border-strong text-text-subtle">
-                <mod.icon className="size-6" />
-              </span>
-              <h1 className="mt-5 font-display text-h2 text-text">{mod.label}</h1>
-              <Badge tone="planned" className="mt-3">
-                Planned · {mod.phase}
-              </Badge>
-              <p className="mt-4 text-label font-normal text-text-muted">
-                This module isn’t built yet. It’s listed so the navigation matches the product plan,
-                and nothing here is simulated.
-              </p>
-            </div>
-          </main>
-        )}
+              <AnimatePresence>
+                {active && panelOpen && !threadRoot ? (
+                  <div key="panel" className="hidden min-[1400px]:block">
+                    <ContextPanel
+                      conversation={active}
+                      me={me}
+                      directory={directory}
+                      presence={engine.presence}
+                      onClose={() => setPanelOpen(false)}
+                      canManage={canModerate && !offline && !active.archivedAt}
+                      onSetPostingPolicy={(policy) =>
+                        void pollsApi
+                          .setPostingPolicy(getAccessToken, active.conversationId, policy)
+                          .then(() =>
+                            toast({
+                              title:
+                                policy === 'moderators'
+                                  ? 'Only moderators can post now'
+                                  : 'Everyone can post now',
+                              tone: 'success',
+                            }),
+                          )
+                          .catch((e: Error) =>
+                            toast({
+                              title: 'Couldn’t change that',
+                              description: e.message,
+                              tone: 'danger',
+                            }),
+                          )
+                      }
+                      aiCard={
+                        ai.status?.enabled !== false ? (
+                          <AiSummaryCard
+                            ai={ai}
+                            conversationId={active.conversationId}
+                            where={
+                              active.kind === 'dm'
+                                ? conversationTitle(active, me, directory)
+                                : `#${conversationTitle(active, me, directory)}`
+                            }
+                            me={me}
+                            directory={directory}
+                            canPost={!readOnly}
+                            onUseReply={(text) => setPrefill({ text, nonce: Date.now() })}
+                          />
+                        ) : null
+                      }
+                    />
+                  </div>
+                ) : null}
+              </AnimatePresence>
+            </ConversationWorkProvider>
+          ) : (
+            <main className="flex flex-1 items-center justify-center p-6 pb-20 md:pb-6">
+              <div className="max-w-md text-center">
+                <span className="mx-auto flex size-14 items-center justify-center rounded-xl border border-dashed border-border-strong text-text-subtle">
+                  <mod.icon className="size-6" />
+                </span>
+                <h1 className="mt-5 font-display text-h2 text-text">{mod.label}</h1>
+                <Badge tone="planned" className="mt-3">
+                  Planned · {mod.phase}
+                </Badge>
+                <p className="mt-4 text-label font-normal text-text-muted">
+                  This module isn’t built yet. It’s listed so the navigation matches the product
+                  plan, and nothing here is simulated.
+                </p>
+              </div>
+            </main>
+          )}
 
-        <IncomingCall conversations={conversations ?? []} me={me} directory={directory} />
-        <CallStage
-          conversations={conversations ?? []}
-          me={me}
-          directory={directory}
-          onOpenConversation={(id) => {
-            setModule('messages');
-            setActiveId(id);
-          }}
-        />
-        <CallErrorToast />
-        <MeetingReminderToast onOpenConversation={openConversation} />
-        <NewMeetingDialog
-          open={!!scheduleIn}
-          onOpenChange={(o) => !o && setScheduleIn(null)}
-          me={me}
-          directory={directory}
-          conversationId={scheduleIn ?? undefined}
-          onCreated={(m) => {
-            setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
-            setModule('meetings');
-          }}
-        />
+          <IncomingCall conversations={conversations ?? []} me={me} directory={directory} />
+          <CallStage
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            onOpenConversation={(id) => {
+              setModule('messages');
+              setActiveId(id);
+            }}
+          />
+          <CallErrorToast />
+          <MeetingReminderToast onOpenConversation={openConversation} />
+          <NewMeetingDialog
+            open={!!scheduleIn}
+            onOpenChange={(o) => !o && setScheduleIn(null)}
+            me={me}
+            directory={directory}
+            conversationId={scheduleIn ?? undefined}
+            onCreated={(m) => {
+              setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
+              setModule('meetings');
+            }}
+          />
 
-        <CreateTaskDialog
-          open={workDialog?.kind === 'task'}
-          onOpenChange={(o) => !o && setWorkDialog(null)}
-          source={workDialog?.source ?? null}
-          me={me}
-          directory={directory}
-        />
-        <RequestApprovalDialog
-          open={workDialog?.kind === 'approval'}
-          onOpenChange={(o) => !o && setWorkDialog(null)}
-          source={workDialog?.source ?? null}
-          me={me}
-          directory={directory}
-        />
+          <CreateTaskDialog
+            open={workDialog?.kind === 'task'}
+            onOpenChange={(o) => {
+              if (o) return;
+              setWorkDialog(null);
+              setAiTaskKey(null);
+            }}
+            source={workDialog?.source ?? null}
+            me={me}
+            directory={directory}
+            onCreated={() => {
+              if (aiTaskKey) setAiTasksCreated((prev) => new Set(prev).add(aiTaskKey));
+            }}
+          />
+          <RequestApprovalDialog
+            open={workDialog?.kind === 'approval'}
+            onOpenChange={(o) => !o && setWorkDialog(null)}
+            source={workDialog?.source ?? null}
+            me={me}
+            directory={directory}
+          />
 
-        <MobileNav
-          active={module}
-          onSelect={selectModule}
-          unreadTotal={unreadTotal}
-          notificationCount={notifications.unreadCount}
-          isAdmin={isAdmin}
-        />
+          <MobileNav
+            active={module}
+            onSelect={selectModule}
+            unreadTotal={unreadTotal}
+            notificationCount={notifications.unreadCount}
+            isAdmin={isAdmin}
+          />
 
-        <NewConversationDialog
-          open={dialog === 'new'}
-          onOpenChange={(o) => setDialog(o ? 'new' : null)}
-          onCreated={(id) => {
-            setModule('messages');
-            setActiveId(id);
-          }}
-        />
-        <EditMessageDialog
-          message={editing}
-          onOpenChange={(o) => !o && setEditing(null)}
-          onSave={editMessage}
-        />
-        <DeleteMessageDialog
-          message={deleting}
-          onOpenChange={(o) => !o && setDeleting(null)}
-          onConfirm={deleteMessage}
-        />
-        <SyncCenterDialog
-          open={dialog === 'sync'}
-          onOpenChange={(o) => setDialog(o ? 'sync' : null)}
-        />
-        <SettingsDialog
-          open={dialog === 'settings'}
-          onOpenChange={(o) => setDialog(o ? 'settings' : null)}
-        />
-        <CommandPalette
-          open={palette}
-          onOpenChange={setPalette}
-          conversations={conversations ?? []}
-          me={me}
-          directory={directory}
-          onSelect={(id) => {
-            setModule('messages');
-            setActiveId(id);
-          }}
-          actions={[
-            {
-              id: 'a:new',
-              label: 'New conversation',
-              icon: MessageSquarePlus,
-              run: () => setDialog('new'),
-            },
-            {
-              id: 'a:sync',
-              label: 'Open Sync Center',
-              icon: RefreshCw,
-              run: () => setDialog('sync'),
-            },
-            {
-              id: 'a:profile',
-              label: 'Edit profile and settings',
-              icon: UserRound,
-              run: () => setDialog('settings'),
-            },
-            {
-              id: 'a:tasks',
-              label: 'Tasks & Approvals',
-              icon: CheckSquare,
-              run: () => setModule('tasks'),
-            },
-            {
-              id: 'a:projects',
-              label: 'Projects',
-              icon: FolderKanban,
-              run: () => setModule('projects'),
-            },
-            {
-              id: 'a:theme',
-              label: 'Change theme',
-              icon: Palette,
-              run: () => setDialog('settings'),
-            },
-            { id: 'a:ai', label: 'Ask the AI assistant', icon: Bot, run: () => setModule('ai') },
-            ...(isAdmin
-              ? [
-                  {
-                    id: 'a:admin',
-                    label: 'Administration',
-                    icon: ShieldCheck,
-                    run: () => setModule('admin'),
-                  },
-                  {
-                    id: 'a:integrations',
-                    label: 'Manage integrations',
-                    icon: Plug,
-                    run: () => setModule('integrations'),
-                  },
-                ]
-              : []),
-          ]}
-        />
-      </div>
+          <NewConversationDialog
+            open={dialog === 'new'}
+            onOpenChange={(o) => setDialog(o ? 'new' : null)}
+            onCreated={(id) => {
+              setModule('messages');
+              setActiveId(id);
+            }}
+          />
+          <EditMessageDialog
+            message={editing}
+            onOpenChange={(o) => !o && setEditing(null)}
+            onSave={editMessage}
+          />
+          <DeleteMessageDialog
+            message={deleting}
+            onOpenChange={(o) => !o && setDeleting(null)}
+            onConfirm={deleteMessage}
+          />
+          <SyncCenterDialog
+            open={dialog === 'sync'}
+            onOpenChange={(o) => setDialog(o ? 'sync' : null)}
+          />
+          <SettingsDialog
+            open={dialog === 'settings'}
+            onOpenChange={(o) => setDialog(o ? 'settings' : null)}
+          />
+          <CommandPalette
+            open={palette}
+            onOpenChange={setPalette}
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            onSelect={(id) => {
+              setModule('messages');
+              setActiveId(id);
+            }}
+            actions={[
+              {
+                id: 'a:new',
+                label: 'New conversation',
+                icon: MessageSquarePlus,
+                run: () => setDialog('new'),
+              },
+              {
+                id: 'a:sync',
+                label: 'Open Sync Center',
+                icon: RefreshCw,
+                run: () => setDialog('sync'),
+              },
+              {
+                id: 'a:profile',
+                label: 'Edit profile and settings',
+                icon: UserRound,
+                run: () => setDialog('settings'),
+              },
+              {
+                id: 'a:tasks',
+                label: 'Tasks & Approvals',
+                icon: CheckSquare,
+                run: () => setModule('tasks'),
+              },
+              {
+                id: 'a:projects',
+                label: 'Projects',
+                icon: FolderKanban,
+                run: () => setModule('projects'),
+              },
+              {
+                id: 'a:theme',
+                label: 'Change theme',
+                icon: Palette,
+                run: () => setDialog('settings'),
+              },
+              { id: 'a:ai', label: 'Ask the AI assistant', icon: Bot, run: () => setModule('ai') },
+              ...(isAdmin
+                ? [
+                    {
+                      id: 'a:admin',
+                      label: 'Administration',
+                      icon: ShieldCheck,
+                      run: () => setModule('admin'),
+                    },
+                    {
+                      id: 'a:integrations',
+                      label: 'Manage integrations',
+                      icon: Plug,
+                      run: () => setModule('integrations'),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </div>
+      </AiTaskContext.Provider>
     </AiContext.Provider>
   );
 }

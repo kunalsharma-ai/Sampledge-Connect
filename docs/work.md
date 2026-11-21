@@ -36,6 +36,12 @@ Tasks, approvals and projects are Connect's own records, so they work with no mo
 - **Counts.** Open tasks, overdue tasks and pending approvals are counted from the work in the project's channel. You see only projects whose channel you can read.
 - **API.** `GET` and `POST /v1/projects`, `GET /v1/projects/:id`.
 
+## From AI suggestions
+
+AI summaries and the status digest offer **Create task** on suggested action items. It opens this
+same form prefilled (assignee, due date, source message); the person reviews it and presses Create.
+See [ai.md](ai.md).
+
 ## Live updates and offline
 
 The server emits `task:upsert` and `approval:upsert` over Socket.IO to everyone involved. The web app patches its lists live and caches them in the signed-in identity's IndexedDB, so they still show offline (read only). Creating tasks and deciding approvals need a connection, and the buttons say so.
@@ -44,4 +50,3 @@ The server emits `task:upsert` and `approval:upsert` over Socket.IO to everyone 
 
 - Tasks and approvals screens on mobile. Mobile already shows the notifications.
 - Recurring tasks, subtasks and approval delegation.
-- Creating a task from an AI suggestion. The AI thread is wiring this to `POST /v1/tasks`.
