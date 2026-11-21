@@ -55,6 +55,13 @@ export const AiStatusSchema = z.object({
     configured: z.boolean(),
     autoTranscribeCalls: z.boolean(),
     autoTranscribeVoice: z.boolean(),
+    /** Languages every transcript is also translated into (Integrations › Speech-to-text). */
+    translateTo: z.array(z.string()).default([]),
+    /**
+     * What can translate transcripts: `model` (the organization's model server, any language),
+     * `english` (the speech-to-text server's translate mode, English only) or `none`.
+     */
+    translation: z.enum(['model', 'english', 'none']).default('none'),
   }),
 });
 export type AiStatus = z.infer<typeof AiStatusSchema>;
@@ -367,6 +374,25 @@ export const TranscriptSegmentSchema = z.object({
 });
 export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
 
+/** A translation of a transcript. Segments keep the original timings. */
+export const TranscriptTranslationSchema = z.object({
+  language: z.string(),
+  status: z.enum(['queued', 'processing', 'done', 'failed']),
+  text: z.string().nullable(),
+  segments: z.array(TranscriptSegmentSchema),
+  /** `model`: the organization's model server. `stt`: the speech-to-text server (English). */
+  engine: z.enum(['model', 'stt']).nullable(),
+  error: z.string().nullable(),
+  /** A person corrected at least one line. */
+  edited: z.boolean(),
+  reviewedBy: ServerIdSchema.nullable(),
+  reviewedAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime(),
+  /** The original was corrected after this was translated: translate again to pick it up. */
+  outdated: z.boolean().default(false),
+});
+export type TranscriptTranslation = z.infer<typeof TranscriptTranslationSchema>;
+
 /** GET /v1/ai/transcripts/:attachmentId and POST (queue one). */
 export const AiTranscriptSchema = z.object({
   attachmentId: ServerIdSchema,
@@ -381,8 +407,61 @@ export const AiTranscriptSchema = z.object({
   /** Why the last attempt failed, in plain words. */
   error: z.string().nullable(),
   updatedAt: z.string().datetime().nullable(),
+  /** Translations, requested or automatic (Integrations › Speech-to-text › Also translate to). */
+  translations: z.array(TranscriptTranslationSchema).default([]),
+  /** Bumped by every correction; send it back as `baseRevision`. */
+  revision: z.number().int().nonnegative().default(0),
+  /** A person corrected at least one line of the original. */
+  edited: z.boolean().default(false),
+  /** Someone checked the original against the recording. */
+  reviewedBy: ServerIdSchema.nullable().default(null),
+  reviewedAt: z.string().datetime().nullable().default(null),
+  /** The caller may correct it (who recorded it, people in the call, moderators, admins). */
+  canEdit: z.boolean().default(false),
 });
 export type AiTranscript = z.infer<typeof AiTranscriptSchema>;
+
+/**
+ * PATCH /v1/ai/transcripts/:attachmentId: correct lines of the original (`language` omitted)
+ * or of a translation, and/or mark it reviewed. Lines someone else changed since
+ * `baseRevision` are a conflict (409); other lines merge. Offline corrections replay through
+ * the action queue (`transcript|<attachmentId>|<language>`).
+ */
+export const UpdateTranscriptRequestSchema = z
+  .object({
+    baseRevision: z.number().int().nonnegative(),
+    /** A translation's language; omit for the original. */
+    language: z.string().trim().toLowerCase().min(2).max(12).optional(),
+    segments: z
+      .array(z.object({ index: z.number().int().nonnegative(), text: z.string().max(4000) }))
+      .max(5000)
+      .optional(),
+    /** Replace the whole text (transcripts without timed lines). */
+    text: z.string().max(1_900_000).optional(),
+    reviewed: z.boolean().optional(),
+  })
+  .refine(
+    (v) => v.segments !== undefined || v.text !== undefined || v.reviewed !== undefined,
+    'Nothing to change',
+  );
+export type UpdateTranscriptRequest = z.input<typeof UpdateTranscriptRequestSchema>;
+
+/** POST /v1/ai/transcripts/:attachmentId/translations */
+export const TranslateTranscriptRequestSchema = z.object({
+  language: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/, 'a language code such as en or hi'),
+});
+export type TranslateTranscriptRequest = z.infer<typeof TranslateTranscriptRequestSchema>;
+
+/** Payload of `transcript:changed` (conversation room): refetch the transcript. */
+export interface TranscriptChangedEvent {
+  attachmentId: string;
+  conversationId: string;
+  revision: number;
+}
 
 /** Largest recording sent to the speech-to-text server (bytes are buffered in memory). */
 export const TRANSCRIPT_MAX_BYTES = 200 * 1024 * 1024;

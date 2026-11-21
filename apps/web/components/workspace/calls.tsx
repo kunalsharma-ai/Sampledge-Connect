@@ -40,6 +40,7 @@ import { MemberCallChat, useCallChatCount } from './call-chat';
 import { CallDeviceSettings } from './call-devices';
 import { CaptionsButton, CaptionsOverlay } from './call-captions';
 import { useLiveCaptions } from '@/lib/captions';
+import { MinutesButton } from './minutes';
 import { useMemberCallBackground } from '@/lib/call-backgrounds';
 
 const iconBtn =
@@ -648,7 +649,7 @@ export function CallStage({
             ))}
           </div>
         )}
-        <CaptionsOverlay state={captions} />
+        <CaptionsOverlay state={captions} saved={!!calls.config?.captionsSaved} />
         {chatOpen ? (
           <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
             <MemberCallChat
@@ -926,6 +927,9 @@ export function CallCard({
           <p className="text-label text-text">{title}</p>
           <p className="truncate text-meta text-text-subtle">{detail}</p>
         </div>
+        {meta.status === 'ended' ? (
+          <MinutesButton callId={meta.callId} me={me} directory={directory} />
+        ) : null}
         {isLive && !inIt ? (
           <Button
             size="sm"

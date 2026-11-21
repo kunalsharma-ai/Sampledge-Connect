@@ -28,6 +28,7 @@ import {
   type ExtraActions,
 } from './message-parts';
 import { CallCard } from './calls';
+import { MinutesCard } from './minutes';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
 import { PollCard } from './polls';
@@ -236,6 +237,8 @@ export function Timeline({
                 <WorkCard message={m} directory={directory} />
               ) : m.messageType === 'system' && m.metadata?.moduleAction && !m.deletedAt ? (
                 <ModuleActionCard message={m} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.minutes && !m.deletedAt ? (
+                <MinutesCard message={m} me={me} directory={directory} />
               ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
                 <CallCard message={m} me={me} directory={directory} offline={offline} />
               ) : (

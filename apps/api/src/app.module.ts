@@ -91,6 +91,8 @@ import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
 import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
+import { MinutesController } from './minutes/minutes.controller.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -148,6 +150,7 @@ export class AppModule {
         IntegrationsController,
         WorkController,
         AiController,
+        MinutesController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -196,6 +199,7 @@ export class AppModule {
         AiService,
         AiIntegration,
         TranscriptsService,
+        MinutesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

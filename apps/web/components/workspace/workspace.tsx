@@ -88,6 +88,7 @@ import type {
 import { ForwardDialog, forwardPreview } from './forward';
 import { presenceOf } from '@/lib/status';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
+import { ChatExportButton } from './chat-export';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
 import { SearchScreen } from './search-screen';
@@ -752,6 +753,15 @@ export function Workspace() {
                         onUnpin={(m) => void pin(m, false)}
                       />
                       <NotifyLevelMenu conversation={active} offline={offline} />
+                      <ChatExportButton
+                        conversation={active}
+                        title={
+                          active.kind === 'dm'
+                            ? conversationTitle(active, me, directory)
+                            : `#${conversationTitle(active, me, directory)}`
+                        }
+                        offline={offline}
+                      />
                       <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
                         <button
                           onClick={() => setPanelOpen(!panelOpen)}

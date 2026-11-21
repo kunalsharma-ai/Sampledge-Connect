@@ -79,6 +79,8 @@ How it works:
   it from search.
 - Transcripts have no speaker labels yet: lines are attributed to the person who started the
   recording.
+- Languages are detected automatically. Translations (automatic via **Also translate to**, or on
+  request), line corrections and **Mark checked** are described in `minutes.md`.
 - Sizing: faster-whisper `small` on 4 CPU cores runs at roughly real time; a GPU is 10–30× faster.
 
 ## Suggested tasks become real tasks only when you confirm

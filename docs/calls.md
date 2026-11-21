@@ -164,3 +164,6 @@ else sees it the right way round.
 
 Live updates: `meetings:changed {area: 'call_background'}` to all of my devices, and
 `tenant:updated {area: 'calls'}` (rules) or `{area: 'branding'}` (logo, colors) to everyone.
+
+When an admin turns on **Keep live captions for minutes**, caption lines are saved with speaker
+names for the minutes and the captions notice says so. See `minutes.md`.

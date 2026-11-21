@@ -223,6 +223,7 @@ export function GuestJoin({ token }: { token: string }) {
         title={view.title}
         recording={!!state?.recording}
         captionsEnabled={!!state?.captions}
+        captionsSaved={!!state?.captionsSaved}
         myName={name.trim() || view.guest.name}
         onLeave={() => {
           // Only a leave we didn't already explain (ended / removed) counts as "you left".
@@ -632,6 +633,7 @@ function GuestCall({
   title,
   recording,
   captionsEnabled,
+  captionsSaved,
   myName,
   onLeave,
 }: {
@@ -640,6 +642,7 @@ function GuestCall({
   title: string;
   recording: boolean;
   captionsEnabled: boolean;
+  captionsSaved: boolean;
   myName: string;
   onLeave: () => void;
 }) {
@@ -772,7 +775,7 @@ function GuestCall({
               ))}
             </div>
           )}
-          <CaptionsOverlay state={captions} />
+          <CaptionsOverlay state={captions} saved={captionsSaved} />
           {chatOpen ? (
             <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
               <CallChatView

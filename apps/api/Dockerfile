@@ -17,6 +17,11 @@ RUN pnpm --filter @sampledge/api... build \
 FROM node:26.13.1-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
+# Fonts for PDF minutes and chat exports in non-Latin scripts (Hindi and other Indic scripts,
+# Chinese, Japanese, Korean, Arabic, Hebrew, Thai). Latin, Greek and Cyrillic are bundled in
+# assets/fonts. Build with --build-arg PDF_FONTS= to leave them out (about 120 MB).
+ARG PDF_FONTS="font-noto font-noto-cjk font-noto-arabic font-noto-hebrew font-noto-devanagari font-noto-bengali font-noto-gujarati font-noto-gurmukhi font-noto-tamil font-noto-telugu font-noto-kannada font-noto-malayalam font-noto-thai"
+RUN if [ -n "$PDF_FONTS" ]; then apk add --no-cache $PDF_FONTS; fi
 RUN addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /out ./
 USER app

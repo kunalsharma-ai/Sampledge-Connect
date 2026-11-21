@@ -6,6 +6,8 @@ import { RateLimitService } from '../redis/redis.module.js';
 import { TranscriptsService } from '../ai/transcripts.service.js';
 import { SttClient, SttUnavailableError } from '../ai/transcription.js';
 import { CallsService } from './calls.service.js';
+import { TenantDb } from '../database/tenant-db.js';
+import { DEFAULT_MINUTES_SETTINGS } from '@sampledge/contracts';
 
 /** Audio formats browsers record (MediaRecorder): WebM/Opus, Ogg/Opus, MP4/AAC (Safari), WAV. */
 const AUDIO = /^audio\/(webm|ogg|mp4|mpeg|wav|x-wav|aac)(;|$)/i;
@@ -25,10 +27,48 @@ export class CaptionsService {
     private readonly transcripts: TranscriptsService,
     private readonly calls: CallsService,
     private readonly rateLimit: RateLimitService,
+    private readonly db: TenantDb,
   ) {}
 
   async available(tenantId: string): Promise<boolean> {
     return !!(await this.transcripts.settings(tenantId));
+  }
+
+  /**
+   * Whether caption text is kept (with the speaker's name) for the call's minutes. Off unless
+   * an admin turned it on; everyone in the call sees that it is.
+   */
+  async saved(tenantId: string): Promise<{ keep: boolean; days: number }> {
+    const s = await this.db
+      .for(tenantId)
+      .tenant_settings.findOne({}, { projection: { minutes: 1 } });
+    const m = { ...DEFAULT_MINUTES_SETTINGS, ...(s?.minutes ?? {}) };
+    return { keep: m.keepCaptions, days: m.captionRetentionDays };
+  }
+
+  private async keep(
+    tenantId: string,
+    line: {
+      callId: string;
+      conversationId: string;
+      userId: string | null;
+      speaker: string;
+      text: string;
+    },
+  ) {
+    if (!line.text) return;
+    const { keep, days } = await this.saved(tenantId);
+    if (!keep) return;
+    const at = new Date();
+    await this.db
+      .for(tenantId)
+      .call_captions.insertOne({
+        ...line,
+        speaker: line.speaker.slice(0, 120),
+        at,
+        expiresAt: new Date(at.getTime() + days * 86_400_000),
+      })
+      .catch((e: unknown) => this.log.warn(`caption line not kept: ${String(e)}`));
   }
 
   /** A member's clip: they must be in the live call. */
@@ -43,7 +83,20 @@ export class CaptionsService {
     if (call.status !== 'live' || me?.state !== 'joined')
       throw forbidden('Join the call to use captions');
     await this.rateLimit.consume('caption_clip', `${ctx.tenantId}:${ctx.userId}`);
-    return this.transcribe(ctx.tenantId, audio, mimeType);
+    const r = await this.transcribe(ctx.tenantId, audio, mimeType);
+    if (r.text) {
+      const u = await this.db
+        .for(ctx.tenantId)
+        .users.findOne({ _id: ctx.userId }, { projection: { displayName: 1 } });
+      await this.keep(ctx.tenantId, {
+        callId,
+        conversationId: call.conversationId,
+        userId: ctx.userId,
+        speaker: u?.displayName ?? 'Someone',
+        text: r.text,
+      });
+    }
+    return r;
   }
 
   /** An admitted guest's clip (the guest link's call checks happen in GuestsService). */
@@ -52,9 +105,19 @@ export class CaptionsService {
     guestId: string,
     audio: unknown,
     mimeType: string | undefined,
+    call?: { callId: string; conversationId: string; name: string },
   ): Promise<CallCaptionResponse> {
     await this.rateLimit.consume('caption_clip', `${tenantId}:guest:${guestId}`);
-    return this.transcribe(tenantId, audio, mimeType);
+    const r = await this.transcribe(tenantId, audio, mimeType);
+    if (call && r.text)
+      await this.keep(tenantId, {
+        callId: call.callId,
+        conversationId: call.conversationId,
+        userId: null,
+        speaker: `${call.name} (guest)`,
+        text: r.text,
+      });
+    return r;
   }
 
   private async transcribe(
