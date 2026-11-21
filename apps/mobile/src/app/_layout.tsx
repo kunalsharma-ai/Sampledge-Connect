@@ -17,6 +17,7 @@ import { IncomingCall } from '../calls/IncomingCall';
 import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
+import { BrandingSync } from '../components/BrandingSync';
 import { AppProvider, useApp } from '../state/AppProvider';
 import { fonts } from '../theme/themes';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
@@ -47,6 +48,7 @@ function RootStack() {
   return (
     <>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <BrandingSync />
       <Stack
         screenOptions={{
           headerShadowVisible: false,
@@ -80,6 +82,7 @@ function RootStack() {
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
+          <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />

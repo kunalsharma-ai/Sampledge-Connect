@@ -27,6 +27,8 @@ import {
   type ScheduledMessage,
   type Task,
   type Approval,
+  type BrandingInput,
+  type BrandingView,
   type AiAskRequest,
   type AiAskResponse,
   type AiDigest,
@@ -102,6 +104,7 @@ export class ConnectEngine {
     scheduled: ScheduledMessage | null;
     /** A task or approval you are involved in was created or changed (here or live). */
     work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
+    branding: BrandingView;
   }>();
   /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
   private myVotes = new Map<string, string[]>();
@@ -606,6 +609,21 @@ export class ConnectEngine {
       const approval = await this.api.cancelApproval(approvalId);
       this.events.emit('work', { kind: 'approval', approval });
       return approval;
+    });
+  }
+
+  // ------------------------------------------------------------ white-label branding
+
+  getBranding(): Promise<BrandingView> {
+    return this.serverAction(() => this.api.getBranding());
+  }
+
+  /** Owners only; the server checks. Emits `branding` so the theme updates at once. */
+  saveBranding(input: BrandingInput): Promise<BrandingView> {
+    return this.serverAction(async () => {
+      const v = await this.api.saveBranding(input);
+      this.events.emit('branding', v);
+      return v;
     });
   }
 
