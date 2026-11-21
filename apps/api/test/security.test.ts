@@ -36,6 +36,7 @@ const PUBLIC = new Set([
   'GET /v1/branding/public/:slug', // sign-in page branding
   'POST /v1/calls/livekit/webhook', // LiveKit signature
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
+  'GET /v1/avatars/:tenantId/:key', // profile photo, 128-bit random key per photo
   'GET /v1/recordings/export/:tenantId', // signed, expiring URL
   'GET /v1/book/:slug', // public booking page (rate limited)
   'GET /v1/book/:slug/slots',

@@ -5,7 +5,7 @@ import { AtSign, BellOff, Hash, Lock, Plus, Search, Users } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Kbd, Skeleton, Tooltip, UnreadCounter, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { conversationTitle, relativeShort } from './helpers';
+import { avatarOf, conversationTitle, relativeShort } from './helpers';
 
 export function ConversationList({
   conversations,
@@ -123,6 +123,7 @@ export function ConversationList({
                           {c.kind === 'dm' ? (
                             <Avatar
                               name={title}
+                              src={avatarOf(other, directory)}
                               size="sm"
                               presence={
                                 (other &&

@@ -37,6 +37,13 @@ export interface UserDoc extends TenantOwned {
   title: string | null;
   status: 'active' | 'deactivated';
   createdAt: Date;
+  /** Profile (edited by the person on PATCH /v1/me/profile). */
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  timeZone?: string | null;
+  /** Key of the current row in `user_avatars`; a new key per photo. */
+  avatarKey?: string | null;
   /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
   mfa?: UserMfaDoc | null;
 }
@@ -397,6 +404,15 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+/** A profile photo. `_id` is a random key, so its public URL can't be guessed. */
+export interface UserAvatarDoc extends TenantOwned {
+  userId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
 export interface BookmarkDoc extends TenantOwned {
   userId: string;
   messageId: string;
@@ -529,6 +545,7 @@ export interface TenantCollections {
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;
+  user_avatars: UserAvatarDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;

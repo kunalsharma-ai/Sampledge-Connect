@@ -5,7 +5,7 @@ import { Bot, FileText, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { conversationTitle, nameOf } from './helpers';
+import { avatarOf, conversationTitle, nameOf } from './helpers';
 import { WorkContextSection } from './work-context';
 
 const KIND_LABEL: Record<Conversation['kind'], string> = {
@@ -86,7 +86,14 @@ export function ContextPanel({
         <div className="rounded-xl border border-border bg-surface-raised p-4 shadow-sm">
           <div className="flex items-center gap-3">
             {conversation.kind === 'dm' ? (
-              <Avatar name={title} size="lg" />
+              <Avatar
+                name={title}
+                src={avatarOf(
+                  conversation.memberIds.find((id) => id !== me),
+                  directory,
+                )}
+                size="lg"
+              />
             ) : (
               <span className="flex size-12 items-center justify-center rounded-lg bg-accent-soft text-accent">
                 <Icon className="size-5" />
@@ -169,6 +176,7 @@ export function ContextPanel({
                 <li key={id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
                   <Avatar
                     name={nameOf(id, directory)}
+                    src={avatarOf(id, directory)}
                     size="sm"
                     presence={online ? 'online' : 'offline'}
                   />
