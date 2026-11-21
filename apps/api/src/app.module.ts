@@ -14,6 +14,9 @@ import { AuthService } from './auth/auth.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { SsoController } from './auth/sso.controller.js';
 import { SsoService } from './auth/sso.service.js';
+import { BillingController, PlatformBillingController } from './billing/billing.controller.js';
+import { BillingService } from './billing/billing.service.js';
+import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
@@ -90,6 +93,8 @@ export class AppModule {
         PlatformIntegrationsController,
         AuthController,
         SsoController,
+        BillingController,
+        PlatformBillingController,
         RecordingsController,
         DirectoryController,
         ConversationsController,
@@ -118,6 +123,8 @@ export class AppModule {
         AuthService,
         MfaService,
         SsoService,
+        BillingService,
+        PlatformAdmins,
         ConversationsService,
         MessagesService,
         SyncService,

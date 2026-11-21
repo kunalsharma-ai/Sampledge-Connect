@@ -48,6 +48,7 @@ import { conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
+import { BillingScreen } from './billing-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
@@ -207,6 +208,8 @@ export function Workspace() {
   // Deep link: /app?c=<conversationId>[&m=<messageId>] (chat widget, browser notifications).
   React.useEffect(() => {
     const q = new URLSearchParams(window.location.search);
+    // Back from the payment page: the Billing screen reads `billing` itself.
+    if (q.get('billing')) return setModule('billing');
     const c = q.get('c');
     if (!c) return;
     setModule('messages');
@@ -355,6 +358,8 @@ export function Workspace() {
           />
         ) : module === 'integrations' ? (
           <IntegrationsScreen online={state.connectivity === 'online'} />
+        ) : module === 'billing' ? (
+          <BillingScreen />
         ) : module === 'saved' ? (
           <SavedScreen
             api={bookmarks}

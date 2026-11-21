@@ -467,4 +467,56 @@ export interface TenantCollections {
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
   ai_transcripts: AiTranscriptDoc;
+  billing_subscriptions: BillingSubscriptionDoc;
+  billing_invoices: BillingInvoiceDoc;
+}
+
+/** One per tenant. Prices are never stored here: they come from the plan catalog. */
+export interface BillingSubscriptionDoc extends TenantOwned {
+  planId: string | null;
+  status: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled';
+  interval: 'month' | 'year';
+  seats: number;
+  trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  provider: 'manual' | 'stripe' | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeItemId: string | null;
+  /** A free trial is offered once per organization. */
+  trialUsed: boolean;
+  updatedAt: Date;
+}
+
+export interface BillingInvoiceDoc extends TenantOwned {
+  provider: 'stripe' | 'manual';
+  providerInvoiceId: string;
+  number: string | null;
+  status: 'draft' | 'open' | 'paid' | 'void' | 'uncollectible';
+  currency: string;
+  total: number;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  createdAt: Date;
+  url: string | null;
+  pdfUrl: string | null;
+}
+
+/** Global plan catalog (no tenantId): edited by platform operators. */
+export interface BillingPlanDoc {
+  _id: string;
+  name: string;
+  description: string;
+  currency: string;
+  monthlyPerSeat: number;
+  yearlyPerSeat: number | null;
+  limits: { seats: number | null; storageGb: number | null; recordingHours: number | null };
+  features: string[];
+  trialDays: number;
+  public: boolean;
+  active: boolean;
+  sortOrder: number;
+  updatedAt: Date;
+  updatedBy: string | null;
 }
