@@ -67,6 +67,27 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       );
     `);
   },
+  // v2: offline edits and deletes of sent messages
+  async (tx) => {
+    await tx.exec(`
+      CREATE TABLE message_ops (
+        client_id         TEXT PRIMARY KEY REFERENCES messages(client_id) ON DELETE CASCADE,
+        message_id        TEXT NOT NULL,
+        conversation_id   TEXT NOT NULL,
+        kind              TEXT NOT NULL,
+        text              TEXT,
+        mentions          TEXT,
+        prev_text         TEXT NOT NULL,
+        prev_mentions     TEXT NOT NULL,
+        prev_edited_at    TEXT,
+        attempts          INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at   INTEGER NOT NULL DEFAULT 0,
+        last_error        TEXT,
+        enqueued_at       INTEGER NOT NULL
+      );
+      CREATE INDEX message_ops_due ON message_ops (next_attempt_at, enqueued_at);
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

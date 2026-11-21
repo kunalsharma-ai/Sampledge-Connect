@@ -127,6 +127,99 @@ async function api(method, path, body, token) {
     'message missed while offline recovered by sync',
     (await p.innerText('body')).includes('Posted while Sam was offline.'),
   );
+
+  // ---- Phase 1 chat: reply with an @mention, edit, delete, mentions in Activity
+  const users = await api('GET', '/v1/users', undefined, marco);
+  const idOf = (name) => users.find((u) => u.displayName === name).userId;
+  const serverMsgs = async () => {
+    const r = await api(
+      'GET',
+      `/v1/conversations/${ch.conversationId}/messages?limit=100`,
+      undefined,
+      marco,
+    );
+    return Array.isArray(r) ? r : (r.messages ?? r.items);
+  };
+  const longPress = async (text) => {
+    await p.getByText(text, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+  };
+  await longPress('Got it, thanks Sam. Launching at 2pm.');
+  await shot('09-message-actions');
+  await p.getByRole('button', { name: 'Reply' }).click();
+  await p.locator('textarea').last().fill('Sounds good. @Pri');
+  await p.waitForTimeout(400);
+  await shot('10-reply-with-mention-picker');
+  await p.getByRole('button', { name: 'Mention Priya Shah' }).click();
+  await p.locator('textarea').last().pressSequentially('can you confirm the quota?');
+  await p.getByRole('button', { name: 'Send message' }).click();
+  await p.waitForTimeout(2500);
+  await shot('11-reply-sent');
+  let all = await serverMsgs();
+  const marcoMsg = all.find((m) => m.content.text === 'Got it, thanks Sam. Launching at 2pm.');
+  const reply = all.find((m) => m.content.text.startsWith('Sounds good.'));
+  check(
+    'reply reached the server with its parent',
+    reply?.replyToMessageId === marcoMsg?.messageId,
+  );
+  check('mention carried the user id', reply?.content.mentions.includes(idOf('Priya Shah')));
+  check(
+    'mention text is readable',
+    reply?.content.text === 'Sounds good. @Priya Shah can you confirm the quota?',
+  );
+
+  await longPress('Sam here. Boost sample brief is in the shared folder.');
+  await p.getByRole('button', { name: 'Edit' }).click();
+  await p
+    .locator('textarea')
+    .last()
+    .fill('Sam here. Boost sample brief (v2) is in the shared folder.');
+  await shot('12-editing');
+  await p.getByRole('button', { name: 'Save edit' }).click();
+  await p.waitForTimeout(2500);
+  all = await serverMsgs();
+  const edited = all.find((m) => m.content.text.includes('(v2)'));
+  check('edit saved on the server', !!edited?.editedAt);
+
+  await longPress('Written offline: please hold the DE invites until the boost is live.');
+  await p.getByRole('button', { name: 'Delete for everyone' }).click();
+  await p.waitForTimeout(2500);
+  await shot('13-edited-and-deleted');
+  all = await serverMsgs();
+  const gone = all.find((m) => m.clientMessageId && m.deletedAt);
+  check('delete saved on the server', !!gone);
+
+  const priya = (
+    await api('POST', '/v1/auth/login', {
+      tenantSlug: 'northwind',
+      email: 'priya@northwind.test',
+      password: pw,
+      device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+    })
+  ).accessToken;
+  await api(
+    'POST',
+    `/v1/conversations/${ch.conversationId}/messages`,
+    {
+      conversationId: ch.conversationId,
+      clientMessageId: crypto.randomUUID(),
+      messageType: 'text',
+      content: {
+        text: 'Quota confirmed. @Sam Okafor please share the boost brief with the client.',
+        mentions: [idOf('Sam Okafor')],
+      },
+    },
+    priya,
+  );
+  await p.waitForTimeout(2000);
+  await shot('14-mentioned-by-priya');
+  await p.goto(`${APP}/activity`);
+  await p.waitForTimeout(2500);
+  await shot('15-activity-mentions');
+  check(
+    'mention of you listed in Activity',
+    (await p.innerText('body')).includes('please share the boost brief'),
+  );
   await b.close();
   if (failures.length) process.exit(1);
 })();

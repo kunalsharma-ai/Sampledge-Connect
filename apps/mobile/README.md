@@ -85,14 +85,16 @@ from it instead of its own `BASE` table.
 Built: sign-in against the API contract, local demo workspace, conversation list with
 filters and unread counts, conversations with optimistic sending, every message status,
 retry and discard of unsent messages, draft autosave, typing indicators (when online), read
-receipts, on-device search, themes, offline and storage settings, sign-out with a warning
+receipts, replies (quoted, tap to jump to the original), @mentions with a member picker and
+a Mentions list in Activity, offline edits and deletes of your own messages (queued like sends,
+rolled back with the reason if the server refuses), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
 Inbox, Meetings, Files and attachments (with resumable upload), Tasks and Approvals,
-Notifications and push, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
-on mobile, threads, reactions, edits and deletes from mobile (edits and deletes from other
-clients already display), voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
+push notifications, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
+on mobile, a separate thread pane, reactions (shown as planned in the message actions until
+the API adds them), voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
-Not yet verified on a device or simulator: this change was checked with type checks, unit
-tests and Android and iOS release bundle exports, not by running the app.
+Not yet verified on a device or simulator. The app is checked with type checks, unit tests,
+and the end-to-end run above against a real API through the web preview.

@@ -17,6 +17,9 @@ export interface LocalMessage {
   conversationId: string;
   senderId: string;
   text: string;
+  /** User ids mentioned with @. */
+  mentions: string[];
+  /** Server messageId of the message this one replies to. */
   replyTo: string | null;
   serverSeq: number | null;
   changeSeq: number | null;
@@ -25,6 +28,20 @@ export interface LocalMessage {
   editedAt: string | null;
   deletedAt: string | null;
   error: string | null;
+  /** An edit or delete made on this device that the server has not confirmed yet. */
+  pendingOp: MessageOpKind | null;
+}
+
+export type MessageOpKind = 'edit' | 'delete';
+
+export interface MessageOp {
+  clientId: string;
+  messageId: string;
+  conversationId: string;
+  kind: MessageOpKind;
+  text: string | null;
+  mentions: string[];
+  attempts: number;
 }
 
 export interface LocalConversation {
@@ -76,6 +93,7 @@ interface MessageRow {
   conversation_id: string;
   sender_id: string;
   text: string;
+  mentions: string;
   reply_to: string | null;
   server_seq: number | null;
   change_seq: number | null;
@@ -84,7 +102,21 @@ interface MessageRow {
   edited_at: string | null;
   deleted_at: string | null;
   error: string | null;
+  pending_op?: MessageOpKind | null;
 }
+
+/** Message columns plus the kind of any pending edit/delete. */
+const MESSAGE_SELECT =
+  'SELECT m.*, o.kind AS pending_op FROM messages m LEFT JOIN message_ops o ON o.client_id = m.client_id';
+
+const parseIds = (raw: string | null | undefined): string[] => {
+  try {
+    const v = JSON.parse(raw ?? '[]') as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
 
 const toMessage = (r: MessageRow): LocalMessage => ({
   clientId: r.client_id,
@@ -92,6 +124,7 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   conversationId: r.conversation_id,
   senderId: r.sender_id,
   text: r.text,
+  mentions: parseIds(r.mentions),
   replyTo: r.reply_to,
   serverSeq: r.server_seq,
   changeSeq: r.change_seq,
@@ -100,6 +133,7 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   editedAt: r.edited_at,
   deletedAt: r.deleted_at,
   error: r.error,
+  pendingOp: r.pending_op ?? null,
 });
 
 /** Statuses only the server can confirm. A local row in one of these is never downgraded by local code. */
@@ -151,6 +185,7 @@ export class LocalStore {
     conversationId: string;
     text: string;
     replyTo?: string | null;
+    mentions?: readonly string[];
   }): Promise<LocalMessage> {
     const text = input.text.trim();
     if (!text) throw new Error('Cannot send an empty message');
@@ -158,9 +193,17 @@ export class LocalStore {
     const createdAt = new Date(this.now()).toISOString();
     await this.db.transaction(async (tx) => {
       await tx.run(
-        `INSERT INTO messages (client_id, conversation_id, sender_id, text, reply_to, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'queued', ?)`,
-        [clientId, input.conversationId, this.selfId, text, input.replyTo ?? null, createdAt],
+        `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, reply_to, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
+        [
+          clientId,
+          input.conversationId,
+          this.selfId,
+          text,
+          JSON.stringify([...new Set(input.mentions ?? [])]),
+          input.replyTo ?? null,
+          createdAt,
+        ],
       );
       await tx.run(
         `INSERT INTO outbox (client_id, conversation_id, state, enqueued_at) VALUES (?, ?, 'pending', ?)`,
@@ -210,7 +253,10 @@ export class LocalStore {
     return (
       (
         await this.db.get<{ t: number | null }>(
-          "SELECT MIN(next_attempt_at) AS t FROM outbox WHERE state = 'pending'",
+          `SELECT MIN(t) AS t FROM (
+             SELECT MIN(next_attempt_at) AS t FROM outbox WHERE state = 'pending'
+             UNION ALL SELECT MIN(next_attempt_at) FROM message_ops
+           )`,
         )
       )?.t ?? undefined
     );
@@ -218,8 +264,11 @@ export class LocalStore {
 
   async pendingCount(): Promise<number> {
     return (
-      (await this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM outbox WHERE state != 'failed'"))
-        ?.n ?? 0
+      (
+        await this.db.get<{ n: number }>(
+          "SELECT (SELECT COUNT(*) FROM outbox WHERE state != 'failed') + (SELECT COUNT(*) FROM message_ops) AS n",
+        )
+      )?.n ?? 0
     );
   }
 
@@ -304,6 +353,177 @@ export class LocalStore {
     return r.changes;
   }
 
+  // ---------------------------------------------------------------- edits and deletes
+
+  /**
+   * Edits one of your sent messages. The change shows at once and is queued; the server copy
+   * is replaced when it confirms. Several edits before that collapse into the last one.
+   */
+  async enqueueEdit(
+    clientId: string,
+    text: string,
+    mentions: readonly string[] = [],
+  ): Promise<void> {
+    const body = text.trim();
+    if (!body) throw new Error('Cannot save an empty message');
+    await this.enqueueOp(clientId, 'edit', body, [...new Set(mentions)]);
+  }
+
+  /** Deletes a message. An unsent one is simply discarded; a sent one is deleted for everyone. */
+  async enqueueDelete(clientId: string): Promise<void> {
+    const msg = await this.getMessage(clientId);
+    if (!msg) return;
+    if (!msg.messageId) return this.discardUnsent(clientId);
+    await this.enqueueOp(clientId, 'delete', null, []);
+  }
+
+  private async enqueueOp(
+    clientId: string,
+    kind: MessageOpKind,
+    text: string | null,
+    mentions: string[],
+  ): Promise<void> {
+    const row = await this.db.get<MessageRow>('SELECT * FROM messages WHERE client_id = ?', [
+      clientId,
+    ]);
+    if (!row?.message_id) throw new Error('This message has not been sent yet');
+    if (row.deleted_at) throw new Error('This message was deleted');
+    if (kind === 'edit' && row.sender_id !== this.selfId)
+      throw new Error('You can only edit your own messages');
+    const nowIso = new Date(this.now()).toISOString();
+    await this.db.transaction(async (tx) => {
+      // prev_* keeps the last server-confirmed copy, so a rejected change can be rolled back.
+      await tx.run(
+        `INSERT INTO message_ops (client_id, message_id, conversation_id, kind, text, mentions, prev_text, prev_mentions, prev_edited_at, enqueued_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(client_id) DO UPDATE SET kind = excluded.kind, text = excluded.text,
+           mentions = excluded.mentions, attempts = 0, next_attempt_at = 0, last_error = NULL`,
+        [
+          clientId,
+          row.message_id,
+          row.conversation_id,
+          kind,
+          text,
+          JSON.stringify(mentions),
+          row.text,
+          row.mentions,
+          row.edited_at,
+          this.now(),
+        ],
+      );
+      await tx.run('UPDATE messages SET error = NULL WHERE client_id = ?', [clientId]);
+      await this.overlayPendingOp(tx, clientId, nowIso);
+    });
+    this.events.emit('messages', { conversationId: row.conversation_id });
+    this.events.emit('outbox', undefined);
+    this.events.emit('conversations', undefined);
+  }
+
+  /** Shows a pending edit/delete on top of whatever the server last sent. */
+  private async overlayPendingOp(tx: SqlExecutor, clientId: string, at?: string): Promise<void> {
+    const op = await tx.get<{ kind: MessageOpKind; text: string | null; mentions: string | null }>(
+      'SELECT kind, text, mentions FROM message_ops WHERE client_id = ?',
+      [clientId],
+    );
+    if (!op) return;
+    const when = at ?? new Date(this.now()).toISOString();
+    if (op.kind === 'delete') {
+      await tx.run(
+        "UPDATE messages SET text = '', mentions = '[]', deleted_at = COALESCE(deleted_at, ?) WHERE client_id = ?",
+        [when, clientId],
+      );
+    } else {
+      await tx.run(
+        'UPDATE messages SET text = ?, mentions = ?, edited_at = COALESCE(?, edited_at) WHERE client_id = ?',
+        [op.text ?? '', op.mentions ?? '[]', at ?? null, clientId],
+      );
+    }
+  }
+
+  async nextDueOp(): Promise<MessageOp | undefined> {
+    const r = await this.db.get<{
+      client_id: string;
+      message_id: string;
+      conversation_id: string;
+      kind: MessageOpKind;
+      text: string | null;
+      mentions: string | null;
+      attempts: number;
+    }>(
+      'SELECT * FROM message_ops WHERE next_attempt_at <= ? ORDER BY enqueued_at, client_id LIMIT 1',
+      [this.now()],
+    );
+    return (
+      r && {
+        clientId: r.client_id,
+        messageId: r.message_id,
+        conversationId: r.conversation_id,
+        kind: r.kind,
+        text: r.text,
+        mentions: parseIds(r.mentions),
+        attempts: r.attempts,
+      }
+    );
+  }
+
+  async markOpRetry(clientId: string, at: number, error: string): Promise<void> {
+    await this.db.run(
+      'UPDATE message_ops SET attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE client_id = ?',
+      [at, error, clientId],
+    );
+    this.events.emit('outbox', undefined);
+  }
+
+  /**
+   * The server confirmed the change. `expected` guards against a newer local change made while
+   * this one was in flight: that one stays queued.
+   */
+  async completeOp(op: MessageOp, server: Message): Promise<void> {
+    await this.db.run(
+      `DELETE FROM message_ops WHERE client_id = ? AND kind = ? AND COALESCE(text, '') = ?`,
+      [op.clientId, op.kind, op.text ?? ''],
+    );
+    await this.applyServerMessages([server]);
+  }
+
+  /** The server refused the change for good: roll the message back and say why. */
+  async failOp(op: MessageOp, reason: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const row = await tx.get<{
+        prev_text: string;
+        prev_mentions: string;
+        prev_edited_at: string | null;
+      }>('SELECT prev_text, prev_mentions, prev_edited_at FROM message_ops WHERE client_id = ?', [
+        op.clientId,
+      ]);
+      if (!row) return;
+      await tx.run('DELETE FROM message_ops WHERE client_id = ?', [op.clientId]);
+      await tx.run(
+        'UPDATE messages SET text = ?, mentions = ?, edited_at = ?, deleted_at = NULL, error = ? WHERE client_id = ?',
+        [
+          row.prev_text,
+          row.prev_mentions,
+          row.prev_edited_at,
+          `${op.kind === 'edit' ? 'Edit' : 'Delete'} not saved: ${reason}`,
+          op.clientId,
+        ],
+      );
+    });
+    this.events.emit('messages', { conversationId: op.conversationId });
+    this.events.emit('outbox', undefined);
+  }
+
+  /** Messages that mention you, newest first (for Activity). */
+  async listMentions(limit = 50): Promise<LocalMessage[]> {
+    return (
+      await this.db.all<MessageRow>(
+        `${MESSAGE_SELECT} WHERE m.deleted_at IS NULL AND m.sender_id != ? AND m.mentions LIKE ?
+         ORDER BY m.created_at DESC LIMIT ?`,
+        [this.selfId, `%"${this.selfId.replace(/[%_"]/g, '')}"%`, limit],
+      )
+    ).map(toMessage);
+  }
+
   // ---------------------------------------------------------------- applying server state
 
   /**
@@ -362,6 +582,8 @@ export class LocalStore {
     );
     // Server accepted it: the send is done, whichever device sent it.
     await tx.run('DELETE FROM outbox WHERE client_id = ?', [m.clientMessageId]);
+    // A local edit/delete the server has not confirmed yet stays visible over the server copy.
+    await this.overlayPendingOp(tx, m.clientMessageId);
     await tx.run(
       `UPDATE conversations SET
          last_change_seq = MAX(last_change_seq, ?),
@@ -414,7 +636,14 @@ export class LocalStore {
     if (ids.length === 0) return;
     await this.db.transaction(async (tx) => {
       for (const id of ids) {
-        for (const table of ['outbox', 'messages', 'receipts', 'drafts', 'conversations']) {
+        for (const table of [
+          'message_ops',
+          'outbox',
+          'messages',
+          'receipts',
+          'drafts',
+          'conversations',
+        ]) {
           await tx.run(`DELETE FROM ${table} WHERE conversation_id = ?`, [id]);
         }
       }
@@ -513,8 +742,14 @@ export class LocalStore {
   // ---------------------------------------------------------------- reading
 
   async getMessage(clientId: string): Promise<LocalMessage | undefined> {
-    const r = await this.db.get<MessageRow>('SELECT * FROM messages WHERE client_id = ?', [
-      clientId,
+    const r = await this.db.get<MessageRow>(`${MESSAGE_SELECT} WHERE m.client_id = ?`, [clientId]);
+    return r && toMessage(r);
+  }
+
+  /** Looks a message up by its server id (used for reply previews). */
+  async getMessageByServerId(messageId: string): Promise<LocalMessage | undefined> {
+    const r = await this.db.get<MessageRow>(`${MESSAGE_SELECT} WHERE m.message_id = ?`, [
+      messageId,
     ]);
     return r && toMessage(r);
   }
@@ -526,8 +761,8 @@ export class LocalStore {
   async listMessages(conversationId: string, limit = 200): Promise<LocalMessage[]> {
     const rows = await this.db.all<MessageRow>(
       `SELECT * FROM (
-         SELECT * FROM messages WHERE conversation_id = ?
-         ORDER BY server_seq IS NULL DESC, server_seq DESC, created_at DESC, client_id DESC
+         ${MESSAGE_SELECT} WHERE m.conversation_id = ?
+         ORDER BY m.server_seq IS NULL DESC, m.server_seq DESC, m.created_at DESC, m.client_id DESC
          LIMIT ?
        ) ORDER BY server_seq IS NULL, server_seq, created_at, client_id`,
       [conversationId, limit],
@@ -581,7 +816,7 @@ export class LocalStore {
     const q = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     return (
       await this.db.all<MessageRow>(
-        "SELECT * FROM messages WHERE deleted_at IS NULL AND text LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?",
+        `${MESSAGE_SELECT} WHERE m.deleted_at IS NULL AND m.text LIKE ? ESCAPE '\\' ORDER BY m.created_at DESC LIMIT ?`,
         [q, limit],
       )
     ).map(toMessage);
@@ -615,14 +850,14 @@ export class LocalStore {
         `DELETE FROM messages WHERE client_id IN (
            SELECT client_id FROM (
              SELECT client_id, ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY server_seq DESC) AS rn
-             FROM messages WHERE server_seq IS NOT NULL AND client_id NOT IN (SELECT client_id FROM outbox)
+             FROM messages WHERE server_seq IS NOT NULL AND client_id NOT IN (SELECT client_id FROM outbox) AND client_id NOT IN (SELECT client_id FROM message_ops)
            ) WHERE rn > ?
          )`,
         [this.quota.maxMessagesPerConversation],
       );
       const total = await tx.run(
         `DELETE FROM messages WHERE client_id IN (
-           SELECT client_id FROM messages WHERE server_seq IS NOT NULL AND client_id NOT IN (SELECT client_id FROM outbox)
+           SELECT client_id FROM messages WHERE server_seq IS NOT NULL AND client_id NOT IN (SELECT client_id FROM outbox) AND client_id NOT IN (SELECT client_id FROM message_ops)
            ORDER BY created_at DESC LIMIT -1 OFFSET ?
          )`,
         [this.quota.maxMessagesTotal],
@@ -672,7 +907,9 @@ export class LocalStore {
   async clearSyncedCache(): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run(
-        'DELETE FROM messages WHERE server_seq IS NOT NULL AND client_id NOT IN (SELECT client_id FROM outbox)',
+        `DELETE FROM messages WHERE server_seq IS NOT NULL
+           AND client_id NOT IN (SELECT client_id FROM outbox)
+           AND client_id NOT IN (SELECT client_id FROM message_ops)`,
       );
       await tx.run('DELETE FROM receipts');
       await tx.run('UPDATE conversations SET cursor = 0');
