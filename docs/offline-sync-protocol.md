@@ -83,6 +83,18 @@ A reaction is an idempotent intent, not an append-only operation: `PUT /v1/messa
 - **Wire shape:** `message.reactions: [{ emoji, userIds, count }]` in first-reacted order. `userIds` is capped at 20; `count` is the full total. A message holds at most 50 distinct emoji; one emoji grapheme per reaction.
 - **Client:** `engine.react(message, emoji, op)` writes to `reactionQueue` keyed by `messageId|emoji`, so toggling offline coalesces to the final intent. The UI renders `overlayReactions(serverReactions, pending, me)`, so the change shows instantly and never flickers back during sync. The queue flushes after messages with the same backoff; a rejected intent (message deleted, no access) is dropped and the server state wins.
 
+## Attachments
+
+Bytes never travel through the sync protocol. Uploading needs a connection; sending the message that references the upload can still be queued offline.
+
+1. `POST /v1/uploads { conversationId, fileName, mimeType, sizeBytes, sha256?, width?, height? }` returns `{ uploadId, uploadUrl, expiresAt, attachment }` (ticket valid 15 min; requires `message.send`).
+2. `PUT {uploadUrl}` with the raw bytes (`Content-Type: application/octet-stream`, bearer token). The server enforces the declared size and, when given, the SHA-256.
+3. `POST /v1/uploads/:uploadId/complete` returns the `Attachment` with `status: 'ready'` (idempotent).
+4. Send the message with `attachmentIds` (max 10; text may be empty when files are attached). Each upload is the sender's own, in that conversation, and usable once. The message carries `attachments: Attachment[]`, an immutable metadata snapshot.
+5. Download: `GET /v1/attachments/:id/url` returns a signed URL valid 10 minutes that needs no auth header (so `<img src>` works). Images, PDF and plain text are served inline; everything else as a download with `nosniff` and a sandbox CSP.
+
+Limits: 100 MB per file; executable and script extensions are refused. Storage sits behind a `FileStorage` interface: MongoDB GridFS is built; Nextcloud (WebDAV) is planned. Malware scanning and a sweeper for abandoned pending uploads are planned.
+
 ## Conflict handling
 
 - **Send vs send:** idempotency key; server order wins.

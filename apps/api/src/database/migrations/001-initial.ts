@@ -1,12 +1,12 @@
 import type { Db } from 'mongodb';
 import type { Migration } from './runner.js';
 
-const str = { bsonType: 'string' };
-const date = { bsonType: 'date' };
-const int = { bsonType: ['int', 'long'] };
-const nullable = (t: object) => ({ oneOf: [t, { bsonType: 'null' }] });
+export const str = { bsonType: 'string' };
+export const date = { bsonType: 'date' };
+export const int = { bsonType: ['int', 'long'] };
+export const nullable = (t: object) => ({ oneOf: [t, { bsonType: 'null' }] });
 
-async function ensureCollection(db: Db, name: string, schema: object) {
+export async function ensureCollection(db: Db, name: string, schema: object) {
   const exists = await db.listCollections({ name }).hasNext();
   const validator = { $jsonSchema: schema };
   if (exists) await db.command({ collMod: name, validator, validationLevel: 'strict' });
@@ -18,7 +18,7 @@ async function ensureCollection(db: Db, name: string, schema: object) {
     });
 }
 
-const tenantScoped = (required: string[], properties: Record<string, object>) => ({
+export const tenantScoped = (required: string[], properties: Record<string, object>) => ({
   bsonType: 'object',
   required: ['_id', 'tenantId', ...required],
   properties: { _id: str, tenantId: str, ...properties },

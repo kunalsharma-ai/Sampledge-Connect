@@ -135,6 +135,7 @@ export class TenantDb {
       devices: c('devices'),
       sync_checkpoints: c('sync_checkpoints'),
       audit_logs: c('audit_logs'),
+      attachments: c('attachments'),
     };
   }
 }

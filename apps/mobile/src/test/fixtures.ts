@@ -36,6 +36,7 @@ export function serverMessage(
     messageType: 'text',
     content: { text: `hello ${over.serverSequence}`, mentions: [] },
     attachmentIds: [],
+    attachments: [],
     replyToMessageId: null,
     changeSequence: over.changeSequence ?? over.serverSequence,
     createdAt: new Date(Date.UTC(2026, 10, 1, 0, 0, over.serverSequence)).toISOString(),

@@ -111,6 +111,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       messageType: 'text',
       content: { text, mentions: extra?.mentions ?? [] },
       attachmentIds: [],
+      attachments: [],
       replyToMessageId: extra?.replyToSeq ? `demo-${conversationId}-${extra.replyToSeq}` : null,
       serverSequence: seq,
       changeSequence: seq,

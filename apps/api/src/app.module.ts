@@ -21,6 +21,11 @@ import { SyncController } from './sync/sync.controller.js';
 import { RealtimePublisher } from './realtime/realtime.publisher.js';
 import { RealtimeGateway } from './realtime/realtime.gateway.js';
 import { HealthController } from './health/health.controller.js';
+import { AttachmentsController } from './attachments/attachments.controller.js';
+import { AttachmentsService } from './attachments/attachments.service.js';
+import { FILE_STORAGE, GridFsStorage } from './attachments/file-storage.js';
+import { MONGO_DB } from './database/database.module.js';
+import type { Db } from 'mongodb';
 
 @Module({})
 export class AppModule {
@@ -41,6 +46,7 @@ export class AppModule {
         MessagesController,
         SyncController,
         HealthController,
+        AttachmentsController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -53,6 +59,12 @@ export class AppModule {
         SyncService,
         RealtimePublisher,
         RealtimeGateway,
+        AttachmentsService,
+        {
+          provide: FILE_STORAGE,
+          inject: [MONGO_DB],
+          useFactory: (db: Db) => new GridFsStorage(db),
+        },
       ],
     };
   }
