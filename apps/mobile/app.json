@@ -43,6 +43,14 @@
             "backgroundColor": "#080F1F"
           }
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Sampledge Connect uses your photos only when you attach them to a message.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

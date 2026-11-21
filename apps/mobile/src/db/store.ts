@@ -3,6 +3,7 @@ import {
   uuidv7,
   type Conversation,
   type ConversationKind,
+  type Attachment,
   type Message,
   type MessageStatus,
   type Reaction,
@@ -33,6 +34,36 @@ export interface LocalMessage {
   pendingOp: MessageOpKind | null;
   /** Server reactions with your unconfirmed changes applied on top. */
   reactions: LocalReaction[];
+  attachments: LocalAttachment[];
+}
+
+/** A file on a message: from the server snapshot, from this device, or both. */
+export interface LocalAttachment {
+  /** Null until the upload completes. */
+  attachmentId: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  /** The copy kept on this device (files you sent from here); shown without downloading. */
+  localUri: string | null;
+}
+
+/** A file picked in the composer, already copied into app storage. */
+export interface PendingFileInput {
+  localUri: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface PendingFile extends PendingFileInput {
+  clientId: string;
+  position: number;
+  attachmentId: string | null;
 }
 
 export interface LocalReaction {
@@ -157,6 +188,7 @@ interface MessageRow {
   text: string;
   mentions: string;
   reactions?: string;
+  attachments?: string;
   reply_to: string | null;
   server_seq: number | null;
   change_seq: number | null;
@@ -167,6 +199,25 @@ interface MessageRow {
   error: string | null;
   pending_op?: MessageOpKind | null;
 }
+
+interface FileRow {
+  client_id: string;
+  position: number;
+  local_uri: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  attachment_id: string | null;
+}
+
+const filesPreview = (files: readonly { fileName: string }[]): string =>
+  files.length === 0
+    ? ''
+    : files.length === 1
+      ? `📎 ${files[0]!.fileName}`
+      : `📎 ${files.length} files`;
 
 /** Message columns plus the kind of any pending edit/delete. */
 const MESSAGE_SELECT =
@@ -198,7 +249,17 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   error: r.error,
   pendingOp: r.pending_op ?? null,
   reactions: [],
+  attachments: [],
 });
+
+const parseAttachments = (raw: string | undefined): Attachment[] => {
+  try {
+    const v = JSON.parse(raw ?? '[]') as unknown;
+    return Array.isArray(v) ? (v as Attachment[]) : [];
+  } catch {
+    return [];
+  }
+};
 
 const parseReactions = (raw: string | undefined): Reaction[] => {
   try {
@@ -259,9 +320,11 @@ export class LocalStore {
     text: string;
     replyTo?: string | null;
     mentions?: readonly string[];
+    files?: readonly PendingFileInput[];
   }): Promise<LocalMessage> {
     const text = input.text.trim();
-    if (!text) throw new Error('Cannot send an empty message');
+    const files = input.files ?? [];
+    if (!text && files.length === 0) throw new Error('Cannot send an empty message');
     const clientId = uuidv7(this.now());
     const createdAt = new Date(this.now()).toISOString();
     await this.db.transaction(async (tx) => {
@@ -282,10 +345,26 @@ export class LocalStore {
         `INSERT INTO outbox (client_id, conversation_id, state, enqueued_at) VALUES (?, ?, 'pending', ?)`,
         [clientId, input.conversationId, this.now()],
       );
+      for (const [position, f] of files.entries()) {
+        await tx.run(
+          `INSERT INTO message_files (client_id, position, local_uri, file_name, mime_type, size_bytes, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            clientId,
+            position,
+            f.localUri,
+            f.fileName,
+            f.mimeType,
+            f.sizeBytes,
+            f.width ?? null,
+            f.height ?? null,
+          ],
+        );
+      }
       await tx.run('DELETE FROM drafts WHERE conversation_id = ?', [input.conversationId]);
       await tx.run(
         'UPDATE conversations SET last_preview = ?, last_message_at = ? WHERE conversation_id = ?',
-        [text, createdAt, input.conversationId],
+        [text || filesPreview(files), createdAt, input.conversationId],
       );
     });
     this.events.emit('messages', { conversationId: input.conversationId });
@@ -608,14 +687,88 @@ export class LocalStore {
           ids,
         )
       : [];
-    return rows.map((r) => ({
-      ...toMessage(r),
-      reactions: overlayReactions(
-        parseReactions(r.reactions),
-        ops.filter((o) => o.message_id === r.message_id),
-        this.selfId,
-      ),
+    const clientIds = rows.map((r) => r.client_id);
+    const files = clientIds.length
+      ? await this.db.all<FileRow>(
+          `SELECT * FROM message_files WHERE client_id IN (${clientIds.map(() => '?').join(',')})
+           ORDER BY client_id, position`,
+          clientIds,
+        )
+      : [];
+    return rows.map((r) => {
+      const mine = files.filter((f) => f.client_id === r.client_id);
+      const server = parseAttachments(r.attachments);
+      const attachments: LocalAttachment[] = r.deleted_at
+        ? []
+        : server.length
+          ? server.map((a) => ({
+              attachmentId: a.attachmentId,
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              width: a.width ?? null,
+              height: a.height ?? null,
+              localUri: mine.find((f) => f.attachment_id === a.attachmentId)?.local_uri ?? null,
+            }))
+          : mine.map((f) => ({
+              attachmentId: f.attachment_id,
+              fileName: f.file_name,
+              mimeType: f.mime_type,
+              sizeBytes: f.size_bytes,
+              width: f.width,
+              height: f.height,
+              localUri: f.local_uri,
+            }));
+      return {
+        ...toMessage(r),
+        reactions: overlayReactions(
+          parseReactions(r.reactions),
+          ops.filter((o) => o.message_id === r.message_id),
+          this.selfId,
+        ),
+        attachments,
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------- files
+
+  /** Files of a queued message, in order, with the upload progress so far. */
+  async pendingFiles(clientId: string): Promise<PendingFile[]> {
+    return (
+      await this.db.all<FileRow>(
+        'SELECT * FROM message_files WHERE client_id = ? ORDER BY position',
+        [clientId],
+      )
+    ).map((f) => ({
+      clientId: f.client_id,
+      position: f.position,
+      localUri: f.local_uri,
+      fileName: f.file_name,
+      mimeType: f.mime_type,
+      sizeBytes: f.size_bytes,
+      width: f.width,
+      height: f.height,
+      attachmentId: f.attachment_id,
     }));
+  }
+
+  /** The file is on the server and ready; a retry will not upload it again. */
+  async markFileUploaded(clientId: string, position: number, attachmentId: string): Promise<void> {
+    await this.db.run(
+      'UPDATE message_files SET attachment_id = ? WHERE client_id = ? AND position = ?',
+      [attachmentId, clientId, position],
+    );
+    await this.emitForMessage(clientId);
+  }
+
+  /** Local copies no row refers to any more (after a discard or eviction), for cleanup. */
+  async liveFileUris(): Promise<Set<string>> {
+    return new Set(
+      (await this.db.all<{ local_uri: string }>('SELECT local_uri FROM message_files')).map(
+        (r) => r.local_uri,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------- reactions
@@ -734,13 +887,14 @@ export class LocalStore {
     const status: MessageStatus =
       existing && CONFIRMED.has(existing.status) ? existing.status : 'sent';
     await tx.run(
-      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(client_id) DO UPDATE SET
          message_id = excluded.message_id, text = excluded.text, mentions = excluded.mentions,
          reply_to = excluded.reply_to, server_seq = excluded.server_seq, change_seq = excluded.change_seq,
          status = excluded.status, created_at = excluded.created_at, edited_at = excluded.edited_at,
-         deleted_at = excluded.deleted_at, reactions = excluded.reactions, error = NULL`,
+         deleted_at = excluded.deleted_at, reactions = excluded.reactions,
+         attachments = excluded.attachments, error = NULL`,
       [
         m.clientMessageId,
         m.messageId,
@@ -756,6 +910,7 @@ export class LocalStore {
         m.editedAt ?? null,
         m.deletedAt ?? null,
         JSON.stringify(m.deletedAt ? [] : (m.reactions ?? [])),
+        JSON.stringify(m.deletedAt ? [] : (m.attachments ?? [])),
       ],
     );
     // Server accepted it: the send is done, whichever device sent it.
@@ -773,7 +928,7 @@ export class LocalStore {
         m.createdAt,
         m.createdAt,
         m.createdAt,
-        m.deletedAt ? 'Message deleted' : m.content.text,
+        m.deletedAt ? 'Message deleted' : m.content.text || filesPreview(m.attachments ?? []),
         m.conversationId,
       ],
     );

@@ -1,5 +1,9 @@
 import {
   ERROR_CODES,
+  type Attachment,
+  type AttachmentUrl,
+  type CreateUploadRequest,
+  type UploadTicket,
   type AckReceiptRequest,
   type EditMessageRequest,
   type ErrorCode,
@@ -13,6 +17,8 @@ import {
   type SyncRequest,
   type SyncResponse,
 } from '@sampledge/contracts';
+
+import { putFileBytes } from '../lib/localFiles';
 
 /** Why a request failed, in terms the offline queue can act on. */
 export class TransportError extends Error {
@@ -47,6 +53,10 @@ export interface ApiTransport {
   editMessage(messageId: string, req: EditMessageRequest): Promise<Message>;
   deleteMessage(messageId: string): Promise<Message>;
   setReaction(req: SetReactionRequest): Promise<Message>;
+  /** Ticket, bytes, complete. Returns the ready attachment. */
+  uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment>;
+  /** Short-lived signed download URL, absolute. */
+  attachmentUrl(attachmentId: string): Promise<AttachmentUrl>;
   listUsers(): Promise<DirectoryUser[]>;
 }
 
@@ -113,6 +123,49 @@ export class HttpTransport implements ApiTransport {
       `/v1/messages/${encodeURIComponent(req.messageId)}/reactions/${encodeURIComponent(req.emoji)}`,
       undefined,
     );
+  }
+
+  async uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment> {
+    const ticket = await this.request<UploadTicket>('POST', '/v1/uploads', req);
+    const token = await this.opts.getAccessToken();
+    if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
+    let res: { status: number; body: string };
+    try {
+      res = await putFileBytes(new URL(ticket.uploadUrl, this.opts.baseUrl).toString(), localUri, {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/octet-stream',
+      });
+    } catch (err) {
+      throw new TransportError(err instanceof Error ? err.message : 'Upload failed', 'network');
+    }
+    if (res.status < 200 || res.status >= 300) {
+      let error: { code?: ErrorCode; message?: string; retryAfterMs?: number } | undefined;
+      try {
+        error = (JSON.parse(res.body) as { error?: typeof error }).error;
+      } catch {
+        error = undefined;
+      }
+      throw new TransportError(
+        error?.message ?? `Upload failed (HTTP ${res.status})`,
+        'api',
+        error?.code ?? codeForStatus(res.status),
+        error?.retryAfterMs,
+      );
+    }
+    return this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+  }
+
+  async attachmentUrl(attachmentId: string): Promise<AttachmentUrl> {
+    const r = await this.request<AttachmentUrl>(
+      'GET',
+      `/v1/attachments/${encodeURIComponent(attachmentId)}/url`,
+      undefined,
+    );
+    return { ...r, url: new URL(r.url, this.opts.baseUrl).toString() };
   }
 
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
@@ -205,5 +258,7 @@ export class NoServerTransport implements ApiTransport {
   editMessage = async (): Promise<Message> => this.fail();
   deleteMessage = async (): Promise<Message> => this.fail();
   setReaction = async (): Promise<Message> => this.fail();
+  uploadFile = async (): Promise<Attachment> => this.fail();
+  attachmentUrl = async (): Promise<AttachmentUrl> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
 }

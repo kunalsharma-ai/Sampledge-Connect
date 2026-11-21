@@ -243,6 +243,109 @@ async function api(method, path, body, token) {
   );
   await shot('18-reactions-synced');
 
+  // ---- Attachments: a PDF and a photo from Sam, a photo from Marco, signed download
+  const path = require('node:path');
+  const fx = (n) => path.join(__dirname, 'e2e-fixtures', n);
+  const pick = async (menuItem, file) => {
+    await p.getByRole('button', { name: 'Attach' }).click();
+    const [chooser] = await Promise.all([
+      p.waitForEvent('filechooser'),
+      p.getByRole('button', { name: menuItem }).click(),
+    ]);
+    await chooser.setFiles(file);
+    await p.waitForTimeout(500);
+  };
+  await pick('Files', fx('boost-sample-brief.pdf'));
+  await pick('Photos', fx('quota-by-market.png'));
+  await p.locator('textarea').last().fill('Brief and the quota chart for the client call.');
+  await shot('19-files-attached');
+  await p.getByRole('button', { name: 'Send message' }).click();
+  await p.waitForTimeout(3500);
+  await shot('20-files-sent');
+  all = await serverMsgs();
+  const withFiles = all.find(
+    (m) => m.content.text === 'Brief and the quota chart for the client call.',
+  );
+  check('message sent with 2 attachments', withFiles?.attachments?.length === 2);
+  check(
+    'attachments keep names and types',
+    JSON.stringify(withFiles?.attachments?.map((a) => [a.fileName, a.mimeType])) ===
+      JSON.stringify([
+        ['boost-sample-brief.pdf', 'application/pdf'],
+        ['quota-by-market.png', 'image/png'],
+      ]),
+  );
+  const signed = await api(
+    'GET',
+    `/v1/attachments/${withFiles.attachments[0].attachmentId}/url`,
+    undefined,
+    marco,
+  );
+  const pdfBytes = await (await fetch(API + signed.url)).arrayBuffer();
+  check(
+    'uploaded bytes download intact',
+    Buffer.from(pdfBytes).equals(require('node:fs').readFileSync(fx('boost-sample-brief.pdf'))),
+  );
+
+  // Marco shares a photo: Sam sees it through a signed link.
+  const png = require('node:fs').readFileSync(fx('quota-by-market.png'));
+  const ticket = await api(
+    'POST',
+    '/v1/uploads',
+    {
+      conversationId: ch.conversationId,
+      fileName: 'de-boost-progress.png',
+      mimeType: 'image/png',
+      sizeBytes: png.length,
+      width: 480,
+      height: 300,
+    },
+    marco,
+  );
+  const put = await fetch(API + ticket.uploadUrl, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${marco}`, 'content-type': 'application/octet-stream' },
+    body: png,
+  });
+  if (!put.ok) throw new Error(`upload PUT ${put.status} ${await put.text()}`);
+  await api('POST', `/v1/uploads/${ticket.uploadId}/complete`, undefined, marco);
+  await api(
+    'POST',
+    `/v1/conversations/${ch.conversationId}/messages`,
+    {
+      conversationId: ch.conversationId,
+      clientMessageId: crypto.randomUUID(),
+      messageType: 'text',
+      content: { text: 'DE boost is filling fast.', mentions: [] },
+      attachmentIds: [ticket.uploadId],
+    },
+    marco,
+  );
+  await p.waitForTimeout(3500);
+  await shot('21-photo-from-marco');
+  const imgOk = await p.evaluate(() =>
+    [...document.images].some(
+      (i) => i.src.includes('/v1/files/') && i.complete && i.naturalWidth > 0,
+    ),
+  );
+  check('photo from another member loads through a signed link', imgOk);
+
+  // Offline: the file waits on the device and uploads after reconnect.
+  await ctx.setOffline(true);
+  await p.waitForTimeout(800);
+  await pick('Files', fx('boost-sample-brief.pdf'));
+  await p.getByRole('button', { name: 'Send message' }).click();
+  await p.waitForTimeout(1200);
+  await shot('22-file-queued-offline');
+  await ctx.setOffline(false);
+  await p.waitForTimeout(7000);
+  all = await serverMsgs();
+  check(
+    'file queued offline uploaded and sent after reconnect',
+    all.filter((m) => m.attachments?.some((a) => a.fileName === 'boost-sample-brief.pdf'))
+      .length === 2,
+  );
+
   const priya = (
     await api('POST', '/v1/auth/login', {
       tenantSlug: 'northwind',
