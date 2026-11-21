@@ -8,6 +8,7 @@ import {
   DoorOpen,
   HelpCircle,
   Mic,
+  MessageSquare,
   MicOff,
   MonitorUp,
   PhoneOff,
@@ -27,10 +28,11 @@ import {
   type LocalTrack,
   type Participant,
 } from 'livekit-client';
-import type { GuestJoinState, GuestMeetingView } from '@sampledge/contracts';
+import type { GuestChatResponse, GuestJoinState, GuestMeetingView } from '@sampledge/contracts';
 import { Button, Input, StateView, cn } from '@sampledge/ui';
 import { Wordmark } from '@/components/brand';
 import { ControlButton, RemoteAudio, Tile, TrackVideo } from '@/components/workspace/calls';
+import { CallChatView, type ChatLine } from '@/components/workspace/call-chat';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { screenTrackOf } from '@/lib/calls';
@@ -66,6 +68,9 @@ function useGuestApi(token: string) {
         fetch(`${API_URL}${base}/lobby/leave`, { method: 'POST', keepalive: true }).catch(
           () => undefined,
         ),
+      chat: () => apiRequest<GuestChatResponse>('GET', `${base}/chat`),
+      sendChat: (text: string) =>
+        apiRequest<GuestChatResponse>('POST', `${base}/chat`, { body: { text } }),
       icsUrl: `${API_URL}${base}/calendar.ics`,
     };
   }, [token]);
@@ -205,6 +210,7 @@ export function GuestJoin({ token }: { token: string }) {
     return (
       <GuestCall
         room={phase.room}
+        api={api}
         title={view.title}
         recording={!!state?.recording}
         onLeave={() => {
@@ -598,17 +604,54 @@ function LeftPanel({
 /** The guest's call view: the room's tiles, plus mic, camera, screen share and leave. */
 function GuestCall({
   room,
+  api,
   title,
   recording,
   onLeave,
 }: {
   room: Room;
+  api: ReturnType<typeof useGuestApi>;
   title: string;
   recording: boolean;
   onLeave: () => void;
 }) {
   const reduce = useReducedMotion();
   const [, setVersion] = React.useState(0);
+  const [chatOpen, setChatOpen] = React.useState(false);
+  const [lines, setLines] = React.useState<ChatLine[]>([]);
+  const [seen, setSeen] = React.useState(0);
+  const toLines = React.useCallback(
+    (r: GuestChatResponse): ChatLine[] =>
+      r.messages.map((m) => ({
+        id: m.messageId,
+        name: m.senderName,
+        guest: m.fromGuest,
+        mine: m.mine,
+        text: m.text,
+        files: m.attachmentNames,
+        at: m.createdAt,
+      })),
+    [],
+  );
+  React.useEffect(() => {
+    let live = true;
+    const tick = () =>
+      api
+        .chat()
+        .then((r) => live && setLines(toLines(r)))
+        .catch(() => undefined);
+    void tick();
+    const t = setInterval(tick, 3000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [api, toLines]);
+  const others = lines.filter((l) => !l.mine).length;
+  React.useEffect(() => {
+    if (chatOpen) setSeen(others);
+  }, [chatOpen, others]);
+  const unread = Math.max(0, others - seen);
   React.useEffect(() => {
     const bump = () => setVersion((v) => v + 1);
     const events = [
@@ -668,7 +711,7 @@ function GuestCall({
             You’re a guest
           </span>
         </header>
-        <div className="flex min-h-0 flex-1 gap-3 p-3 sm:p-4">
+        <div className="relative flex min-h-0 flex-1 gap-3 p-3 sm:p-4">
           {share && sharer ? (
             <div className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black">
               <TrackVideo track={share} contain />
@@ -695,6 +738,16 @@ function GuestCall({
               ))}
             </div>
           )}
+          {chatOpen ? (
+            <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
+              <CallChatView
+                lines={lines}
+                onClose={() => setChatOpen(false)}
+                note="You see messages sent during this call."
+                onSend={async (t) => setLines(toLines(await api.sendChat(t)))}
+              />
+            </div>
+          ) : null}
         </div>
         <footer className="flex flex-wrap items-center justify-center gap-3 px-4 pb-6 pt-2">
           <ControlButton
@@ -722,6 +775,20 @@ function GuestCall({
           >
             {lp.isScreenShareEnabled ? <ScreenShareOff /> : <MonitorUp />}
           </ControlButton>
+          <span className="relative">
+            <ControlButton
+              on={chatOpen ? true : undefined}
+              label={chatOpen ? 'Hide chat' : 'Chat'}
+              onClick={() => setChatOpen((o) => !o)}
+            >
+              <MessageSquare />
+            </ControlButton>
+            {unread && !chatOpen ? (
+              <span className="pointer-events-none absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-semibold text-accent-fg">
+                {unread}
+              </span>
+            ) : null}
+          </span>
           <ControlButton tone="danger" label="Leave meeting" onClick={onLeave}>
             <PhoneOff />
           </ControlButton>

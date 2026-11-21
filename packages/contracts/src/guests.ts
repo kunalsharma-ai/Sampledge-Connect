@@ -147,3 +147,43 @@ export const GuestJoinStateSchema = z.object({
     .nullable(),
 });
 export type GuestJoinState = z.infer<typeof GuestJoinStateSchema>;
+
+// ---------- meeting chat for guests ----------
+
+/**
+ * `metadata.guest` on a message an external guest wrote in the meeting chat. Its `senderId`
+ * is the guest's identity (`guest:<guestId>`), which is never a user id.
+ */
+export const MessageGuestMetadataSchema = z.object({
+  guestId: ServerIdSchema,
+  name: z.string(),
+});
+export type MessageGuestMetadata = z.infer<typeof MessageGuestMetadataSchema>;
+
+/** Display name for a message's sender when it came from a guest, else null. */
+export function guestSenderName(message: { metadata?: Record<string, unknown> }): string | null {
+  const g = message.metadata?.guest as Partial<MessageGuestMetadata> | undefined;
+  return g && typeof g.name === 'string' ? g.name : null;
+}
+
+/**
+ * What a guest sees of the meeting chat: only messages from while the current call has been
+ * live (never the conversation's earlier history), and only while they're admitted to it.
+ * Attachments show by name; guests can't open members' files.
+ */
+export const GuestChatMessageSchema = z.object({
+  messageId: ServerIdSchema,
+  senderName: z.string(),
+  fromGuest: z.boolean(),
+  mine: z.boolean(),
+  text: z.string(),
+  attachmentNames: z.array(z.string()),
+  createdAt: z.string().datetime(),
+  editedAt: z.string().datetime().nullable(),
+});
+export type GuestChatMessage = z.infer<typeof GuestChatMessageSchema>;
+
+export const GuestChatResponseSchema = z.object({ messages: z.array(GuestChatMessageSchema) });
+export type GuestChatResponse = z.infer<typeof GuestChatResponseSchema>;
+
+export const GuestChatSendSchema = z.object({ text: z.string().trim().min(1).max(4000) });
