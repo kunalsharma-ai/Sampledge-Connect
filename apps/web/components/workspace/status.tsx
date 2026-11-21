@@ -98,7 +98,14 @@ export function StatusMenu({
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`Your status: ${dnd ? 'Do not disturb' : AVAILABILITY_LABEL[status.availability]}${status.text ? `, ${status.text}` : ''}`}
+        // Expanded, the visible name and status are the accessible name.
+        aria-label={
+          expanded
+            ? undefined
+            : `Your status: ${dnd ? 'Do not disturb' : AVAILABILITY_LABEL[status.availability]}${status.text ? `, ${status.text}` : ''}`
+        }
+        aria-haspopup="menu"
+        data-testid="status-button"
         className={cn(
           'flex w-full min-w-0 items-center gap-3 rounded-md text-left hover:bg-surface-raised',
           expanded ? 'px-1.5 py-1' : 'justify-center p-0.5',
