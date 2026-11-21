@@ -34,28 +34,40 @@ export default function WorkingHoursScreen() {
   const blocked = engine.serverActionBlocker();
   const phoneZone = deviceTimeZone();
 
+  const [dirty, setDirty] = useState(false);
+  const apply = (h: WorkingHours) => {
+    setZone(h.timeZone);
+    const map: Record<number, Day> = {};
+    for (let d = 0; d < 7; d++) {
+      const x = h.days.find((y) => y.day === d);
+      map[d] = x
+        ? { on: true, start: x.start, end: x.end }
+        : { on: false, start: '09:00', end: '17:30' };
+    }
+    setDays(map);
+  };
+
   useEffect(() => {
-    if (blocked) return;
     void engine
       .getWorkingHours()
-      .then((h) => {
-        setZone(h.timeZone);
-        const map: Record<number, Day> = {};
-        for (let d = 0; d < 7; d++) {
-          const x = h.days.find((y) => y.day === d);
-          map[d] = x
-            ? { on: true, start: x.start, end: x.end }
-            : { on: false, start: '09:00', end: '17:30' };
-        }
-        setDays(map);
-      })
+      .then(apply)
       .catch((e: unknown) =>
         setNote({ ok: false, text: e instanceof Error ? e.message : String(e) }),
       );
-  }, [engine, blocked]);
+  }, [engine]);
+
+  // Changed on another device (or sent from here): follow it unless you are mid-edit.
+  useEffect(
+    () =>
+      engine.events.on('workingHours', (h) => {
+        if (!dirty) apply(h);
+      }),
+    [engine, dirty],
+  );
 
   const patch = (d: number, p: Partial<Day>) => {
     setNote(null);
+    setDirty(true);
     setDays((cur) => (cur ? { ...cur, [d]: { ...cur[d]!, ...p } } : cur));
   };
   const step = (d: number, key: 'start' | 'end', delta: number) => {
@@ -79,7 +91,13 @@ export default function WorkingHoursScreen() {
     setBusy(true);
     try {
       await engine.setWorkingHours(body);
-      setNote({ ok: true, text: 'Saved. Suggested meeting times now follow these hours.' });
+      setDirty(false);
+      setNote({
+        ok: true,
+        text: blocked
+          ? 'Saved on this phone. It is sent when you are back online.'
+          : 'Saved. Suggested meeting times now follow these hours.',
+      });
     } catch (e) {
       setNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -122,7 +140,7 @@ export default function WorkingHoursScreen() {
         {blocked ? (
           <View style={[styles.note, { backgroundColor: alpha(c.warning, 0.12) }]}>
             <Text variant="meta" style={{ color: c.warning }}>
-              {blocked} Working hours are kept on the server.
+              {blocked} Showing the copy on this phone; changes are sent when you reconnect.
             </Text>
           </View>
         ) : null}
@@ -141,7 +159,10 @@ export default function WorkingHoursScreen() {
                   <Button
                     title="Use this phone’s"
                     kind="quiet"
-                    onPress={() => setZone(phoneZone)}
+                    onPress={() => {
+                      setZone(phoneZone);
+                      setDirty(true);
+                    }}
                     style={{ paddingVertical: 6, paddingHorizontal: space.md }}
                   />
                 ) : null}
@@ -198,7 +219,7 @@ export default function WorkingHoursScreen() {
               title="Save working hours"
               onPress={() => void save()}
               busy={busy}
-              disabled={!!blocked}
+              disabled={!!engine.queueBlocker()}
             />
           </>
         ) : note ? (

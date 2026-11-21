@@ -61,6 +61,8 @@ type RealtimeEvents = {
   booking: { bookingPageId: string; page: BookingPage | null };
   /** Your recent searches changed on one of your devices. */
   searchRecent: { recent: string[] };
+  /** Your booking pages or working hours changed (on any of your devices). */
+  meetingsChanged: { area: 'booking_pages' | 'working_hours' };
 };
 
 /**
@@ -140,6 +142,7 @@ export class RealtimeClient {
     socket.on('project:changed', (e) => this.events.emit('project', e));
     socket.on('booking:changed', (e) => this.events.emit('booking', e));
     socket.on('search:recent', (e) => this.events.emit('searchRecent', e));
+    socket.on('meetings:changed', (e) => this.events.emit('meetingsChanged', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

@@ -138,6 +138,7 @@ export interface EngineState {
  * to connectivity, app foregrounding and session changes.
  */
 /** Settings key for the server's copy of your recent searches. */
+const HOURS_KEY = 'workingHours';
 const RECENT_KEY = 'search.recent';
 
 export class ConnectEngine {
@@ -168,6 +169,8 @@ export class ConnectEngine {
     profile: null;
     /** Your recent searches changed here or on another of your devices. */
     recentSearches: string[];
+    /** Your working hours changed here or on another device. */
+    workingHours: WorkingHours;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -277,6 +280,9 @@ export class ConnectEngine {
         this.realtime.events.on('project', (e) => this.events.emit('project', e)),
         this.realtime.events.on('booking', (e) => void this.receiveBooking(e)),
         this.realtime.events.on('searchRecent', (e) => void this.receiveRecent(e.recent)),
+        this.realtime.events.on('meetingsChanged', (e) => {
+          if (e.area === 'working_hours') void this.refreshWorkingHours().catch(() => undefined);
+        }),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -1232,6 +1238,12 @@ export class ConnectEngine {
       case 'dnd.set':
         await this.receivePresence(await this.api.setDndSchedule(i.schedule));
         break;
+      case 'hours.set':
+        await this.store.setSetting(
+          HOURS_KEY,
+          JSON.stringify(await this.api.setWorkingHours(i.hours)),
+        );
+        break;
       case 'search.recent':
         await this.store.setSetting(
           RECENT_KEY,
@@ -1282,6 +1294,10 @@ export class ConnectEngine {
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
     if (i.kind === 'search.recent') void this.emitRecent();
+    if (i.kind === 'hours.set')
+      void this.getWorkingHours()
+        .then((h) => this.events.emit('workingHours', h))
+        .catch(() => undefined);
     if (
       i.kind === 'profile.update' ||
       i.kind.startsWith('avatar.') ||
@@ -1308,6 +1324,7 @@ export class ConnectEngine {
           this.listBookmarks(),
           this.listBookingPages(),
           this.refreshRecentSearches(),
+          this.refreshWorkingHours(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
@@ -1666,12 +1683,32 @@ export class ConnectEngine {
     return this.serverAction(() => this.api.findTimes(req));
   }
 
-  getWorkingHours(): Promise<WorkingHours> {
-    return this.serverAction(() => this.api.getWorkingHours());
+  /**
+   * Your working hours: your unsent change, else the copy on this phone, else the server's.
+   * Kept on the phone so the screen opens offline; follows changes made on other devices.
+   */
+  async getWorkingHours(): Promise<WorkingHours> {
+    const pending = await this.store.work.pendingWorkingHours();
+    if (pending) return pending;
+    const raw = await this.store.getSetting(HOURS_KEY);
+    if (raw) return JSON.parse(raw) as WorkingHours;
+    return this.serverAction(() => this.refreshWorkingHours());
   }
 
-  setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
-    return this.serverAction(() => this.api.setWorkingHours(hours));
+  /** Saves your working hours. Works offline: shown at once, sent when you reconnect. */
+  async setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
+    if (this.session.state === 'demo')
+      await this.store.setSetting(HOURS_KEY, JSON.stringify(hours));
+    else await this.queue({ kind: 'hours.set', hours });
+    this.events.emit('workingHours', hours);
+    return hours;
+  }
+
+  private async refreshWorkingHours(): Promise<WorkingHours> {
+    const hours = await this.api.getWorkingHours();
+    await this.store.setSetting(HOURS_KEY, JSON.stringify(hours));
+    this.events.emit('workingHours', (await this.store.work.pendingWorkingHours()) ?? hours);
+    return hours;
   }
 
   async send(

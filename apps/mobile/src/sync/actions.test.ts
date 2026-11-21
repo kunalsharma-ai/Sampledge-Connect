@@ -10,6 +10,7 @@ import type {
   Task,
   UserStatus,
   DndSchedule,
+  WorkingHours,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import { migrate, rebuildPreservingUnsent } from '../db/migrations';
@@ -98,6 +99,10 @@ async function setup() {
     scheduled: new Map<string, ScheduledMessage>(),
     booking: new Map<string, BookingPage>(),
     recent: ['wave 3'] as string[],
+    hours: {
+      timeZone: 'Asia/Kolkata',
+      days: [{ day: 1, start: '09:00', end: '17:30' }],
+    } as WorkingHours,
     users: new Map<string, DirectoryUser>([
       [
         SELF,
@@ -184,6 +189,15 @@ async function setup() {
         dndSchedule: schedule,
         dndActive: false,
       };
+    },
+    getWorkingHours: async () => {
+      step('listWorkingHours');
+      return server.hours;
+    },
+    setWorkingHours: async (h: WorkingHours) => {
+      step(`setWorkingHours ${h.days.map((d) => `${d.day}:${d.start}-${d.end}`).join(',')}`);
+      server.hours = h;
+      return h;
     },
     getRecentSearches: async () => {
       step('listRecentSearches');
@@ -1006,5 +1020,38 @@ describe('status and quiet hours offline', () => {
     await t.online();
     expect(t.calls.filter((c) => c.startsWith('setStatus'))).toEqual(['setStatus auto']);
     expect(t.refused).toEqual([]);
+  });
+});
+
+describe('working hours offline and across devices', () => {
+  const week = (start: string): WorkingHours => ({
+    timeZone: 'Asia/Kolkata',
+    days: [1, 2, 3, 4, 5].map((day) => ({ day, start, end: '17:30' })),
+  });
+
+  it('opens offline from the phone, saves offline (latest wins), and follows another device', async () => {
+    const t = await setup();
+    await t.online();
+    expect((await t.engine.getWorkingHours()).days).toHaveLength(1); // cached by refreshWork
+    t.engine.setNetworkUp(false);
+    await t.engine.setWorkingHours(week('08:00'));
+    await t.engine.setWorkingHours(week('10:00'));
+    expect((await t.engine.getWorkingHours()).days[0]!.start).toBe('10:00');
+    // Another device changes them while this one has an unsent change: ours still shows.
+    t.rt.events.emit('meetingsChanged', { area: 'working_hours' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getWorkingHours()).days[0]!.start).toBe('10:00');
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setWorkingHours'))).toEqual([
+      'setWorkingHours 1:10:00-17:30,2:10:00-17:30,3:10:00-17:30,4:10:00-17:30,5:10:00-17:30',
+    ]);
+    // Now another device saves; this phone follows live.
+    const seen: string[] = [];
+    t.engine.events.on('workingHours', (h) => seen.push(h.days[0]!.start));
+    t.server.hours = week('07:30');
+    t.rt.events.emit('meetingsChanged', { area: 'working_hours' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getWorkingHours()).days[0]!.start).toBe('07:30');
+    expect(seen).toContain('07:30');
   });
 });
