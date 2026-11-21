@@ -3,7 +3,6 @@ import * as React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Check, Hash, Lock, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
 import type { Conversation, CreateConversationRequest, UserSummary } from '@sampledge/contracts';
-import { createBrandTheme, type BrandThemeInput } from '@sampledge/design-tokens';
 import {
   Avatar,
   Badge,
@@ -16,11 +15,11 @@ import {
   StateView,
   ThemePicker,
   cn,
-  useTheme,
   useToast,
 } from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useOrgBranding } from '@/lib/org-branding';
 import { useEngine } from '@/lib/engine';
 import { BrowserNotificationsCard } from './browser-notifications';
 import { TwoStepCard } from './two-step-card';
@@ -359,11 +358,7 @@ export function SettingsDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { brand, setBrand, setTheme } = useTheme();
-  const [draft, setDraft] = React.useState<BrandThemeInput>(
-    brand ?? { primary: '#0F766E', secondary: '#F59E0B', mode: 'dark' },
-  );
-  const preview = createBrandTheme(draft);
+  const { branding, themeLocked } = useOrgBranding();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -371,74 +366,41 @@ export function SettingsDialog({
         title="Settings"
         description="Appearance, notifications and sign-in security."
       >
-        <ThemePicker />
+        {themeLocked ? (
+          <p className="mb-3 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-meta text-text-muted">
+            {branding?.organizationName ?? 'Your organization'} sets the theme for everyone.
+          </p>
+        ) : null}
+        <div
+          className={themeLocked ? 'pointer-events-none opacity-60' : undefined}
+          aria-disabled={themeLocked || undefined}
+        >
+          <ThemePicker />
+        </div>
         <BrowserNotificationsCard />
         <TwoStepCard />
-        <div className="mt-6 rounded-xl border border-border p-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-label text-text">Organization brand theme</p>
-            <Badge tone="planned">Per-tenant sync planned</Badge>
-          </div>
-          <p className="mt-1 text-meta text-text-subtle">
-            Pick brand colors. Text and accent contrast are corrected automatically to meet WCAG AA.
-          </p>
-          <div className="mt-4 flex flex-wrap items-end gap-4">
-            <Field label="Primary" htmlFor="brand-primary">
-              <input
-                id="brand-primary"
-                type="color"
-                value={draft.primary}
-                onChange={(e) => setDraft({ ...draft, primary: e.target.value })}
-                className="h-10 w-16 cursor-pointer rounded-md border border-border bg-transparent"
-              />
-            </Field>
-            <Field label="Secondary" htmlFor="brand-secondary">
-              <input
-                id="brand-secondary"
-                type="color"
-                value={draft.secondary}
-                onChange={(e) => setDraft({ ...draft, secondary: e.target.value })}
-                className="h-10 w-16 cursor-pointer rounded-md border border-border bg-transparent"
-              />
-            </Field>
-            <div className="flex gap-1 rounded-md border border-border p-1">
-              {(['dark', 'light'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setDraft({ ...draft, mode: m })}
-                  className={cn(
-                    'h-8 rounded-sm px-3 text-label capitalize',
-                    draft.mode === m ? 'bg-surface-raised text-text shadow-sm' : 'text-text-muted',
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-            <div
-              className="flex h-10 items-center gap-2 rounded-md px-3"
-              style={{ background: preview.colors.bg }}
-            >
-              <span
-                className="rounded-md px-3 py-1 text-label"
-                style={{ background: preview.colors.accent, color: preview.colors.accentFg }}
+        {branding?.supportEmail || branding?.supportUrl ? (
+          <p className="mt-6 text-meta text-text-muted" data-testid="support-contact">
+            Need help? Contact{' '}
+            {branding.supportUrl ? (
+              <a
+                href={branding.supportUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent hover:underline"
               >
-                Send
-              </span>
-              <span className="text-label" style={{ color: preview.colors.text }}>
-                Preview
-              </span>
-            </div>
-            <Button
-              onClick={() => {
-                setBrand(draft);
-                setTheme('custom-brand');
-              }}
-            >
-              Apply brand theme
-            </Button>
-          </div>
-        </div>
+                {branding.organizationName} support
+              </a>
+            ) : null}
+            {branding.supportUrl && branding.supportEmail ? ' or ' : ''}
+            {branding.supportEmail ? (
+              <a href={`mailto:${branding.supportEmail}`} className="text-accent hover:underline">
+                {branding.supportEmail}
+              </a>
+            ) : null}
+            .
+          </p>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

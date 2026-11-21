@@ -49,6 +49,7 @@ import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
 import { BillingScreen } from './billing-screen';
+import { BrandingScreen } from './branding-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
@@ -360,6 +361,8 @@ export function Workspace() {
           <IntegrationsScreen online={state.connectivity === 'online'} />
         ) : module === 'billing' ? (
           <BillingScreen />
+        ) : module === 'branding' ? (
+          <BrandingScreen />
         ) : module === 'saved' ? (
           <SavedScreen
             api={bookmarks}
