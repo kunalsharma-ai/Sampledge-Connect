@@ -1,7 +1,7 @@
 {
   "name": "sampledge-connect",
   "private": true,
-  "description": "Sampledge Connect: offline-first, multi-tenant communication platform",
+  "description": "SampConnect: offline-first, multi-tenant communication platform",
   "packageManager": "pnpm@12.21.0",
   "engines": {
     "node": ">=26.13.1 <27",

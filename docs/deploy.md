@@ -1,4 +1,4 @@
-# Deploying Sampledge Connect
+# Deploying SampConnect
 
 This guide takes one server (VPS or on-premises) from nothing to a running, HTTPS-served
 Connect. Larger setups use the same images behind a load balancer; see **Scaling** below.

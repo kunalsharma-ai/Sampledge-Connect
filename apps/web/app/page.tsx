@@ -233,9 +233,8 @@ export default function Home() {
           transition={{ delay: 0.1 }}
           className="mt-6 max-w-2xl text-body text-text-muted"
         >
-          Sampledge Connect is the secure messaging layer for research, sourcing and fieldwork
-          teams. Chat, calls, meetings and the Sampledge modules in one place, on servers you
-          control.
+          SampConnect is the secure messaging layer for research, sourcing and fieldwork teams.
+          Chat, calls, meetings and the Sampledge modules in one place, on servers you control.
         </motion.p>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -295,7 +294,7 @@ export default function Home() {
       </section>
       <Pricing />
       <footer className="relative mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-8 text-meta text-text-muted">
-        <span>© {new Date().getFullYear()} Sampledge</span>
+        <span>© {new Date().getFullYear()} SampConnect by Sampledge</span>
         <span className="flex gap-4">
           <Link href="/login" className="hover:text-text">
             Sign in

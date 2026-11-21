@@ -29,7 +29,7 @@ export async function apiRequest<T>(
   } catch {
     throw new ApiFailure(0, {
       code: 'UNAVAILABLE',
-      message: "Can't reach Sampledge Connect. Check your connection.",
+      message: "Can't reach SampConnect. Check your connection.",
     });
   }
   const text = await res.text();

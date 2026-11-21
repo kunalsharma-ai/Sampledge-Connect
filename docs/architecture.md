@@ -1,4 +1,4 @@
-# Sampledge Connect: system architecture
+# SampConnect: system architecture
 
 Status legend used across these docs: **Built** (working code with tests in this repo), **In progress** (open PR), **Planned** (designed here, not implemented). Anything not marked Built is not functional yet.
 
@@ -57,7 +57,7 @@ Status legend used across these docs: **Built** (working code with tests in this
 | `apps/api`               | `@sampledge/api`           | In progress     | NestJS API + Socket.IO gateway                                                                                          |
 | `apps/web`               | `@sampledge/web`           | In progress     | Next.js app: auth, onboarding, three-column workspace, design gallery, PWA                                              |
 | `apps/mobile`            |                            | Separate thread | Expo app                                                                                                                |
-| `packages/sdk`           |                            | Planned         | Sampledge Connect SDK + embeddable chat widget                                                                          |
+| `packages/sdk`           |                            | Planned         | SampConnect SDK + embeddable chat widget                                                                                |
 | `apps/connector-gateway` |                            | Planned         | External messaging adapters                                                                                             |
 
 Tooling: pnpm 12 workspaces, Turborepo, TypeScript 7, Node.js **26.13.1 LTS** (pinned in `.nvmrc`, `engines`, Dockerfiles and CI), Vitest, Playwright.

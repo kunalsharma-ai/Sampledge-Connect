@@ -168,7 +168,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     if (!sub) throw notFound('Webhook');
     const env = this.envelope(ctx.tenantId, sub.events[0]!, {
       test: true,
-      message: 'Test delivery from Sampledge Connect',
+      message: 'Test delivery from SampConnect',
     });
     const d = await this.enqueueOne(ctx.tenantId, sub, env);
     void this.tick();
@@ -304,7 +304,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': 'SampledgeConnect-Webhooks/1',
+          'user-agent': 'SampConnect-Webhooks/1',
           'sampledge-signature': signPayload(decryptSecret(sub.secretEnc), d.body),
           'sampledge-event': d.event,
           'sampledge-delivery': d._id,
