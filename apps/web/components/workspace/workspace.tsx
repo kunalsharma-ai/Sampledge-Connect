@@ -73,6 +73,8 @@ import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } 
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
 import { SearchScreen } from './search-screen';
+import { HomeScreen } from './home-screen';
+import { FilesScreen } from './files-screen';
 import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
@@ -122,7 +124,7 @@ export function Workspace() {
   const isAdmin = session!.user.role === 'owner' || session!.user.role === 'admin';
   const conversations = useConversations();
   const unread = useUnreadCounts(me);
-  const [module, setModule] = React.useState<ModuleId>('messages');
+  const [module, setModule] = React.useState<ModuleId>('home');
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
@@ -136,7 +138,7 @@ export function Workspace() {
   } | null>(null);
   const [workDialog, setWorkDialog] = React.useState<{
     kind: 'task' | 'approval';
-    source: WorkSource;
+    source: WorkSource | null;
   } | null>(null);
   const openConversation = React.useCallback((id: string) => {
     setModule('messages');
@@ -412,7 +414,32 @@ export function Workspace() {
           onSignOut={() => void signOut()}
         />
 
-        {module === 'meetings' ? (
+        {module === 'home' ? (
+          <HomeScreen
+            me={me}
+            myName={session!.user.displayName}
+            tenantName={session!.tenant.name}
+            directory={directory}
+            conversations={conversations ?? []}
+            unread={unread}
+            notifications={notifications}
+            onOpenConversation={openConversation}
+            onOpenNotification={(n) => {
+              if (!n.readAt) void notifications.markRead({ notificationIds: [n.notificationId] });
+              setModule('messages');
+              setActiveId(n.conversationId);
+              setTimeout(() => setHighlightId(n.messageId), 300);
+            }}
+            onOpenMeeting={(m) => {
+              setFocusMeeting(m);
+              setModule('meetings');
+            }}
+            onOpenModule={(m) => setModule(m)}
+            onNewConversation={() => setDialog('new')}
+            onNewMeeting={() => setScheduleIn('')}
+            onNewTask={() => setWorkDialog({ kind: 'task', source: null })}
+          />
+        ) : module === 'meetings' ? (
           <MeetingsScreen
             me={me}
             directory={directory}
@@ -472,6 +499,17 @@ export function Workspace() {
             onOpenMeeting={(m) => {
               setFocusMeeting(m);
               setModule('meetings');
+            }}
+          />
+        ) : module === 'files' ? (
+          <FilesScreen
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            onOpenMessage={(conversationId, messageId) => {
+              setModule('messages');
+              setActiveId(conversationId);
+              if (messageId) setTimeout(() => setHighlightId(messageId), 300);
             }}
           />
         ) : module === 'saved' ? (
@@ -910,11 +948,11 @@ export function Workspace() {
         <CallErrorToast />
         <MeetingReminderToast onOpenConversation={openConversation} />
         <NewMeetingDialog
-          open={!!scheduleIn}
+          open={scheduleIn !== null}
           onOpenChange={(o) => !o && setScheduleIn(null)}
           me={me}
           directory={directory}
-          conversationId={scheduleIn ?? undefined}
+          conversationId={scheduleIn || undefined}
           onCreated={(m) => {
             setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
             setModule('meetings');

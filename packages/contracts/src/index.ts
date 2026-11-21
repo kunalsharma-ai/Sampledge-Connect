@@ -26,3 +26,4 @@ export * from './branding.js';
 export * from './admin.js';
 export * from './booking.js';
 export * from './search.js';
+export * from './files.js';
