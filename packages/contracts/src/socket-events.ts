@@ -1,5 +1,6 @@
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
+import type { Meeting, MeetingReminderEvent } from './meetings.js';
 import type { Conversation } from './conversations.js';
 import type {
   Message,
@@ -55,6 +56,10 @@ export interface ServerToClientEvents {
   'call:updated': (call: Call) => void;
   /** A call ended; leave the room and stop ringing. */
   'call:ended': (call: Call) => void;
+  /** A meeting you're invited to was created, changed, cancelled, or someone RSVP'd. */
+  'meeting:upsert': (meeting: Meeting) => void;
+  /** A meeting you're attending starts soon. */
+  'meeting:reminder': (e: MeetingReminderEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

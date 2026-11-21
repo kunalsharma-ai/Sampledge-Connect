@@ -18,6 +18,7 @@ import {
   NetworkError,
   ServerError,
   type CallEvent,
+  type MeetingEvent,
   type NotificationEvent,
   type Transport,
 } from './transport.js';
@@ -82,6 +83,7 @@ export class SyncEngine {
   private listeners = new Set<Listener>();
   private notificationListeners = new Set<(e: NotificationEvent) => void>();
   private callListeners = new Set<(e: CallEvent) => void>();
+  private meetingListeners = new Set<(e: MeetingEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -122,6 +124,11 @@ export class SyncEngine {
   onCall(fn: (e: CallEvent) => void): () => void {
     this.callListeners.add(fn);
     return () => this.callListeners.delete(fn);
+  }
+  /** Live meeting events (invites, changes, RSVPs, reminders). */
+  onMeeting(fn: (e: MeetingEvent) => void): () => void {
+    this.meetingListeners.add(fn);
+    return () => this.meetingListeners.delete(fn);
   }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
@@ -232,6 +239,9 @@ export class SyncEngine {
       },
       onCall: (e) => {
         for (const l of this.callListeners) l(e);
+      },
+      onMeeting: (e) => {
+        for (const l of this.meetingListeners) l(e);
       },
     });
   }

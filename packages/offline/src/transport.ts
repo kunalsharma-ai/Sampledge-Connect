@@ -4,6 +4,8 @@ import {
   type Ack,
   type Call,
   type CallRingingEvent,
+  type Meeting,
+  type MeetingReminderEvent,
   type AckReceiptRequest,
   type ApiError,
   type ClientToServerEvents,
@@ -44,7 +46,12 @@ export interface RealtimeHandlers {
   onNotification?(e: NotificationEvent): void;
   /** Call lifecycle events (optional for transports that lack them). */
   onCall?(e: CallEvent): void;
+  /** Meeting invites/changes and reminders (optional for transports that lack them). */
+  onMeeting?(e: MeetingEvent): void;
 }
+
+export type MeetingEvent =
+  { type: 'upsert'; meeting: Meeting } | { type: 'reminder'; reminder: MeetingReminderEvent };
 
 export type CallEvent =
   | { type: 'ringing'; ringing: CallRingingEvent }
@@ -217,6 +224,8 @@ export class HttpSocketTransport implements Transport {
     s.on('call:ringing', (e) => this.handlers?.onCall?.({ type: 'ringing', ringing: e }));
     s.on('call:updated', (call) => this.handlers?.onCall?.({ type: 'updated', call }));
     s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
+    s.on('meeting:upsert', (meeting) => this.handlers?.onMeeting?.({ type: 'upsert', meeting }));
+    s.on('meeting:reminder', (r) => this.handlers?.onMeeting?.({ type: 'reminder', reminder: r }));
     this.socket = s;
     s.connect();
   }

@@ -274,6 +274,41 @@ export class NotificationsService {
       );
   }
 
+  /**
+   * Generic push to users' devices that aren't connected right now (connected apps get the
+   * socket event instead). Used for meeting invites, changes and reminders.
+   */
+  async pushToUsers(
+    tenantId: string,
+    userIds: string[],
+    title: string,
+    body: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.provider.name === null || userIds.length === 0) return;
+    const t = this.db.for(tenantId);
+    const devices = (
+      await t.devices
+        .find({ userId: { $in: userIds }, revokedAt: null, 'push.token': { $exists: true } })
+        .toArray()
+    ).filter((d) => d.push && this.provider.accepts(d.push.provider));
+    const live = new Map<string, Set<string>>();
+    const messages: PushMessage[] = [];
+    for (const d of devices) {
+      if (!live.has(d.userId))
+        live.set(d.userId, await this.realtime.liveSessions(tenantId, d.userId));
+      if (live.get(d.userId)!.has(d._id)) continue;
+      messages.push({ token: d.push!.token, title, body, data });
+    }
+    if (!messages.length) return;
+    const { invalidTokens } = await this.provider.send(messages);
+    if (invalidTokens.length)
+      await t.devices.updateMany(
+        { 'push.token': { $in: invalidTokens } },
+        { $set: { push: null } },
+      );
+  }
+
   /** A deleted message no longer notifies anyone. */
   async onMessageDeleted(tenantId: string, messageId: string): Promise<void> {
     await this.db.for(tenantId).notifications.deleteMany({ messageId });
