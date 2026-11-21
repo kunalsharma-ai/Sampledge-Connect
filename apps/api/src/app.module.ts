@@ -57,7 +57,21 @@ import { InboxAdminService } from './client-inbox/inbox-admin.service.js';
 import { InboxAccess } from './client-inbox/inbox-events.js';
 import { OutboundWorker } from './client-inbox/outbound.worker.js';
 import { OutboxSignal } from './client-inbox/outbox-signal.js';
-import { LINKED_RECORD_RESOLVER, unverifiedResolver } from './client-inbox/linked-records.js';
+import { LINKED_RECORD_RESOLVER } from './client-inbox/linked-records.js';
+import { ModuleRecordsResolver } from './client-inbox/records-resolver.js';
+import { WorkStore } from './integrations/collections.js';
+import { ModuleSettingsService } from './integrations/module-settings.service.js';
+import { RecordsService } from './integrations/records.service.js';
+import { WebhooksService } from './integrations/webhooks.service.js';
+import { ModuleActionsService } from './integrations/module-actions.service.js';
+import { ModuleEventsService } from './integrations/module-events.service.js';
+import { ModuleKeyGuard, ModuleKeysService } from './integrations/module-keys.service.js';
+import { IntegrationApiController } from './integrations/integration-api.controller.js';
+import { IntegrationsController } from './integrations/integrations.controller.js';
+import { TasksService } from './work/tasks.service.js';
+import { ApprovalsService } from './work/approvals.service.js';
+import { ProjectsService } from './work/projects.service.js';
+import { WorkController } from './work/work.controller.js';
 import { AiController } from './ai/ai.controller.js';
 import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
@@ -95,6 +109,9 @@ export class AppModule {
         ConnectorsController,
         ConnectorWebhooksController,
         InboxController,
+        IntegrationApiController,
+        IntegrationsController,
+        WorkController,
         AiController,
       ],
       providers: [
@@ -124,7 +141,18 @@ export class AppModule {
         InboxAdminService,
         OutboxSignal,
         OutboundWorker,
-        { provide: LINKED_RECORD_RESOLVER, useValue: unverifiedResolver },
+        { provide: LINKED_RECORD_RESOLVER, useClass: ModuleRecordsResolver },
+        WorkStore,
+        ModuleSettingsService,
+        RecordsService,
+        WebhooksService,
+        ModuleActionsService,
+        ModuleEventsService,
+        ModuleKeysService,
+        ModuleKeyGuard,
+        TasksService,
+        ApprovalsService,
+        ProjectsService,
         AiService,
         AiIntegration,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },

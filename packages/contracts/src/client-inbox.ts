@@ -38,7 +38,7 @@ export type SlaState = (typeof SLA_STATES)[number];
 export const LINK_MODULES = ['sampforce', 'samptrek'] as const;
 export const LinkModuleSchema = z.enum(LINK_MODULES);
 
-export const LinkedRecordSchema = z.object({
+export const InboxLinkSchema = z.object({
   linkId: z.string(),
   module: LinkModuleSchema,
   /** sampforce: opportunity | account | lead. samptrek: project. */
@@ -51,7 +51,7 @@ export const LinkedRecordSchema = z.object({
   linkedBy: z.string(),
   linkedAt: z.string().datetime(),
 });
-export type LinkedRecord = z.infer<typeof LinkedRecordSchema>;
+export type InboxLink = z.infer<typeof InboxLinkSchema>;
 
 export const ExternalIdentitySchema = z.object({
   accountId: z.string(),
@@ -74,7 +74,7 @@ export const ClientProfileSchema = z.object({
   /** Account owner inside the tenant. */
   ownerId: z.string().nullable(),
   identities: z.array(ExternalIdentitySchema),
-  links: z.array(LinkedRecordSchema),
+  links: z.array(InboxLinkSchema),
   conversationCount: z.number().int(),
   createdAt: z.string().datetime(),
 });
@@ -112,7 +112,7 @@ export const InboxConversationSchema = z.object({
       by: z.string().nullable(),
     })
     .nullable(),
-  links: z.array(LinkedRecordSchema),
+  links: z.array(InboxLinkSchema),
   lastMessage: z
     .object({ direction: z.enum(['inbound', 'outbound']), preview: z.string(), at: z.string() })
     .nullable(),

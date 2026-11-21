@@ -1,11 +1,12 @@
 'use client';
 import type * as React from 'react';
 import { motion } from 'motion/react';
-import { Briefcase, CheckSquare, FileText, Hash, Lock, Users, X } from 'lucide-react';
+import { Bot, FileText, Hash, Lock, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { conversationTitle, nameOf } from './helpers';
+import { WorkContextSection } from './work-context';
 
 const KIND_LABEL: Record<Conversation['kind'], string> = {
   dm: 'Direct message',
@@ -16,18 +17,6 @@ const KIND_LABEL: Record<Conversation['kind'], string> = {
 
 /** Planned context cards: shown honestly as not yet connected. */
 const PLANNED = [
-  {
-    icon: Briefcase,
-    title: 'Project & client',
-    body: 'Linked Samptrek project, client and bid status.',
-    phase: 'Phase 2',
-  },
-  {
-    icon: CheckSquare,
-    title: 'Tasks & approvals',
-    body: 'Open tasks and approvals raised in this conversation.',
-    phase: 'Phase 2',
-  },
   {
     icon: FileText,
     title: 'Shared files',
@@ -154,8 +143,10 @@ export function ContextPanel({
           </ul>
         </section>
 
+        <WorkContextSection conversation={conversation} me={me} directory={directory} />
+
         <section className="space-y-2">
-          <p className="mb-2 text-overline uppercase text-text-subtle">Work context</p>
+          <p className="mb-2 text-overline uppercase text-text-subtle">Coming later</p>
           {PLANNED.map((p) => (
             <div key={p.title} className="rounded-lg border border-dashed border-border p-3">
               <div className="flex items-center justify-between gap-2">

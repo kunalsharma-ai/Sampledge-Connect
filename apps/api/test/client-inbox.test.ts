@@ -313,6 +313,70 @@ describe('Telegram in test mode, end to end', () => {
     expect(r.body.client.links).toHaveLength(1);
   });
 
+  it('verifies links against records the module has sent; restricted records stay hidden', async () => {
+    const now = new Date();
+    const base = {
+      tenantId: owner.tenant.tenantId,
+      conversationId: null,
+      parent: null,
+      fields: {},
+      lastEventType: null,
+      channelKey: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await mongo
+      .db(h.dbName)
+      .collection('linked_records')
+      .insertMany([
+        {
+          ...base,
+          _id: 'rec-proj-77' as never,
+          module: 'samptrek',
+          recordType: 'project',
+          externalId: 'PRJ-77',
+          title: 'Q3 Brand Tracker Wave 3',
+          url: 'https://samptrek.example/projects/77',
+          sensitivity: 'standard',
+        },
+        {
+          ...base,
+          _id: 'rec-opp-9' as never,
+          module: 'sampforce',
+          recordType: 'opportunity',
+          externalId: 'OPP-9',
+          title: 'Confidential: acquisition study',
+          url: 'https://sampforce.example/opp/9',
+          sensitivity: 'restricted',
+        },
+      ]);
+    const link = (body: Record<string, unknown>) =>
+      api<InboxConversationDetail>(h, 'POST', `/v1/inbox/conversations/${conversationId}/links`, {
+        ...tok(agent),
+        body,
+      });
+    const verified = await link({
+      module: 'samptrek',
+      recordType: 'project',
+      externalId: 'PRJ-77',
+      label: 'typed label',
+    });
+    expect(verified.body.conversation.links.find((l) => l.externalId === 'PRJ-77')).toMatchObject({
+      verified: true,
+      label: 'Q3 Brand Tracker Wave 3',
+      url: 'https://samptrek.example/projects/77',
+    });
+    const restricted = await link({
+      module: 'sampforce',
+      recordType: 'opportunity',
+      externalId: 'OPP-9',
+      label: 'Opportunity 9',
+    });
+    const r = restricted.body.conversation.links.find((l) => l.externalId === 'OPP-9');
+    expect(r).toMatchObject({ verified: false, label: 'Opportunity 9' });
+    expect(JSON.stringify(restricted.body)).not.toMatch(/acquisition|sampforce\.example/);
+  });
+
   it('later messages from the same client join the same conversation', async () => {
     const res = await api<{ conversationIds: string[] }>(
       h,

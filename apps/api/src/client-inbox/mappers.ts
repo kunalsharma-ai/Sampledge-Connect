@@ -7,7 +7,7 @@ import {
   type InboxMessage,
   type InboxNote,
   type InboxSettings,
-  type LinkedRecord,
+  type InboxLink,
   type SlaState,
 } from '@sampledge/contracts';
 import type {
@@ -59,7 +59,7 @@ export function slaState(
   return 'none';
 }
 
-export const toLink = (l: LinkedRecordDoc): LinkedRecord => ({
+export const toLink = (l: LinkedRecordDoc): InboxLink => ({
   ...l,
   linkedAt: l.linkedAt.toISOString(),
 });
@@ -149,7 +149,7 @@ export function toClient(
   conversations: Pick<ExternalConversationDoc, 'links'>[],
 ): ClientProfile {
   const seen = new Set<string>();
-  const links: LinkedRecord[] = [];
+  const links: InboxLink[] = [];
   for (const conv of conversations)
     for (const l of conv.links) {
       const key = `${l.module}:${l.recordType}:${l.externalId}`;

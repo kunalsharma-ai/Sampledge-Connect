@@ -190,7 +190,7 @@ export interface AttachmentDoc extends TenantOwned {
 
 export interface NotificationDoc extends TenantOwned {
   userId: string;
-  kind: 'mention' | 'reply';
+  kind: 'mention' | 'reply' | 'alert' | 'task' | 'approval';
   conversationId: string;
   messageId: string;
   actorId: string;

@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import type { AppConfig } from './config/config.js';
 import { RedisIoAdapter } from './realtime/redis-io.adapter.js';
+import { ModuleSettingsService } from './integrations/module-settings.service.js';
 
 /** Builds the Nest application (used by main.ts and integration tests). */
 export async function createApp(cfg: AppConfig): Promise<NestExpressApplication> {
@@ -16,7 +17,7 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
           ? ['error', 'fatal']
           : undefined,
     bodyParser: true,
-    // Provider webhook signatures are computed over the exact bytes (connectors).
+    // Connector webhooks and signed module events are verified against the exact bytes (req.rawBody).
     rawBody: true,
   });
   app.set('trust proxy', 1);
@@ -31,8 +32,16 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
   // WeChat webhooks are XML.
   app.useBodyParser('text', { type: ['text/xml', 'application/xml'], limit: '256kb' });
+  // Chat widget origins are configured per module in the database (Integrations), not env.
+  const moduleSettings = app.get(ModuleSettingsService);
   app.enableCors({
-    origin: cfg.corsOrigins,
+    origin: (origin, cb) => {
+      if (!origin || cfg.corsOrigins.includes(origin)) return cb(null, true);
+      moduleSettings.widgetOriginAllowed(origin).then(
+        (ok) => cb(null, ok),
+        () => cb(null, false),
+      );
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Authorization', 'Content-Type', 'Content-Length'],
     maxAge: 600,
