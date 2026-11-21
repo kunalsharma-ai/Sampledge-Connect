@@ -11,6 +11,7 @@ import {
   type RsvpResponse,
   type NotifyLevel,
   type Reaction,
+  type RecordingKind,
   type Receipt,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
@@ -72,6 +73,11 @@ export interface LocalAttachment {
   height: number | null;
   /** The copy kept on this device (files you sent from here); shown without downloading. */
   localUri: string | null;
+  /** voice / video / screen clip, or call for a call recording; null for an ordinary file. */
+  recording: RecordingKind | null;
+  durationMs: number | null;
+  /** The recording was deleted (by someone, or by the retention policy); the file is gone. */
+  deletedAt: string | null;
 }
 
 /** A file picked in the composer, already copied into app storage. */
@@ -82,6 +88,9 @@ export interface PendingFileInput {
   sizeBytes: number;
   width?: number | null;
   height?: number | null;
+  /** Set for a clip recorded in the app. */
+  recording?: Exclude<RecordingKind, 'call'> | null;
+  durationMs?: number | null;
 }
 
 export interface PendingFile extends PendingFileInput {
@@ -253,13 +262,23 @@ interface FileRow {
   width: number | null;
   height: number | null;
   attachment_id: string | null;
+  recording: Exclude<RecordingKind, 'call'> | null;
+  duration_ms: number | null;
 }
 
-const filesPreview = (files: readonly { fileName: string }[]): string =>
+const filesPreview = (
+  files: readonly { fileName: string; recording?: RecordingKind | null }[],
+): string =>
   files.length === 0
     ? ''
     : files.length === 1
-      ? `📎 ${files[0]!.fileName}`
+      ? files[0]!.recording === 'voice'
+        ? '🎤 Voice message'
+        : files[0]!.recording === 'video' || files[0]!.recording === 'screen'
+          ? '🎬 Video message'
+          : files[0]!.recording === 'call'
+            ? '⏺ Call recording'
+            : `📎 ${files[0]!.fileName}`
       : `📎 ${files.length} files`;
 
 /** Message columns plus the kind of any pending edit/delete. */
@@ -406,8 +425,8 @@ export class LocalStore {
       );
       for (const [position, f] of files.entries()) {
         await tx.run(
-          `INSERT INTO message_files (client_id, position, local_uri, file_name, mime_type, size_bytes, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO message_files (client_id, position, local_uri, file_name, mime_type, size_bytes, width, height, recording, duration_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             clientId,
             position,
@@ -417,6 +436,8 @@ export class LocalStore {
             f.sizeBytes,
             f.width ?? null,
             f.height ?? null,
+            f.recording ?? null,
+            f.durationMs ?? null,
           ],
         );
       }
@@ -768,6 +789,9 @@ export class LocalStore {
               width: a.width ?? null,
               height: a.height ?? null,
               localUri: mine.find((f) => f.attachment_id === a.attachmentId)?.local_uri ?? null,
+              recording: a.recording ?? null,
+              durationMs: a.durationMs ?? null,
+              deletedAt: a.deletedAt ?? null,
             }))
           : mine.map((f) => ({
               attachmentId: f.attachment_id,
@@ -777,6 +801,9 @@ export class LocalStore {
               width: f.width,
               height: f.height,
               localUri: f.local_uri,
+              recording: f.recording ?? null,
+              durationMs: f.duration_ms ?? null,
+              deletedAt: null,
             }));
       return {
         ...toMessage(r),
@@ -809,6 +836,8 @@ export class LocalStore {
       width: f.width,
       height: f.height,
       attachmentId: f.attachment_id,
+      recording: f.recording ?? null,
+      durationMs: f.duration_ms ?? null,
     }));
   }
 

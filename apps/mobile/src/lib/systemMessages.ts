@@ -1,3 +1,5 @@
+import { formatClipDuration } from '@sampledge/contracts';
+
 /**
  * Text for messages the server writes into a timeline (messageType 'system'), such as call
  * events. Works from the cached message alone, so it renders offline.
@@ -36,6 +38,20 @@ export function meetingMeta(metadata: Record<string, unknown>): MeetingMeta | nu
   return m && typeof m === 'object' ? (m as MeetingMeta) : null;
 }
 
+export interface RecordingMeta {
+  callId?: string;
+  attachmentId?: string | null;
+  startedBy?: string;
+  durationMs?: number;
+  audioOnly?: boolean;
+  failed?: boolean;
+}
+
+export function recordingMeta(metadata: Record<string, unknown>): RecordingMeta | null {
+  const r = metadata.recording;
+  return r && typeof r === 'object' ? (r as RecordingMeta) : null;
+}
+
 function when(iso: string): string {
   const d = new Date(iso);
   return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
@@ -55,6 +71,12 @@ export function systemText(text: string, metadata: Record<string, unknown>): str
       default:
         return `${title} scheduled${at}`;
     }
+  }
+  const rec = recordingMeta(metadata);
+  if (rec) {
+    if (rec.failed || !rec.attachmentId) return 'Call recording failed. No file was saved';
+    const kind = rec.audioOnly ? 'Call recording (audio)' : 'Call recording';
+    return rec.durationMs ? `${kind} · ${formatClipDuration(rec.durationMs)}` : kind;
   }
   const call = callMeta(metadata);
   if (call) {

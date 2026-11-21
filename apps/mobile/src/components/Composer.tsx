@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import {
   BLOCKED_EXTENSIONS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_CLIP_DURATION_MS,
   MAX_MESSAGE_LENGTH,
 } from '@sampledge/contracts';
 import * as DocumentPicker from 'expo-document-picker';
@@ -26,6 +27,7 @@ import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
 import { Text } from './Text';
+import { useVoiceRecorder, VoiceRecordBar } from './VoiceRecorder';
 
 export type ComposerMode =
   | { kind: 'reply'; message: LocalMessage; senderName: string }
@@ -64,6 +66,7 @@ export function Composer({
   const input = useRef<ComponentRef<typeof TextInput>>(null);
   const editing = mode?.kind === 'edit';
   const savedDraft = useRef('');
+  const voice = useVoiceRecorder();
 
   useEffect(() => {
     loaded.current = false;
@@ -102,6 +105,8 @@ export function Composer({
 
   const canSend =
     (text.trim().length > 0 || (files.length > 0 && !editing)) && text.length <= MAX_MESSAGE_LENGTH;
+  /** With nothing typed or attached, the send button becomes the voice message mic. */
+  const showMic = !editing && !canSend && text.trim().length === 0;
 
   /** Checks limits the server enforces, then copies the file into app storage. */
   const addPicked = async (
@@ -112,6 +117,8 @@ export function Composer({
       size?: number | null;
       width?: number;
       height?: number;
+      recording?: 'video' | null;
+      durationMs?: number | null;
     }[],
   ) => {
     setAttachOpen(false);
@@ -138,6 +145,8 @@ export function Composer({
         sizeBytes: p.size ?? 0,
         width: p.width ?? null,
         height: p.height ?? null,
+        recording: p.recording ?? null,
+        durationMs: p.durationMs ?? null,
       });
     }
     setFiles((f) => [...f, ...next]);
@@ -160,6 +169,43 @@ export function Composer({
         height: a.height,
       })),
     );
+  };
+
+  /** Phones only: records a video message with the system camera (up to 30 minutes). */
+  const recordVideo = async () => {
+    setFileError(null);
+    const cam = await ImagePicker.requestCameraPermissionsAsync();
+    if (!cam.granted) {
+      setAttachOpen(false);
+      return setFileError('Allow camera access to record a video message.');
+    }
+    const r = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: MAX_CLIP_DURATION_MS / 1000,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    });
+    if (r.canceled) return setAttachOpen(false);
+    const a = r.assets[0]!;
+    const ext = a.mimeType === 'video/quicktime' ? 'mov' : 'mp4';
+    await addPicked([
+      {
+        uri: a.uri,
+        name: a.fileName ?? `Video message ${Date.now()}.${ext}`,
+        mimeType: a.mimeType ?? 'video/mp4',
+        size: a.fileSize,
+        width: a.width,
+        height: a.height,
+        recording: 'video',
+        durationMs: a.duration ? Math.min(MAX_CLIP_DURATION_MS, Math.round(a.duration)) : null,
+      },
+    ]);
+  };
+
+  const sendClip = async (clip: PendingFileInput) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const replyTo = mode?.kind === 'reply' ? mode.message.messageId : null;
+    onCancelMode();
+    await engine.send(conversationId, '', { replyTo, files: [clip] });
   };
 
   const pickFiles = async () => {
@@ -298,9 +344,9 @@ export function Composer({
           ))}
         </View>
       ) : null}
-      {fileError ? (
+      {fileError || voice.error ? (
         <Text variant="meta" tone="danger" style={{ marginLeft: 6 }}>
-          {fileError}
+          {fileError ?? voice.error}
         </Text>
       ) : null}
       {attachOpen ? (
@@ -327,49 +373,83 @@ export function Composer({
             <Ionicons name="document-attach-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Files</Text>
           </Pressable>
+          {Platform.OS !== 'web' ? (
+            <Pressable
+              onPress={() => void recordVideo()}
+              accessibilityRole="button"
+              style={[
+                styles.attachRow,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+              ]}
+            >
+              <Ionicons name="videocam-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong">Video message</Text>
+            </Pressable>
+          ) : null}
         </Animated.View>
       ) : null}
-      <View
-        style={[
-          styles.field,
-          { backgroundColor: c.surfaceRaised, borderColor: over ? c.danger : c.border },
-        ]}
-      >
-        {!editing ? (
-          <Pressable
-            onPress={() => setAttachOpen((o) => !o)}
-            accessibilityRole="button"
-            accessibilityLabel="Attach"
-            accessibilityState={{ expanded: attachOpen }}
-            hitSlop={6}
-            style={styles.attach}
-          >
-            <Ionicons name={attachOpen ? 'close' : 'add'} size={22} color={c.accent} />
-          </Pressable>
-        ) : null}
-        <TextInput
-          ref={input}
-          value={text}
-          onChangeText={setText}
-          placeholder={placeholder}
-          placeholderTextColor={c.textSubtle}
-          multiline
-          style={[styles.input, { color: c.text }]}
-          accessibilityLabel="Message"
-          submitBehavior="newline"
-        />
-        <Animated.View style={sendStyle}>
-          <Pressable
-            onPress={send}
-            disabled={!canSend}
-            accessibilityRole="button"
-            accessibilityLabel={editing ? 'Save edit' : 'Send message'}
-            style={[styles.send, { backgroundColor: c.accent }]}
-          >
-            <Ionicons name={editing ? 'checkmark' : 'arrow-up'} size={18} color={c.onAccent} />
-          </Pressable>
-        </Animated.View>
-      </View>
+      {voice.active ? (
+        <VoiceRecordBar voice={voice} onSend={(clip) => void sendClip(clip)} />
+      ) : (
+        <View
+          style={[
+            styles.field,
+            { backgroundColor: c.surfaceRaised, borderColor: over ? c.danger : c.border },
+          ]}
+        >
+          {!editing ? (
+            <Pressable
+              onPress={() => setAttachOpen((o) => !o)}
+              accessibilityRole="button"
+              accessibilityLabel="Attach"
+              accessibilityState={{ expanded: attachOpen }}
+              hitSlop={6}
+              style={styles.attach}
+            >
+              <Ionicons name={attachOpen ? 'close' : 'add'} size={22} color={c.accent} />
+            </Pressable>
+          ) : null}
+          <TextInput
+            ref={input}
+            value={text}
+            onChangeText={(t) => {
+              setText(t);
+              if (voice.error) voice.clearError();
+            }}
+            placeholder={placeholder}
+            placeholderTextColor={c.textSubtle}
+            multiline
+            style={[styles.input, { color: c.text }]}
+            accessibilityLabel="Message"
+            submitBehavior="newline"
+          />
+          {showMic ? (
+            <Pressable
+              onPress={() => {
+                setAttachOpen(false);
+                void voice.start();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Record voice message"
+              style={[styles.send, { backgroundColor: alpha(c.accent, 0.14) }]}
+            >
+              <Ionicons name="mic" size={19} color={c.accent} />
+            </Pressable>
+          ) : (
+            <Animated.View style={sendStyle}>
+              <Pressable
+                onPress={send}
+                disabled={!canSend}
+                accessibilityRole="button"
+                accessibilityLabel={editing ? 'Save edit' : 'Send message'}
+                style={[styles.send, { backgroundColor: c.accent }]}
+              >
+                <Ionicons name={editing ? 'checkmark' : 'arrow-up'} size={18} color={c.onAccent} />
+              </Pressable>
+            </Animated.View>
+          )}
+        </View>
+      )}
       {over ? (
         <Text variant="meta" tone="danger" style={{ marginTop: 4, marginLeft: 6 }}>
           {text.length - MAX_MESSAGE_LENGTH} characters over the limit

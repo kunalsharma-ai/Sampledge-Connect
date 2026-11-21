@@ -13,6 +13,22 @@ describe('system messages', () => {
       'Missed voice call',
     );
   });
+  it('describes call recordings', () => {
+    const base = { callId: 'c1', startedBy: 'u1', startedAt: '2026-11-21T10:00:00.000Z' };
+    expect(
+      systemText('', {
+        recording: { ...base, attachmentId: 'a1', durationMs: 754_000, audioOnly: false },
+      }),
+    ).toBe('Call recording · 12:34');
+    expect(
+      systemText('', {
+        recording: { ...base, attachmentId: 'a1', durationMs: 65_000, audioOnly: true },
+      }),
+    ).toBe('Call recording (audio) · 1:05');
+    expect(
+      systemText('', { recording: { ...base, attachmentId: null, durationMs: 0, failed: true } }),
+    ).toBe('Call recording failed. No file was saved');
+  });
   it('falls back to the server text', () => {
     expect(systemText('Priya renamed the channel', {})).toBe('Priya renamed the channel');
     expect(systemText('', {})).toBe('Conversation updated');

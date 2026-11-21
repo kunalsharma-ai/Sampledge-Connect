@@ -120,4 +120,44 @@ describe('calls', () => {
     expect(await t.calls.start('c1', 'video')).toBeNull();
     expect(t.calls.state.error).toMatch(/offline/i);
   });
+
+  it('starts and stops recording, and shows it to everyone from the call record', async () => {
+    const rec = { status: 'active' as const, startedBy: ME, startedAt: '2026-11-21T10:01:00.000Z' };
+    const asked: string[] = [];
+    const t = setup({
+      startCallRecording: async () => {
+        asked.push('start');
+        return call({ startedBy: ME, recording: rec });
+      },
+      stopCallRecording: async () => {
+        asked.push('stop');
+        return call({ startedBy: ME, recording: { ...rec, status: 'stopping' } });
+      },
+    });
+    expect(await t.calls.setRecording(true)).toBe(false); // not in a call
+    await t.calls.start('c1', 'video');
+    expect(await t.calls.setRecording(true)).toBe(true);
+    expect(t.calls.state.current?.call.recording?.status).toBe('active');
+    await t.calls.setRecording(false);
+    expect(t.calls.state.current?.call.recording?.status).toBe('stopping');
+    // Someone else's device: the socket update carries the indicator.
+    t.calls.applyCall(call({ startedBy: ME, recording: null }));
+    expect(t.calls.state.current?.call.recording).toBeNull();
+    expect(asked).toEqual(['start', 'stop']);
+  });
+
+  it('says why recording could not start', async () => {
+    const t = setup({
+      startCallRecording: async () => {
+        throw new TransportError(
+          'Call recording is turned off for your organization',
+          'api',
+          'FORBIDDEN',
+        );
+      },
+    });
+    await t.calls.start('c1', 'video');
+    expect(await t.calls.setRecording(true)).toBe(false);
+    expect(t.calls.state.error).toContain('turned off');
+  });
 });

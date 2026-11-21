@@ -15,6 +15,7 @@ import {
   type SendMessageAck,
   type SendMessageRequest,
   type SetReactionRequest,
+  type RecordingList,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -25,7 +26,12 @@ import { OutboxProcessor } from '../sync/outbox';
 import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
-import { TransportError, type ApiTransport, type DeviceSession } from '../sync/transport';
+import {
+  TransportError,
+  type ApiTransport,
+  type DeviceSession,
+  type RecordingsQuery,
+} from '../sync/transport';
 
 /** What the connectivity indicator shows. */
 export type Connectivity =
@@ -106,6 +112,8 @@ export class ConnectEngine {
               sizeBytes: f.sizeBytes,
               ...(f.width ? { width: f.width } : {}),
               ...(f.height ? { height: f.height } : {}),
+              ...(f.recording ? { recording: f.recording } : {}),
+              ...(f.recording && f.durationMs ? { durationMs: Math.round(f.durationMs) } : {}),
             },
             f.localUri,
           )
@@ -346,6 +354,16 @@ export class ConnectEngine {
     if (this.session.state !== 'active') return 'Sign in again to do this.';
     if (!this._state.networkUp) return 'You are offline. This needs a connection.';
     return null;
+  }
+
+  /** Recordings library (needs a connection: recordings are streamed, not cached). */
+  listRecordings(q: RecordingsQuery): Promise<RecordingList> {
+    return this.serverAction(() => this.api.listRecordings(q));
+  }
+
+  /** Deletes a recording for everyone; its message then shows "Recording deleted". */
+  deleteRecording(recordingId: string): Promise<void> {
+    return this.serverAction(() => this.api.deleteRecording(recordingId));
   }
 
   private async serverAction<T>(run: () => Promise<T>): Promise<T> {
