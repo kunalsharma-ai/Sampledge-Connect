@@ -16,6 +16,7 @@ import type {
   ScheduledMessage,
   Task,
   Approval,
+  TenantArea,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -49,6 +50,12 @@ type RealtimeEvents = {
   bookmark: { messageId: string; conversationId: string; saved: boolean };
   /** Your own choice in a poll changed (the only live source of it in anonymous polls). */
   myVote: { messageId: string; optionIds: string[] };
+  /** Someone in the organization joined, changed role or status, or edited their profile. */
+  directory: { userId: string };
+  /** An organization-wide setting changed (branding, billing, integrations, AI, recordings). */
+  tenant: { area: TenantArea };
+  /** A project was created or changed. */
+  project: { projectId: string };
 };
 
 /**
@@ -123,6 +130,9 @@ export class RealtimeClient {
     );
     socket.on('bookmark:updated', (e) => this.events.emit('bookmark', e));
     socket.on('poll:myVote', (e) => this.events.emit('myVote', e));
+    socket.on('directory:updated', (e) => this.events.emit('directory', e));
+    socket.on('tenant:updated', (e) => this.events.emit('tenant', e));
+    socket.on('project:changed', (e) => this.events.emit('project', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

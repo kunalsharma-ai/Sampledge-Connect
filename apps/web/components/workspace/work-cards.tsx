@@ -21,7 +21,7 @@ import {
 } from '@sampledge/contracts';
 import type { LocalMessage } from '@sampledge/offline';
 import { Badge, Button, cn, useToast } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { dueLabel, useApprovals, useTasks, useWorkApi, type RecordWithActions } from '@/lib/work';
 import { formatTime, nameOf } from './helpers';
 import { DecideDialog } from './work-dialogs';
@@ -79,6 +79,12 @@ export function ConversationWorkProvider({
     setRecords(null);
     if (online) refreshRecords();
   }, [online, refreshRecords]);
+  // Live: another member's event, action or new link refreshes this panel on every device;
+  // after a reconnect (events may have been missed) it refetches too.
+  useEngineChange(['records'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'records' && e.conversationId === conversationId))
+      refreshRecords();
+  });
 
   const { setItems: setTasks } = tasks;
   const { setItems: setApprovals } = approvals;
