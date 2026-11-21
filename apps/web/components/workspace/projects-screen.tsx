@@ -264,9 +264,7 @@ function ProjectCard({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate font-display text-h3 text-text">{p.name}</h2>
             <Badge tone={s.tone}>{s.label}</Badge>
-            <Badge tone={p.source === 'samptrek' ? 'accent2' : 'neutral'}>
-              {p.source === 'samptrek' ? 'Samptrek' : 'Connect'}
-            </Badge>
+            <Badge tone="neutral">{p.source === 'samptrek' ? 'Samptrek' : 'Connect'}</Badge>
           </div>
           {p.description ? (
             <p className="mt-1 line-clamp-2 text-meta text-text-muted">{p.description}</p>

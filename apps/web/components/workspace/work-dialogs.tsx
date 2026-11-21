@@ -123,83 +123,85 @@ export function CreateTaskDialog({
         className="w-[min(560px,calc(100vw-2rem))]"
       >
         <form
-          className="grid max-h-[65dvh] gap-3 overflow-y-auto pr-1"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             void create();
           }}
         >
-          {source?.text ? (
-            <blockquote className="line-clamp-3 rounded-md border-l-2 border-accent bg-surface-raised px-3 py-2 text-meta text-text-muted">
-              {source.text}
-            </blockquote>
-          ) : null}
-          <Field label="Title" htmlFor="task-title">
-            <Input
-              id="task-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={200}
-              required
-              autoFocus
-            />
-          </Field>
-          <Field label="Details (optional)" htmlFor="task-desc">
-            <Textarea
-              id="task-desc"
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={4000}
-            />
-          </Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Type" htmlFor="task-kind">
-              <select
-                id="task-kind"
-                className={selectClass}
-                value={kind}
-                onChange={(e) => setKind(e.target.value as Task['kind'])}
-              >
-                {TASK_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {KIND_LABEL[k]}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Priority" htmlFor="task-priority">
-              <select
-                id="task-priority"
-                className={selectClass}
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Task['priority'])}
-              >
-                {TASK_PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITY_LABEL[p]}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Due" htmlFor="task-due">
+          <div className="-mx-1 grid max-h-[min(58dvh,560px)] gap-3 overflow-y-auto px-1 pb-1">
+            {source?.text ? (
+              <blockquote className="line-clamp-3 rounded-md border-l-2 border-accent bg-surface-raised px-3 py-2 text-meta text-text-muted">
+                {source.text}
+              </blockquote>
+            ) : null}
+            <Field label="Title" htmlFor="task-title">
               <Input
-                id="task-due"
-                type="date"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
+                id="task-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={200}
+                required
+                autoFocus
+              />
+            </Field>
+            <Field label="Details (optional)" htmlFor="task-desc">
+              <Textarea
+                id="task-desc"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={4000}
+              />
+            </Field>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Type" htmlFor="task-kind">
+                <select
+                  id="task-kind"
+                  className={selectClass}
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as Task['kind'])}
+                >
+                  {TASK_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {KIND_LABEL[k]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Priority" htmlFor="task-priority">
+                <select
+                  id="task-priority"
+                  className={selectClass}
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as Task['priority'])}
+                >
+                  {TASK_PRIORITIES.map((p) => (
+                    <option key={p} value={p}>
+                      {PRIORITY_LABEL[p]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Due" htmlFor="task-due">
+                <Input
+                  id="task-due"
+                  type="date"
+                  value={due}
+                  onChange={(e) => setDue(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Field label="Assign to" htmlFor="task-assignees">
+              <PeoplePicker
+                label="Assign to"
+                candidates={candidatesFor(source?.conversation ?? null, directory)}
+                picked={assignees}
+                onChange={setAssignees}
+                directory={directory}
               />
             </Field>
           </div>
-          <Field label="Assign to" htmlFor="task-assignees">
-            <PeoplePicker
-              label="Assign to"
-              candidates={candidatesFor(source?.conversation ?? null, directory)}
-              picked={assignees}
-              onChange={setAssignees}
-              directory={directory}
-            />
-          </Field>
           {error ? (
             <p role="alert" className="text-label font-normal text-danger">
               {error}
@@ -303,121 +305,123 @@ export function RequestApprovalDialog({
         className="w-[min(560px,calc(100vw-2rem))]"
       >
         <form
-          className="grid max-h-[65dvh] gap-3 overflow-y-auto pr-1"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             void create();
           }}
         >
-          {source?.text ? (
-            <blockquote className="line-clamp-3 rounded-md border-l-2 border-accent bg-surface-raised px-3 py-2 text-meta text-text-muted">
-              {source.text}
-            </blockquote>
-          ) : null}
-          <Field label="What needs approval" htmlFor="appr-title">
-            <Input
-              id="appr-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={200}
-              required
-              autoFocus
-            />
-          </Field>
-          <Field label="Details (optional)" htmlFor="appr-desc">
-            <Textarea
-              id="appr-desc"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={4000}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="Category" htmlFor="appr-cat">
-              <select
-                id="appr-cat"
-                className={selectClass}
-                value={category}
-                onChange={(e) => setCategory(e.target.value as Approval['category'])}
-              >
-                {APPROVAL_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {CATEGORY_LABEL[c]}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field
-              label="Amount"
-              htmlFor="appr-amount"
-              error={amountOk ? undefined : 'Enter a number'}
-            >
+          <div className="-mx-1 grid max-h-[min(58dvh,560px)] gap-3 overflow-y-auto px-1 pb-1">
+            {source?.text ? (
+              <blockquote className="line-clamp-3 rounded-md border-l-2 border-accent bg-surface-raised px-3 py-2 text-meta text-text-muted">
+                {source.text}
+              </blockquote>
+            ) : null}
+            <Field label="What needs approval" htmlFor="appr-title">
               <Input
-                id="appr-amount"
-                inputMode="decimal"
-                placeholder="Optional"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                id="appr-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={200}
+                required
+                autoFocus
               />
             </Field>
-            <Field label="Currency" htmlFor="appr-cur">
-              <Input
-                id="appr-cur"
-                value={currency}
-                maxLength={3}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            <Field label="Details (optional)" htmlFor="appr-desc">
+              <Textarea
+                id="appr-desc"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={4000}
               />
             </Field>
-            <Field label="Due" htmlFor="appr-due">
-              <Input
-                id="appr-due"
-                type="date"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="Approvers" htmlFor="appr-approvers">
-            <PeoplePicker
-              label="Approvers"
-              candidates={candidatesFor(source?.conversation ?? null, directory).filter(
-                (id) => id !== me,
-              )}
-              picked={approvers}
-              onChange={setApprovers}
-              directory={directory}
-              emptyText="Add people to this conversation to ask them for approval."
-            />
-          </Field>
-          {approvers.length > 1 ? (
-            <div
-              role="radiogroup"
-              aria-label="Decision rule"
-              className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-sunken p-1"
-            >
-              {(
-                [
-                  ['any', 'Any one approver'],
-                  ['all', 'Everyone must approve'],
-                ] as const
-              ).map(([v, l]) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={policy === v}
-                  onClick={() => setPolicy(v)}
-                  className={cn(
-                    'h-9 rounded-md text-label transition-colors',
-                    policy === v ? 'bg-surface-raised text-text shadow-sm' : 'text-text-muted',
-                  )}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Category" htmlFor="appr-cat">
+                <select
+                  id="appr-cat"
+                  className={selectClass}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as Approval['category'])}
                 >
-                  {l}
-                </button>
-              ))}
+                  {APPROVAL_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {CATEGORY_LABEL[c]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label="Amount"
+                htmlFor="appr-amount"
+                error={amountOk ? undefined : 'Enter a number'}
+              >
+                <Input
+                  id="appr-amount"
+                  inputMode="decimal"
+                  placeholder="Optional"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </Field>
+              <Field label="Currency" htmlFor="appr-cur">
+                <Input
+                  id="appr-cur"
+                  value={currency}
+                  maxLength={3}
+                  onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                />
+              </Field>
+              <Field label="Due" htmlFor="appr-due">
+                <Input
+                  id="appr-due"
+                  type="date"
+                  value={due}
+                  onChange={(e) => setDue(e.target.value)}
+                />
+              </Field>
             </div>
-          ) : null}
+            <Field label="Approvers" htmlFor="appr-approvers">
+              <PeoplePicker
+                label="Approvers"
+                candidates={candidatesFor(source?.conversation ?? null, directory).filter(
+                  (id) => id !== me,
+                )}
+                picked={approvers}
+                onChange={setApprovers}
+                directory={directory}
+                emptyText="Add people to this conversation to ask them for approval."
+              />
+            </Field>
+            {approvers.length > 1 ? (
+              <div
+                role="radiogroup"
+                aria-label="Decision rule"
+                className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-sunken p-1"
+              >
+                {(
+                  [
+                    ['any', 'Any one approver'],
+                    ['all', 'Everyone must approve'],
+                  ] as const
+                ).map(([v, l]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={policy === v}
+                    onClick={() => setPolicy(v)}
+                    className={cn(
+                      'h-9 rounded-md text-label transition-colors',
+                      policy === v ? 'bg-surface-raised text-text shadow-sm' : 'text-text-muted',
+                    )}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           {error ? (
             <p role="alert" className="text-label font-normal text-danger">
               {error}
@@ -580,63 +584,65 @@ export function NewProjectDialog({
         className="w-[min(560px,calc(100vw-2rem))]"
       >
         <form
-          className="grid max-h-[65dvh] gap-3 overflow-y-auto pr-1"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             void create();
           }}
         >
-          <Field label="Project name" htmlFor="proj-name">
-            <Input
-              id="proj-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={80}
-              placeholder="Q1 brand tracker"
-              required
-              autoFocus
-            />
-          </Field>
-          <Field label="Description (optional)" htmlFor="proj-desc">
-            <Textarea
-              id="proj-desc"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={2000}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Due (optional)" htmlFor="proj-due">
+          <div className="-mx-1 grid max-h-[min(58dvh,560px)] gap-3 overflow-y-auto px-1 pb-1">
+            <Field label="Project name" htmlFor="proj-name">
               <Input
-                id="proj-due"
-                type="date"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
+                id="proj-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                placeholder="Q1 brand tracker"
+                required
+                autoFocus
               />
             </Field>
-            <Field label="Channel" htmlFor="proj-vis">
-              <select
-                id="proj-vis"
-                className={selectClass}
-                value={isPrivate ? 'private' : 'public'}
-                onChange={(e) => setPrivate(e.target.value === 'private')}
-              >
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-              </select>
+            <Field label="Description (optional)" htmlFor="proj-desc">
+              <Textarea
+                id="proj-desc"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={2000}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Due (optional)" htmlFor="proj-due">
+                <Input
+                  id="proj-due"
+                  type="date"
+                  value={due}
+                  onChange={(e) => setDue(e.target.value)}
+                />
+              </Field>
+              <Field label="Channel" htmlFor="proj-vis">
+                <select
+                  id="proj-vis"
+                  className={selectClass}
+                  value={isPrivate ? 'private' : 'public'}
+                  onChange={(e) => setPrivate(e.target.value === 'private')}
+                >
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Members" htmlFor="proj-members">
+              <PeoplePicker
+                label="Members"
+                candidates={[...directory.keys()].filter((id) => id !== me)}
+                picked={members}
+                onChange={setMembers}
+                directory={directory}
+                emptyText="No one else here yet. Invite people from Administration."
+              />
             </Field>
           </div>
-          <Field label="Members" htmlFor="proj-members">
-            <PeoplePicker
-              label="Members"
-              candidates={[...directory.keys()].filter((id) => id !== me)}
-              picked={members}
-              onChange={setMembers}
-              directory={directory}
-              emptyText="No one else here yet. Invite people from Administration."
-            />
-          </Field>
           {error ? (
             <p role="alert" className="text-label font-normal text-danger">
               {error}

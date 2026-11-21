@@ -64,76 +64,110 @@ export function WorkContextSection({
       {work.records?.length ? (
         <section className="space-y-2" aria-label="Linked records">
           <p className="mb-2 text-overline uppercase text-text-subtle">Linked records</p>
-          {work.records.map((r) => {
-            const fields = Object.entries(r.fields)
-              .filter(([k]) => k !== 'url')
-              .slice(0, 6);
-            return (
-              <div
-                key={r.linkId}
-                className="rounded-lg border border-border bg-surface-raised p-3"
-                data-testid="linked-record"
-              >
-                <div className="flex items-start gap-2">
-                  <Briefcase className="mt-0.5 size-4 shrink-0 text-accent" />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-meta text-text-subtle">
-                      <span className="font-semibold text-text-muted">{moduleName(r.module)}</span>·{' '}
+          {[...work.records]
+            .sort((a, b) => Number(!!a.parent) - Number(!!b.parent))
+            .map((r, i) => {
+              // The conversation's own record gets the full card; records under it stay compact.
+              if (i > 0 && r.parent)
+                return (
+                  <div
+                    key={r.linkId}
+                    className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-meta"
+                    data-testid="linked-record"
+                  >
+                    <span className="shrink-0 text-text-subtle">
                       {r.recordType.replace(/_/g, ' ')}
-                      {r.sensitivity === 'restricted' ? (
-                        <Lock className="size-3" aria-label="Restricted record" />
-                      ) : null}
-                    </p>
+                    </span>
                     {r.url ? (
                       <a
                         href={r.url}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="flex items-center gap-1 text-label text-text hover:text-accent"
+                        className="min-w-0 flex-1 truncate text-text hover:text-accent"
                       >
-                        <span className="truncate">{r.title}</span>
-                        <ExternalLink className="size-3 shrink-0" />
+                        {r.title}
                       </a>
                     ) : (
-                      <p className="truncate text-label text-text">{r.title}</p>
+                      <span className="min-w-0 flex-1 truncate text-text">{r.title}</span>
                     )}
-                    {r.parent ? (
-                      <p className="truncate text-meta text-text-subtle">in {r.parent.title}</p>
+                    {typeof r.fields.status === 'string' ? (
+                      <Badge tone="neutral" className="shrink-0 px-1.5 text-[10px]">
+                        {r.fields.status}
+                      </Badge>
                     ) : null}
                   </div>
-                </div>
-                {fields.length ? (
-                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    {fields.map(([k, v]) => (
-                      <div key={k} className="min-w-0">
-                        <dt className="text-[11px] text-text-subtle">{humanize(k)}</dt>
-                        <dd className="truncate text-meta text-text">{fieldValue(k, v)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
-                {r.actions.length && !readOnly ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {r.actions.map((a) => (
-                      <Button
-                        key={a.type}
-                        size="sm"
-                        variant="secondary"
-                        title={a.description}
-                        disabled={!work.online}
-                        onClick={() => setAction({ rec: r, type: a.type, label: a.label })}
-                      >
-                        <Send /> {a.label}
-                      </Button>
-                    ))}
+                );
+              const fields = Object.entries(r.fields)
+                .filter(([k]) => k !== 'url')
+                .slice(0, 6);
+              return (
+                <div
+                  key={r.linkId}
+                  className="rounded-lg border border-border bg-surface-raised p-3"
+                  data-testid="linked-record"
+                >
+                  <div className="flex items-start gap-2">
+                    <Briefcase className="mt-0.5 size-4 shrink-0 text-accent" />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 text-meta text-text-subtle">
+                        <span className="font-semibold text-text-muted">
+                          {moduleName(r.module)}
+                        </span>
+                        · {r.recordType.replace(/_/g, ' ')}
+                        {r.sensitivity === 'restricted' ? (
+                          <Lock className="size-3" aria-label="Restricted record" />
+                        ) : null}
+                      </p>
+                      {r.url ? (
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="flex items-center gap-1 text-label text-text hover:text-accent"
+                        >
+                          <span className="truncate">{r.title}</span>
+                          <ExternalLink className="size-3 shrink-0" />
+                        </a>
+                      ) : (
+                        <p className="truncate text-label text-text">{r.title}</p>
+                      )}
+                      {r.parent ? (
+                        <p className="truncate text-meta text-text-subtle">in {r.parent.title}</p>
+                      ) : null}
+                    </div>
                   </div>
-                ) : null}
-                <p className="mt-2 text-[11px] text-text-subtle">
-                  Updated {relativeShort(r.updatedAt)}
-                </p>
-              </div>
-            );
-          })}
+                  {fields.length ? (
+                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      {fields.map(([k, v]) => (
+                        <div key={k} className="min-w-0">
+                          <dt className="text-[11px] text-text-subtle">{humanize(k)}</dt>
+                          <dd className="truncate text-meta text-text">{fieldValue(k, v)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                  {r.actions.length && !readOnly ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {r.actions.map((a) => (
+                        <Button
+                          key={a.type}
+                          size="sm"
+                          variant="secondary"
+                          title={a.description}
+                          disabled={!work.online}
+                          onClick={() => setAction({ rec: r, type: a.type, label: a.label })}
+                        >
+                          <Send /> {a.label}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-text-subtle">
+                    Updated {relativeShort(r.updatedAt)}
+                  </p>
+                </div>
+              );
+            })}
         </section>
       ) : null}
 

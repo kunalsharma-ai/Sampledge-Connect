@@ -183,7 +183,7 @@ export function PeoplePicker({
         placeholder="Search people"
         aria-label={`${label}: search people`}
       />
-      <ul className="mt-2 max-h-44 space-y-0.5 overflow-y-auto" aria-label={label}>
+      <ul className="mt-2 max-h-40 space-y-0.5 overflow-y-auto" aria-label={label}>
         {people.length === 0 ? (
           <li className="py-4 text-center text-label font-normal text-text-subtle">{emptyText}</li>
         ) : null}

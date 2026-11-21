@@ -501,7 +501,7 @@ function ApprovalList({
                           <Badge tone={due.overdue ? 'danger' : 'neutral'}>{due.text}</Badge>
                         ) : null}
                       </div>
-                      {a.description ? (
+                      {a.description && a.description !== a.title ? (
                         <p className="mt-1 line-clamp-2 text-meta text-text-muted">
                           {a.description}
                         </p>

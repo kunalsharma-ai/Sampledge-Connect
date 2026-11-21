@@ -157,6 +157,15 @@ export function Workspace() {
     return m;
   })();
 
+  // Deep link: /app?c=<conversationId> (used by the chat widget's "Open in Connect").
+  React.useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('c');
+    if (!c) return;
+    setModule('messages');
+    setActiveId(c);
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
   // Open the most recent conversation on wide screens.
   React.useEffect(() => {
     if (activeId || !conversations?.length || window.innerWidth < 1024) return;
