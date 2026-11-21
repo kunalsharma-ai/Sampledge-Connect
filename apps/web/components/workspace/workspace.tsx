@@ -27,9 +27,11 @@ import {
   useConversations,
   useEngine,
   useMessages,
+  usePendingReactions,
   useReceipts,
   useUnreadCounts,
 } from '@/lib/engine';
+import type { LocalMessage } from '@sampledge/offline';
 import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
@@ -94,6 +96,9 @@ export function Workspace() {
   const active = conversations?.find((c) => c.conversationId === activeId) ?? null;
   const messages = useMessages(activeId);
   const receipts = useReceipts(activeId) ?? [];
+  const pendingReactions = usePendingReactions(activeId);
+  const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
+  React.useEffect(() => setReplyTo(null), [activeId]);
   const unreadTotal = [...unread.values()].reduce((a, b) => a + b, 0);
   const directoryWithPresence = (() => {
     const m = new Map(directory);
@@ -271,6 +276,16 @@ export function Workspace() {
                   directory={directory}
                   onRetry={(id) => void engine.retry(id)}
                   onDiscard={(id) => void engine.discard(id)}
+                  pendingReactions={pendingReactions}
+                  onReact={(m, emoji, add) => {
+                    if (m.messageId)
+                      void engine.react(
+                        { messageId: m.messageId, conversationId: m.conversationId },
+                        emoji,
+                        add ? 'add' : 'remove',
+                      );
+                  }}
+                  onReply={(m) => setReplyTo(m)}
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -281,9 +296,33 @@ export function Workspace() {
                       : 'Join this channel to send messages.'
                   }
                   offline={offline}
-                  onSend={async (text) => {
-                    await engine.compose(active.conversationId, text);
+                  onSend={async (text, mentions) => {
+                    const reply = replyTo?.messageId ?? null;
+                    setReplyTo(null);
+                    await engine.compose(active.conversationId, text, {
+                      mentions,
+                      replyToMessageId: reply,
+                    });
                   }}
+                  members={active.memberIds
+                    .filter((id) => id !== me && directory.has(id))
+                    .map((id) => ({
+                      userId: id,
+                      displayName: directory.get(id)!.displayName,
+                      subtitle: directory.get(id)!.title ?? undefined,
+                    }))}
+                  replyTo={
+                    replyTo
+                      ? {
+                          name:
+                            replyTo.senderId === me
+                              ? 'yourself'
+                              : nameOf(replyTo.senderId, directory),
+                          text: replyTo.content.text,
+                        }
+                      : null
+                  }
+                  onCancelReply={() => setReplyTo(null)}
                   onTyping={(t) => engine.setTyping(active.conversationId, t)}
                 />
               </>
