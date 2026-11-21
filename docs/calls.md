@@ -76,7 +76,12 @@ incoming-call push data, reconnect handling, multi-replica safe sweeper.
 
 Also built: scheduled meetings (`meetings.md`), external guests with a lobby (`guests.md`) and recordings
 (`recordings.md`), chat inside calls (`guests.md`) and live captions (below). Mobile call screen
-(`@livekit/react-native`, needs an Expo dev build).
+(`@livekit/react-native`, needs an Expo dev build). On the phone, **Flip** switches between the
+front and back camera mid-call (the preview is mirrored only for the front camera), and **Audio**
+chooses where the call plays: speaker, earpiece, wired headset or Bluetooth on Android; phone or
+speaker on iPhone, plus the system picker for Bluetooth and AirPlay. Video calls start on the speaker
+and voice calls on the earpiece; a connected headset or Bluetooth device is used first. Background
+blur stays web-only.
 
 ## Live captions
 
