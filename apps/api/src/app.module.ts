@@ -43,6 +43,10 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
+import { AiController } from './ai/ai.controller.js';
+import { AiService } from './ai/ai.service.js';
+import { AiIntegration } from './ai/ai-integration.js';
+import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -73,6 +77,7 @@ export class AppModule {
         CallsController,
         MeetingsController,
         GuestsController,
+        AiController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -92,6 +97,9 @@ export class AppModule {
         MeetingsService,
         GuestsService,
         MailerService,
+        AiService,
+        AiIntegration,
+        { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         {
           provide: FILE_STORAGE,
