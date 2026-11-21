@@ -2,6 +2,9 @@ import {
   uuidv7,
   type Approval,
   type Bookmark,
+  type BookingPage,
+  type CreateBookingPageRequest,
+  type UpdateBookingPageRequest,
   type CreateApprovalRequest,
   type CreatePollRequest,
   type CreateScheduledMessageRequest,
@@ -23,8 +26,9 @@ import type { SqlDriver, SqlExecutor } from './driver';
  * copy wins again once the change is confirmed or refused.
  *
  * The queue is drained strictly in the order things were done (see OutboxProcessor), and each
- * action is safe to repeat: creates carry a client id the server dedupes on, and everything else
- * sets a state (pinned, saved, my vote, status...) rather than toggling it.
+ * action is safe to repeat: creates carry a client id the server dedupes on (a booking page's
+ * unique link plays that part), and everything else sets a state (pinned, saved, my vote,
+ * status...) rather than toggling it.
  */
 export type ActionInput =
   | { kind: 'pin'; messageId: string; conversationId: string; pinned: boolean }
@@ -45,7 +49,10 @@ export type ActionInput =
     }
   | { kind: 'scheduled.update'; scheduledId: string; sendAt: string }
   | { kind: 'scheduled.cancel'; scheduledId: string }
-  | { kind: 'scheduled.sendNow'; scheduledId: string };
+  | { kind: 'scheduled.sendNow'; scheduledId: string }
+  | { kind: 'booking.create'; localId: string; request: CreateBookingPageRequest }
+  | { kind: 'booking.update'; bookingPageId: string; patch: UpdateBookingPageRequest }
+  | { kind: 'booking.delete'; bookingPageId: string };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -72,6 +79,7 @@ export type LocalTask = Task & LocalWork;
 export type LocalApproval = Approval & LocalWork;
 export type LocalScheduled = ScheduledMessage & LocalWork;
 export type LocalBookmark = Bookmark & LocalWork;
+export type LocalBookingPage = BookingPage & LocalWork;
 
 export interface TaskFilter {
   scope: 'mine' | 'created' | 'conversation' | 'all';
@@ -84,7 +92,9 @@ export interface ApprovalFilter {
   status?: 'pending' | 'decided' | 'any';
 }
 
-type CacheKind = 'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote';
+type CacheKind = 'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking';
+/** Things that can be created on this device before the server knows them. */
+export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
 export type WorkEvents = {
   /** Something in the cache or queue for this kind changed. */
@@ -121,6 +131,11 @@ const targetOf = (a: ActionInput): string => {
     case 'scheduled.cancel':
     case 'scheduled.sendNow':
       return `scheduled:${a.scheduledId}`;
+    case 'booking.create':
+      return `booking:${a.localId}`;
+    case 'booking.update':
+    case 'booking.delete':
+      return `booking:${a.bookingPageId}`;
   }
 };
 
@@ -236,6 +251,35 @@ export function overlayVote(
   };
 }
 
+/** Booking page defaults, as the server applies them (contracts CreateBookingPageSchema). */
+export function bookingFromRequest(
+  id: string,
+  r: CreateBookingPageRequest,
+  self: string,
+  at: string,
+): BookingPage {
+  const slug = r.slug.trim().toLowerCase();
+  return {
+    bookingPageId: id,
+    slug,
+    title: r.title.trim(),
+    description: (r.description ?? '').trim(),
+    durationMinutes: r.durationMinutes ?? 30,
+    hostIds: [...new Set([self, ...(r.hostIds ?? [])])],
+    mode: r.mode ?? 'any',
+    bufferMinutes: r.bufferMinutes ?? 0,
+    minNoticeMinutes: r.minNoticeMinutes ?? 240,
+    horizonDays: r.horizonDays ?? 30,
+    media: r.media ?? 'video',
+    enabled: r.enabled ?? true,
+    createdBy: self,
+    // The link's address is known once the server has it; the path part is already fixed.
+    url: `/book/${slug}`,
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
 export class WorkStore {
   readonly events = new Emitter<WorkEvents>();
 
@@ -294,7 +338,53 @@ export class WorkStore {
         case 'task.create':
         case 'approval.create':
         case 'scheduled.create':
+        case 'booking.create':
           await insert(input);
+          break;
+        case 'booking.update': {
+          if (create?.input.kind === 'booking.create' && create.state !== 'sending') {
+            // Not on the server yet: the create carries the whole page. Fixing a refused one
+            // (say, a link someone else took) sends it again.
+            const { hostIds, ...rest } = input.patch;
+            await rewrite(create, {
+              ...create.input,
+              request: { ...create.input.request, ...rest, ...(hostIds ? { hostIds } : {}) },
+            });
+            if (create.state === 'failed')
+              await tx.run(
+                `UPDATE actions SET state = 'pending', attempts = 0, next_attempt_at = 0, last_error = NULL WHERE id = ?`,
+                [create.id],
+              );
+            break;
+          }
+          if (waiting.some((a) => a.input.kind === 'booking.delete')) break;
+          const prior = waiting.find(
+            (a) => a.input.kind === 'booking.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'booking.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
+        case 'booking.delete':
+          if (create && create.state !== 'sending') {
+            // Never reached the server: forget it here.
+            await drop(waiting.map((a) => a.id));
+            await tx.run(`DELETE FROM work_cache WHERE kind = 'booking' AND id = ?`, [
+              input.bookingPageId,
+            ]);
+            break;
+          }
+          // Edits waiting before the delete no longer matter.
+          await drop(
+            waiting
+              .filter((a) => a.state === 'pending' && a.input.kind === 'booking.update')
+              .map((a) => a.id),
+          );
+          if (!waiting.some((a) => a.input.kind === 'booking.delete')) await insert(input);
           break;
         case 'task.update': {
           const { status, ...rest } = input.patch;
@@ -377,9 +467,26 @@ export class WorkStore {
       if (input.kind === 'task.create' || input.kind === 'approval.create')
         await this.writeLocal(tx, input);
       if (input.kind === 'scheduled.create') await this.writeLocal(tx, input);
+      if (input.kind === 'booking.create') await this.writeLocalBooking(tx, input);
     });
     this.events.emit('changed', { kind: kindOfCache(input.kind) });
     return result;
+  }
+
+  /** The page shown for a booking page made on this device (the server fills the defaults). */
+  private async writeLocalBooking(
+    tx: SqlExecutor,
+    input: Extract<ActionInput, { kind: 'booking.create' }>,
+  ): Promise<void> {
+    const at = new Date(this.now()).toISOString();
+    await tx.run(
+      `INSERT OR REPLACE INTO work_cache (kind, id, conversation_id, data, updated_at) VALUES ('booking', ?, NULL, ?, ?)`,
+      [
+        input.localId,
+        JSON.stringify(bookingFromRequest(input.localId, input.request, this.selfId, at)),
+        at,
+      ],
+    );
   }
 
   /** The optimistic record shown for something created on this device. */
@@ -525,7 +632,7 @@ export class WorkStore {
   }
 
   /** Try a refused create again (e.g. after fixing access). */
-  async retry(localId: string, kind: 'task' | 'approval' | 'scheduled' | 'poll'): Promise<void> {
+  async retry(localId: string, kind: LocalKind): Promise<void> {
     await this.db.run(
       `UPDATE actions SET state = 'pending', attempts = 0, next_attempt_at = 0, last_error = NULL WHERE target = ?`,
       [`${kind}:${localId}`],
@@ -534,7 +641,7 @@ export class WorkStore {
   }
 
   /** Forget something created here that never reached the server. */
-  async discard(localId: string, kind: 'task' | 'approval' | 'scheduled' | 'poll'): Promise<void> {
+  async discard(localId: string, kind: LocalKind): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM actions WHERE target = ?', [`${kind}:${localId}`]);
       if (kind === 'poll')
@@ -571,15 +678,11 @@ export class WorkStore {
     record:
       | { kind: 'task'; data: Task }
       | { kind: 'approval'; data: Approval }
-      | { kind: 'scheduled'; data: ScheduledMessage },
+      | { kind: 'scheduled'; data: ScheduledMessage }
+      | { kind: 'booking'; data: BookingPage },
   ): Promise<void> {
     const localId = 'localId' in a.input ? a.input.localId : '';
-    const serverId =
-      record.kind === 'task'
-        ? record.data.taskId
-        : record.kind === 'approval'
-          ? record.data.approvalId
-          : record.data.scheduledId;
+    const serverId = this.idOf(record.kind, record.data);
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM actions WHERE id = ?', [a.id]);
       await tx.run('INSERT OR REPLACE INTO id_map (local_id, server_id) VALUES (?, ?)', [
@@ -615,7 +718,9 @@ export class WorkStore {
         ? d.approvalId!
         : kind === 'scheduled'
           ? d.scheduledId!
-          : d.messageId!;
+          : kind === 'booking'
+            ? d.bookingPageId!
+            : d.messageId!;
   }
 
   private async upsertTx(tx: SqlExecutor, kind: CacheKind, data: unknown): Promise<void> {
@@ -641,6 +746,7 @@ export class WorkStore {
   async upsert(kind: 'approval', items: readonly Approval[]): Promise<void>;
   async upsert(kind: 'scheduled', items: readonly ScheduledMessage[]): Promise<void>;
   async upsert(kind: 'bookmark', items: readonly Bookmark[]): Promise<void>;
+  async upsert(kind: 'booking', items: readonly BookingPage[]): Promise<void>;
   async upsert(kind: CacheKind, items: readonly unknown[]): Promise<void> {
     if (!items.length) return;
     await this.db.transaction(async (tx) => {
@@ -654,7 +760,7 @@ export class WorkStore {
    * answer are gone (or out of scope) and are dropped. Records made offline stay.
    */
   async replace<T>(
-    kind: 'task' | 'approval' | 'scheduled' | 'bookmark',
+    kind: 'task' | 'approval' | 'scheduled' | 'bookmark' | 'booking',
     items: readonly T[],
     inScope: (t: T) => boolean,
   ): Promise<void> {
@@ -672,6 +778,12 @@ export class WorkStore {
       for (const it of items) await this.upsertTx(tx, kind, it);
     });
     this.events.emit('changed', { kind });
+  }
+
+  /** A booking page was deleted, or you are no longer one of its hosts. */
+  async removeBooking(bookingPageId: string): Promise<void> {
+    await this.db.run(`DELETE FROM work_cache WHERE kind = 'booking' AND id = ?`, [bookingPageId]);
+    this.events.emit('changed', { kind: 'booking' });
   }
 
   async removeBookmark(messageId: string): Promise<void> {
@@ -878,6 +990,57 @@ export class WorkStore {
       });
     }
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  private overlayBooking(p: BookingPage, actions: QueuedAction[]): LocalBookingPage | null {
+    let out: LocalBookingPage = { ...p };
+    for (const a of actions) {
+      if (a.target !== `booking:${p.bookingPageId}`) continue;
+      if (a.state === 'failed') out.syncError = a.lastError;
+      else out.pending = true;
+      if (a.input.kind === 'booking.create')
+        out = {
+          ...out,
+          ...bookingFromRequest(p.bookingPageId, a.input.request, this.selfId, p.createdAt),
+          ...(a.state === 'failed' ? { syncError: a.lastError } : { pending: true }),
+        };
+      if (a.input.kind === 'booking.update') {
+        const { hostIds, ...rest } = a.input.patch;
+        out = {
+          ...out,
+          ...(Object.fromEntries(
+            Object.entries(rest).filter(([, v]) => v !== undefined),
+          ) as Partial<BookingPage>),
+          ...(hostIds ? { hostIds: [...new Set(hostIds)] } : {}),
+        };
+        if (rest.slug) out.url = out.url.replace(/[^/]*$/, rest.slug.trim().toLowerCase());
+      }
+      if (a.input.kind === 'booking.delete' && a.state !== 'failed') return null;
+    }
+    if (isLocalId(out.bookingPageId)) out.local = true;
+    return out;
+  }
+
+  /** Booking pages you host, newest first, with changes made here applied. */
+  async listBookingPages(): Promise<LocalBookingPage[]> {
+    const actions = await this.pendingFor('booking');
+    return (await this.rows<BookingPage>('booking'))
+      .map((p) => this.overlayBooking(p, actions))
+      .filter((p): p is LocalBookingPage => !!p)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getBookingPage(id: string): Promise<LocalBookingPage | undefined> {
+    const resolved = (await this.resolveId(id)) ?? id;
+    const r = await this.db.get<{ data: string }>(
+      `SELECT data FROM work_cache WHERE kind = 'booking' AND id IN (?, ?)`,
+      [id, resolved],
+    );
+    if (!r) return undefined;
+    return (
+      this.overlayBooking(JSON.parse(r.data) as BookingPage, await this.pendingFor('booking')) ??
+      undefined
+    );
   }
 
   async savedIds(): Promise<Set<string>> {

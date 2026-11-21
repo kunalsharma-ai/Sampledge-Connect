@@ -26,6 +26,9 @@ const WHAT: Record<ActionKind, string> = {
   'scheduled.update': 'New send time',
   'scheduled.cancel': 'Deleting the scheduled message',
   'scheduled.sendNow': 'Send now',
+  'booking.create': 'New booking page',
+  'booking.update': 'Booking page change',
+  'booking.delete': 'Deleting the booking page',
 };
 
 /**
