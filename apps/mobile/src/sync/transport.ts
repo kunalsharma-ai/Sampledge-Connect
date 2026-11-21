@@ -135,6 +135,8 @@ export interface ApiTransport {
   /** A Session, or a two-step challenge to finish with verifyMfa. */
   login(req: LoginRequest): Promise<LoginResponse>;
   verifyMfa(challengeId: string, code: string): Promise<Session>;
+  /** Swaps the one-time code from a single sign-on return for the session. */
+  ssoExchange(code: string, codeVerifier: string): Promise<Session>;
   refresh(refreshToken: string): Promise<Session>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
@@ -325,6 +327,10 @@ export class HttpTransport implements ApiTransport {
 
   verifyMfa(challengeId: string, code: string): Promise<Session> {
     return this.request('POST', '/v1/auth/mfa/verify', { challengeId, code }, false);
+  }
+
+  ssoExchange(code: string, codeVerifier: string): Promise<Session> {
+    return this.request('POST', '/v1/auth/sso/exchange', { code, codeVerifier }, false);
   }
 
   refresh(refreshToken: string): Promise<Session> {
@@ -981,6 +987,7 @@ export class NoServerTransport implements ApiTransport {
   }
   login = async (): Promise<LoginResponse> => this.fail();
   verifyMfa = async (): Promise<Session> => this.fail();
+  ssoExchange = async (): Promise<Session> => this.fail();
   refresh = async (): Promise<Session> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
