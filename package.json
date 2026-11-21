@@ -1,0 +1,27 @@
+{
+  "name": "sampledge-connect",
+  "private": true,
+  "description": "Sampledge Connect: offline-first, multi-tenant communication platform",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=26.13.1 <27",
+    "pnpm": ">=12.21.0"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration --concurrency=1",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "prettier": "^3.10.1",
+    "turbo": "^2.11.13",
+    "typescript": "^7.0.2"
+  }
+}
