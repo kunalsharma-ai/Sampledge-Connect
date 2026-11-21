@@ -1,5 +1,6 @@
 import {
   Bell,
+  Bookmark,
   Bot,
   CalendarClock,
   ChartNoAxesCombined,
@@ -29,6 +30,7 @@ export type ModuleId =
   | 'files'
   | 'tasks'
   | 'notifications'
+  | 'saved'
   | 'search'
   | 'ai'
   | 'analytics'
@@ -58,6 +60,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'files', label: 'Files', icon: FolderOpen, built: false, phase: 'Phase 1b · Nextcloud' },
   { id: 'tasks', label: 'Tasks & Approvals', icon: CheckSquare, built: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, built: true },
+  { id: 'saved', label: 'Saved', icon: Bookmark, built: true },
   { id: 'search', label: 'Universal Search', icon: Search, built: false, phase: 'Phase 2' },
   { id: 'ai', label: 'AI Assistant', icon: Bot, built: true },
   {

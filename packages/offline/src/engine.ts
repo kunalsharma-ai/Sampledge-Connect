@@ -328,6 +328,7 @@ export class SyncEngine {
       deletedAt: null,
       metadata: {},
       reactions: [],
+      pinned: null,
       status,
       localCreatedAt: it.createdAt,
       error: it.lastError,

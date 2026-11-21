@@ -99,8 +99,27 @@ export const MessageSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
   /** In first-reacted order. A reaction change bumps changeSequence, so sync carries it. */
   reactions: z.array(ReactionSchema).default([]),
+  /** Pinned to the conversation. Pin changes bump changeSequence, so sync carries them. */
+  pinned: z
+    .object({ pinnedBy: ServerIdSchema, pinnedAt: z.string().datetime() })
+    .nullable()
+    .default(null),
 });
 export type Message = z.infer<typeof MessageSchema>;
+
+/** Most messages a conversation can have pinned at once. */
+export const MAX_PINS_PER_CONVERSATION = 50;
+
+/** A message the caller saved for later. GET /v1/bookmarks, PUT/DELETE /v1/messages/:id/bookmark. */
+export const BookmarkSchema = z.object({
+  messageId: ServerIdSchema,
+  conversationId: ServerIdSchema,
+  createdAt: z.string().datetime(),
+  /** Current state of the message (edits and deletion show through). */
+  message: MessageSchema,
+});
+export type Bookmark = z.infer<typeof BookmarkSchema>;
+export const MAX_BOOKMARKS_PER_USER = 1000;
 
 /** Body of POST /v1/conversations/:id/messages and of the `message:send` socket event. */
 export const SendMessageRequestSchema = z

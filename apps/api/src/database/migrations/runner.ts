@@ -8,6 +8,7 @@ import { recordingsMigration } from './006-recordings.js';
 import { guestsMigration } from './007-guests.js';
 import { sampledgeModulesMigration } from './012-sampledge-modules.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
+import { bookmarksMigration } from './008-bookmarks.js';
 import { aiMigration } from './011-ai.js';
 import { aiTranscriptsMigration } from './013-ai-transcripts.js';
 
@@ -29,6 +30,7 @@ export const MIGRATIONS: Migration[] = [
   aiMigration,
   sampledgeModulesMigration,
   aiTranscriptsMigration,
+  bookmarksMigration,
 ];
 
 /**
