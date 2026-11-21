@@ -1,6 +1,14 @@
 'use client';
 import * as React from 'react';
-import { CornerUpLeft, SmilePlus } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkCheck,
+  CornerUpLeft,
+  MessagesSquare,
+  Pin,
+  PinOff,
+  SmilePlus,
+} from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -140,15 +148,31 @@ export function ReactionChips({
 }
 
 /** Hover toolbar: quick reactions and reply. Keyboard reachable via focus-within. */
+export interface ExtraActions {
+  onThread?: () => void;
+  pinned?: boolean;
+  onPin?: (pin: boolean) => void;
+  saved?: boolean;
+  onSave?: (save: boolean) => void;
+}
+
+const ACTION_BTN =
+  'flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-surface-raised hover:text-text';
+
 export function MessageActions({
   own,
   onReact,
   onReply,
+  onThread,
+  pinned,
+  onPin,
+  saved,
+  onSave,
 }: {
   own: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
-}) {
+} & ExtraActions) {
   const [open, setOpen] = React.useState(false);
   return (
     <div
@@ -175,20 +199,37 @@ export function MessageActions({
         ))
       ) : (
         <>
-          <button
-            onClick={() => setOpen(true)}
-            aria-label="Add reaction"
-            className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-surface-raised hover:text-text"
-          >
+          <button onClick={() => setOpen(true)} aria-label="Add reaction" className={ACTION_BTN}>
             <SmilePlus className="size-4" />
           </button>
-          <button
-            onClick={onReply}
-            aria-label="Reply"
-            className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-surface-raised hover:text-text"
-          >
+          <button onClick={onReply} aria-label="Reply" className={ACTION_BTN}>
             <CornerUpLeft className="size-4" />
           </button>
+          {onThread ? (
+            <button onClick={onThread} aria-label="Reply in thread" className={ACTION_BTN}>
+              <MessagesSquare className="size-4" />
+            </button>
+          ) : null}
+          {onPin ? (
+            <button
+              onClick={() => onPin(!pinned)}
+              aria-label={pinned ? 'Unpin' : 'Pin for everyone'}
+              aria-pressed={!!pinned}
+              className={cn(ACTION_BTN, pinned && 'text-accent')}
+            >
+              {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            </button>
+          ) : null}
+          {onSave ? (
+            <button
+              onClick={() => onSave(!saved)}
+              aria-label={saved ? 'Remove from saved' : 'Save for later'}
+              aria-pressed={!!saved}
+              className={cn(ACTION_BTN, saved && 'text-accent')}
+            >
+              {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+            </button>
+          ) : null}
         </>
       )}
     </div>
