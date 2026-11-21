@@ -1,6 +1,13 @@
 'use client';
 import * as React from 'react';
-import type { LoginRequest, RegisterTenantRequest, Session } from '@sampledge/contracts';
+import {
+  isMfaChallenge,
+  type LoginRequest,
+  type LoginResponse,
+  type MfaChallenge,
+  type RegisterTenantRequest,
+  type Session,
+} from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import {
   clearSession,
@@ -17,7 +24,9 @@ interface AuthContextValue {
   session: StoredSession | null;
   /** Returns a valid access token, refreshing when needed. Throws on network failure, null when signed out. */
   getAccessToken(): Promise<string | null>;
-  login(input: Omit<LoginRequest, 'device'>): Promise<void>;
+  /** Resolves with a challenge when the account has two-step verification on. */
+  login(input: Omit<LoginRequest, 'device'>): Promise<MfaChallenge | null>;
+  verifyMfa(challengeId: string, code: string): Promise<void>;
   register(input: Omit<RegisterTenantRequest, 'device'>): Promise<void>;
   logout(): Promise<void>;
   /** Set when a refresh failed for auth reasons; the UI asks the user to sign in again. */
@@ -89,8 +98,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = React.useCallback(
     async (input: Omit<LoginRequest, 'device'>) => {
-      const s = await apiRequest<Session>('POST', '/v1/auth/login', {
+      const r = await apiRequest<LoginResponse>('POST', '/v1/auth/login', {
         body: { ...input, device: deviceInfo() },
+      });
+      if (isMfaChallenge(r)) return r;
+      await adopt(r);
+      return null;
+    },
+    [adopt],
+  );
+
+  const verifyMfa = React.useCallback(
+    async (challengeId: string, code: string) => {
+      const s = await apiRequest<Session>('POST', '/v1/auth/mfa/verify', {
+        body: { challengeId, code },
       });
       await adopt(s);
     },
@@ -118,8 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ status, session, getAccessToken, login, register, logout, expired }),
-    [status, session, getAccessToken, login, register, logout, expired],
+    () => ({ status, session, getAccessToken, login, verifyMfa, register, logout, expired }),
+    [status, session, getAccessToken, login, verifyMfa, register, logout, expired],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
