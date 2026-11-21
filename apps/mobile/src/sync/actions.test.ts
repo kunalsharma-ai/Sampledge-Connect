@@ -867,3 +867,61 @@ describe('search on this phone', () => {
     expect(await texts({ terms: ['quota'], hasFile: true })).toEqual([]);
   });
 });
+
+describe('files on this phone', () => {
+  const att = (id: string, fileName: string, mimeType: string, extra: object = {}) => ({
+    attachmentId: id,
+    conversationId: 'c1',
+    uploaderId: PEER,
+    fileName,
+    mimeType,
+    sizeBytes: 1200,
+    width: null,
+    height: null,
+    status: 'ready' as const,
+    createdAt: new Date().toISOString(),
+    ...extra,
+  });
+
+  it('lists files newest first by type and name, leaves out recordings, and shows unsent ones', async () => {
+    const t = await setup();
+    await t.addMessage({
+      senderId: PEER,
+      attachments: [
+        att(
+          'a1',
+          'Wave 3 quota.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ),
+        att('a2', 'site.jpg', 'image/jpeg'),
+      ],
+    });
+    await t.addMessage({
+      senderId: PEER,
+      attachments: [att('a3', 'voice.m4a', 'audio/mp4', { recording: 'voice', durationMs: 3000 })],
+    });
+    await t.engine.send('c1', 'here', {
+      files: [
+        {
+          localUri: 'file:///x/brief.pdf',
+          fileName: 'brief.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 50,
+        },
+      ],
+    });
+    const names = async (q: Parameters<typeof t.engine.filesOnPhone>[0] = {}) =>
+      (await t.engine.filesOnPhone(q)).map((f) => f.fileName);
+    expect(await names()).toEqual(['brief.pdf', 'Wave 3 quota.xlsx', 'site.jpg']);
+    expect(await names({ kind: 'images' })).toEqual(['site.jpg']);
+    expect(await names({ kind: 'documents', q: 'quota' })).toEqual(['Wave 3 quota.xlsx']);
+    expect(await names({ from: SELF })).toEqual(['brief.pdf']);
+    expect(await names({ in: 'c2' })).toEqual([]);
+    const [unsent] = await t.engine.filesOnPhone({ q: 'brief' });
+    expect(unsent).toMatchObject({
+      attachmentId: null,
+      localUri: 'file:///x/brief.pdf',
+      kind: 'documents',
+    });
+  });
+});

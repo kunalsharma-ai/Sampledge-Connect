@@ -33,12 +33,12 @@ const ICONS: [RegExp, keyof typeof Ionicons.glyphMap][] = [
   [/^audio\//, 'musical-notes-outline'],
   [/^video\//, 'videocam-outline'],
 ];
-const iconFor = (mime: string) => ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
+export const iconFor = (mime: string) => ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
 
 // Signed links are valid for ten minutes; reuse them for a little less.
 const urlCache = new Map<string, { url: string; until: number }>();
 
-function useSignedUrl(attachmentId: string | null, enabled: boolean) {
+export function useSignedUrl(attachmentId: string | null, enabled: boolean) {
   const { engine } = useWorkspace();
   const cached = attachmentId ? urlCache.get(attachmentId) : undefined;
   const [url, setUrl] = useState<string | null>(
@@ -62,8 +62,8 @@ function useSignedUrl(attachmentId: string | null, enabled: boolean) {
   return { url, failed };
 }
 
-async function openAttachment(
-  a: LocalAttachment,
+export async function openAttachment(
+  a: Pick<LocalAttachment, 'attachmentId' | 'localUri'>,
   getUrl: (id: string) => Promise<string>,
 ): Promise<void> {
   const target = a.attachmentId ? await getUrl(a.attachmentId) : a.localUri;

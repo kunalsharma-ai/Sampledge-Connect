@@ -87,6 +87,7 @@ function RootStack() {
           <Stack.Screen name="booking-pages/[id]" options={{ title: 'Booking page' }} />
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
+          <Stack.Screen name="files" options={{ title: 'Files' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
           <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />

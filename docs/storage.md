@@ -61,3 +61,9 @@ was sent in and `storage` (`connect` or `nextcloud`). Unsent uploads, deleted fi
 
 The web Files screen refetches when a message with files arrives on the device and on reconnect.
 Offline it shows the last synced list merged with files in messages cached on the device.
+
+The mobile app has the same screen (More, then Files; or a conversation's details for its files
+only), with type filters, name search and image thumbnails. It refetches shortly after any
+message changes on the phone (from any device) and on reconnect. Offline it lists the files in
+messages saved on the phone, and files sent from the phone that are still waiting to upload show
+at the top until they reach the server.

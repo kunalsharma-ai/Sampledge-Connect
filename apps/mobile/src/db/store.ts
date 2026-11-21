@@ -1,5 +1,7 @@
 import {
   deriveConfirmedStatus,
+  fileKindOf,
+  type FileKind,
   uuidv7,
   type Conversation,
   type ConversationKind,
@@ -86,6 +88,28 @@ export interface LocalSearch {
   after?: string;
   before?: string;
   limit?: number;
+}
+
+/** Filters for {@link LocalStore.filesOnPhone}, the same as GET /v1/files. */
+export interface LocalFilesQuery {
+  q?: string;
+  kind?: FileKind;
+  in?: string;
+  from?: string;
+  before?: string;
+  limit?: number;
+}
+
+/** A file in a message stored on this phone. */
+export interface LocalFile extends LocalAttachment {
+  kind: FileKind;
+  messageId: string | null;
+  clientId: string;
+  /** Its place among the message's files. */
+  position: number;
+  conversationId: string;
+  uploaderId: string;
+  createdAt: string;
 }
 
 export interface LocalAttachment {
@@ -1505,6 +1529,56 @@ export class LocalStore {
       return q.terms.every((t) => hay.includes(t));
     });
     return out.slice(0, q.limit ?? 50);
+  }
+
+  /**
+   * The Files screen on this phone: every file in the messages stored here (and files still
+   * waiting to upload), newest first, with the same filters as GET /v1/files. Recordings are left
+   * out, as they are on the server, because they have their own screen.
+   */
+  async filesOnPhone(q: LocalFilesQuery): Promise<LocalFile[]> {
+    const where = [
+      'm.deleted_at IS NULL',
+      "(m.attachments <> '[]' OR EXISTS (SELECT 1 FROM message_files f WHERE f.client_id = m.client_id))",
+    ];
+    const args: (string | number)[] = [];
+    if (q.in) {
+      where.push('m.conversation_id = ?');
+      args.push(q.in);
+    }
+    if (q.from) {
+      where.push('m.sender_id = ?');
+      args.push(q.from);
+    }
+    if (q.before) {
+      where.push('m.created_at < ?');
+      args.push(q.before);
+    }
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC LIMIT ?`,
+      [...args, 500],
+    );
+    const terms = (q.q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    const out: LocalFile[] = [];
+    for (const m of await this.hydrate(rows))
+      for (const [position, a] of m.attachments.entries()) {
+        if (a.recording || a.deletedAt) continue;
+        const kind = fileKindOf(a.mimeType, a.fileName);
+        if (q.kind && kind !== q.kind) continue;
+        const name = a.fileName.toLowerCase();
+        if (!terms.every((t) => name.includes(t))) continue;
+        out.push({
+          ...a,
+          kind,
+          messageId: m.messageId,
+          clientId: m.clientId,
+          position,
+          conversationId: m.conversationId,
+          uploaderId: m.senderId,
+          createdAt: m.createdAt,
+        });
+      }
+    return out.slice(0, q.limit ?? 200);
   }
 
   async searchMessages(query: string, limit = 50): Promise<LocalMessage[]> {

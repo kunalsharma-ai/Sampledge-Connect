@@ -51,6 +51,8 @@ import {
   type Recording,
   type RecordingKind,
   type RecordingList,
+  type FileList,
+  type ListFilesQuery,
   type Conversation,
   type CreateConversationRequest,
   type CreateMeetingRequest,
@@ -214,6 +216,8 @@ export interface ApiTransport {
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
   /** Recordings library, newest first; page with `before` = the previous page's nextBefore. */
   listRecordings(q: RecordingsQuery): Promise<RecordingList>;
+  /** GET /v1/files: every file in conversations you can read, newest first. */
+  listFiles(q: ListFilesQuery): Promise<FileList>;
   /** Pins or unpins for everyone in the conversation; returns the updated message. */
   pinMessage(messageId: string, pinned: boolean): Promise<Message>;
   /** Messages you saved for later, newest first. */
@@ -632,6 +636,16 @@ export class HttpTransport implements ApiTransport {
     if (q.before) p.set('before', q.before);
     p.set('limit', String(q.limit ?? 30));
     return this.request('GET', `/v1/recordings?${p.toString()}`, undefined);
+  }
+
+  listFiles(q: ListFilesQuery): Promise<FileList> {
+    const p = new URLSearchParams();
+    for (const k of ['q', 'kind', 'in', 'from', 'before'] as const) {
+      const v = q[k];
+      if (v) p.set(k, String(v));
+    }
+    p.set('limit', String(q.limit ?? 40));
+    return this.request('GET', `/v1/files?${p.toString()}`, undefined);
   }
 
   deleteRecording(recordingId: string): Promise<void> {
@@ -1081,6 +1095,7 @@ export class NoServerTransport implements ApiTransport {
   getWorkingHours = async (): Promise<WorkingHours> => this.fail();
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
   listRecordings = async (): Promise<RecordingList> => this.fail();
+  listFiles = async (): Promise<FileList> => this.fail();
   deleteRecording = async (): Promise<void> => this.fail();
   pinMessage = async (): Promise<Message> => this.fail();
   listBookmarks = async (): Promise<Bookmark[]> => this.fail();

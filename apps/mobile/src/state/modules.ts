@@ -91,8 +91,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'files',
     title: 'Files',
     icon: 'folder-outline',
-    status: 'planned',
-    summary: 'Nextcloud-backed files and resumable attachment upload.',
+    status: 'available',
+    href: '/files',
+    summary:
+      'Every file shared in your conversations, with search and filters by type. Works offline from the files saved on this phone.',
   },
   {
     key: 'tasks',
