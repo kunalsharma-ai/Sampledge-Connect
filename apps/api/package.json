@@ -39,6 +39,8 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^12.6.0",
+    "@sampledge/chat-widget": "workspace:*",
+    "@sampledge/connect-sdk": "workspace:*",
     "@sampledge/offline": "workspace:*",
     "@swc/core": "^1.16.22",
     "@types/express": "^5.0.6",
