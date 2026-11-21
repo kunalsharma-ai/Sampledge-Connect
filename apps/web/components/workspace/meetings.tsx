@@ -58,9 +58,12 @@ import {
   fmtRange,
   fmtTime,
   startOfWeek,
+  queueRsvp,
+  useMeetingOutbox,
   useMeetingReminder,
   useMeetings,
   useMeetingsApi,
+  usePendingRsvps,
 } from '@/lib/meetings';
 import { nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
@@ -483,6 +486,9 @@ function MeetingDetails({
   const [err, setErr] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
   const [wholeSeries, setWholeSeries] = React.useState(false);
+  const { db } = useEngine();
+  const { pending } = usePendingRsvps();
+  const queued = pending.some((q) => q.meetingId === m.meetingId);
   const organizer = m.organizerId === me;
   const mine = m.attendees.find((a) => a.userId === me);
   const live = calls.live.get(m.conversationId);
@@ -585,19 +591,30 @@ function MeetingDetails({
                   key={r}
                   size="sm"
                   variant={mine.response === r ? 'primary' : 'secondary'}
-                  disabled={busy || !online}
+                  disabled={busy}
                   aria-pressed={mine.response === r}
-                  onClick={() =>
-                    void run(() =>
-                      api.rsvp(m.meetingId, r, m.series && wholeSeries ? 'series' : 'occurrence'),
-                    )
-                  }
+                  onClick={() => {
+                    const scope = m.series && wholeSeries ? 'series' : 'occurrence';
+                    if (!online) {
+                      // Saved on this device and sent when the connection is back.
+                      void queueRsvp(db, { meetingId: m.meetingId, response: r, scope }, me).then(
+                        (changed) => changed.forEach(onChanged),
+                      );
+                      return;
+                    }
+                    void run(() => api.rsvp(m.meetingId, r, scope));
+                  }}
                 >
                   {r === 'accepted' ? <Check /> : r === 'tentative' ? <HelpCircle /> : <X />}
                   {responseLabel[r]}
                 </Button>
               ))}
             </div>
+            {queued ? (
+              <p className="mt-2 text-meta text-warning" data-testid="rsvp-queued">
+                You’re offline. Your answer is saved on this device and sends when you reconnect.
+              </p>
+            ) : null}
             {m.series ? (
               <label className="mt-2 flex items-center gap-2 text-meta text-text-muted">
                 <input
@@ -1608,6 +1625,7 @@ export function MeetingReminderToast({
 }: {
   onOpenConversation: (id: string) => void;
 }) {
+  useMeetingOutbox();
   const [r, dismiss] = useMeetingReminder();
   const calls = useCalls();
   const { state } = useEngine();
