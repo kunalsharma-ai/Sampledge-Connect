@@ -2,7 +2,12 @@
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Languages, MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
-import type { Conversation, Receipt } from '@sampledge/contracts';
+import {
+  forwardedOf,
+  type Conversation,
+  type ForwardedSnapshot,
+  type Receipt,
+} from '@sampledge/contracts';
 import {
   displayStatus,
   overlayReactions,
@@ -13,6 +18,7 @@ import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/u
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
+import { ForwardedCard } from './forward';
 import {
   MessageActions,
   MessageText,
@@ -52,6 +58,7 @@ export function Timeline({
   onCreateTask,
   onRequestApproval,
   onTranslate,
+  onOpenForwarded,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -81,6 +88,8 @@ export function Timeline({
   onRequestApproval?: (m: LocalMessage) => void;
   /** AI translation of one message, when the assistant is available. */
   onTranslate?: (messageId: string) => Promise<{ text: string | null; label: string }>;
+  /** Jump to the original of a forwarded message. */
+  onOpenForwarded?: (s: ForwardedSnapshot) => void;
 }) {
   const reduce = useReducedMotion();
   const [translations, setTranslations] = React.useState<
@@ -360,6 +369,25 @@ export function Timeline({
                           {(m as { pendingChange?: boolean }).pendingChange ? (
                             <span className="ml-1.5 text-meta opacity-70">· not synced yet</span>
                           ) : null}
+                        </div>
+                      ) : null}
+                      {!m.deletedAt && forwardedOf(m) ? (
+                        <div
+                          className={cn(
+                            'max-w-full',
+                            m.content.text && 'mt-1',
+                            (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                          )}
+                        >
+                          <ForwardedCard
+                            snapshot={forwardedOf(m)!}
+                            directory={directory}
+                            me={me}
+                            own={own}
+                            onOpen={
+                              onOpenForwarded ? () => onOpenForwarded(forwardedOf(m)!) : undefined
+                            }
+                          />
                         </div>
                       ) : null}
                       {m.messageId && translations.has(m.messageId) && !m.deletedAt ? (

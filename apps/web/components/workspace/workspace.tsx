@@ -78,10 +78,22 @@ import {
   type AiTaskActions,
 } from '@/lib/ai';
 import { aiSuggestionId, resolveDueHint } from '@sampledge/contracts';
-import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
+import type {
+  Conversation,
+  PresenceStatus,
+  ForwardedSnapshot,
+  MeetingSystemMetadata,
+  Message,
+} from '@sampledge/contracts';
+import { ForwardDialog, forwardPreview } from './forward';
+import { presenceOf } from '@/lib/status';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
+import { SearchScreen } from './search-screen';
+import { HomeScreen } from './home-screen';
+import { FilesScreen } from './files-screen';
+import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
 
@@ -123,19 +135,20 @@ function useTick(ms: number) {
 
 export function Workspace() {
   const { session, getAccessToken } = useAuth();
-  const { engine, state, directory, signOut } = useEngine();
+  const { engine, db, state, directory, signOut } = useEngine();
   const { toast } = useToast();
   const bookmarks = useBookmarks();
   const me = session!.user.userId;
   const isAdmin = session!.user.role === 'owner' || session!.user.role === 'admin';
   const conversations = useConversations();
   const unread = useUnreadCounts(me);
-  const [module, setModule] = React.useState<ModuleId>('messages');
+  const [module, setModule] = React.useState<ModuleId>('home');
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
   const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings'>(null);
   const [palette, setPalette] = React.useState(false);
+  const [searchSeed, setSearchSeed] = React.useState<{ q: string; nonce: number } | null>(null);
   const [scheduleIn, setScheduleIn] = React.useState<string | null>(null);
   const [focusMeeting, setFocusMeeting] = React.useState<{
     meetingId: string;
@@ -143,7 +156,7 @@ export function Workspace() {
   } | null>(null);
   const [workDialog, setWorkDialog] = React.useState<{
     kind: 'task' | 'approval';
-    source: WorkSource;
+    source: WorkSource | null;
   } | null>(null);
   const [aiTaskKey, setAiTaskKey] = React.useState<string | null>(null);
   const [aiTasksCreated, setAiTasksCreated] = React.useState<Set<string>>(() => new Set());
@@ -204,6 +217,7 @@ export function Workspace() {
   }, [rawMessages, pendingMessageActions, me]);
   const [editing, setEditing] = React.useState<LocalMessage | null>(null);
   const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
+  const [forwarding, setForwarding] = React.useState<LocalMessage | null>(null);
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
@@ -296,11 +310,21 @@ export function Workspace() {
     if (activeId && module !== 'notifications' && unreadNotifIn.has(activeId))
       void markNotificationsRead({ conversationId: activeId });
   }, [activeId, module, unreadNotifIn, markNotificationsRead]);
+  /** A DM header: their status message, or availability when it isn't the default. */
+  const dmSubtitle = (other: string | undefined) => {
+    const u = other ? directory.get(other) : undefined;
+    const p = presenceOf(u, !!other && engine.presence.get(other) === 'online', new Date());
+    if (p.status.text) return `${p.status.emoji ?? ''} ${p.status.text}`.trim() + ` · ${p.label}`;
+    if (p.dot !== 'online' && p.dot !== 'offline') return p.label;
+    return u?.title ?? 'Direct message';
+  };
   const directoryWithPresence = (() => {
+    // Connection presence, refined by each person's chosen availability and quiet hours.
     const m = new Map(directory);
-    for (const [id, p] of engine.presence) {
-      const u = m.get(id);
-      if (u) m.set(id, { ...u, presence: p });
+    const at = new Date();
+    for (const [id, u] of m) {
+      const connected = id === me || engine.presence.get(id) === 'online';
+      m.set(id, { ...u, presence: presenceOf(u, connected, at).dot });
     }
     return m;
   })();
@@ -361,11 +385,34 @@ export function Workspace() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPalette((p) => !p);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        // Universal Search, like "find in everything".
+        e.preventDefault();
+        setModule('search');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  /** Opens your DM with someone, creating it if needed (the server keeps one DM per pair). */
+  const messagePerson = async (userId: string) => {
+    const existing = conversations?.find(
+      (c) => c.kind === 'dm' && c.memberIds.includes(userId) && c.memberIds.includes(me),
+    );
+    if (existing) return openConversation(existing.conversationId);
+    try {
+      const conv = await apiRequest<Conversation>('POST', '/v1/conversations', {
+        token: await getAccessToken(),
+        body: { kind: 'dm', memberIds: [userId] },
+      });
+      await db.conversations.put(conv);
+      void engine.syncNow();
+      openConversation(conv.conversationId);
+    } catch {
+      toast({ title: 'Starting a chat needs a connection', tone: 'danger' });
+    }
+  };
 
   const selectModule = (m: ModuleId) => {
     if (m === 'settings') return setDialog('settings');
@@ -404,7 +451,37 @@ export function Workspace() {
         (own || canModerate) && m.messageType !== 'system' && !m.deletedAt && !readOnly
           ? () => setDeleting(m)
           : undefined,
+      onForward:
+        m.messageType === 'text' && !m.poll && active?.allowForwarding !== false
+          ? () => setForwarding(m)
+          : undefined,
     };
+  };
+  const forwardMessage = async (targets: string[], comment: string) => {
+    const m = forwarding;
+    if (!m?.messageId) return;
+    const forwarded = forwardPreview(m, active, me, directory);
+    for (const target of targets)
+      await engine.compose(target, comment, { mentions: [], forwardOf: m.messageId, forwarded });
+    toast({
+      title:
+        targets.length === 1
+          ? `Forwarded to ${conversationTitle(
+              conversations!.find((c) => c.conversationId === targets[0])!,
+              me,
+              directory,
+            )}`
+          : `Forwarded to ${targets.length} conversations`,
+      description: offline ? 'It goes when you are back online.' : undefined,
+      tone: 'success',
+    });
+  };
+  const openForwarded = (s: ForwardedSnapshot) => {
+    if (!conversations?.some((c) => c.conversationId === s.conversationId && c.myRole !== null))
+      return toast({ title: 'You are not in the conversation it came from', tone: 'info' });
+    setThreadRootId(null);
+    openConversation(s.conversationId);
+    setTimeout(() => setHighlightId(s.messageId), 300);
   };
   const mentionMembers = (active?.memberIds ?? [])
     .filter((id) => id !== me && directory.has(id))
@@ -433,7 +510,32 @@ export function Workspace() {
             onSignOut={() => void signOut()}
           />
 
-          {module === 'meetings' ? (
+          {module === 'home' ? (
+            <HomeScreen
+              me={me}
+              myName={session!.user.displayName}
+              tenantName={session!.tenant.name}
+              directory={directory}
+              conversations={conversations ?? []}
+              unread={unread}
+              notifications={notifications}
+              onOpenConversation={openConversation}
+              onOpenNotification={(n) => {
+                if (!n.readAt) void notifications.markRead({ notificationIds: [n.notificationId] });
+                setModule('messages');
+                setActiveId(n.conversationId);
+                setTimeout(() => setHighlightId(n.messageId), 300);
+              }}
+              onOpenMeeting={(m) => {
+                setFocusMeeting(m);
+                setModule('meetings');
+              }}
+              onOpenModule={(m) => setModule(m)}
+              onNewConversation={() => setDialog('new')}
+              onNewMeeting={() => setScheduleIn('')}
+              onNewTask={() => setWorkDialog({ kind: 'task', source: null })}
+            />
+          ) : module === 'meetings' ? (
             <MeetingsScreen
               me={me}
               directory={directory}
@@ -475,6 +577,37 @@ export function Workspace() {
             <BrandingScreen />
           ) : module === 'admin' && isAdmin ? (
             <AdminScreen onOpenModule={selectModule} />
+          ) : module === 'search' ? (
+            <SearchScreen
+              conversations={conversations ?? []}
+              me={me}
+              directory={directory}
+              initialQuery={searchSeed}
+              onOpenConversation={openConversation}
+              onOpenMessage={(conversationId, messageId, threadRoot) => {
+                setModule('messages');
+                setActiveId(conversationId);
+                if (threadRoot) setTimeout(() => setThreadRootId(threadRoot), 200);
+                if (messageId) setTimeout(() => setHighlightId(messageId), 300);
+              }}
+              onMessagePerson={(userId) => void messagePerson(userId)}
+              onOpenTasks={() => setModule('tasks')}
+              onOpenMeeting={(m) => {
+                setFocusMeeting(m);
+                setModule('meetings');
+              }}
+            />
+          ) : module === 'files' ? (
+            <FilesScreen
+              conversations={conversations ?? []}
+              me={me}
+              directory={directory}
+              onOpenMessage={(conversationId, messageId) => {
+                setModule('messages');
+                setActiveId(conversationId);
+                if (messageId) setTimeout(() => setHighlightId(messageId), 300);
+              }}
+            />
           ) : module === 'saved' ? (
             <SavedScreen
               api={bookmarks}
@@ -544,6 +677,11 @@ export function Workspace() {
                             directory,
                           )}
                           size="sm"
+                          presence={
+                            directoryWithPresence.get(
+                              active.memberIds.find((id) => id !== me) ?? '',
+                            )?.presence as PresenceStatus | undefined
+                          }
                         />
                       ) : (
                         <span className="flex size-8 items-center justify-center rounded-md bg-accent-soft text-accent">
@@ -566,8 +704,7 @@ export function Workspace() {
                           ) : (
                             <span className="block truncate">
                               {active.kind === 'dm'
-                                ? (directory.get(active.memberIds.find((id) => id !== me) ?? '')
-                                    ?.title ?? 'Direct message')
+                                ? dmSubtitle(active.memberIds.find((id) => id !== me))
                                 : (active.topic ?? `${active.memberIds.length} members`)}
                             </span>
                           )}
@@ -651,6 +788,7 @@ export function Workspace() {
                       }}
                       onReply={(m) => setReplyTo(m)}
                       actions={messageActions}
+                      onOpenForwarded={openForwarded}
                       replyCounts={replyCounts}
                       onOpenThread={(m) => setThreadRootId(m.messageId)}
                       highlightId={highlightId}
@@ -858,6 +996,23 @@ export function Workspace() {
                             }),
                           )
                       }
+                      onSetForwarding={(allowed) =>
+                        void pollsApi
+                          .setForwarding(getAccessToken, active.conversationId, allowed)
+                          .then(() =>
+                            toast({
+                              title: allowed ? 'Forwarding is on' : 'Forwarding is off',
+                              tone: 'success',
+                            }),
+                          )
+                          .catch((e: Error) =>
+                            toast({
+                              title: 'Couldn’t change that',
+                              description: e.message,
+                              tone: 'danger',
+                            }),
+                          )
+                      }
                       aiCard={
                         ai.status?.enabled !== false ? (
                           <AiSummaryCard
@@ -911,11 +1066,11 @@ export function Workspace() {
           <CallErrorToast />
           <MeetingReminderToast onOpenConversation={openConversation} />
           <NewMeetingDialog
-            open={!!scheduleIn}
+            open={scheduleIn !== null}
             onOpenChange={(o) => !o && setScheduleIn(null)}
             me={me}
             directory={directory}
-            conversationId={scheduleIn ?? undefined}
+            conversationId={scheduleIn || undefined}
             onCreated={(m) => {
               setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
               setModule('meetings');
@@ -965,6 +1120,15 @@ export function Workspace() {
             onOpenChange={(o) => !o && setEditing(null)}
             onSave={editMessage}
           />
+          <ForwardDialog
+            message={forwarding}
+            source={active}
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            onOpenChange={(o) => !o && setForwarding(null)}
+            onForward={(t, c) => void forwardMessage(t, c)}
+          />
           <DeleteMessageDialog
             message={deleting}
             onOpenChange={(o) => !o && setDeleting(null)}
@@ -987,6 +1151,10 @@ export function Workspace() {
             onSelect={(id) => {
               setModule('messages');
               setActiveId(id);
+            }}
+            onSearchAll={(q) => {
+              setSearchSeed({ q, nonce: Date.now() });
+              setModule('search');
             }}
             actions={[
               {

@@ -19,6 +19,7 @@ import type {
   MessageDoc,
   NotificationDoc,
 } from '../database/documents.js';
+import { isDnd } from '../auth/auth.service.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
@@ -33,8 +34,13 @@ export const toNotification = (n: NotificationDoc): Notification => ({
   readAt: n.readAt?.toISOString() ?? null,
 });
 
-export function previewOf(m: Pick<MessageDoc, 'content' | 'attachments'>): string {
-  const text = m.content.text.replace(/\s+/g, ' ').trim();
+export function previewOf(
+  m: Pick<MessageDoc, 'content' | 'attachments'> & { metadata?: Record<string, unknown> },
+): string {
+  const fwd = m.metadata?.forwarded as { text?: string } | undefined;
+  const text = (m.content.text || (fwd ? `Forwarded: ${fwd.text ?? ''}` : ''))
+    .replace(/\s+/g, ' ')
+    .trim();
   if (text) {
     return text.length > NOTIFICATION_PREVIEW_LENGTH
       ? `${text.slice(0, NOTIFICATION_PREVIEW_LENGTH - 1)}…`
@@ -139,9 +145,10 @@ export class NotificationsService {
     const provider = await this.pushProviders.forTenant(tenantId);
     if (provider.name === null) return;
     const t = this.db.for(tenantId);
+    const quiet = await this.inDnd(tenantId, [...targets.keys()]);
     const devices = await t.devices
       .find({
-        userId: { $in: [...targets.keys()] },
+        userId: { $in: [...targets.keys()].filter((id) => !quiet.has(id)) },
         revokedAt: null,
         'push.token': { $exists: true },
       })
@@ -240,7 +247,8 @@ export class NotificationsService {
           .toArray()
       ).map((m) => m.userId),
     );
-    const targets = inviteeIds.filter((id) => !muted.has(id));
+    const quiet = await this.inDnd(tenantId, inviteeIds);
+    const targets = inviteeIds.filter((id) => !muted.has(id) && !quiet.has(id));
     if (!targets.length) return;
     const devices = (
       await t.devices
@@ -292,6 +300,23 @@ export class NotificationsService {
    * Generic push to users' devices that aren't connected right now (connected apps get the
    * socket event instead). Used for meeting invites, changes and reminders.
    */
+  /** People in do-not-disturb right now (manual or scheduled): they get no push. */
+  async inDnd(tenantId: string, userIds: string[]): Promise<Set<string>> {
+    if (!userIds.length) return new Set();
+    const rows = await this.db
+      .for(tenantId)
+      .users.find(
+        {
+          _id: { $in: userIds },
+          $or: [{ userStatus: { $ne: null } }, { 'dndSchedule.enabled': true }],
+        },
+        { projection: { userStatus: 1, dndSchedule: 1 } },
+      )
+      .toArray();
+    const now = new Date();
+    return new Set(rows.filter((u) => isDnd(u, now)).map((u) => u._id));
+  }
+
   async pushToUsers(
     tenantId: string,
     userIds: string[],
@@ -303,9 +328,14 @@ export class NotificationsService {
     const provider = await this.pushProviders.forTenant(tenantId);
     if (provider.name === null) return;
     const t = this.db.for(tenantId);
+    const quiet = await this.inDnd(tenantId, userIds);
     const devices = (
       await t.devices
-        .find({ userId: { $in: userIds }, revokedAt: null, 'push.token': { $exists: true } })
+        .find({
+          userId: { $in: userIds.filter((id) => !quiet.has(id)) },
+          revokedAt: null,
+          'push.token': { $exists: true },
+        })
         .toArray()
     ).filter((d) => d.push && provider.accepts(d.push.provider));
     const live = new Map<string, Set<string>>();

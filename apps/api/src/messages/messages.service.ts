@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
 import type { Redis } from 'ioredis';
 import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
   AckReceiptRequestSchema,
   CreatePollRequestSchema,
   PollVoteRequestSchema,
@@ -18,10 +19,10 @@ import {
   type SendMessageAck,
   uuidv7,
 } from '@sampledge/contracts';
-import { AppError, notFound, parse } from '../common/errors.js';
+import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { AttachmentSnapshot, MessageDoc } from '../database/documents.js';
-import { TenantDb } from '../database/tenant-db.js';
+import type { AttachmentDoc, AttachmentSnapshot, MessageDoc } from '../database/documents.js';
+import { TenantDb, newId } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
@@ -111,6 +112,9 @@ export class MessagesService {
       );
     }
     const ordered = attachmentIds.map((id) => files.find((f) => f._id === id)!);
+    const forward = req.forwardOf
+      ? await this.prepareForward(ctx, req.forwardOf, req.conversationId, ordered.length)
+      : null;
 
     let doc: MessageDoc;
     try {
@@ -123,8 +127,8 @@ export class MessagesService {
           senderDeviceId: ctx.deviceId,
           messageType: 'text',
           content: { text: req.content.text, mentions: req.content.mentions ?? [] },
-          attachmentIds,
-          attachments: ordered.map((f) => ({
+          attachmentIds: [...attachmentIds, ...(forward?.copies.map((c) => c._id) ?? [])],
+          attachments: [...ordered, ...(forward?.copies ?? [])].map((f) => ({
             attachmentId: f._id,
             fileName: f.fileName,
             mimeType: f.mimeType,
@@ -141,7 +145,10 @@ export class MessagesService {
           createdAt: new Date(),
           editedAt: null,
           deletedAt: null,
-          metadata: req.composedAt ? { composedAt: req.composedAt } : {},
+          metadata: {
+            ...(req.composedAt ? { composedAt: req.composedAt } : {}),
+            ...(forward ? { forwarded: forward.snapshot } : {}),
+          },
         });
       });
     } catch (e) {
@@ -159,6 +166,9 @@ export class MessagesService {
         { $set: { messageId: doc._id } },
       );
     }
+    // Forwarded files become rows of the target conversation that share the original bytes.
+    if (forward?.copies.length)
+      await t.attachments.insertMany(forward.copies.map((c) => ({ ...c, messageId: doc._id })));
     const message = toMessage(doc);
     this.realtime.toConversation(ctx.tenantId, req.conversationId, 'message:new', message);
     try {
@@ -172,6 +182,70 @@ export class MessagesService {
       .onMessageCreated(ctx.tenantId, doc)
       .catch((e) => this.log.warn(`webhook fan-out failed for ${doc._id}: ${String(e)}`));
     return { clientMessageId: req.clientMessageId, message, duplicate: false };
+  }
+
+  /**
+   * Checks a forward and builds what the new message carries: a snapshot of the original (the
+   * first original when forwarding a forward) and copies of its files for the target.
+   */
+  private async prepareForward(
+    ctx: TenantContext,
+    sourceId: string,
+    targetConversationId: string,
+    ownFiles: number,
+  ) {
+    const t = this.db.for(ctx.tenantId);
+    const src = await t.messages.findOne({ _id: sourceId });
+    if (!src || src.deletedAt || src.messageType !== 'text' || src.poll)
+      throw new AppError('VALIDATION_FAILED', 'That message can’t be forwarded');
+    // Not readable looks like not found, so private ids do not leak.
+    const { conversation } = await this.conversations.authorize(
+      ctx,
+      src.conversationId,
+      'conversation.read',
+    );
+    if (conversation.allowForwarding === false && src.conversationId !== targetConversationId)
+      throw forbidden('Forwarding is turned off in that conversation');
+    const prior = src.metadata?.forwarded as Record<string, unknown> | undefined;
+    const names = async () => {
+      if (conversation.kind !== 'dm') return conversation.name ? `#${conversation.name}` : null;
+      const other = (await this.conversations.memberIds(ctx.tenantId, conversation._id)).find(
+        (id) => id !== ctx.userId,
+      );
+      const u = other ? await t.users.findOne({ _id: other }) : null;
+      return u?.displayName ?? null;
+    };
+    const snapshot =
+      prior && typeof prior.messageId === 'string'
+        ? prior
+        : {
+            messageId: src._id,
+            conversationId: src.conversationId,
+            senderId: src.senderId,
+            text: src.content.text,
+            createdAt: src.createdAt.toISOString(),
+            from: conversation.kind === 'group' ? (conversation.name ?? null) : await names(),
+          };
+    const live = (src.attachments ?? []).filter((a) => !a.deletedAt);
+    if (live.length + ownFiles > MAX_ATTACHMENTS_PER_MESSAGE)
+      throw new AppError('VALIDATION_FAILED', 'Too many files to forward with this message');
+    const originals = live.length
+      ? await t.attachments
+          .find({ _id: { $in: live.map((a) => a.attachmentId) }, deletedAt: null, status: 'ready' })
+          .toArray()
+      : [];
+    const now = new Date();
+    const copies: (Omit<AttachmentDoc, 'tenantId'> & { _id: string })[] = originals.map((o) => ({
+      ...o,
+      _id: newId(),
+      conversationId: targetConversationId,
+      uploaderId: ctx.userId,
+      messageId: null,
+      createdAt: now,
+      copyOf: o.copyOf ?? o._id,
+      callId: null,
+    }));
+    return { snapshot, copies };
   }
 
   private duplicateAck(

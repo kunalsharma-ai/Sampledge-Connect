@@ -99,8 +99,11 @@ for (const theme of THEMES) {
 
     test('workspace screens', async ({ page }) => {
       await signIn(page);
-      await audit(page, 'messages');
+      await audit(page, 'home');
       for (const m of [
+        /^Messages/,
+        /^Universal Search/,
+        /^Files/,
         /^Administration/,
         /^Integrations/,
         /^Billing/,

@@ -50,3 +50,14 @@ in Connect, and downloads always go through Connect's signed links.
 
 - Moving files that are already in GridFS into Nextcloud (today only new files move).
 - Sharing links and opening files inside Nextcloud.
+
+## Files screen
+
+`GET /v1/files?q=&kind=documents|images|media|other&in=&from=&recordings=true&before=&limit=` lists
+files shared in conversations the caller can open (members, plus public channels in their
+workspace), newest first, with a `nextBefore` cursor. Each item carries `kind`, the `messageId` it
+was sent in and `storage` (`connect` or `nextcloud`). Unsent uploads, deleted files and recordings
+(unless `recordings=true`) are left out. Downloads use the usual signed URL.
+
+The web Files screen refetches when a message with files arrives on the device and on reconnect.
+Offline it shows the last synced list merged with files in messages cached on the device.

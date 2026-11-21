@@ -39,6 +39,12 @@ export const pollsApi = {
       token: await t(),
       body: { policy },
     }),
+  /** Private channels and groups: let members forward messages out of it. */
+  setForwarding: async (t: Token, conversationId: string, allowed: boolean) =>
+    apiRequest<Conversation>('PUT', `/v1/conversations/${conversationId}/forwarding`, {
+      token: await t(),
+      body: { allowed },
+    }),
 };
 
 export const scheduledApi = {

@@ -46,6 +46,11 @@ export const ConversationSchema = z.object({
    * Absent means 'everyone'.
    */
   postingPolicy: z.enum(['everyone', 'moderators']).optional(),
+  /**
+   * Private channels and groups: false stops members forwarding messages out of it (moderators
+   * set it). Absent means allowed.
+   */
+  allowForwarding: z.boolean().optional(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
 
@@ -54,6 +59,9 @@ export const SetPostingPolicyRequestSchema = z.object({
   policy: z.enum(['everyone', 'moderators']),
 });
 export type PostingPolicy = z.infer<typeof SetPostingPolicyRequestSchema>['policy'];
+
+/** PUT /v1/conversations/:id/forwarding — owners and moderators of private channels and groups. */
+export const SetForwardingRequestSchema = z.object({ allowed: z.boolean() });
 
 export const GROUP_MAX_MEMBERS = 256;
 

@@ -89,6 +89,8 @@ export interface ServerToClientEvents {
    * in anonymous polls, where `message:updated` carries counts without voter ids.
    */
   'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
+  /** Your recent searches changed (sent to all of your devices). */
+  'search:recent': (e: { recent: string[] }) => void;
   /**
    * A booking page you host (or hosted until now) was created, changed or deleted, by you on
    * another device or by a co-host. `page` is null when it was deleted; a page whose hostIds no
