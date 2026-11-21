@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { Conversation, UserSummary } from '@sampledge/contracts';
+import type { Conversation, TenantArea, UserSummary } from '@sampledge/contracts';
 import {
   HttpSocketTransport,
   SyncEngine,
@@ -195,10 +195,7 @@ export function usePendingReactions(conversationId: string | null) {
  * Run `fn` when something outside the message store changes: pass the change types a screen
  * shows. `reconnected` is always included, because live events may have been missed.
  */
-export function useEngineChange(
-  types: ChangeEvent['type'][],
-  fn: (e: ChangeEvent) => void,
-) {
+export function useEngineChange(types: ChangeEvent['type'][], fn: (e: ChangeEvent) => void) {
   const { engine } = useEngine();
   const ref = React.useRef(fn);
   ref.current = fn;
@@ -210,6 +207,16 @@ export function useEngineChange(
       }),
     [engine, key],
   );
+}
+
+/**
+ * Refetch an organization-wide setting screen when an admin changes it on any device
+ * (`tenant:updated`), and after a reconnect.
+ */
+export function useTenantChange(area: TenantArea, fn: () => void) {
+  useEngineChange(['tenant'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'tenant' && e.area === area)) fn();
+  });
 }
 
 /** This device's queued changes to messages in a conversation (edits, deletes, pins). */

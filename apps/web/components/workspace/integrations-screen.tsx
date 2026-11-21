@@ -22,6 +22,7 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { SampledgeModulePanel } from './sampledge-module-panel';
+import { useTenantChange } from '@/lib/engine';
 
 type Draft = Record<string, string | number | boolean | null>;
 /** Secret edits: a string replaces, null clears, absent keeps what is stored. */
@@ -89,6 +90,7 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
   React.useEffect(() => {
     void load();
   }, [load]);
+  useTenantChange('integrations', () => void load());
 
   const replace = (v: IntegrationView) =>
     setViews((cur) => cur?.map((x) => (x.provider.id === v.provider.id ? v : x)) ?? cur);

@@ -357,7 +357,7 @@ function TaskLine({
     setBusy(true);
     try {
       work?.setTask(
-        await api.updateTask(t.taskId, { status: t.status === 'done' ? 'open' : 'done' }),
+        await api.queueTaskUpdate(t, { status: t.status === 'done' ? 'open' : 'done' }),
       );
     } catch (e) {
       toast({
@@ -391,7 +391,7 @@ function TaskLine({
           size="sm"
           variant="secondary"
           onClick={() => void toggle()}
-          disabled={busy || !work?.online}
+          disabled={busy}
           loading={busy}
         >
           {t.status === 'done' ? (
@@ -449,15 +449,10 @@ function ApprovalLine({
         <div className="flex-1" />
         {canDecide ? (
           <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!work?.online}
-              onClick={() => work?.decide(a, 'reject')}
-            >
+            <Button size="sm" variant="secondary" onClick={() => work?.decide(a, 'reject')}>
               <X /> Reject
             </Button>
-            <Button size="sm" disabled={!work?.online} onClick={() => work?.decide(a, 'approve')}>
+            <Button size="sm" onClick={() => work?.decide(a, 'approve')}>
               <Check /> Approve
             </Button>
           </div>
