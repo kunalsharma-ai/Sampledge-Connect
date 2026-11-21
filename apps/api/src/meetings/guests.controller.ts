@@ -77,6 +77,14 @@ export class GuestsController {
     return this.guests.sendChat(token, body);
   }
 
+  /** Live captions: a few seconds of the guest's own microphone (raw audio body). */
+  @Post(':token/captions')
+  @HttpCode(200)
+  async caption(@Param('token') token: string, @Req() req: Request) {
+    await this.limit(req);
+    return this.guests.captionClip(token, req.body, req.headers['content-type']);
+  }
+
   @Post(':token/lobby/leave')
   @HttpCode(200)
   async leave(@Param('token') token: string, @Req() req: Request) {

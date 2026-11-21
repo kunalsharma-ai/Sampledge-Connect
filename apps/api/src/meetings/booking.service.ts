@@ -43,10 +43,15 @@ export class BookingService {
     private readonly realtime: RealtimePublisher,
   ) {}
 
-  /** Every host's devices, including hosts just removed, see the change live. */
+  /**
+   * Every host (old and new, on all of their devices) sees the change live: web refetches on
+   * meetings:changed, mobile applies the page carried by booking:changed.
+   */
   private announce(tenantId: string, id: string, page: BookingPage | null, hosts: string[]) {
-    for (const userId of new Set(hosts))
+    for (const userId of new Set(hosts)) {
+      this.realtime.toUser(tenantId, userId, 'meetings:changed', { area: 'booking_pages' });
       this.realtime.toUser(tenantId, userId, 'booking:changed', { bookingPageId: id, page });
+    }
   }
 
   private url(slug: string) {
@@ -202,7 +207,7 @@ export class BookingService {
         .map((id) => byId.get(id))
         .filter((u) => !!u)
         .map((u) => ({ name: u!.displayName, title: u!.title ?? null })),
-      organizationName: tenant?.name ?? 'Sampledge Connect',
+      organizationName: tenant?.name ?? 'SampConnect',
       media: p.media,
       opensAt: w.opens.toISOString(),
       closesAt: w.closes.toISOString(),
@@ -285,7 +290,7 @@ export class BookingService {
         title: p.title,
         hostNames: names.map((u) => u.displayName),
         joinUrl: url,
-        emailed: this.guests.emailEnabled,
+        emailed: await this.guests.emailEnabled(p.tenantId),
       };
     } finally {
       await this.redis.del(lock).catch(() => undefined);

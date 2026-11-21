@@ -13,7 +13,7 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { apiRequest } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
-import { useTenantChange, type DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import { attachmentUrl, formatBytes } from '@/lib/uploads';
 import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 import { nameOf } from './helpers';
@@ -107,8 +107,10 @@ export function RecordingsScreen({
     if (online) void load();
   }, [load, online]);
   useTenantChange('recordings', () => void load());
-  // Stay in step with other devices: new recordings and deletions show within 20 seconds,
-  // and at once when this window comes back to the front.
+  // Call recordings added and any recording deleted (on any device) arrive live.
+  useEngineChange(['recording'], () => void load());
+  // Voice and video clips sent in chat show within 20 seconds, and at once when this window
+  // comes back to the front.
   React.useEffect(() => {
     if (!online) return;
     const tick = () => {

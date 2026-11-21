@@ -43,6 +43,13 @@ is updated in place when the call ends, so it syncs like any edit.
 
 ## Configuration you must provide
 
+Connect the API to the media server in **Integrations → Calls (LiveKit)**: public URL, API URL,
+API key and secret (stored encrypted), with **Test connection**. Platform operators set the
+default for everyone; an organization can bring its own server (calls and meetings work;
+recording needs the platform server, see `integrations.md`). Saving takes effect at once on
+every API node. The env variables below still work as a fallback and are what the bundled
+LiveKit container reads.
+
 | Variable              | Where                            | Example                                                                                                                |
 | --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                                                                  |
@@ -58,8 +65,8 @@ Browsers only allow camera and microphone on `https://` (or `localhost`), so pro
 the web app and the SFU URL. For networks that block UDP entirely, enable LiveKit's TURN/TLS on 443 with your
 certificate (`turn.tls_port`, `turn.domain`, `turn.cert_file`, `turn.key_file`).
 
-Without the `LIVEKIT_*` variables the API runs normally, `GET /v1/calls/config` reports `enabled: false`,
-and the call buttons are disabled with an explanation.
+Without a media server (Integrations or `LIVEKIT_*`) the API runs normally, `GET /v1/calls/config`
+reports `enabled: false`, and the call buttons are disabled with an explanation.
 
 ## Built now and planned
 
@@ -68,8 +75,32 @@ screen share (with tab audio), raise hand, mute/camera, active speaker, end for 
 incoming-call push data, reconnect handling, multi-replica safe sweeper.
 
 Also built: scheduled meetings (`meetings.md`), external guests with a lobby (`guests.md`) and recordings
-(`recordings.md`), and chat inside calls (`guests.md`). Planned next: live captions. Mobile call screen
+(`recordings.md`), chat inside calls (`guests.md`) and live captions (below). Mobile call screen
 (`@livekit/react-native`, needs an Expo dev build).
+
+## Live captions
+
+Anyone in a call (members and admitted guests) can press the captions button to see live captions.
+Captions use the organization's own speech-to-text server, the same one saved in Integrations as
+**Speech-to-text server** for recording transcripts (`ai.md`). Without one, the button is hidden.
+
+How it works, with nothing leaving your servers and nothing stored:
+
+1. Turning captions on sets the participant attribute `captions: "1"`. Everyone else sees a notice that
+   speech is being transcribed.
+2. While anyone has captions on, each person's app records its own microphone in 4-second clips and
+   skips clips that are silent (so muted or quiet people send nothing).
+3. Each clip goes to `POST /v1/calls/:callId/captions` (members, must be in the live call) or
+   `POST /v1/guest/:token/captions` (admitted guests) as raw audio (`audio/webm`, `ogg`, `mp4`, `mpeg`,
+   `wav`, `aac`, up to 512 KB). The API forwards it to the speech-to-text server and returns `{ text }`.
+   Rate limit: 40 clips a minute per person. 503 when no server is set up.
+4. The speaker's app shares `{ id, name, text }` with the call on the LiveKit data channel (reliable,
+   topic `captions`). Lines show with the speaker's name for 9 seconds.
+
+When the last person turns captions off, clips stop. `GET /v1/calls/config` has `captionsEnabled`, and the
+guest join state has `captions`, so apps know whether to show the button. A server like Speaches
+(faster-whisper) on a small GPU keeps captions about 4 to 6 seconds behind speech; on CPU use a small
+model.
 
 ## Devices and background blur
 

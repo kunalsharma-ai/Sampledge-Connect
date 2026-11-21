@@ -41,8 +41,11 @@ Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetada
 - RSVPs made offline are saved on the device, shown at once, and sent when the connection returns (latest answer per
   meeting wins; answers the server refuses, such as for a cancelled meeting, are dropped).
 - Scheduling and editing need a connection, so two devices can't create conflicting versions of a meeting.
-- The recordings library refreshes on reconnect, every 20 seconds while open, and when the window comes back to the
-  front.
+- Working hours and booking pages changed on one device (or by another host) update live everywhere with
+  `meetings:changed`; screens refetch after a reconnect.
+- The recordings library updates live when a call recording is saved or any recording is deleted (`recording:changed`
+  to the conversation's members), refreshes on reconnect, and picks up new chat clips within 20 seconds.
+- See `sync-coverage.md` for every action.
 
 ## Recurring meetings
 

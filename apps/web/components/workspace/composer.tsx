@@ -45,6 +45,7 @@ export interface MentionCandidate {
   userId: string;
   displayName: string;
   subtitle?: string;
+  avatarUrl?: string | null;
 }
 
 /** The `@query` immediately before the caret, if any. */
@@ -328,7 +329,7 @@ export function Composer({
                     i === active ? 'bg-accent-soft' : '',
                   )}
                 >
-                  <Avatar name={c.displayName} size="xs" />
+                  <Avatar name={c.displayName} src={c.avatarUrl} size="xs" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-label text-text">{c.displayName}</span>
                     {c.subtitle ? (
