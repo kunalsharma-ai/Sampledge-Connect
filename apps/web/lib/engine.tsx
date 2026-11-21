@@ -167,6 +167,20 @@ export function useReceipts(conversationId: string | null) {
   );
 }
 
+/** This device's not-yet-confirmed reaction changes for a conversation (for the optimistic overlay). */
+export function usePendingReactions(conversationId: string | null) {
+  const { db } = useEngine();
+  return (
+    useLiveQuery(
+      () =>
+        conversationId
+          ? db.reactionQueue.filter((r) => r.conversationId === conversationId).toArray()
+          : [],
+      [db, conversationId],
+    ) ?? []
+  );
+}
+
 /** Unread = confirmed messages from others above my read watermark. */
 export function useUnreadCounts(myUserId: string): Map<string, number> {
   const { db } = useEngine();
