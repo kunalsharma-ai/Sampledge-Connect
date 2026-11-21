@@ -18,6 +18,7 @@ import { launchIndexesMigration } from './031-launch-indexes.js';
 import { bookingPagesMigration } from './032-booking-pages.js';
 import { aiSuggestionDismissalsMigration } from './014-ai-suggestion-dismissals.js';
 import { searchMigration } from './040-search.js';
+import { analyticsMigration } from './041-analytics.js';
 
 export interface Migration {
   id: string;
@@ -45,6 +46,7 @@ export const MIGRATIONS: Migration[] = [
   bookingPagesMigration,
   aiSuggestionDismissalsMigration,
   searchMigration,
+  analyticsMigration,
 ];
 
 /**

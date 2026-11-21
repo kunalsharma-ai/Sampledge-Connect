@@ -93,6 +93,7 @@ import { TasksScreen } from './tasks-screen';
 import { SearchScreen } from './search-screen';
 import { HomeScreen } from './home-screen';
 import { FilesScreen } from './files-screen';
+import { AnalyticsScreen } from './analytics-screen';
 import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
@@ -596,6 +597,13 @@ export function Workspace() {
                 setFocusMeeting(m);
                 setModule('meetings');
               }}
+            />
+          ) : module === 'analytics' ? (
+            <AnalyticsScreen
+              me={me}
+              isAdmin={isAdmin}
+              directory={directory}
+              onOpenConversation={openConversation}
             />
           ) : module === 'files' ? (
             <FilesScreen
