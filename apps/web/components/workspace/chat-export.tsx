@@ -81,15 +81,13 @@ export function ChatExportDialog({
 
   React.useEffect(() => {
     if (!api.online) return;
-    void api
-      .exportAccess(conversationId)
-      .then(setAccess, () =>
-        setAccess({
-          allowed: false,
-          policy: 'members',
-          reason: 'Could not check export permission.',
-        }),
-      );
+    void api.exportAccess(conversationId).then(setAccess, () =>
+      setAccess({
+        allowed: false,
+        policy: 'members',
+        reason: 'Could not check export permission.',
+      }),
+    );
   }, [api, conversationId]);
 
   const badRange = !!from && !!to && from > to;
