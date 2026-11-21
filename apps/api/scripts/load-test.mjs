@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Load test for a running Sampledge Connect API (staging, never production data).
+ * Load test for a running SampConnect API (staging, never production data).
  *
  *   node apps/api/scripts/load-test.mjs --url https://api.staging.example --users 20 \
  *     --connections 200 --seconds 60 --rate 5
