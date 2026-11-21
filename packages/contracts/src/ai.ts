@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ServerIdSchema } from './ids.js';
+import { MilestoneSchema, ProjectSchema } from './work.js';
 
 /**
  * Private AI assistant (Phase 4). Optional, self-hosted, and never on the chat path.
@@ -200,6 +201,25 @@ export const AiDigestRequestSchema = z.object({
     .default(24 * 7),
 });
 export type AiDigestRequest = z.input<typeof AiDigestRequestSchema>;
+/** The project linked to a conversation (Samptrek or Connect), as the caller may see it. */
+export const AiProjectStatusSchema = z.object({
+  projectId: ServerIdSchema,
+  name: z.string(),
+  source: ProjectSchema.shape.source,
+  status: ProjectSchema.shape.status,
+  url: z.string().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  /** The next milestone not yet reached, soonest first. */
+  nextMilestone: MilestoneSchema.nullable(),
+  missedMilestones: z.number().int().nonnegative(),
+  openTasks: z.number().int().nonnegative(),
+  overdueTasks: z.number().int().nonnegative(),
+  pendingApprovals: z.number().int().nonnegative(),
+  /** Plain reasons the project needs attention (empty when on track). */
+  concerns: z.array(z.string()),
+});
+export type AiProjectStatus = z.infer<typeof AiProjectStatusSchema>;
+
 export const AiDigestSchema = z.object({
   items: z.array(
     z.object({
@@ -208,9 +228,11 @@ export const AiDigestSchema = z.object({
       status: z.enum(['on_track', 'needs_attention', 'quiet']),
       actionItems: z.array(ActionItemSchema),
       messageCount: z.number().int().nonnegative(),
+      /** Linked project status (Samptrek projects and Connect projects). */
+      project: AiProjectStatusSchema.nullable().default(null),
     }),
   ),
-  /** Suggested tasks gathered from every item (create-task arrives with Tasks in Phase 2). */
+  /** Suggested tasks from every item. "Create task" opens the task form for the person to confirm. */
   suggestedTasks: z.array(ActionItemSchema.extend({ conversationId: ServerIdSchema })),
   since: z.string().datetime(),
   engine: AiEngineSchema,
@@ -364,3 +386,55 @@ export type AiTranscript = z.infer<typeof AiTranscriptSchema>;
 
 /** Largest recording sent to the speech-to-text server (bytes are buffered in memory). */
 export const TRANSCRIPT_MAX_BYTES = 200 * 1024 * 1024;
+
+// ---------- suggested task → real task ----------
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+/**
+ * Turns a free-text due hint from an action item ("by Thursday", "EOD", "next week",
+ * "Dec 3") into a calendar date (YYYY-MM-DD) in the runtime's local time zone, or null when
+ * it can't tell. Used only to prefill the task form; the person checks it before creating.
+ */
+export function resolveDueHint(hint: string | null | undefined, now = new Date()): string | null {
+  if (!hint) return null;
+  const h = hint.toLowerCase();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const iso = h.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (/\b(today|tonight|eod|end of (the )?day|asap|right away|immediately)\b/.test(h))
+    return ymd(today);
+  if (/\btomorrow\b/.test(h)) return ymd(addDays(today, 1));
+  if (/\bnext week\b/.test(h)) return ymd(addDays(today, (8 - today.getDay()) % 7 || 7));
+  if (/\b(this week|end of (the )?week|eow)\b/.test(h)) {
+    const d = today.getDay();
+    return ymd(d === 0 || d === 6 ? today : addDays(today, 5 - d));
+  }
+  const wd = WEEKDAYS.findIndex((w) =>
+    new RegExp(`\\b${w.slice(0, 3)}(${w.slice(3)})?\\b`).test(h),
+  );
+  if (wd >= 0) {
+    let diff = (wd - today.getDay() + 7) % 7;
+    if (/\bnext\b/.test(h) && diff === 0) diff = 7;
+    return ymd(addDays(today, diff));
+  }
+  const m1 = h.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\b/);
+  const m2 = h.match(/\b([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  const pick =
+    m1 && MONTHS.includes(m1[2]!)
+      ? { day: +m1[1]!, mon: MONTHS.indexOf(m1[2]!) }
+      : m2 && MONTHS.includes(m2[1]!)
+        ? { day: +m2[2]!, mon: MONTHS.indexOf(m2[1]!) }
+        : null;
+  if (pick && pick.day >= 1 && pick.day <= 31) {
+    let d = new Date(today.getFullYear(), pick.mon, pick.day);
+    if (d < today) d = new Date(today.getFullYear() + 1, pick.mon, pick.day);
+    return ymd(d);
+  }
+  return null;
+}

@@ -25,6 +25,8 @@ import {
   type ActionItem,
   type AiAskResponse,
   type AiDigest,
+  type AiProjectStatus,
+  type Project,
   type AiDuplicates,
   type AiEngine,
   type AiFeature,
@@ -63,6 +65,7 @@ import {
 import { ModelEngine } from './model.js';
 import { AI_SETTINGS_SOURCE, type AiSettingsSource } from './settings.js';
 import { TranscriptsService } from './transcripts.service.js';
+import { ProjectsService } from '../work/projects.service.js';
 
 const RANGE_LIMIT = 400;
 const RECENT_LIMIT = 150;
@@ -139,6 +142,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(AI_SETTINGS_SOURCE) private readonly settings: AiSettingsSource,
     private readonly transcripts: TranscriptsService,
+    private readonly projects: ProjectsService,
   ) {
     settings.onChange?.((tenantId) => {
       if (tenantId) this.engines.delete(tenantId);
@@ -859,6 +863,21 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
         .sort((a, b) => b.lastMessageAt!.localeCompare(a.lastMessageAt!))
         .slice(0, 8);
     }
+    // Linked projects (Samptrek or Connect), only those whose channel the caller can read.
+    const projects = new Map<string, AiProjectStatus>();
+    for (const p of await this.projects.list(ctx).catch(() => [] as Project[]))
+      if (p.conversationId && !projects.has(p.conversationId))
+        projects.set(p.conversationId, projectStatus(p));
+    if (!req.conversationIds?.length) {
+      // Projects that need attention are in the digest even when their channel is quiet.
+      const have = new Set(chosen.map((c) => c.conversationId));
+      const byId = new Map(readable.map((c) => [c.conversationId, c]));
+      const extra = [...projects.entries()]
+        .filter(([id, p]) => !have.has(id) && p.concerns.length && byId.has(id))
+        .slice(0, 4)
+        .map(([id]) => byId.get(id)!);
+      chosen = [...chosen, ...extra];
+    }
     const engine = await this.engineFor(ctx.tenantId);
     let used: AiEngine = engine.kind;
     const items: AiDigest['items'] = [];
@@ -882,9 +901,10 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
         items.push({
           conversationId: c.conversationId,
           summary: 'No activity in this period.',
-          status: 'quiet',
+          status: projects.get(c.conversationId)?.concerns.length ? 'needs_attention' : 'quiet',
           actionItems: [],
           messageCount: 0,
+          project: projects.get(c.conversationId) ?? null,
         });
         continue;
       }
@@ -893,7 +913,9 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       );
       if (r.engine === 'basic') used = 'basic';
       const actionItems = this.mapActionItems(r.value.actionItems, members);
+      const project = projects.get(c.conversationId) ?? null;
       const attention =
+        !!project?.concerns.length ||
         r.value.openQuestions.length > 0 ||
         lines.slice(-20).some((l) => ATTENTION_RE.test(l.text)) ||
         actionItems.some((a) => a.due && URGENT_RE.test(a.due));
@@ -904,6 +926,7 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
           lines.length < 3 && !attention ? 'quiet' : attention ? 'needs_attention' : 'on_track',
         actionItems,
         messageCount: lines.length,
+        project,
       });
     }
     void this.audit.record({
@@ -1114,4 +1137,43 @@ export function bestExcerpt(transcript: string, query: string, max = 280): strin
   });
   const out = [parts[best], parts[best + 1]].filter(Boolean).join(' ');
   return out.length > max ? `${out.slice(0, max - 1)}…` : out;
+}
+
+/** A project's status for the digest, with plain reasons when it needs attention. */
+export function projectStatus(p: Project, now = new Date()): AiProjectStatus {
+  const open = p.milestones.filter(
+    (m) =>
+      m.status !== 'reached' &&
+      m.status !== 'missed' &&
+      (m.dueAt === null || new Date(m.dueAt) >= now),
+  );
+  const next =
+    [...open].sort((a, b) => (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999'))[0] ?? null;
+  const missed = p.milestones.filter(
+    (m) =>
+      m.status === 'missed' ||
+      (m.status !== 'reached' && m.dueAt !== null && new Date(m.dueAt) < now),
+  ).length;
+  const concerns: string[] = [];
+  if (p.status === 'at_risk') concerns.push('Marked at risk');
+  if (p.status === 'on_hold') concerns.push('On hold');
+  if (missed) concerns.push(`${missed} milestone${missed === 1 ? '' : 's'} missed`);
+  if (p.overdueTasks)
+    concerns.push(`${p.overdueTasks} overdue task${p.overdueTasks === 1 ? '' : 's'}`);
+  if (p.dueAt && p.status === 'active' && new Date(p.dueAt) < now)
+    concerns.push('Past its due date');
+  return {
+    projectId: p.projectId,
+    name: p.name,
+    source: p.source,
+    status: p.status,
+    url: p.url,
+    dueAt: p.dueAt,
+    nextMilestone: next,
+    missedMilestones: missed,
+    openTasks: p.openTasks,
+    overdueTasks: p.overdueTasks,
+    pendingApprovals: p.pendingApprovals,
+    concerns,
+  };
 }

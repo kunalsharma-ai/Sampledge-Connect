@@ -6,8 +6,10 @@ import {
   BellRing,
   Bot,
   CopyCheck,
+  AlertTriangle,
   ExternalLink,
   FileText,
+  FolderKanban,
   Gauge,
   Lock,
   Plug,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react';
 import type {
   AiDigest,
+  AiProjectStatus,
   AiPrioritizedNotifications,
   AiSearchHit,
   Conversation,
@@ -580,8 +583,7 @@ function StatusTab({ ai, byId, me, directory, onOpen }: TabProps) {
         </select>
       </div>
       <p className="text-meta text-text-subtle">
-        Project-level status arrives when Samptrek projects are linked (Phase 2). Until then this
-        covers your active chats.
+        Your active chats, plus linked Samptrek and Connect projects that need attention.
       </p>
       {error ? <p className="text-meta text-danger">{error}</p> : null}
       {!data ? (
@@ -607,6 +609,7 @@ function StatusTab({ ai, byId, me, directory, onOpen }: TabProps) {
                       {s.label}
                     </Badge>
                   </span>
+                  {i.project ? <ProjectLine p={i.project} /> : null}
                   <span className="mt-1 block text-meta text-text-muted">{i.summary}</span>
                 </button>
               );
@@ -616,9 +619,6 @@ function StatusTab({ ai, byId, me, directory, onOpen }: TabProps) {
             <div className="pt-2">
               <p className="mb-1.5 flex items-center justify-between text-overline uppercase text-text-subtle">
                 Suggested tasks
-                <Badge tone="planned" className="px-1.5 text-[10px] normal-case">
-                  Create task · Planned Phase 2
-                </Badge>
               </p>
               <ul className="space-y-1.5">
                 {data.suggestedTasks.slice(0, 8).map((t) => (
@@ -627,6 +627,7 @@ function StatusTab({ ai, byId, me, directory, onOpen }: TabProps) {
                     item={t}
                     directory={directory}
                     me={me}
+                    conversationId={t.conversationId}
                   />
                 ))}
               </ul>
@@ -750,5 +751,42 @@ function SearchTab({ ai, byId, me, directory, onOpen }: TabProps) {
         </div>
       )}
     </div>
+  );
+}
+
+const PROJECT_STATUS: Record<AiProjectStatus['status'], string> = {
+  active: 'Active',
+  on_hold: 'On hold',
+  at_risk: 'At risk',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+/** Linked project facts in a digest row: status, next milestone, open work and concerns. */
+function ProjectLine({ p }: { p: AiProjectStatus }) {
+  const facts = [
+    PROJECT_STATUS[p.status],
+    p.nextMilestone
+      ? `Next: ${p.nextMilestone.title}${p.nextMilestone.dueAt ? ` · ${new Date(p.nextMilestone.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}`
+      : null,
+    `${p.openTasks} open task${p.openTasks === 1 ? '' : 's'}`,
+    p.pendingApprovals ? `${p.pendingApprovals} awaiting approval` : null,
+  ].filter(Boolean);
+  return (
+    <span className="mt-1.5 block rounded-md bg-surface-raised px-2 py-1.5 text-meta">
+      <span className="flex items-center gap-1.5 text-text">
+        <FolderKanban className="size-3.5 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-subtle">
+          {p.source === 'samptrek' ? 'Samptrek' : 'Connect'}
+        </span>
+      </span>
+      <span className="mt-0.5 block text-text-muted">{facts.join(' · ')}</span>
+      {p.concerns.length ? (
+        <span className="mt-0.5 flex items-center gap-1 text-warning">
+          <AlertTriangle className="size-3 shrink-0" /> {p.concerns.join(' · ')}
+        </span>
+      ) : null}
+    </span>
   );
 }

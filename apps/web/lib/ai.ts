@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import type {
+  ActionItem,
   AiAskResponse,
   AiDigest,
   AiDuplicates,
@@ -100,6 +101,18 @@ export type AiApi = ReturnType<typeof useAi>;
 /** The workspace's AI client, shared so recordings and cards don't each fetch the status. */
 export const AiContext = React.createContext<AiApi | null>(null);
 export const useAiContext = () => React.useContext(AiContext);
+
+/**
+ * Turning a suggested task into a real one. It only opens the task form, prefilled; the person
+ * reviews it and presses Create. The assistant never creates tasks by itself.
+ */
+export interface AiTaskActions {
+  createTask: (item: ActionItem, conversationId: string) => void;
+  isCreated: (item: ActionItem, conversationId: string) => boolean;
+}
+export const AiTaskContext = React.createContext<AiTaskActions | null>(null);
+export const suggestionKey = (item: ActionItem, conversationId: string) =>
+  `${conversationId}|${item.messageId ?? ''}|${item.text}`;
 
 export function aiErrorText(e: unknown): string {
   if (e instanceof ApiFailure) {

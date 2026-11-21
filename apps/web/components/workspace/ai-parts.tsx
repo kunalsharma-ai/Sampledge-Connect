@@ -1,10 +1,10 @@
 'use client';
 import * as React from 'react';
-import { AlertTriangle, Bot, Check, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Bot, Check, CheckCircle2, ListPlus, ShieldCheck } from 'lucide-react';
 import type { ActionItem, AiEngine, AiProposal, AiRiskCategory } from '@sampledge/contracts';
 import { Avatar, Badge, Button, Dialog, DialogContent, cn, useToast } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
+import { AiTaskContext, ENGINE_LABEL, aiErrorText, type AiApi } from '@/lib/ai';
 import { ApiFailure } from '@/lib/api';
 import { nameOf } from './helpers';
 
@@ -30,11 +30,16 @@ export function ActionItemRow({
   item,
   directory,
   me,
+  conversationId,
 }: {
   item: ActionItem;
   directory: Map<string, DirectoryEntry>;
   me: string;
+  /** Where the suggestion came from; enables "Create task". */
+  conversationId?: string;
 }) {
+  const tasks = React.useContext(AiTaskContext);
+  const created = !!(tasks && conversationId && tasks.isCreated(item, conversationId));
   return (
     <li className="flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3 py-2">
       <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border-strong" />
@@ -53,6 +58,21 @@ export function ActionItemRow({
             <Badge tone="warning" className="px-1.5 text-[10px]">
               {item.due}
             </Badge>
+          ) : null}
+          {tasks && conversationId ? (
+            created ? (
+              <span className="ml-auto inline-flex items-center gap-1 text-success">
+                <CheckCircle2 className="size-3" /> Task created
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => tasks.createTask(item, conversationId)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <ListPlus className="size-3" /> Create task
+              </button>
+            )
           ) : null}
         </span>
       </span>

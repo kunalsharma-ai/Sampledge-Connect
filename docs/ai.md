@@ -41,7 +41,7 @@ All under `/v1/ai`, all authenticated, rate limited per user (`ai`: 40 per minut
 | Semantic search                  | `POST /search` `{query, conversationId?}`               | Over every conversation the caller can read                                 |
 | Ask                              | `POST /ask` `{question, history}`                       | Answer with numbered sources; history is client-held, never stored          |
 | Translation                      | `POST /translate` `{messageId, targetLanguage}`         | Needs a model; `text: null` in built-in mode                                |
-| Status digest / task suggestions | `POST /digest` `{conversationIds?, sinceHours}`         | Per conversation: summary, on track / needs attention / quiet; tasks        |
+| Status digest / task suggestions | `POST /digest` `{conversationIds?, sinceHours}`         | Per conversation: summary, status, linked project status; suggested tasks   |
 | Duplicate detection              | `POST /duplicates` `{text}`                             | "Has this been asked already?"                                              |
 | Notification priority            | `GET /notifications/priority`                           | Rules: mention, DM, urgency words, questions, age                           |
 | Drafts                           | `POST /proposals`, `/proposals/:id/confirm`, `/dismiss` | See below                                                                   |
@@ -80,6 +80,24 @@ How it works:
 - Transcripts have no speaker labels yet: lines are attributed to the person who started the
   recording.
 - Sizing: faster-whisper `small` on 4 CPU cores runs at roughly real time; a GPU is 10–30× faster.
+
+## Suggested tasks become real tasks only when you confirm
+
+Action items in summaries, meeting summaries and the status digest have **Create task**. It opens
+the normal task form (Tasks & Approvals, docs/work.md), prefilled with the text, the suggested
+assignee (when they can be assigned in that conversation), a due date worked out from the hint
+("by Thursday", "EOD", "next week", "Dec 3", in your time zone) and the source message. Nothing is
+created until the person presses **Create**, which calls `POST /v1/tasks` as them, with its normal
+access checks and an idempotency key. The assistant has no endpoint that creates tasks.
+
+## Project status (Samptrek and Connect projects)
+
+Each digest row whose conversation is a project channel carries `project`: name, source
+(`samptrek` or `connect`), status, next milestone, missed milestones, open and overdue tasks,
+pending approvals and plain `concerns` ("Marked at risk", "1 milestone missed", "2 overdue
+tasks", "Past its due date"). A concern marks the row **Needs attention**, and projects with a
+concern are included even when their channel was quiet. Projects come from `ProjectsService.list`,
+so only projects whose channel the caller can read appear.
 
 ## Access rules
 
@@ -130,7 +148,5 @@ behind the same `vectorSearch` method.
 ## Planned
 
 - Speaker labels (diarization) in transcripts, and live captions during calls.
-- Create tasks from suggested tasks (Tasks & Approvals, Phase 2) and project status from linked
-  Samptrek projects (Phase 2).
 - AI on mobile (the API above is ready; the mobile app adds the screens).
 - Streaming answers.
