@@ -31,7 +31,7 @@ async function api(method, path, body, token) {
   const ctx = await b.newContext({
     ...devices['iPhone 13'],
     colorScheme: 'dark',
-    permissions: ['camera', 'microphone'],
+    permissions: ['camera', 'microphone', 'clipboard-read', 'clipboard-write'],
   });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => console.log('pageerror:', e.message.slice(0, 300)));
@@ -1134,6 +1134,182 @@ async function api(method, path, body, token) {
         await p.getByRole('button', { name: 'End for all' }).click();
         await p.waitForTimeout(2000);
       }
+    }
+  }
+  // ---- External guests: invite by email from the form, guest list with invite status and
+  // a shareable link, then the lobby in a live meeting call (admit one guest, deny another).
+  {
+    const loginAs = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samApi2 = await loginAs('sam@northwind.test');
+    const users = await api('GET', '/v1/users', undefined, samApi2);
+    const uidOf = (email) => users.find((u) => u.email === email).userId;
+
+    await p.goto(`${APP}/meetings`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('button', { name: 'Schedule a meeting' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByLabel('Meeting title').fill('Acme readout');
+    await p.getByRole('button', { name: 'Add people' }).click();
+    await p.waitForTimeout(800);
+    await p.getByRole('checkbox', { name: 'Priya Shah' }).click();
+    await p.getByRole('button', { name: 'Done' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByLabel('Guest email').fill('priya@northwind.test');
+    await p.getByRole('button', { name: 'Add guest' }).click();
+    check(
+      'members are refused as guests',
+      /Priya Shah is in your organization/.test(await p.innerText('body')),
+    );
+    await p.getByLabel('Guest email').fill('Ana.Ruiz@acme.test');
+    await p.getByRole('button', { name: 'Add guest' }).click();
+    await p.waitForTimeout(1500);
+    await p
+      .getByRole('radio', { name: /^Suggested / })
+      .first()
+      .click();
+    await p.getByText('Guests from outside', { exact: true }).evaluate((e) => e.scrollIntoView());
+    await shot('70-schedule-with-guest');
+    await p.getByRole('button', { name: 'Send invites' }).click();
+    await p.waitForTimeout(3000);
+    const range = `from=${new Date(Date.now() - 86_400_000).toISOString()}&to=${new Date(Date.now() + 20 * 86_400_000).toISOString()}`;
+    const readout = (await api('GET', `/v1/meetings?${range}`, undefined, samApi2)).find(
+      (m) => m.title === 'Acme readout',
+    );
+    check(
+      'meeting created with the external guest',
+      readout?.guests?.length === 1 && readout.guests[0].email === 'ana.ruiz@acme.test',
+    );
+    await p.getByText('Guests from outside · 1').scrollIntoViewIfNeeded();
+    check(
+      'guest shows its invite status',
+      /Not emailed \(email isn't set up\)|Invite emailed|Sending invite/.test(
+        await p.innerText('body'),
+      ),
+    );
+    await p.getByRole('button', { name: /^Share .* join link$/ }).click();
+    await p.waitForTimeout(1500);
+    const copied = await p.evaluate(() => navigator.clipboard.readText());
+    check('join link copied for the guest', /\/join\/[\w.-]+$/.test(copied));
+    await shot('71-meeting-guests');
+
+    // A meeting starting now, with two guests waiting in its call's lobby.
+    const soon = await api(
+      'POST',
+      '/v1/meetings',
+      {
+        title: 'Acme quick sync',
+        agenda: '',
+        startsAt: new Date(Date.now() + 2 * 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 32 * 60_000).toISOString(),
+        timeZone: 'UTC',
+        media: 'video',
+        remindMinutes: [],
+        attendeeIds: [uidOf('priya@northwind.test')],
+        guests: [
+          { email: 'bo@acme.test', name: 'Bo Lind' },
+          { email: 'cy@acme.test', name: 'Cy Moreau' },
+        ],
+      },
+      samApi2,
+    );
+    const tokenFor = async (g) =>
+      (
+        await api(
+          'GET',
+          `/v1/meetings/${soon.meetingId}/guests/${g.guestId}/link`,
+          undefined,
+          samApi2,
+        )
+      ).url
+        .split('/join/')
+        .pop();
+    const [bo, cy] = await Promise.all(soon.guests.map(tokenFor));
+    await p.goto(`${APP}/meeting/${soon.meetingId}`);
+    await p.waitForTimeout(3000);
+    await p.getByRole('button', { name: 'Join video meeting' }).click();
+    await p.waitForTimeout(5000);
+    await api('POST', `/v1/guest/${bo}/lobby`, { name: 'Bo Lind' });
+    await api('POST', `/v1/guest/${cy}/lobby`, { name: 'Cy Moreau' });
+    let waiting = false;
+    for (let i = 0; i < 10 && !waiting; i++) {
+      await p.waitForTimeout(1000);
+      waiting = /Waiting in the lobby · 2/.test(await p.innerText('body'));
+    }
+    check('lobby shows both guests in the call', waiting);
+    await shot('72-call-lobby');
+    await p.getByRole('button', { name: 'Admit Bo Lind' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByRole('button', { name: 'Deny Cy Moreau' }).click();
+    await p.waitForTimeout(2000);
+    const boState = await api('GET', `/v1/guest/${bo}/lobby`);
+    const cyState = await api('GET', `/v1/guest/${cy}/lobby`);
+    check(
+      'admitted guest gets a call token',
+      boState.state === 'admitted' && !!boState.join?.token,
+    );
+    check('denied guest is turned away', cyState.state === 'denied');
+    check('lobby clears after answering', !/Waiting in the lobby/.test(await p.innerText('body')));
+    await shot('73-lobby-answered');
+    await p.getByRole('button', { name: 'End for all' }).click();
+    await p.waitForTimeout(2000);
+  }
+  // ---- Chat during a call: open the conversation from the call, post, get back to the call,
+  // the unread count on the Chat button, and the call surviving all of it.
+  {
+    const cfg = await api('GET', '/v1/calls/config', undefined, marco);
+    if (cfg.enabled) {
+      await p.goto(`${APP}/conversation/${ch.conversationId}`);
+      await p.waitForTimeout(3000);
+      await p.getByRole('button', { name: 'Start voice call' }).click();
+      await p.waitForTimeout(4000);
+      await p.getByRole('button', { name: /^Chat/ }).click();
+      await p.waitForTimeout(2500);
+      check(
+        'chat opens over the call with a way back',
+        /You are in this call\. Tap to return\./.test(await p.innerText('body')),
+      );
+      await p.locator('textarea').last().fill('Sharing the deck link in here while we talk.');
+      await p.getByRole('button', { name: 'Send message' }).click();
+      await p.waitForTimeout(2000);
+      await shot('74-chat-during-call');
+      await p.getByText('You are in this call. Tap to return.').last().click();
+      await p.waitForTimeout(2000);
+      const back = await p.innerText('body');
+      check('returns to the same call', /Voice call ·/.test(back) && /Leave/.test(back));
+      const live = await api('GET', '/v1/calls/active', undefined, marco);
+      check(
+        'call kept running while in the chat',
+        (Array.isArray(live) ? live : live.calls).some(
+          (c) => c.conversationId === ch.conversationId,
+        ),
+      );
+      await api(
+        'POST',
+        `/v1/conversations/${ch.conversationId}/messages`,
+        {
+          conversationId: ch.conversationId,
+          clientMessageId: crypto.randomUUID(),
+          messageType: 'text',
+          content: { text: 'Got it, opening it now.', mentions: [] },
+        },
+        marco,
+      );
+      await p.waitForTimeout(2500);
+      check(
+        'Chat button counts new messages',
+        (await p.getByRole('button', { name: /^Chat · \d/ }).count()) > 0,
+      );
+      await shot('75-call-chat-badge');
+      await p.getByRole('button', { name: 'End for all' }).click();
+      await p.waitForTimeout(2000);
     }
   }
   await b.close();

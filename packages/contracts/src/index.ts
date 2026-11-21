@@ -17,3 +17,5 @@ export * from './guests.js';
 export * from './connectors.js';
 export * from './connector-catalog.js';
 export * from './client-inbox.js';
+export * from './ai.js';
+export * from './integration-settings.js';

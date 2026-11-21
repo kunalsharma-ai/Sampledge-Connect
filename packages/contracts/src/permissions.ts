@@ -24,10 +24,12 @@ export const TENANT_PERMISSIONS = [
   'members.manage', // change roles, deactivate users
   'devices.revoke.any',
   'audit.read',
+  'integrations.manage',
   'recordings.manage', // retention settings, delete any recording, bulk export
   'inbox.access', // work client conversations in the Client Inbox
   'inbox.supervise', // all inbox teams, SLA and escalation settings, supervisor dashboard
   'connectors.manage', // connect external messaging channels and manage their credentials
+  'ai.manage', // turn the private AI assistant on or off for the organization
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',

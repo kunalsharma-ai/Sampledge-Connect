@@ -165,6 +165,10 @@ export class TenantDb {
       inbox_activity: c('inbox_activity'),
       inbox_templates: c('inbox_templates'),
       inbox_settings: c('inbox_settings'),
+      ai_embeddings: c('ai_embeddings'),
+      ai_index_state: c('ai_index_state'),
+      ai_summaries: c('ai_summaries'),
+      ai_proposals: c('ai_proposals'),
     };
   }
 }

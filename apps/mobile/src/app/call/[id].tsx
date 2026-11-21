@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { guestIdentity, isGuestIdentity } from '@sampledge/contracts';
+import * as Haptics from 'expo-haptics';
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -15,9 +17,10 @@ import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
 import { Avatar } from '../../components/Avatar';
 import { Text } from '../../components/Text';
 import type { LocalConversation } from '../../db/store';
+import { guestLabel } from '../../lib/guests';
 import { formatDuration } from '../../lib/systemMessages';
 import { useWorkspace } from '../../state/AppProvider';
-import { conversationTitle, useCalls, usePeople } from '../../state/hooks';
+import { conversationTitle, useCalls, useConversations, usePeople } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -32,6 +35,9 @@ export default function CallScreen() {
   const nameOf = usePeople();
   const { current, config, error: callError } = useCalls();
   const [recBusy, setRecBusy] = useState(false);
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const { conversations } = useConversations();
+  const lobbySeen = useRef(new Set<string>());
   const call = current?.call.callId === id ? current : null;
   const [conv, setConv] = useState<LocalConversation | undefined>();
   const [now, setNow] = useState(Date.now());
@@ -45,13 +51,18 @@ export default function CallScreen() {
     if (call) void store.getConversation(call.call.conversationId).then(setConv);
   }, [store, call?.call.conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The call ended, or you left it from elsewhere: close the screen.
+  // The call ended, or you left it from elsewhere: close the screen. If the chat is open on
+  // top, wait until this screen is showing again, so the chat isn't the one that closes.
+  const navigation = useNavigation();
+  const close = useCallback(() => {
+    if (engine.calls.state.current?.call.callId === id) return;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [engine, id]);
   useEffect(() => {
-    if (!call) {
-      if (router.canGoBack()) router.back();
-      else router.replace('/');
-    }
-  }, [call]);
+    if (!call && navigation.isFocused()) close();
+  }, [call, navigation, close]);
+  useFocusEffect(close);
 
   // Leaving the screen any other way (system back) leaves the call.
   useEffect(
@@ -61,6 +72,14 @@ export default function CallScreen() {
     },
     [engine, id],
   );
+
+  // Someone new is waiting in the lobby: a nudge, since they can't get in until someone answers.
+  const lobby = call?.call.lobby ?? [];
+  useEffect(() => {
+    const fresh = lobby.filter((g) => !lobbySeen.current.has(g.guestId));
+    fresh.forEach((g) => lobbySeen.current.add(g.guestId));
+    if (fresh.length) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  }, [lobby.map((g) => g.guestId).join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -98,6 +117,22 @@ export default function CallScreen() {
   }, [media.tiles, media.micOn, media.handUp, call, selfId]);
 
   if (!call) return null;
+  /** Members by name; guests as "Name (guest)" so nobody mistakes them for colleagues. */
+  const who = (id: string) => {
+    if (!isGuestIdentity(id)) return nameOf(id);
+    const g = call.call.guests?.find((x) => guestIdentity(x.guestId) === id);
+    return guestLabel(g?.name ?? 'Guest');
+  };
+  const chatUnread =
+    conversations.find((x) => x.conversationId === call.call.conversationId)?.unread ?? 0;
+  // The chat opens on top; the call keeps running underneath and "Back to call" returns here.
+  const openChat = () =>
+    router.push({ pathname: '/conversation/[id]', params: { id: call.call.conversationId } });
+  const decide = async (guestId: string, decision: 'admit' | 'deny') => {
+    setDeciding(`${decision}:${guestId}`);
+    await engine.calls.decideGuest(guestId, decision);
+    setDeciding(null);
+  };
   const title = conv ? conversationTitle(conv, nameOf, selfId) : 'Call';
   const othersJoined = call.call.participants.some(
     (p) => p.userId !== selfId && p.state === 'joined',
@@ -183,14 +218,14 @@ export default function CallScreen() {
                 backgroundColor: '#111827',
               },
             ]}
-            accessibilityLabel={`${t.isLocal ? 'You' : nameOf(t.userId)}${t.ringing ? ', ringing' : ''}${t.micOn ? '' : ', muted'}${t.handUp ? ', hand raised' : ''}`}
+            accessibilityLabel={`${t.isLocal ? 'You' : who(t.userId)}${t.ringing ? ', ringing' : ''}${t.micOn ? '' : ', muted'}${t.handUp ? ', hand raised' : ''}`}
           >
             {t.video ? (
               <CallVideo video={t.video} mirror={t.isLocal} />
             ) : (
               <View style={styles.center}>
                 <Avatar
-                  name={t.isLocal ? nameOf(selfId, { asWritten: true }) : nameOf(t.userId)}
+                  name={t.isLocal ? nameOf(selfId, { asWritten: true }) : who(t.userId)}
                   size={cols === 1 ? 96 : 64}
                 />
               </View>
@@ -200,7 +235,7 @@ export default function CallScreen() {
                 <Ionicons name="mic-off" size={12} color="#FCA5A5" />
               ) : null}
               <Text variant="meta" numberOfLines={1} style={{ color: '#FFFFFF', flexShrink: 1 }}>
-                {t.isLocal ? 'You' : nameOf(t.userId)}
+                {t.isLocal ? 'You' : who(t.userId)}
                 {t.ringing ? ' · Ringing' : ''}
               </Text>
             </View>
@@ -218,6 +253,52 @@ export default function CallScreen() {
           </Text>
         ) : null}
       </ScrollView>
+      {lobby.length ? (
+        <View
+          style={[styles.lobby, { borderColor: alpha(c.warning, 0.5) }]}
+          accessibilityLabel={`${lobby.length} waiting in the lobby`}
+          accessibilityLiveRegion="polite"
+        >
+          <Text variant="label" style={{ color: '#FDE68A' }}>
+            Waiting in the lobby · {lobby.length}
+          </Text>
+          {lobby.map((g) => (
+            <View key={g.guestId} style={styles.lobbyRow}>
+              <Avatar name={g.name} size={34} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text variant="bodyStrong" numberOfLines={1} style={{ color: '#FFFFFF' }}>
+                  {g.name}
+                </Text>
+                <Text variant="meta" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.65)' }}>
+                  Guest from outside · {g.email}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => void decide(g.guestId, 'deny')}
+                disabled={!!deciding}
+                accessibilityRole="button"
+                accessibilityLabel={`Deny ${g.name}`}
+                style={[styles.lobbyBtn, { backgroundColor: alpha('#FFFFFF', 0.14) }]}
+              >
+                <Text variant="label" style={{ color: '#FFFFFF' }}>
+                  {deciding === `deny:${g.guestId}` ? '…' : 'Deny'}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void decide(g.guestId, 'admit')}
+                disabled={!!deciding}
+                accessibilityRole="button"
+                accessibilityLabel={`Admit ${g.name}`}
+                style={[styles.lobbyBtn, { backgroundColor: c.accent }]}
+              >
+                <Text variant="label" style={{ color: c.onAccent }}>
+                  {deciding === `admit:${g.guestId}` ? '…' : 'Admit'}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={[styles.controls, { paddingBottom: insets.bottom + space.lg }]}>
         <Control
           icon={media.micOn ? 'mic' : 'mic-off'}
@@ -246,6 +327,12 @@ export default function CallScreen() {
             onPress={() => void toggleRecording()}
           />
         ) : null}
+        <Control
+          icon="chatbubble-ellipses"
+          label={chatUnread ? `Chat · ${chatUnread}` : 'Chat'}
+          active={chatUnread > 0}
+          onPress={openChat}
+        />
         <Control icon="call" label="Leave" danger onPress={() => void leave()} />
         {canEnd ? (
           <Control icon="stop-circle" label="End for all" danger onPress={() => void leave(true)} />
@@ -346,6 +433,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  lobby: {
+    marginHorizontal: space.md,
+    padding: space.md,
+    gap: space.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    backgroundColor: 'rgba(17,24,39,0.96)',
+  },
+  lobbyRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  lobbyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill },
   recPill: {
     flexDirection: 'row',
     alignItems: 'center',

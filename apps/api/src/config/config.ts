@@ -91,14 +91,12 @@ const EnvSchema = z.object({
   /** Sender, e.g. "Sampledge Connect <meetings@example.com>". */
   SMTP_FROM: z.string().min(3).optional(),
   /**
-   * Master key (32 bytes, base64) that seals integration credentials stored in MongoDB.
-   * Integration credentials themselves are entered in the admin screens, never in env.
-   * Required in production; development uses a fixed, insecure key and logs a warning.
+   * Master key for integration secrets stored in the database (32 bytes, base64).
+   * Required in production. Integration settings themselves live in MongoDB, not env.
    */
-  SETTINGS_ENCRYPTION_KEY: z
-    .string()
-    .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 bytes, base64')
-    .optional(),
+  SETTINGS_ENCRYPTION_KEY: z.string().optional(),
+  /** Comma-separated emails of platform operators who may edit platform-wide integration defaults. */
+  PLATFORM_ADMIN_EMAILS: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
