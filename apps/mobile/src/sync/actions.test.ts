@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { Approval, Message, Poll, ScheduledMessage, Task } from '@sampledge/contracts';
+import type {
+  Approval,
+  BookingPage,
+  CreateBookingPageRequest,
+  Message,
+  Poll,
+  ScheduledMessage,
+  Task,
+} from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import { migrate, rebuildPreservingUnsent } from '../db/migrations';
 import { LocalStore } from '../db/store';
-import { applyDecision, overlayVote } from '../db/work';
+import { applyDecision, bookingFromRequest, overlayVote } from '../db/work';
 import { Emitter } from '../lib/emitter';
 import { ConnectEngine } from '../state/engine';
 import { conversation, PEER, SELF, serverMessage } from '../test/fixtures';
@@ -85,6 +93,7 @@ async function setup() {
     tasks: new Map<string, Task>(),
     approvals: new Map<string, Approval>(),
     scheduled: new Map<string, ScheduledMessage>(),
+    booking: new Map<string, BookingPage>(),
     seq: 100,
   };
   const step = (name: string) => {
@@ -211,6 +220,37 @@ async function setup() {
     },
     sendMessage: async () => {
       throw new TransportError('offline', 'network');
+    },
+    listBookingPages: async () => {
+      step('listBookingPages');
+      return [...server.booking.values()].filter((p) => p.hostIds.includes(SELF));
+    },
+    createBookingPage: async (req: CreateBookingPageRequest) => {
+      step(`createBooking ${req.slug}`);
+      if ([...server.booking.values()].some((p) => p.slug === req.slug))
+        throw new TransportError('That link is already taken. Try another.', 'api', 'CONFLICT');
+      const id = `bp-${server.booking.size + 1}`;
+      const p = {
+        ...bookingFromRequest(id, req, SELF, new Date(NOW).toISOString()),
+        url: `https://connect.test/book/${req.slug}`,
+      };
+      server.booking.set(id, p);
+      return p;
+    },
+    updateBookingPage: async (id: string, patch: Partial<BookingPage>) => {
+      step(`updateBooking ${id} ${JSON.stringify(patch)}`);
+      const p = {
+        ...server.booking.get(id)!,
+        ...patch,
+        updatedAt: new Date(NOW + 1000).toISOString(),
+      };
+      server.booking.set(id, p);
+      return p;
+    },
+    deleteBookingPage: async (id: string) => {
+      step(`deleteBooking ${id}`);
+      if (!server.booking.delete(id)) throw new TransportError('Gone', 'api', 'NOT_FOUND');
+      return { deleted: true };
     },
   } as unknown as ApiTransport;
   const session = {
@@ -521,5 +561,121 @@ describe('organization changes from other devices', () => {
     t.rt.events.emit('tenant', { area: 'branding' });
     await new Promise((r) => setTimeout(r, 30));
     expect(seen).toEqual([{ appName: 'Northwind' }, 'branding']);
+  });
+});
+
+describe('booking pages offline', () => {
+  it('a page made offline is listed at once, edits fold into it, and it is created once on reconnect', async () => {
+    const t = await setup();
+    const local = await t.engine.createBookingPage({ title: 'Intro call', slug: 'intro-call' });
+    expect(local.local).toBe(true);
+    await t.engine.updateBookingPage(local.bookingPageId, { durationMinutes: 45, enabled: false });
+    const shown = await t.engine.listBookingPages({ fresh: false });
+    expect(shown.map((p) => [p.title, p.durationMinutes, p.enabled, p.pending])).toEqual([
+      ['Intro call', 45, false, true],
+    ]);
+    await t.online();
+    expect(t.calls.filter((c) => /Booking /.test(c))).toEqual(['createBooking intro-call']);
+    const [page] = await t.engine.listBookingPages({ fresh: false });
+    expect(page).toMatchObject({
+      bookingPageId: 'bp-1',
+      durationMinutes: 45,
+      enabled: false,
+      url: 'https://connect.test/book/intro-call',
+    });
+    expect(page!.pending).toBeFalsy();
+    // Opened with the local id: still found under its server id.
+    expect((await t.engine.getBookingPage(local.bookingPageId)).bookingPageId).toBe('bp-1');
+  });
+
+  it('only changed fields are sent, coalesced, and a delete drops edits waiting before it', async () => {
+    const t = await setup();
+    const p = {
+      ...bookingFromRequest(
+        'bp-9',
+        { title: 'Demo', slug: 'demo' },
+        SELF,
+        '2026-11-20T10:00:00.000Z',
+      ),
+    };
+    t.server.booking.set('bp-9', p);
+    await t.store.work.upsert('booking', [p]);
+    await t.engine.updateBookingPage('bp-9', { enabled: false });
+    await t.engine.updateBookingPage('bp-9', { title: 'Product demo' });
+    expect((await t.engine.getBookingPage('bp-9')).title).toBe('Product demo');
+    await t.online();
+    expect(t.calls.filter((c) => /Booking /.test(c))).toEqual([
+      'updateBooking bp-9 {"enabled":false,"title":"Product demo"}',
+    ]);
+
+    t.engine.setNetworkUp(false);
+    await t.engine.updateBookingPage('bp-9', { durationMinutes: 60 });
+    await t.engine.deleteBookingPage('bp-9');
+    expect(await t.engine.listBookingPages({ fresh: false })).toEqual([]);
+    await t.online();
+    expect(t.calls.filter((c) => /Booking /.test(c)).slice(1)).toEqual(['deleteBooking bp-9']);
+    expect(t.server.booking.size).toBe(0);
+  });
+
+  it('a link someone else took is kept as not sent; fixing the link sends it again', async () => {
+    const t = await setup();
+    t.server.booking.set('bp-0', {
+      ...bookingFromRequest(
+        'bp-0',
+        { title: 'Theirs', slug: 'sales' },
+        PEER,
+        '2026-11-20T10:00:00.000Z',
+      ),
+      hostIds: [PEER],
+    });
+    const local = await t.engine.createBookingPage({ title: 'Sales call', slug: 'sales' });
+    await t.online();
+    const kept = await t.engine.getBookingPage(local.bookingPageId);
+    expect(kept.syncError).toBe('That link is already taken. Try another.');
+    expect(t.refused).toEqual(['booking.create: That link is already taken. Try another.']);
+    await t.engine.updateBookingPage(local.bookingPageId, { slug: 'sales-intro' });
+    await t.online();
+    const [page] = await t.engine.listBookingPages({ fresh: false });
+    expect(page).toMatchObject({ slug: 'sales-intro', bookingPageId: 'bp-2' });
+    expect(page!.syncError).toBeFalsy();
+  });
+
+  it('a lost answer does not make a second page or a false conflict', async () => {
+    const t = await setup();
+    const local = await t.engine.createBookingPage({ title: 'Intro', slug: 'intro' });
+    // The first try reached the server, but the answer never arrived.
+    t.server.booking.set('bp-1', {
+      ...bookingFromRequest(
+        'bp-1',
+        { title: 'Intro', slug: 'intro' },
+        SELF,
+        new Date(NOW).toISOString(),
+      ),
+      url: 'https://connect.test/book/intro',
+    });
+    await t.online();
+    expect(t.server.booking.size).toBe(1);
+    expect((await t.engine.getBookingPage(local.bookingPageId)).bookingPageId).toBe('bp-1');
+  });
+
+  it('changes by a co-host or another device show live; a page you no longer host goes away', async () => {
+    const t = await setup();
+    const p = bookingFromRequest(
+      'bp-5',
+      { title: 'Team intro', slug: 'team', hostIds: [PEER] },
+      SELF,
+      '2026-11-20T10:00:00.000Z',
+    );
+    t.rt.events.emit('booking', { bookingPageId: 'bp-5', page: p });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.listBookingPages({ fresh: false })).map((x) => x.title)).toEqual([
+      'Team intro',
+    ]);
+    t.rt.events.emit('booking', {
+      bookingPageId: 'bp-5',
+      page: { ...p, hostIds: [PEER], updatedAt: '2026-11-21T10:00:00.000Z' },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await t.engine.listBookingPages({ fresh: false })).toEqual([]);
   });
 });
