@@ -24,6 +24,7 @@ import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { Button } from '../../components/Button';
 import { isUnjoinedChannel } from '../../lib/access';
+import { guestSenderLabel } from '../../lib/guests';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useCalls, useMessages, usePeople } from '../../state/hooks';
 import { space } from '../../theme/themes';
@@ -146,7 +147,9 @@ export default function ConversationScreen() {
     const parent = byServerId.get(m.replyTo);
     return {
       messageId: m.replyTo,
-      senderName: parent ? nameOf(parent.senderId) : 'Earlier message',
+      senderName: parent
+        ? (guestSenderLabel(parent.metadata) ?? nameOf(parent.senderId))
+        : 'Earlier message',
       text: parent ? parent.text : null,
       deleted: !!parent?.deletedAt,
     };
@@ -179,7 +182,11 @@ export default function ConversationScreen() {
   const onAction = (action: MessageAction, m: LocalMessage) => {
     switch (action) {
       case 'reply':
-        return setMode({ kind: 'reply', message: m, senderName: nameOf(m.senderId) });
+        return setMode({
+          kind: 'reply',
+          message: m,
+          senderName: guestSenderLabel(m.metadata) ?? nameOf(m.senderId),
+        });
       case 'edit':
         return setMode({ kind: 'edit', message: m });
       case 'retry':
@@ -329,7 +336,7 @@ export default function ConversationScreen() {
               <MessageBubble
                 message={item}
                 own={item.senderId === selfId}
-                senderName={nameOf(item.senderId)}
+                senderName={guestSenderLabel(item.metadata) ?? nameOf(item.senderId)}
                 selfId={selfId}
                 showSender={
                   !older ||
