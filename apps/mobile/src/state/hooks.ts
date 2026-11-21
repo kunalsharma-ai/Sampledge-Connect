@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { CallsState } from './calls';
 import type { LocalConversation, LocalMessage, LocalNotification } from '../db/store';
 import { useWorkspace } from './AppProvider';
 
@@ -113,5 +114,16 @@ export function useNotifications(): {
       off();
     };
   }, [store]);
+  return state;
+}
+
+/** Live calls, the ringing call and the call you are in. */
+export function useCalls(): CallsState {
+  const { engine } = useWorkspace();
+  const [state, setState] = useState<CallsState>(engine.calls.state);
+  useEffect(() => {
+    setState(engine.calls.state);
+    return engine.calls.events.on('change', setState);
+  }, [engine]);
   return state;
 }

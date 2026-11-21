@@ -56,7 +56,8 @@ export const MODULES: ModuleEntry[] = [
     title: 'Meetings',
     icon: 'videocam-outline',
     status: 'planned',
-    summary: 'Scheduling and joining calls.',
+    summary:
+      'Scheduled meetings and booking slots. Voice and video calls already work from any conversation.',
   },
   {
     key: 'files',

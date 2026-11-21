@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { TYPING_TTL_MS } from '@sampledge/contracts';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -21,8 +21,9 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
-import { useWorkspace } from '../../state/AppProvider';
-import { conversationTitle, useMessages, usePeople } from '../../state/hooks';
+import { CallBanner } from '../../calls/CallBanner';
+import { useApp, useWorkspace } from '../../state/AppProvider';
+import { conversationTitle, useCalls, useMessages, usePeople } from '../../state/hooks';
 import { space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -40,6 +41,21 @@ export default function ConversationScreen() {
   const [mode, setMode] = useState<ComposerMode>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
+  const calls = useCalls();
+  const { engineState } = useApp();
+  const online =
+    engineState?.connectivity === 'online' || engineState?.connectivity === 'connecting';
+  const callsOn = !!calls.config?.enabled;
+  const liveCall = calls.live[id] ?? null;
+  const startCall = async (media: 'audio' | 'video') => {
+    const cur = await engine.calls.start(id, media);
+    if (cur) router.push({ pathname: '/call/[id]', params: { id: cur.call.callId } });
+  };
+  const joinCall = async (media: 'audio' | 'video') => {
+    if (!liveCall) return;
+    const cur = await engine.calls.join(liveCall.callId, media);
+    if (cur) router.push({ pathname: '/call/[id]', params: { id: cur.call.callId } });
+  };
   const atBottom = useRef(true);
 
   useEffect(() => {
@@ -188,25 +204,47 @@ export default function ConversationScreen() {
           ),
           headerRight: () =>
             conv ? (
-              <Pressable
-                onPress={() => setNotifyOpen(true)}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel={`Notifications: ${
-                  conv.notifyLevel === 'all'
-                    ? 'all activity'
-                    : conv.notifyLevel === 'mentions'
-                      ? 'mentions only'
-                      : 'off'
-                }`}
-                style={{ paddingHorizontal: space.sm }}
-              >
-                <Ionicons
-                  name={NOTIFY_ICON[conv.notifyLevel]}
-                  size={22}
-                  color={conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning}
-                />
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {callsOn
+                  ? (['audio', 'video'] as const).map((m) => (
+                      <Pressable
+                        key={m}
+                        onPress={() => void startCall(m)}
+                        disabled={!online}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={m === 'video' ? 'Start video call' : 'Start voice call'}
+                        accessibilityState={{ disabled: !online }}
+                        style={{ paddingHorizontal: space.sm, opacity: online ? 1 : 0.4 }}
+                      >
+                        <Ionicons
+                          name={m === 'video' ? 'videocam-outline' : 'call-outline'}
+                          size={22}
+                          color={theme.colors.accent}
+                        />
+                      </Pressable>
+                    ))
+                  : null}
+                <Pressable
+                  onPress={() => setNotifyOpen(true)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Notifications: ${
+                    conv.notifyLevel === 'all'
+                      ? 'all activity'
+                      : conv.notifyLevel === 'mentions'
+                        ? 'mentions only'
+                        : 'off'
+                  }`}
+                  style={{ paddingHorizontal: space.sm }}
+                >
+                  <Ionicons
+                    name={NOTIFY_ICON[conv.notifyLevel]}
+                    size={22}
+                    color={conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning}
+                  />
+                </Pressable>
+              </View>
             ) : null,
         }}
       />
@@ -224,6 +262,17 @@ export default function ConversationScreen() {
       >
         <View style={{ paddingTop: space.sm }}>
           <ConnectivityBanner />
+          <CallBanner
+            call={liveCall && liveCall.callId !== calls.current?.call.callId ? liveCall : null}
+            inCall={!!liveCall && liveCall.callId === calls.current?.call.callId}
+            error={calls.error}
+            nameOf={nameOf}
+            onJoin={(media) => void joinCall(media)}
+            onReturn={() =>
+              router.push({ pathname: '/call/[id]', params: { id: liveCall!.callId } })
+            }
+            onDismissError={() => engine.calls.dismissError()}
+          />
         </View>
         <FlatList
           ref={list}
