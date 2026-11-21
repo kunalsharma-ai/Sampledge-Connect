@@ -10,7 +10,7 @@ import {
   type PushData,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { PUSH_PROVIDER, type PushMessage, type PushProvider } from '../push/push-provider.js';
+import { PushProviders, type PushMessage } from '../push/push-provider.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import type {
@@ -51,7 +51,7 @@ export class NotificationsService {
   constructor(
     private readonly db: TenantDb,
     private readonly realtime: RealtimePublisher,
-    @Inject(PUSH_PROVIDER) private readonly provider: PushProvider,
+    private readonly pushProviders: PushProviders,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
@@ -136,7 +136,8 @@ export class NotificationsService {
     created: NotificationDoc[],
     preview: string,
   ) {
-    if (this.provider.name === null) return;
+    const provider = await this.pushProviders.forTenant(tenantId);
+    if (provider.name === null) return;
     const t = this.db.for(tenantId);
     const devices = await t.devices
       .find({
@@ -145,7 +146,7 @@ export class NotificationsService {
         'push.token': { $exists: true },
       })
       .toArray();
-    const sendable = devices.filter((d) => d.push && this.provider.accepts(d.push.provider));
+    const sendable = devices.filter((d) => d.push && provider.accepts(d.push.provider));
     if (sendable.length === 0) return;
 
     const sender = await t.users.findOne(
@@ -184,7 +185,7 @@ export class NotificationsService {
       messages.push({
         token: d.push!.token,
         title,
-        body: this.cfg.PUSH_SHOW_PREVIEWS
+        body: provider.showPreviews
           ? kind === 'mention'
             ? `Mentioned you: ${preview}`
             : kind === 'reply'
@@ -200,7 +201,7 @@ export class NotificationsService {
       });
     }
     if (messages.length === 0) return;
-    const { invalidTokens } = await this.provider.send(messages);
+    const { invalidTokens } = await provider.send(messages);
     if (invalidTokens.length)
       await t.devices.updateMany(
         { 'push.token': { $in: invalidTokens } },
@@ -219,7 +220,9 @@ export class NotificationsService {
     inviteeIds: string[],
     expiresAt: Date,
   ): Promise<void> {
-    if (this.provider.name === null || inviteeIds.length === 0) return;
+    if (inviteeIds.length === 0) return;
+    const provider = await this.pushProviders.forTenant(tenantId);
+    if (provider.name === null) return;
     const t = this.db.for(tenantId);
     const muted = new Set(
       (
@@ -237,7 +240,7 @@ export class NotificationsService {
       await t.devices
         .find({ userId: { $in: targets }, revokedAt: null, 'push.token': { $exists: true } })
         .toArray()
-    ).filter((d) => d.push && this.provider.accepts(d.push.provider));
+    ).filter((d) => d.push && provider.accepts(d.push.provider));
     if (!devices.length) return;
     const caller = await t.users.findOne(
       { _id: call.startedBy },
@@ -266,7 +269,7 @@ export class NotificationsService {
       messages.push({ token: d.push!.token, title: callerName, body, data: { ...data } });
     }
     if (!messages.length) return;
-    const { invalidTokens } = await this.provider.send(messages);
+    const { invalidTokens } = await provider.send(messages);
     if (invalidTokens.length)
       await t.devices.updateMany(
         { 'push.token': { $in: invalidTokens } },
@@ -285,13 +288,15 @@ export class NotificationsService {
     body: string,
     data: Record<string, unknown>,
   ): Promise<void> {
-    if (this.provider.name === null || userIds.length === 0) return;
+    if (userIds.length === 0) return;
+    const provider = await this.pushProviders.forTenant(tenantId);
+    if (provider.name === null) return;
     const t = this.db.for(tenantId);
     const devices = (
       await t.devices
         .find({ userId: { $in: userIds }, revokedAt: null, 'push.token': { $exists: true } })
         .toArray()
-    ).filter((d) => d.push && this.provider.accepts(d.push.provider));
+    ).filter((d) => d.push && provider.accepts(d.push.provider));
     const live = new Map<string, Set<string>>();
     const messages: PushMessage[] = [];
     for (const d of devices) {
@@ -301,7 +306,7 @@ export class NotificationsService {
       messages.push({ token: d.push!.token, title, body, data });
     }
     if (!messages.length) return;
-    const { invalidTokens } = await this.provider.send(messages);
+    const { invalidTokens } = await provider.send(messages);
     if (invalidTokens.length)
       await t.devices.updateMany(
         { 'push.token': { $in: invalidTokens } },

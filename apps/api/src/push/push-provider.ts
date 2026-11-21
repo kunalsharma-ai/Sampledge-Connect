@@ -1,5 +1,6 @@
-import { Logger } from '@nestjs/common';
-import type { AppConfig } from '../config/config.js';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 
 export interface PushMessage {
   token: string;
@@ -16,8 +17,6 @@ export interface PushProvider {
   /** Returns tokens the provider reported as permanently invalid (to be cleared). */
   send(messages: PushMessage[]): Promise<{ invalidTokens: string[] }>;
 }
-
-export const PUSH_PROVIDER = Symbol('PUSH_PROVIDER');
 
 /** Stores tokens, sends nothing. Used until a provider is configured. */
 export class NoopPushProvider implements PushProvider {
@@ -82,6 +81,55 @@ export class ExpoPushProvider implements PushProvider {
   }
 }
 
-export function createPushProvider(cfg: AppConfig): PushProvider {
-  return cfg.PUSH_PROVIDER === 'expo' ? new ExpoPushProvider(cfg) : new NoopPushProvider();
+export interface TenantPushProvider extends PushProvider {
+  showPreviews: boolean;
+}
+
+/**
+ * Resolves the push provider per tenant from the integration settings store
+ * (`push.expo`), falling back to legacy env (PUSH_PROVIDER=expo). Changes apply
+ * without a restart.
+ */
+@Injectable()
+export class PushProviders implements OnModuleInit {
+  constructor(
+    private readonly settings: IntegrationSettingsService,
+    @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+  ) {}
+
+  onModuleInit() {
+    this.settings.attach('push.expo', {
+      envFallback: (cfg) =>
+        cfg.PUSH_PROVIDER === 'expo'
+          ? { accessToken: cfg.EXPO_ACCESS_TOKEN ?? null, showPreviews: cfg.PUSH_SHOW_PREVIEWS }
+          : null,
+      // Valid credentials can read (empty) receipts; a bad access token gets 401.
+      test: async (values) => {
+        const url = this.cfg.EXPO_PUSH_URL.replace(/\/send$/, '/getReceipts');
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(values.accessToken
+              ? { authorization: `Bearer ${String(values.accessToken)}` }
+              : {}),
+          },
+          body: JSON.stringify({ ids: [] }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (res.ok) return { ok: true, message: 'Expo Push accepted the credentials' };
+        return { ok: false, message: `Expo Push answered HTTP ${res.status}` };
+      },
+    });
+  }
+
+  async forTenant(tenantId: string): Promise<TenantPushProvider> {
+    const s = await this.settings.get(tenantId, 'push.expo');
+    if (!s?.enabled) return Object.assign(new NoopPushProvider(), { showPreviews: true });
+    const p = new ExpoPushProvider({
+      EXPO_PUSH_URL: this.cfg.EXPO_PUSH_URL,
+      EXPO_ACCESS_TOKEN: (s.values.accessToken as string | null) ?? undefined,
+    });
+    return Object.assign(p, { showPreviews: s.values.showPreviews !== false });
+  }
 }
