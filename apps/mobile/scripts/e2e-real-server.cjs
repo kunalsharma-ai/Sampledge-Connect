@@ -1261,6 +1261,57 @@ async function api(method, path, body, token) {
     await p.getByRole('button', { name: 'End for all' }).click();
     await p.waitForTimeout(2000);
   }
+  // ---- Chat during a call: open the conversation from the call, post, get back to the call,
+  // the unread count on the Chat button, and the call surviving all of it.
+  {
+    const cfg = await api('GET', '/v1/calls/config', undefined, marco);
+    if (cfg.enabled) {
+      await p.goto(`${APP}/conversation/${ch.conversationId}`);
+      await p.waitForTimeout(3000);
+      await p.getByRole('button', { name: 'Start voice call' }).click();
+      await p.waitForTimeout(4000);
+      await p.getByRole('button', { name: /^Chat/ }).click();
+      await p.waitForTimeout(2500);
+      check(
+        'chat opens over the call with a way back',
+        /You are in this call\. Tap to return\./.test(await p.innerText('body')),
+      );
+      await p.locator('textarea').last().fill('Sharing the deck link in here while we talk.');
+      await p.getByRole('button', { name: 'Send message' }).click();
+      await p.waitForTimeout(2000);
+      await shot('74-chat-during-call');
+      await p.getByText('You are in this call. Tap to return.').last().click();
+      await p.waitForTimeout(2000);
+      const back = await p.innerText('body');
+      check('returns to the same call', /Voice call ·/.test(back) && /Leave/.test(back));
+      const live = await api('GET', '/v1/calls/active', undefined, marco);
+      check(
+        'call kept running while in the chat',
+        (Array.isArray(live) ? live : live.calls).some(
+          (c) => c.conversationId === ch.conversationId,
+        ),
+      );
+      await api(
+        'POST',
+        `/v1/conversations/${ch.conversationId}/messages`,
+        {
+          conversationId: ch.conversationId,
+          clientMessageId: crypto.randomUUID(),
+          messageType: 'text',
+          content: { text: 'Got it, opening it now.', mentions: [] },
+        },
+        marco,
+      );
+      await p.waitForTimeout(2500);
+      check(
+        'Chat button counts new messages',
+        (await p.getByRole('button', { name: /^Chat · \d/ }).count()) > 0,
+      );
+      await shot('75-call-chat-badge');
+      await p.getByRole('button', { name: 'End for all' }).click();
+      await p.waitForTimeout(2000);
+    }
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
