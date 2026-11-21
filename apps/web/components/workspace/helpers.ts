@@ -1,3 +1,4 @@
+import { guestSenderName } from '@sampledge/contracts';
 import type { Conversation } from '@sampledge/contracts';
 import type { DirectoryEntry } from '@/lib/engine';
 
@@ -19,6 +20,15 @@ export function conversationTitle(
 
 export function nameOf(id: string, dir: Map<string, DirectoryEntry>): string {
   return dir.get(id)?.displayName ?? 'Unknown member';
+}
+
+/** A message's sender: a member's name, or "Name (guest)" for an external meeting guest. */
+export function senderNameOf(
+  m: { senderId: string; metadata?: Record<string, unknown> },
+  dir: Map<string, DirectoryEntry>,
+): string {
+  const guest = guestSenderName(m);
+  return guest ? `${guest} (guest)` : nameOf(m.senderId, dir);
 }
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });

@@ -6,6 +6,8 @@ import { callsMigration } from './004-calls.js';
 import { meetingsMigration } from './005-meetings.js';
 import { recordingsMigration } from './006-recordings.js';
 import { guestsMigration } from './007-guests.js';
+import { integrationSettingsMigration } from './010-integration-settings.js';
+import { aiMigration } from './011-ai.js';
 
 export interface Migration {
   id: string;
@@ -21,6 +23,8 @@ export const MIGRATIONS: Migration[] = [
   meetingsMigration,
   recordingsMigration,
   guestsMigration,
+  integrationSettingsMigration,
+  aiMigration,
 ];
 
 /**

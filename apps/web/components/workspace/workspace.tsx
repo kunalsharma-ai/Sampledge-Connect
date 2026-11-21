@@ -3,6 +3,7 @@ import * as React from 'react';
 import { AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
+  Bot,
   CalendarPlus,
   Hash,
   Lock,
@@ -11,6 +12,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
+  Plug,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -38,15 +40,19 @@ import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
 import { ConversationList } from './conversation-list';
 import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
-import { conversationTitle, nameOf } from './helpers';
+import { conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
+import { IntegrationsScreen } from './integrations-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
+import { AiScreen } from './ai-screen';
+import { AiSummaryCard } from './ai-summary-card';
+import { languageName, preferredLanguage, useAi } from '@/lib/ai';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 
@@ -116,6 +122,9 @@ export function Workspace() {
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
   React.useEffect(() => setReplyTo(null), [activeId]);
+  const ai = useAi();
+  const [prefill, setPrefill] = React.useState<{ text: string; nonce: number } | null>(null);
+  React.useEffect(() => setPrefill(null), [activeId]);
   const unreadTotal = [...unread.values()].reduce((a, b) => a + b, 0);
   const notifications = useNotifications();
   const unreadNotifIn = React.useMemo(
@@ -216,6 +225,17 @@ export function Workspace() {
           online={state.connectivity === 'online'}
           onOpenConversation={openConversation}
         />
+      ) : module === 'ai' ? (
+        <AiScreen
+          ai={ai}
+          conversations={conversations ?? []}
+          notifications={notifications.items ?? []}
+          me={me}
+          directory={directory}
+          onOpenConversation={openConversation}
+        />
+      ) : module === 'integrations' ? (
+        <IntegrationsScreen online={state.connectivity === 'online'} />
       ) : module === 'notifications' ? (
         <NotificationsScreen
           api={notifications}
@@ -367,6 +387,15 @@ export function Workspace() {
                     setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
                     setModule('meetings');
                   }}
+                  onTranslate={
+                    ai.available
+                      ? async (messageId) => {
+                          const lang = preferredLanguage();
+                          const r = await ai.translate(messageId, lang);
+                          return { text: r.text, label: languageName(lang) };
+                        }
+                      : undefined
+                  }
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -398,9 +427,7 @@ export function Workspace() {
                     replyTo
                       ? {
                           name:
-                            replyTo.senderId === me
-                              ? 'yourself'
-                              : nameOf(replyTo.senderId, directory),
+                            replyTo.senderId === me ? 'yourself' : senderNameOf(replyTo, directory),
                           text:
                             replyTo.content.text ||
                             `${replyTo.attachments?.length ?? 0} attachment(s)`,
@@ -409,6 +436,7 @@ export function Workspace() {
                   }
                   onCancelReply={() => setReplyTo(null)}
                   onTyping={(t) => engine.setTyping(active.conversationId, t)}
+                  prefill={prefill}
                 />
               </>
             ) : (
@@ -437,6 +465,23 @@ export function Workspace() {
                   directory={directory}
                   presence={engine.presence}
                   onClose={() => setPanelOpen(false)}
+                  aiCard={
+                    ai.status?.enabled !== false ? (
+                      <AiSummaryCard
+                        ai={ai}
+                        conversationId={active.conversationId}
+                        where={
+                          active.kind === 'dm'
+                            ? conversationTitle(active, me, directory)
+                            : `#${conversationTitle(active, me, directory)}`
+                        }
+                        me={me}
+                        directory={directory}
+                        canPost={!readOnly}
+                        onUseReply={(text) => setPrefill({ text, nonce: Date.now() })}
+                      />
+                    ) : null
+                  }
                 />
               </div>
             ) : null}
@@ -537,6 +582,7 @@ export function Workspace() {
             run: () => setDialog('sync'),
           },
           { id: 'a:theme', label: 'Change theme', icon: Palette, run: () => setDialog('settings') },
+          { id: 'a:ai', label: 'Ask the AI assistant', icon: Bot, run: () => setModule('ai') },
           ...(isAdmin
             ? [
                 {
@@ -544,6 +590,12 @@ export function Workspace() {
                   label: 'Administration',
                   icon: ShieldCheck,
                   run: () => setDialog('admin'),
+                },
+                {
+                  id: 'a:integrations',
+                  label: 'Manage integrations',
+                  icon: Plug,
+                  run: () => setModule('integrations'),
                 },
               ]
             : []),

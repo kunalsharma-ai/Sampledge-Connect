@@ -4,7 +4,7 @@ import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { TenantDb } from '../database/tenant-db.js';
-import { PUSH_PROVIDER, type PushProvider } from './push-provider.js';
+import { PushProviders } from './push-provider.js';
 
 /** Push tokens belong to one device session; revoke and sign-out clear them. */
 @Controller('v1/push')
@@ -12,7 +12,7 @@ import { PUSH_PROVIDER, type PushProvider } from './push-provider.js';
 export class PushController {
   constructor(
     private readonly db: TenantDb,
-    @Inject(PUSH_PROVIDER) private readonly provider: PushProvider,
+    private readonly pushProviders: PushProviders,
   ) {}
 
   @Post('token')
@@ -44,9 +44,10 @@ export class PushController {
   @Get('status')
   async status(@Ctx() ctx: TenantContext): Promise<PushStatus> {
     const d = await this.db.for(ctx.tenantId).devices.findOne({ _id: ctx.sessionId });
+    const provider = await this.pushProviders.forTenant(ctx.tenantId);
     return {
-      enabled: this.provider.name !== null,
-      provider: this.provider.name,
+      enabled: provider.name !== null,
+      provider: provider.name,
       tokenRegistered: !!d?.push?.token,
     };
   }

@@ -8,6 +8,7 @@ import {
   DoorOpen,
   Hand,
   Maximize2,
+  MessageSquare,
   Mic,
   MicOff,
   Minimize2,
@@ -35,6 +36,7 @@ import { Avatar, Button, Tooltip, cn } from '@sampledge/ui';
 import { cameraTrackOf, handRaisedAt, screenTrackOf, useCalls } from '@/lib/calls';
 import type { DirectoryEntry } from '@/lib/engine';
 import { conversationTitle, formatTime, nameOf } from './helpers';
+import { MemberCallChat, useCallChatCount } from './call-chat';
 
 const iconBtn =
   'rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40';
@@ -433,7 +435,22 @@ export function CallStage({
   const reduce = useReducedMotion();
   const cur = calls.current;
   const [confirmEnd, setConfirmEnd] = React.useState(false);
-  React.useEffect(() => setConfirmEnd(false), [cur?.call.callId]);
+  const [chatOpen, setChatOpen] = React.useState(false);
+  const [chatSeen, setChatSeen] = React.useState(0);
+  React.useEffect(() => {
+    setConfirmEnd(false);
+    setChatOpen(false);
+    setChatSeen(0);
+  }, [cur?.call.callId]);
+  const chatCount = useCallChatCount(
+    cur?.call.conversationId ?? null,
+    cur?.call.startedAt ?? new Date().toISOString(),
+    me,
+  );
+  React.useEffect(() => {
+    if (chatOpen) setChatSeen(chatCount);
+  }, [chatOpen, chatCount]);
+  const chatUnread = Math.max(0, chatCount - chatSeen);
   const elapsed = useElapsed(cur?.call.startedAt ?? new Date().toISOString());
   if (!cur) return null;
   const { room, call } = cur;
@@ -575,7 +592,7 @@ export function CallStage({
       ) : null}
       <LobbyPanel call={call} onDecide={(id, allow) => void calls.decideGuest(id, allow)} />
 
-      <div className="flex min-h-0 flex-1 gap-3 p-3 sm:p-4">
+      <div className="relative flex min-h-0 flex-1 gap-3 p-3 sm:p-4">
         {share && sharer ? (
           <>
             <div className="relative min-w-0 flex-[3] overflow-hidden rounded-xl border border-white/10 bg-black">
@@ -616,6 +633,17 @@ export function CallStage({
             ))}
           </div>
         )}
+        {chatOpen ? (
+          <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
+            <MemberCallChat
+              conversationId={call.conversationId}
+              since={call.startedAt}
+              me={me}
+              directory={directory}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <footer className="flex flex-wrap items-center justify-center gap-3 px-4 pb-6 pt-2">
@@ -646,6 +674,23 @@ export function CallStage({
         >
           <Hand className={cn(handRaisedAt(lp) && 'text-warning')} />
         </ControlButton>
+        <span className="relative">
+          <ControlButton
+            on={chatOpen ? true : undefined}
+            label={chatOpen ? 'Hide chat' : chatUnread ? `Chat (${chatUnread} new)` : 'Chat'}
+            onClick={() => setChatOpen((o) => !o)}
+          >
+            <MessageSquare className={cn(chatOpen && 'text-accent')} />
+          </ControlButton>
+          {chatUnread && !chatOpen ? (
+            <span
+              className="pointer-events-none absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-semibold text-accent-fg"
+              data-testid="call-chat-unread"
+            >
+              {chatUnread}
+            </span>
+          ) : null}
+        </span>
         {calls.config?.recordingEnabled ? (
           <ControlButton
             label={

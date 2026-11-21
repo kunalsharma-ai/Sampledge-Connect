@@ -1,10 +1,10 @@
 'use client';
 import * as React from 'react';
-import { CornerUpLeft, SmilePlus } from 'lucide-react';
+import { CornerUpLeft, Languages, SmilePlus } from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { nameOf } from './helpers';
+import { nameOf, senderNameOf } from './helpers';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -77,7 +77,7 @@ export function ReplyQuote({
       {parent ? (
         <>
           <span className="font-semibold text-text">
-            {parent.senderId === me ? 'You' : nameOf(parent.senderId, directory)}
+            {parent.senderId === me ? 'You' : senderNameOf(parent, directory)}
           </span>
           <span className="line-clamp-1 text-text-muted">
             {parent.deleted ? 'Deleted message' : parent.text}
@@ -144,10 +144,13 @@ export function MessageActions({
   own,
   onReact,
   onReply,
+  onTranslate,
 }: {
   own: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  /** Present when the AI assistant is available. */
+  onTranslate?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -189,6 +192,15 @@ export function MessageActions({
           >
             <CornerUpLeft className="size-4" />
           </button>
+          {onTranslate ? (
+            <button
+              onClick={onTranslate}
+              aria-label="Translate"
+              className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-surface-raised hover:text-text"
+            >
+              <Languages className="size-4" />
+            </button>
+          ) : null}
         </>
       )}
     </div>

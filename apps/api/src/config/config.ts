@@ -90,6 +90,13 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: z.string().min(1).optional(),
   /** Sender, e.g. "Sampledge Connect <meetings@example.com>". */
   SMTP_FROM: z.string().min(3).optional(),
+  /**
+   * Master key for integration secrets stored in the database (32 bytes, base64).
+   * Required in production. Integration settings themselves live in MongoDB, not env.
+   */
+  SETTINGS_ENCRYPTION_KEY: z.string().optional(),
+  /** Comma-separated emails of platform operators who may edit platform-wide integration defaults. */
+  PLATFORM_ADMIN_EMAILS: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
@@ -106,6 +113,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production');
     }
     if (!cfg.FILES_URL_SECRET) throw new Error('FILES_URL_SECRET is required in production');
+    if (!cfg.SETTINGS_ENCRYPTION_KEY)
+      throw new Error('SETTINGS_ENCRYPTION_KEY is required in production');
     if (cfg.RATE_LIMIT_DISABLED)
       throw new Error('RATE_LIMIT_DISABLED is not allowed in production');
   }
