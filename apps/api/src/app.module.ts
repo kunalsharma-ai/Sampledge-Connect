@@ -12,6 +12,8 @@ import { SessionService } from './auth/session.service.js';
 import { MfaService } from './auth/mfa.service.js';
 import { AuthService } from './auth/auth.service.js';
 import { AuthController } from './auth/auth.controller.js';
+import { SsoController } from './auth/sso.controller.js';
+import { SsoService } from './auth/sso.service.js';
 import { DirectoryController } from './directory/directory.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
@@ -87,6 +89,7 @@ export class AppModule {
         TenantIntegrationsController,
         PlatformIntegrationsController,
         AuthController,
+        SsoController,
         RecordingsController,
         DirectoryController,
         ConversationsController,
@@ -114,6 +117,7 @@ export class AppModule {
         SessionService,
         AuthService,
         MfaService,
+        SsoService,
         ConversationsService,
         MessagesService,
         SyncService,

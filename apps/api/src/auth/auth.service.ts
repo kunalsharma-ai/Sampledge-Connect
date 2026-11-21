@@ -15,6 +15,8 @@ import type { UserDoc, TenantDoc } from '../database/documents.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
 import { MfaService } from './mfa.service.js';
+import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
+import { passwordLoginAllowed } from './sso-settings.js';
 import { SessionService } from './session.service.js';
 
 /** OWASP-recommended argon2id parameters (m=19 MiB, t=2, p=1). */
@@ -55,6 +57,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly rateLimit: RateLimitService,
     private readonly mfa: MfaService,
+    private readonly settings: IntegrationSettingsService,
   ) {}
 
   async registerTenant(input: unknown, meta: RequestMeta): Promise<Session> {
@@ -181,6 +184,11 @@ export class AuthService {
     const t = this.db.for(tenant._id);
     const membership = await t.memberships.findOne({ userId: user._id });
     if (!membership) throw invalid;
+    if (!(await passwordLoginAllowed(this.settings, tenant._id, membership.role)))
+      throw new AppError(
+        'FORBIDDEN',
+        'This workspace uses single sign-on. Use the sign-on button instead of a password.',
+      );
 
     if (this.mfa.enabled(user)) {
       await this.audit.record({
