@@ -1,16 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
+import { useTenantRole } from '../../state/hooks';
 import { customTheme, fonts, radius, space, THEMES, type Theme } from '../../theme/themes';
 import { useTheme, type ThemePreference } from '../../theme/ThemeProvider';
 
 const HEX = /^#([0-9a-f]{6})$/i;
 
 export default function Appearance() {
-  const { theme, preference, setPreference, brand, setBrand } = useTheme();
+  const { theme, preference, setPreference, brand, setBrand, org, orgThemeActive } = useTheme();
+  const role = useTenantRole();
+  const locked = !!org?.enforceTheme;
   const [primary, setPrimary] = useState(brand.primary);
   const [secondary, setSecondary] = useState(brand.secondary);
 
@@ -22,6 +26,19 @@ export default function Appearance() {
       preview: Theme;
     }[]),
     { key: 'custom', label: 'Custom brand', preview: customTheme(brand) },
+    ...(org
+      ? [
+          {
+            key: 'org' as ThemePreference,
+            label: org.organizationName,
+            preview: customTheme({
+              primary: org.primary,
+              secondary: org.secondary,
+              dark: org.dark,
+            }),
+          },
+        ]
+      : []),
   ];
 
   const applyBrand = (next: Partial<typeof brand>) => {
@@ -32,23 +49,58 @@ export default function Appearance() {
   return (
     <Screen edges={['bottom']}>
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+        {org ? (
+          <Glass style={{ padding: space.md, gap: space.sm }}>
+            <View style={styles.field}>
+              {org.logo ? (
+                <Image
+                  source={{ uri: org.logo }}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  accessibilityLabel={`${org.displayName} logo`}
+                />
+              ) : (
+                <Ionicons name="color-palette-outline" size={22} color={theme.colors.accent} />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyStrong">{org.displayName}</Text>
+                <Text variant="meta" tone="muted">
+                  {locked
+                    ? `${org.organizationName} sets the theme for everyone.`
+                    : orgThemeActive
+                      ? `You are on the ${org.organizationName} theme.`
+                      : `${org.organizationName} has its own theme. Pick it below.`}
+                </Text>
+              </View>
+            </View>
+            {role === 'owner' ? (
+              <Pressable onPress={() => router.push('/admin/branding')} accessibilityRole="link">
+                <Text variant="label" tone="accent">
+                  Edit organization branding
+                </Text>
+              </Pressable>
+            ) : null}
+          </Glass>
+        ) : null}
         <Text variant="overline" tone="subtle">
           Theme
         </Text>
         <View style={styles.grid}>
           {options.map((o) => {
-            const active = preference === o.key;
+            const active = orgThemeActive ? o.key === 'org' : preference === o.key;
             const c = o.preview.colors;
             return (
               <Pressable
                 key={o.key}
                 onPress={() => setPreference(o.key)}
+                disabled={locked}
                 accessibilityRole="radio"
-                accessibilityState={{ checked: active }}
+                accessibilityState={{ checked: active, disabled: locked }}
                 accessibilityLabel={o.label}
                 style={[
                   styles.tile,
                   {
+                    opacity: locked && !active ? 0.45 : 1,
                     borderColor: active ? theme.colors.accent : theme.colors.border,
                     borderWidth: active ? 2 : StyleSheet.hairlineWidth,
                   },
@@ -86,7 +138,7 @@ export default function Appearance() {
           })}
         </View>
 
-        {preference === 'custom' ? (
+        {preference === 'custom' && !orgThemeActive ? (
           <Glass style={{ padding: space.lg, gap: space.md }}>
             <Text variant="heading">Brand colours</Text>
             <Text variant="meta" tone="muted">
@@ -143,10 +195,6 @@ export default function Appearance() {
                 trackColor={{ true: theme.colors.accent }}
               />
             </View>
-            <Text variant="meta" tone="subtle">
-              Workspace logo and admin-enforced branding come from the server once the branding API
-              exists (planned).
-            </Text>
           </Glass>
         ) : null}
       </ScrollView>
@@ -169,6 +217,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   field: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  logo: { width: 36, height: 36, borderRadius: 8 },
   colorChip: { width: 22, height: 22, borderRadius: 6, borderWidth: StyleSheet.hairlineWidth },
   input: {
     flex: 1,

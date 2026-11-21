@@ -9,6 +9,7 @@ import {
   FolderKanban,
   Hash,
   Lock,
+  Menu,
   MessageSquarePlus,
   Palette,
   PanelRightClose,
@@ -43,16 +44,21 @@ import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
 import { ConversationList } from './conversation-list';
-import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
+import { NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
+import { AdminScreen } from './admin-screen';
 import { conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
+import { BillingScreen } from './billing-screen';
+import { BrandingScreen } from './branding-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { PinsMenu, SavedScreen, ThreadPanel } from './threads';
+import { CreatePollDialog, ScheduledBar } from './polls';
+import { pollsApi, scheduledApi, useScheduled } from '@/lib/polls';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
 import { AiScreen } from './ai-screen';
@@ -123,7 +129,7 @@ export function Workspace() {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
-  const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings' | 'admin'>(null);
+  const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings'>(null);
   const [palette, setPalette] = React.useState(false);
   const [scheduleIn, setScheduleIn] = React.useState<string | null>(null);
   const [focusMeeting, setFocusMeeting] = React.useState<{
@@ -176,6 +182,8 @@ export function Workspace() {
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
+  const [pollOpen, setPollOpen] = React.useState(false);
+  const scheduled = useScheduled(activeId);
   const [threadRootId, setThreadRootId] = React.useState<string | null>(null);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -240,13 +248,35 @@ export function Workspace() {
     return m;
   })();
 
-  // Deep link: /app?c=<conversationId> (used by the chat widget's "Open in Connect").
+  // Deep link: /app?c=<conversationId>[&m=<messageId>] (chat widget, browser notifications).
   React.useEffect(() => {
-    const c = new URLSearchParams(window.location.search).get('c');
+    const q = new URLSearchParams(window.location.search);
+    // Back from the payment page: the Billing screen reads `billing` itself.
+    if (q.get('billing')) return setModule('billing');
+    const c = q.get('c');
     if (!c) return;
     setModule('messages');
     setActiveId(c);
+    const m = q.get('m');
+    if (m) setTimeout(() => setHighlightId(m), 600);
     window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
+  // A click on a browser notification while this tab is open (see public/sw.js).
+  React.useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type !== 'open' || typeof e.data.url !== 'string') return;
+      const q = new URL(e.data.url, window.location.origin).searchParams;
+      const c = q.get('c');
+      if (!c) return;
+      setModule('messages');
+      setActiveId(c);
+      const m = q.get('m');
+      if (m) setTimeout(() => setHighlightId(m), 300);
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
   }, []);
 
   // Open the most recent conversation on wide screens.
@@ -282,7 +312,6 @@ export function Workspace() {
 
   const selectModule = (m: ModuleId) => {
     if (m === 'settings') return setDialog('settings');
-    if (m === 'admin') return setDialog('admin');
     setModule(m);
   };
 
@@ -294,7 +323,16 @@ export function Workspace() {
         .map((id) => nameOf(id, directory).split(' ')[0]!)
     : [];
   const offline = state.connectivity === 'offline';
-  const readOnly = active ? active.myRole === null || !!active.archivedAt : false;
+  const canModerate =
+    !!active &&
+    (active.myRole === 'owner' ||
+      active.myRole === 'moderator' ||
+      session!.user.role === 'owner' ||
+      session!.user.role === 'admin');
+  const announcementOnly = !!active && active.postingPolicy === 'moderators' && !canModerate;
+  const readOnly = active
+    ? active.myRole === null || !!active.archivedAt || announcementOnly
+    : false;
   const messageActions = (m: LocalMessage) => ({
     onThread: () => setThreadRootId(m.messageId),
     pinned: !!m.pinned,
@@ -363,6 +401,12 @@ export function Workspace() {
             />
           ) : module === 'integrations' ? (
             <IntegrationsScreen online={state.connectivity === 'online'} />
+          ) : module === 'billing' ? (
+            <BillingScreen />
+          ) : module === 'branding' ? (
+            <BrandingScreen />
+          ) : module === 'admin' && isAdmin ? (
+            <AdminScreen onOpenModule={selectModule} />
           ) : module === 'saved' ? (
             <SavedScreen
               api={bookmarks}
@@ -535,6 +579,7 @@ export function Workspace() {
                       replyCounts={replyCounts}
                       onOpenThread={(m) => setThreadRootId(m.messageId)}
                       highlightId={highlightId}
+                      canModerate={canModerate}
                       offline={offline}
                       onOpenMeeting={(meta: MeetingSystemMetadata) => {
                         setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
@@ -576,14 +621,54 @@ export function Workspace() {
                           : undefined
                       }
                     />
+                    <ScheduledBar items={scheduled.items} offline={offline} />
+                    <CreatePollDialog
+                      open={pollOpen}
+                      onOpenChange={setPollOpen}
+                      conversationId={active.conversationId}
+                    />
                     <Composer
                       placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
                       disabled={readOnly}
                       disabledReason={
                         active.archivedAt
                           ? 'This conversation is archived.'
-                          : 'Join this channel to send messages.'
+                          : announcementOnly
+                            ? 'This is an announcement channel. Only moderators can post here.'
+                            : 'Join this channel to send messages.'
                       }
+                      onCreatePoll={() => setPollOpen(true)}
+                      onSchedule={async (text, mentions, sendAt) => {
+                        const reply = replyTo?.messageId ?? null;
+                        try {
+                          await scheduledApi.create(
+                            getAccessToken,
+                            active.conversationId,
+                            text,
+                            mentions,
+                            sendAt,
+                            reply,
+                          );
+                          setReplyTo(null);
+                          void scheduled.refresh();
+                          toast({
+                            title: 'Message scheduled',
+                            description: sendAt.toLocaleString(undefined, {
+                              weekday: 'short',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            }),
+                            tone: 'success',
+                          });
+                        } catch (e) {
+                          toast({
+                            title: 'Couldn’t schedule',
+                            description: (e as Error).message,
+                            tone: 'danger',
+                          });
+                          throw e;
+                        }
+                      }}
                       offline={offline}
                       conversationId={active.conversationId}
                       onSend={async (text, mentions, attachments) => {
@@ -677,6 +762,27 @@ export function Workspace() {
                       directory={directory}
                       presence={engine.presence}
                       onClose={() => setPanelOpen(false)}
+                      canManage={canModerate && !offline && !active.archivedAt}
+                      onSetPostingPolicy={(policy) =>
+                        void pollsApi
+                          .setPostingPolicy(getAccessToken, active.conversationId, policy)
+                          .then(() =>
+                            toast({
+                              title:
+                                policy === 'moderators'
+                                  ? 'Only moderators can post now'
+                                  : 'Everyone can post now',
+                              tone: 'success',
+                            }),
+                          )
+                          .catch((e: Error) =>
+                            toast({
+                              title: 'Couldn’t change that',
+                              description: e.message,
+                              tone: 'danger',
+                            }),
+                          )
+                      }
                       aiCard={
                         ai.status?.enabled !== false ? (
                           <AiSummaryCard
@@ -768,6 +874,7 @@ export function Workspace() {
             onSelect={selectModule}
             unreadTotal={unreadTotal}
             notificationCount={notifications.unreadCount}
+            isAdmin={isAdmin}
           />
 
           <NewConversationDialog
@@ -786,12 +893,6 @@ export function Workspace() {
             open={dialog === 'settings'}
             onOpenChange={(o) => setDialog(o ? 'settings' : null)}
           />
-          {isAdmin ? (
-            <AdminDialog
-              open={dialog === 'admin'}
-              onOpenChange={(o) => setDialog(o ? 'admin' : null)}
-            />
-          ) : null}
           <CommandPalette
             open={palette}
             onOpenChange={setPalette}
@@ -840,7 +941,7 @@ export function Workspace() {
                       id: 'a:admin',
                       label: 'Administration',
                       icon: ShieldCheck,
-                      run: () => setDialog('admin'),
+                      run: () => setModule('admin'),
                     },
                     {
                       id: 'a:integrations',
@@ -858,50 +959,105 @@ export function Workspace() {
   );
 }
 
-const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications', 'settings'];
+const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications'];
 
+/** Phone layout: four main tabs and a More sheet with every other module (admin ones too). */
 function MobileNav({
   active,
   onSelect,
   unreadTotal,
   notificationCount,
+  isAdmin,
 }: {
   active: ModuleId;
   onSelect: (m: ModuleId) => void;
   unreadTotal: number;
   notificationCount: number;
+  isAdmin: boolean;
 }) {
+  const [more, setMore] = React.useState(false);
+  const rest = MODULES.filter(
+    (m) => !MOBILE.includes(m.id) && m.built && (!m.adminOnly || isAdmin),
+  );
+  const moreActive = !MOBILE.includes(active);
+  const tab = (on: boolean) =>
+    cn(
+      'relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px]',
+      on ? 'text-accent' : 'text-text-muted',
+    );
   return (
-    <nav
-      aria-label="Modules"
-      className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-border bg-surface-glass backdrop-blur-xl md:hidden"
-    >
-      {MOBILE.map((id) => {
-        const m = MODULES.find((x) => x.id === id)!;
-        const on = active === id;
-        return (
-          <button
-            key={id}
-            onClick={() => onSelect(id)}
-            aria-current={on ? 'page' : undefined}
-            className={cn(
-              'relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px]',
-              on ? 'text-accent' : 'text-text-muted',
-            )}
+    <>
+      {more && (
+        <div className="fixed inset-0 z-30 md:hidden" onClick={() => setMore(false)}>
+          <div className="absolute inset-0 bg-black/40" aria-hidden />
+          <nav
+            aria-label="More modules"
+            id="mobile-more"
+            className="absolute inset-x-2 bottom-[72px] grid max-h-[70dvh] grid-cols-3 gap-1 overflow-y-auto rounded-xl border border-border bg-surface-raised p-2 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
           >
-            <m.icon className="size-5" />
-            {m.label.split(' ')[0]}
-            {id === 'messages' && unreadTotal > 0 ? (
-              <span className="absolute right-[calc(50%-18px)] top-2 size-2 rounded-full bg-accent" />
-            ) : null}
-            {id === 'notifications' && notificationCount > 0 ? (
-              <span className="absolute left-[calc(50%+4px)] top-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-semibold leading-4 text-accent-fg">
-                {notificationCount > 99 ? '99+' : notificationCount}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </nav>
+            {rest.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setMore(false);
+                  onSelect(m.id);
+                }}
+                aria-current={active === m.id ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-lg px-1 text-center text-[12px]',
+                  active === m.id
+                    ? 'bg-accent-soft font-semibold text-text ring-1 ring-accent'
+                    : 'text-text hover:bg-surface',
+                )}
+              >
+                <m.icon className="size-5" aria-hidden />
+                {m.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
+      <nav
+        aria-label="Modules"
+        className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-border bg-surface-glass backdrop-blur-xl md:hidden"
+      >
+        {MOBILE.map((id) => {
+          const m = MODULES.find((x) => x.id === id)!;
+          const on = active === id;
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                setMore(false);
+                onSelect(id);
+              }}
+              aria-current={on ? 'page' : undefined}
+              className={tab(on)}
+            >
+              <m.icon className="size-5" />
+              {m.label.split(' ')[0]}
+              {id === 'messages' && unreadTotal > 0 ? (
+                <span className="absolute right-[calc(50%-18px)] top-2 size-2 rounded-full bg-accent" />
+              ) : null}
+              {id === 'notifications' && notificationCount > 0 ? (
+                <span className="absolute left-[calc(50%+4px)] top-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-semibold leading-4 text-accent-fg">
+                  {notificationCount > 99 ? '99+' : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setMore((v) => !v)}
+          aria-expanded={more}
+          aria-controls="mobile-more"
+          className={tab(more || moreActive)}
+        >
+          <Menu className="size-5" />
+          More
+        </button>
+      </nav>
+    </>
   );
 }

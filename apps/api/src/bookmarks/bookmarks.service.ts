@@ -6,6 +6,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { toMessage } from '../messages/message.mapper.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 /** Private, per-user saved messages. Nobody else can see what you saved. */
 @Injectable()
@@ -13,6 +14,7 @@ export class BookmarksService {
   constructor(
     private readonly db: TenantDb,
     private readonly conversations: ConversationsService,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async add(ctx: TenantContext, messageId: string): Promise<{ saved: true }> {
@@ -36,11 +38,25 @@ export class BookmarksService {
     } catch (e) {
       if (!(e instanceof MongoServerError && e.code === 11000)) throw e; // already saved
     }
+    // Every device of yours shows the same saved list (repeats are harmless).
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', {
+      messageId,
+      conversationId: m.conversationId,
+      saved: true,
+    });
     return { saved: true };
   }
 
   async remove(ctx: TenantContext, messageId: string): Promise<void> {
-    await this.db.for(ctx.tenantId).bookmarks.deleteMany({ userId: ctx.userId, messageId });
+    const t = this.db.for(ctx.tenantId);
+    const row = await t.bookmarks.findOne({ userId: ctx.userId, messageId });
+    await t.bookmarks.deleteMany({ userId: ctx.userId, messageId });
+    if (row)
+      this.realtime.toUser(ctx.tenantId, ctx.userId, 'bookmark:updated', {
+        messageId,
+        conversationId: row.conversationId,
+        saved: false,
+      });
   }
 
   /** Newest first. Messages in conversations the caller can no longer read are left out. */

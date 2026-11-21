@@ -30,6 +30,49 @@ const session = (token: string): Session => ({
 });
 
 describe('SessionManager', () => {
+  it('finishes a two-step sign-in with the code and keeps nothing before it', async () => {
+    const calls: string[] = [];
+    const api = {
+      login: async () => ({
+        mfaRequired: true as const,
+        challengeId: 'challenge-123456',
+        methods: ['totp', 'recovery'] as ('totp' | 'recovery')[],
+        expiresAt: new Date(300_000).toISOString(),
+      }),
+      verifyMfa: async (id: string, code: string) => {
+        calls.push(`${id}:${code}`);
+        if (code !== '123456') throw new TransportError('wrong', 'api', 'UNAUTHENTICATED');
+        return session('a');
+      },
+    } as unknown as ApiTransport;
+    const secrets = memorySecrets();
+    const m = new SessionManager(
+      secrets,
+      () => api,
+      () => 0,
+    );
+    await m.load();
+    const pending = await m.signIn({
+      serverUrl: 'connect.acme.com',
+      tenantSlug: 'acme',
+      email: 'dana@example.com',
+      password: 'pw',
+      deviceName: 'Pixel',
+      platform: 'android',
+    });
+    expect(pending?.challenge.challengeId).toBe('challenge-123456');
+    expect(pending?.serverUrl).toBe('https://connect.acme.com');
+    expect(m.state).toBe('signedOut');
+    expect(m.current).toBeNull();
+
+    await expect(m.verifyMfa(pending!, '000000')).rejects.toThrow();
+    expect(m.state).toBe('signedOut');
+    await m.verifyMfa(pending!, ' 123456 ');
+    expect(calls).toEqual(['challenge-123456:000000', 'challenge-123456:123456']);
+    expect(m.state).toBe('active');
+    expect(await m.getAccessToken()).toBe('a');
+  });
+
   it('signs in, refreshes before expiry and keeps tokens in secure storage', async () => {
     let clock = 0;
     let refreshResult: Session | Error = session('b');

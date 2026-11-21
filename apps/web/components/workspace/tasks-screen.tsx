@@ -99,44 +99,47 @@ export function TasksScreen({
           Work raised in chat, by you or by Sampledge modules.
         </span>
         <div className="flex-1" />
-        <Button size="sm" onClick={() => setNewTask(true)} disabled={!mine.online}>
+        <Button
+          size="sm"
+          onClick={() => setNewTask(true)}
+          disabled={!mine.online}
+          aria-label="New task"
+        >
           <Plus /> <span className="hidden sm:inline">New task</span>
         </Button>
       </header>
 
-      <div
-        className="flex items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-3 sm:px-6"
-        role="tablist"
-        aria-label="Work lists"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-label transition-colors',
-              tab === t.id
-                ? 'border-accent bg-accent-soft text-accent'
-                : 'border-border text-text-muted hover:border-border-strong hover:text-text',
-            )}
-          >
-            {t.label}
-            {counts[t.id] ? (
-              <span
-                className={cn(
-                  'min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5',
-                  t.id === 'to_decide'
-                    ? 'bg-warning/20 text-warning'
-                    : 'bg-surface-raised text-text-muted',
-                )}
-              >
-                {counts[t.id]}
-              </span>
-            ) : null}
-          </button>
-        ))}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-3 sm:px-6">
+        <div role="tablist" aria-label="Work lists" className="flex shrink-0 items-center gap-1.5">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-label transition-colors',
+                tab === t.id
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-border text-text-muted hover:border-border-strong hover:text-text',
+              )}
+            >
+              {t.label}
+              {counts[t.id] ? (
+                <span
+                  className={cn(
+                    'min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5',
+                    t.id === 'to_decide'
+                      ? 'bg-warning/20 text-warning'
+                      : 'bg-surface-raised text-text-muted',
+                  )}
+                >
+                  {counts[t.id]}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
         <div className="flex-1" />
         <label className="flex shrink-0 items-center gap-2 text-meta text-text-muted">
           <input

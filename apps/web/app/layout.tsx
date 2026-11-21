@@ -4,9 +4,9 @@ import { Providers } from '@/components/providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'Sampledge Connect', template: '%s · Sampledge Connect' },
+  title: { default: 'SampConnect', template: '%s · SampConnect' },
   description: 'One Workspace. Every Conversation. Connected.',
-  applicationName: 'Sampledge Connect',
+  applicationName: 'SampConnect',
   manifest: '/manifest.webmanifest',
   icons: { icon: '/icon.svg', apple: '/icon.svg' },
 };

@@ -12,8 +12,14 @@ export interface GuestEmailInput {
   timeZone: string;
   organizerName: string;
   organizationName: string;
+  /** The organization's app name; null hides the product credit (white-label). */
+  poweredBy: string | null;
   guestName: string;
   url: string;
+  /** Recurring meetings: "Weekly on Tuesday" (the times are the next meeting's). */
+  recurrence?: string | null;
+  /** The email is about one meeting of a series, not the whole series. */
+  occurrenceOnly?: boolean;
 }
 
 const esc = (s: string) =>
@@ -42,18 +48,26 @@ export function guestEmail(kind: GuestEmailKind, i: GuestEmailInput) {
   const cancelled = kind === 'cancelled' || kind === 'cancelled-for-you';
   const subject =
     kind === 'invite'
-      ? `Invitation: ${i.title}`
+      ? `Invitation: ${i.title}${i.recurrence ? ` (${i.recurrence})` : ''}`
       : kind === 'updated'
         ? `Updated invitation: ${i.title}`
         : `Cancelled: ${i.title}`;
+  const one = !!i.recurrence && !!i.occurrenceOnly;
+  const what = i.recurrence
+    ? one
+      ? 'one meeting in this series'
+      : 'this meeting series'
+    : 'this meeting';
   const lead =
     kind === 'invite'
-      ? `${i.organizerName} from ${i.organizationName} invited you to a meeting.`
+      ? `${i.organizerName} from ${i.organizationName} invited you to a ${i.recurrence ? 'recurring meeting' : 'meeting'}.`
       : kind === 'updated'
-        ? `${i.organizerName} changed this meeting. Your calendar copy updates when you open the attached invite.`
+        ? `${i.organizerName} changed ${what}. Your calendar copy updates when you open the attached invite.`
         : kind === 'cancelled'
-          ? `${i.organizerName} cancelled this meeting.`
-          : `${i.organizerName} removed you from this meeting, so your join link no longer works.`;
+          ? `${i.organizerName} cancelled ${what}.${one ? ' The other meetings go ahead as planned.' : ''}`
+          : `${i.organizerName} removed you from ${what}, so your join link no longer works.`;
+  const repeats = i.recurrence ? `Repeats: ${i.recurrence}` : null;
+  const whenLabel = i.recurrence && !one && !cancelled ? `Next: ${when}` : when;
   const how =
     'No account or app needed: open the link in Chrome, Edge, Firefox or Safari. You will wait in the lobby until someone in the meeting lets you in.';
 
@@ -63,11 +77,14 @@ export function guestEmail(kind: GuestEmailKind, i: GuestEmailInput) {
     lead,
     '',
     i.title,
-    when,
+    whenLabel,
+    ...(repeats ? [repeats] : []),
     ...(i.agenda && !cancelled ? ['', i.agenda] : []),
     ...(cancelled ? [] : ['', `Join the meeting: ${i.url}`, '', how]),
     '',
-    `Sent by ${i.organizationName} with Sampledge Connect.`,
+    i.poweredBy
+      ? `Sent by ${i.organizationName} with ${i.poweredBy}.`
+      : `Sent by ${i.organizationName}.`,
   ].join('\n');
 
   const button = cancelled
@@ -85,10 +102,11 @@ export function guestEmail(kind: GuestEmailKind, i: GuestEmailInput) {
 <tr><td style="color:#111827;font-size:15px;line-height:22px">Hi ${esc(i.guestName)},</td></tr>
 <tr><td style="padding:8px 0 16px;color:#374151;font-size:15px;line-height:22px">${esc(lead)}</td></tr>
 <tr><td style="color:#111827;font-size:20px;font-weight:700;line-height:26px${cancelled ? ';text-decoration:line-through' : ''}">${esc(i.title)}</td></tr>
-<tr><td style="padding:6px 0 0;color:#374151;font-size:14px;line-height:21px">${esc(when)}</td></tr>
+<tr><td style="padding:6px 0 0;color:#374151;font-size:14px;line-height:21px">${esc(whenLabel)}</td></tr>
+${repeats ? `<tr><td style="padding:2px 0 0;color:#374151;font-size:14px;line-height:21px">${esc(repeats)}</td></tr>` : ''}
 ${agenda}
 ${button}
-<tr><td style="padding:24px 0 0;color:#9ca3af;font-size:12px">Sent by ${esc(i.organizationName)} with Sampledge Connect.</td></tr>
+<tr><td style="padding:24px 0 0;color:#9ca3af;font-size:12px">Sent by ${esc(i.organizationName)}${i.poweredBy ? ` with ${esc(i.poweredBy)}` : ''}.</td></tr>
 </table></td></tr></table></body></html>`;
   return { subject, text, html };
 }

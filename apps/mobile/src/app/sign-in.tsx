@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,6 +18,8 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Glass } from '../components/Glass';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
+import { DEFAULT_APP_NAME, type PublicBranding } from '@sampledge/contracts';
+import { normaliseUrl, type PendingMfa } from '../auth/session';
 import { devicePlatform, useApp } from '../state/AppProvider';
 import { TransportError } from '../sync/transport';
 import { fonts, radius, space } from '../theme/themes';
@@ -30,8 +33,22 @@ function errorText(e: unknown): string {
       return 'Email, password or workspace is incorrect.';
     if (e.code === 'VALIDATION_FAILED') return 'Check the details and try again.';
     if (e.code === 'RATE_LIMITED') return 'Too many attempts. Wait a moment and try again.';
+    // Single sign-on only workspaces say so (the phone can't do SSO yet).
+    if (e.code === 'FORBIDDEN' && e.message)
+      return `${e.message} Single sign-on on the phone is coming; for now sign in on the web.`;
   }
   return e instanceof Error ? e.message : 'Sign-in failed.';
+}
+
+/** The second step's errors come from the server, which says what to do next. */
+function codeErrorText(e: unknown): { text: string; restart: boolean } {
+  if (e instanceof TransportError && e.kind === 'network')
+    return { text: errorText(e), restart: false };
+  if (e instanceof TransportError && e.code === 'RATE_LIMITED')
+    return { text: errorText(e), restart: false };
+  const text = e instanceof Error && e.message ? e.message : 'That code didn’t work.';
+  // The challenge is gone (expired, or too many wrong codes): back to the password step.
+  return { text, restart: /password again/i.test(text) };
 }
 
 export default function SignIn() {
@@ -45,6 +62,33 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [mfa, setMfa] = useState<PendingMfa | null>(null);
+  const [code, setCode] = useState('');
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [brand, setBrand] = useState<PublicBranding | null>(null);
+
+  // The workspace's own logo, name and sign-in message once the address and workspace are typed.
+  useEffect(() => {
+    const slug = tenantSlug.trim().toLowerCase();
+    let base: string;
+    try {
+      base = normaliseUrl(serverUrl);
+    } catch {
+      return setBrand(null);
+    }
+    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || slug.length < 3) return setBrand(null);
+    let alive = true;
+    const t = setTimeout(() => {
+      fetch(`${base}/v1/branding/public/${slug}`)
+        .then((r) => (r.ok ? (r.json() as Promise<PublicBranding>) : null))
+        .then((b) => alive && setBrand(b))
+        .catch(() => alive && setBrand(null));
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [serverUrl, tenantSlug]);
 
   // Leave this screen once the account's local database is open (it opens after sign-in).
   useEffect(() => {
@@ -59,7 +103,7 @@ export default function SignIn() {
     setBusy(true);
     setError(null);
     try {
-      await sessions.signIn({
+      const pending = await sessions.signIn({
         serverUrl,
         tenantSlug: tenantSlug.trim().toLowerCase(),
         email: email.trim(),
@@ -67,11 +111,42 @@ export default function SignIn() {
         deviceName: Constants.deviceName ?? `${Platform.OS} device`,
         platform: devicePlatform,
       });
-      setSignedIn(true);
+      if (pending) {
+        setMfa(pending);
+        setCode('');
+        setUseRecovery(false);
+        setBusy(false);
+      } else setSignedIn(true);
     } catch (e) {
       setError(errorText(e));
       setBusy(false);
     }
+  };
+
+  const codeReady = useRecovery ? code.trim().length >= 6 : /^\d{6}$/.test(code.trim());
+  const verify = async () => {
+    if (!mfa || !codeReady || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sessions.verifyMfa(mfa, code);
+      setSignedIn(true);
+    } catch (e) {
+      const { text, restart } = codeErrorText(e);
+      setError(text);
+      setCode('');
+      if (restart) {
+        setMfa(null);
+        setPassword('');
+      }
+      setBusy(false);
+    }
+  };
+  const leaveMfa = () => {
+    setMfa(null);
+    setCode('');
+    setPassword('');
+    setError(null);
   };
 
   const field = (props: TextInputProps & { label: string }) => (
@@ -109,92 +184,205 @@ export default function SignIn() {
             style={{ gap: space.xl }}
           >
             <View style={{ gap: space.md }}>
-              <LinearGradient
-                colors={[theme.colors.accent, theme.colors.accentSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.logo}
-              >
-                <Text
-                  style={{ fontFamily: fonts.bold, fontSize: 24, color: theme.colors.onAccent }}
+              {brand?.logo ? (
+                <Image
+                  source={{ uri: brand.logo }}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  accessibilityLabel={`${brand.displayName} logo`}
+                />
+              ) : (
+                <LinearGradient
+                  colors={
+                    brand
+                      ? [brand.primary, brand.secondary]
+                      : [theme.colors.accent, theme.colors.accentSecondary]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.logo}
                 >
-                  S
+                  <Text
+                    style={{ fontFamily: fonts.bold, fontSize: 24, color: theme.colors.onAccent }}
+                  >
+                    {(brand?.displayName ?? 'S').slice(0, 1).toUpperCase()}
+                  </Text>
+                </LinearGradient>
+              )}
+              <Text variant="display">
+                {reauth ? 'Sign in again' : (brand?.displayName ?? DEFAULT_APP_NAME)}
+              </Text>
+              {brand &&
+              !reauth &&
+              brand.displayName !== DEFAULT_APP_NAME &&
+              !brand.hidePoweredBy ? (
+                <Text variant="meta" tone="subtle">
+                  with {DEFAULT_APP_NAME}
                 </Text>
-              </LinearGradient>
-              <Text variant="display">{reauth ? 'Sign in again' : 'Sampledge Connect'}</Text>
+              ) : null}
               <Text tone="muted">
                 {reauth
                   ? 'Your session ended. Messages you wrote are still queued on this device and send once you sign in.'
-                  : 'One Workspace. Every Conversation. Connected.'}
+                  : (brand?.loginMessage ?? 'One Workspace. Every Conversation. Connected.')}
               </Text>
             </View>
 
-            <Glass style={{ padding: space.lg, gap: space.lg, borderRadius: radius.xl }}>
-              {field({
-                label: 'Server address',
-                value: serverUrl,
-                onChangeText: setServerUrl,
-                placeholder: 'connect.yourcompany.com',
-                keyboardType: 'url',
-                editable: !reauth,
-              })}
-              {field({
-                label: 'Workspace',
-                value: tenantSlug,
-                onChangeText: setTenantSlug,
-                placeholder: 'your-workspace',
-                editable: !reauth,
-              })}
-              {field({
-                label: 'Email',
-                value: email,
-                onChangeText: setEmail,
-                placeholder: 'you@company.com',
-                keyboardType: 'email-address',
-                autoComplete: 'email',
-                textContentType: 'username',
-              })}
-              {field({
-                label: 'Password',
-                value: password,
-                onChangeText: setPassword,
-                secureTextEntry: true,
-                autoComplete: 'password',
-                textContentType: 'password',
-                onSubmitEditing: () => canSubmit && void submit(),
-              })}
-              {error ? (
-                <Text variant="label" tone="danger" accessibilityLiveRegion="polite">
-                  {error}
-                </Text>
-              ) : null}
-              <Pressable
-                onPress={submit}
-                disabled={!canSubmit}
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.primary,
-                  {
-                    backgroundColor: theme.colors.accent,
-                    opacity: !canSubmit ? 0.5 : pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                {busy ? (
-                  <ActivityIndicator color={theme.colors.onAccent} />
-                ) : (
-                  <Text variant="bodyStrong" tone="onAccent">
-                    Sign in
+            {mfa ? (
+              <Glass style={{ padding: space.lg, gap: space.lg, borderRadius: radius.xl }}>
+                <View style={{ gap: space.xs }}>
+                  <Text variant="title">Two-step verification</Text>
+                  <Text tone="muted">
+                    {useRecovery
+                      ? 'Enter one of the recovery codes you saved when you set this up. Each works once.'
+                      : 'Open your authenticator app and enter the 6-digit code for SampConnect.'}
                   </Text>
-                )}
-              </Pressable>
-              <Text variant="meta" tone="subtle">
-                Single sign-on (OIDC) is planned for mobile. Use your workspace email and password
-                for now.
-              </Text>
-            </Glass>
+                </View>
+                <View style={{ gap: 6 }}>
+                  <Text variant="label" tone="muted">
+                    {useRecovery ? 'Recovery code' : 'Code'}
+                  </Text>
+                  <TextInput
+                    key={useRecovery ? 'recovery' : 'totp'}
+                    value={code}
+                    onChangeText={(t) =>
+                      setCode(useRecovery ? t : t.replace(/\D/g, '').slice(0, 6))
+                    }
+                    autoFocus
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType={useRecovery ? 'default' : 'number-pad'}
+                    textContentType="oneTimeCode"
+                    autoComplete="one-time-code"
+                    maxLength={useRecovery ? 20 : 6}
+                    placeholder={useRecovery ? 'xxxx-xxxx' : '123456'}
+                    placeholderTextColor={theme.colors.textSubtle}
+                    onSubmitEditing={() => void verify()}
+                    accessibilityLabel={useRecovery ? 'Recovery code' : 'Code'}
+                    style={[
+                      styles.input,
+                      styles.code,
+                      {
+                        color: theme.colors.text,
+                        backgroundColor: theme.colors.surfaceSunken,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+                {error ? (
+                  <Text variant="label" tone="danger" accessibilityLiveRegion="polite">
+                    {error}
+                  </Text>
+                ) : null}
+                <Pressable
+                  onPress={() => void verify()}
+                  disabled={!codeReady || busy}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.primary,
+                    {
+                      backgroundColor: theme.colors.accent,
+                      opacity: !codeReady || busy ? 0.5 : pressed ? 0.85 : 1,
+                    },
+                  ]}
+                >
+                  {busy ? (
+                    <ActivityIndicator color={theme.colors.onAccent} />
+                  ) : (
+                    <Text variant="bodyStrong" tone="onAccent">
+                      Verify and sign in
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setUseRecovery((r) => !r);
+                    setCode('');
+                    setError(null);
+                  }}
+                  accessibilityRole="button"
+                  hitSlop={6}
+                >
+                  <Text variant="label" tone="accent" style={{ textAlign: 'center' }}>
+                    {useRecovery
+                      ? 'Use my authenticator app instead'
+                      : 'Lost your phone? Use a recovery code'}
+                  </Text>
+                </Pressable>
+                <Pressable onPress={leaveMfa} accessibilityRole="button" hitSlop={6}>
+                  <Text variant="label" tone="muted" style={{ textAlign: 'center' }}>
+                    {reauth ? 'Enter my password again' : 'Use a different account'}
+                  </Text>
+                </Pressable>
+              </Glass>
+            ) : (
+              <Glass style={{ padding: space.lg, gap: space.lg, borderRadius: radius.xl }}>
+                {field({
+                  label: 'Server address',
+                  value: serverUrl,
+                  onChangeText: setServerUrl,
+                  placeholder: 'connect.yourcompany.com',
+                  keyboardType: 'url',
+                  editable: !reauth,
+                })}
+                {field({
+                  label: 'Workspace',
+                  value: tenantSlug,
+                  onChangeText: setTenantSlug,
+                  placeholder: 'your-workspace',
+                  editable: !reauth,
+                })}
+                {field({
+                  label: 'Email',
+                  value: email,
+                  onChangeText: setEmail,
+                  placeholder: 'you@company.com',
+                  keyboardType: 'email-address',
+                  autoComplete: 'email',
+                  textContentType: 'username',
+                })}
+                {field({
+                  label: 'Password',
+                  value: password,
+                  onChangeText: setPassword,
+                  secureTextEntry: true,
+                  autoComplete: 'password',
+                  textContentType: 'password',
+                  onSubmitEditing: () => canSubmit && void submit(),
+                })}
+                {error ? (
+                  <Text variant="label" tone="danger" accessibilityLiveRegion="polite">
+                    {error}
+                  </Text>
+                ) : null}
+                <Pressable
+                  onPress={submit}
+                  disabled={!canSubmit}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.primary,
+                    {
+                      backgroundColor: theme.colors.accent,
+                      opacity: !canSubmit ? 0.5 : pressed ? 0.85 : 1,
+                    },
+                  ]}
+                >
+                  {busy ? (
+                    <ActivityIndicator color={theme.colors.onAccent} />
+                  ) : (
+                    <Text variant="bodyStrong" tone="onAccent">
+                      Sign in
+                    </Text>
+                  )}
+                </Pressable>
+                <Text variant="meta" tone="subtle">
+                  Single sign-on (OIDC) is planned for mobile. Use your workspace email and password
+                  for now.
+                </Text>
+              </Glass>
+            )}
 
-            {!reauth ? (
+            {!reauth && !mfa ? (
               <Pressable
                 onPress={() => void sessions.enterDemo().then(() => setSignedIn(true))}
                 accessibilityRole="button"
@@ -226,6 +414,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  code: { textAlign: 'center', fontSize: 22, letterSpacing: 6, fontFamily: fonts.semibold },
   primary: { height: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   secondary: {
     alignItems: 'center',

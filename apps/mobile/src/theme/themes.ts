@@ -1,5 +1,5 @@
 /**
- * Mobile theme tokens for the five Sampledge Connect themes.
+ * Mobile theme tokens for the five SampConnect themes.
  *
  * The brand values come straight from the product spec. Once the shared
  * @sampledge/design-tokens package lands, `BASE` should be read from it instead

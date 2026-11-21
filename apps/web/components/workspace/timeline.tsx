@@ -23,6 +23,7 @@ import {
 import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
+import { PollCard } from './polls';
 import { ModuleActionCard, ModuleCard, WorkCard } from './work-cards';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
@@ -47,6 +48,7 @@ export function Timeline({
   threadRootId,
   highlightId,
   emptyState,
+  canModerate = false,
   onCreateTask,
   onRequestApproval,
   onTranslate,
@@ -73,6 +75,8 @@ export function Timeline({
   /** Briefly highlights a message (jump from pins or saved items). */
   highlightId?: string | null;
   emptyState?: React.ReactNode;
+  /** Conversation owner/moderator or tenant admin: may close anyone's poll. */
+  canModerate?: boolean;
   onCreateTask?: (m: LocalMessage) => void;
   onRequestApproval?: (m: LocalMessage) => void;
   /** AI translation of one message, when the assistant is available. */
@@ -312,7 +316,17 @@ export function Timeline({
                           }
                         />
                       ) : null}
-                      {m.deletedAt || m.content.text ? (
+                      {m.poll && !m.deletedAt && m.messageId ? (
+                        <PollCard
+                          message={m}
+                          poll={m.poll}
+                          me={me}
+                          directory={directory}
+                          own={own}
+                          offline={offline}
+                          canModerate={canModerate}
+                        />
+                      ) : m.deletedAt || m.content.text ? (
                         <div
                           className={cn(
                             'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',

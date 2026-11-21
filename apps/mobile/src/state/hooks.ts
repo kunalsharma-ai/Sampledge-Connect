@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
 import type { TenantRole } from '@sampledge/contracts';
+import type { LocalScheduled } from '../db/work';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -252,4 +253,142 @@ export function useNow(ms = 30_000): number {
     return () => clearInterval(t);
   }, [ms]);
   return now;
+}
+
+/** Pinned messages of a conversation from the local cache, most recently pinned first. */
+export function usePinned(conversationId: string): LocalMessage[] {
+  const { store } = useWorkspace();
+  const [pins, setPins] = useState<LocalMessage[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void store.listPinned(conversationId).then((p) => alive && setPins(p));
+    load();
+    const off = store.events.on('messages', (e) => e.conversationId === conversationId && load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, conversationId]);
+  return pins;
+}
+
+/** Ids of messages you saved (queued saves included); refreshed from the server when online. */
+export function useSavedIds(): ReadonlySet<string> {
+  const { engine } = useWorkspace();
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    const off = engine.events.on('bookmarks', (s) => alive && setIds(s));
+    void engine.savedIds().then((s) => alive && setIds(s));
+    void engine.listBookmarks().catch(() => undefined);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [engine]);
+  return ids;
+}
+
+/**
+ * Your scheduled messages (optionally for one conversation): the copy on this device at once,
+ * then the server's when online. Changes made offline show straight away.
+ */
+export function useScheduled(conversationId?: string): {
+  items: LocalScheduled[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<LocalScheduled[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = (fresh = false) => {
+      void engine
+        .listScheduled(conversationId, { fresh })
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load(true);
+    const offs = [
+      engine.events.on('scheduled', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'scheduled' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine, conversationId, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * A list of tasks or approvals: the copy on this device at once (with changes made offline),
+ * refreshed from the server when online, and reloaded when one changes here or live.
+ */
+export function useWorkList<T>(
+  /** `fresh`: also ask the server (when online); otherwise read the copy on this device. */
+  load: (fresh: boolean) => Promise<T[]>,
+  deps: readonly unknown[],
+): { items: T[] | null; error: string | null; loading: boolean; reload: () => void } {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<T[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const run = (fresh = false) => {
+      setLoading(fresh);
+      load(fresh)
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => alive && setLoading(false));
+    };
+    run(true);
+    const offs = [
+      engine.events.on('work', () => run()),
+      engine.store.work.events.on(
+        'changed',
+        (e) => (e.kind === 'task' || e.kind === 'approval') && run(),
+      ),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, engineState?.networkUp, tick, ...deps]);
+  return { items, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * People you can assign work to or ask for approval: the conversation's members when there is
+ * one, else everyone in the workspace. You come first, as "Me".
+ */
+export function usePeopleChoices(conversationId?: string): { key: string; label: string }[] {
+  const { selfId } = useWorkspace();
+  const conv = useConversation(conversationId ?? '');
+  const directory = useDirectory();
+  const nameOf = usePeople();
+  const ids = conversationId
+    ? (conv?.memberIds ?? []).filter((u) => u !== selfId)
+    : directory.map((u) => u.userId);
+  return [
+    { key: selfId, label: 'Me' },
+    ...ids
+      .map((u) => ({ key: u, label: nameOf(u) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
 }

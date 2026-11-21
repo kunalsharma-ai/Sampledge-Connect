@@ -7,7 +7,20 @@ import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
-export type MessageAction = 'reply' | 'edit' | 'delete' | 'retry' | 'discard';
+export type MessageAction =
+  | 'reply'
+  | 'edit'
+  | 'delete'
+  | 'retry'
+  | 'discard'
+  | 'pin'
+  | 'unpin'
+  | 'save'
+  | 'unsave'
+  | 'closePoll'
+  | 'createTask'
+  | 'requestApproval'
+  | 'translate';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -15,12 +28,24 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 export function MessageActions({
   message,
   own,
+  saved = false,
+  canPin = false,
+  canClosePoll = false,
+  canMakeWork = false,
   onAction,
   onReact,
   onClose,
 }: {
   message: LocalMessage | null;
   own: boolean;
+  /** You saved this message for later. */
+  saved?: boolean;
+  /** You can post here, so you can pin. */
+  canPin?: boolean;
+  /** Author or moderator of an open poll. */
+  canClosePoll?: boolean;
+  /** A member here, so you can turn the message into a task or approval. */
+  canMakeWork?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -48,6 +73,29 @@ export function MessageActions({
     });
   } else if (!deleted) {
     rows.push({ key: 'reply', label: 'Reply', icon: 'arrow-undo-outline' });
+    if (canClosePoll)
+      rows.push({ key: 'closePoll', label: 'Close poll', icon: 'lock-closed-outline' });
+    if (canPin)
+      rows.push(
+        message.pinned
+          ? { key: 'unpin', label: 'Unpin', icon: 'pin' }
+          : { key: 'pin', label: 'Pin to conversation', icon: 'pin-outline' },
+      );
+    if (canMakeWork) {
+      rows.push({ key: 'createTask', label: 'Create task', icon: 'checkbox-outline' });
+      rows.push({
+        key: 'requestApproval',
+        label: 'Request approval',
+        icon: 'shield-checkmark-outline',
+      });
+    }
+    if (message.text.trim())
+      rows.push({ key: 'translate', label: 'Translate', icon: 'language-outline' });
+    rows.push(
+      saved
+        ? { key: 'unsave', label: 'Remove from saved', icon: 'bookmark' }
+        : { key: 'save', label: 'Save for later', icon: 'bookmark-outline' },
+    );
     if (own) {
       rows.push({ key: 'edit', label: 'Edit', icon: 'create-outline' });
       rows.push({

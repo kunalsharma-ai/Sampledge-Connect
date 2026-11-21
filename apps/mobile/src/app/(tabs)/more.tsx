@@ -37,7 +37,16 @@ export default function More() {
   const groups: { title: string; keys: string[] }[] = [
     {
       title: 'Collaborate',
-      keys: ['channels', 'projects', 'meetings', 'recordings', 'files', 'tasks'],
+      keys: [
+        'channels',
+        'projects',
+        'meetings',
+        'saved',
+        'scheduled',
+        'recordings',
+        'files',
+        'tasks',
+      ],
     },
     { title: 'Discover', keys: ['search', 'ai', 'analytics'] },
     { title: 'Workspace', keys: ['integrations', 'admin'] },
@@ -120,7 +129,7 @@ export default function More() {
           </Glass>
         </View>
         <Text variant="meta" tone="subtle" style={{ textAlign: 'center' }}>
-          Sampledge Connect · One Workspace. Every Conversation. Connected.
+          SampConnect · One Workspace. Every Conversation. Connected.
         </Text>
       </ScrollView>
     </Screen>

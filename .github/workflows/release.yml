@@ -1,0 +1,61 @@
+name: Release images
+
+# Builds the API and web Docker images and pushes them to GitHub Container Registry:
+#   ghcr.io/<owner>/sampledge-connect-api:<tag>   and   …-web:<tag>
+# main -> :main and :sha-<short>; a version tag v1.2.3 -> :1.2.3 and :latest.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # On pull requests that touch the images, build without pushing so a broken Dockerfile
+  # never reaches main.
+  pull_request:
+    paths: ['apps/*/Dockerfile', '.dockerignore', '.github/workflows/release.yml', 'pnpm-lock.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        app: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/sampledge-connect-${{ matrix.app }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The web image bakes in public URLs; set them as repository variables for your domain.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:4000' }}
+            NEXT_PUBLIC_RTC_URL=${{ vars.PUBLIC_RTC_URL || 'ws://localhost:7880' }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}

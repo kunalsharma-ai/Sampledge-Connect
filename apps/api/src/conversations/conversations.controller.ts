@@ -69,6 +69,12 @@ export class ConversationsController {
     return this.conversations.archive(ctx, id, archived);
   }
 
+  /** Announcement channels: only moderators post. */
+  @Put(':id/posting-policy')
+  setPostingPolicy(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.conversations.setPostingPolicy(ctx, id, body);
+  }
+
   /** The caller's notification level for this conversation: all, mentions or none. */
   @Put(':id/notify-level')
   setNotifyLevel(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
@@ -89,6 +95,13 @@ export class ConversationsController {
   @HttpCode(200)
   send(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.messages.send(ctx, { ...body, conversationId: id });
+  }
+
+  /** Post a poll (idempotent on clientMessageId). */
+  @Post(':id/polls')
+  @HttpCode(200)
+  createPoll(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.messages.createPoll(ctx, id, body);
   }
 }
 
@@ -132,6 +145,22 @@ export class MessagesController {
   @Delete(':id/pin')
   unpin(@Ctx() ctx: TenantContext, @Param('id') id: string) {
     return this.messages.pin(ctx, id, false);
+  }
+
+  @Put(':id/poll/vote')
+  vote(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.messages.votePoll(ctx, id, body);
+  }
+
+  @Get(':id/poll/vote')
+  myVote(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.messages.myPollVote(ctx, id);
+  }
+
+  @Post(':id/poll/close')
+  @HttpCode(200)
+  closePoll(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.messages.closePoll(ctx, id);
   }
 
   @Post('receipts')

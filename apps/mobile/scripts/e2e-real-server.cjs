@@ -23,6 +23,20 @@ async function api(method, path, body, token) {
   if (!r.ok) throw new Error(`${path} ${r.status} ${t}`);
   return t ? JSON.parse(t) : undefined;
 }
+
+// RFC 6238 code for a base32 secret, `offset` 30-second steps from now.
+function totp(secret, offset = 0) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const ch of secret.replace(/=+$/, '').toUpperCase())
+    bits += alphabet.indexOf(ch).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const step = Buffer.alloc(8);
+  step.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000) + offset));
+  const h = require('crypto').createHmac('sha1', key).update(step).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
 (async () => {
   // Fake camera and microphone so calls connect real media through the local SFU.
   const b = await chromium.launch({
@@ -1311,6 +1325,1101 @@ async function api(method, path, body, token) {
       await p.getByRole('button', { name: 'End for all' }).click();
       await p.waitForTimeout(2000);
     }
+  }
+
+  // ---- Integrations: settings live in the server database, edited from the phone.
+  // A member sees why they cannot change them; the owner saves SMTP with a write-only
+  // password, tests it, and the settings reach the API.
+  {
+    await p.goto(`${APP}/more`);
+    await p.waitForTimeout(2500);
+    await p.getByText('Integrations', { exact: true }).first().click();
+    await p.waitForTimeout(2500);
+    check(
+      'members are told only admins change integrations',
+      /Only owners and admins can change integrations\./.test(await p.innerText('body')),
+    );
+    await shot('76-integrations-member');
+
+    const ctx3 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p3 = await ctx3.newPage();
+    const shot3 = async (n) => {
+      await p3.waitForTimeout(1200);
+      await p3.screenshot({ path: `${out}/${n}.png` });
+      console.log('shot', n);
+    };
+    await p3.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p3.waitForTimeout(1500);
+    const f = p3.locator('input');
+    await f.nth(0).fill(API);
+    await f.nth(1).fill('northwind');
+    await f.nth(2).fill('priya@northwind.test');
+    await f.nth(3).fill(pw);
+    await p3.getByRole('button', { name: 'Sign in' }).click();
+    await p3.waitForTimeout(4000);
+    await p3.goto(`${APP}/admin/integrations`);
+    await p3.waitForTimeout(3000);
+    const list = await p3.innerText('body');
+    check(
+      'owner sees the built-in providers by category',
+      /Email \(SMTP\)|SMTP/.test(list) && /LiveKit|Call server/i.test(list) && /Push/.test(list),
+    );
+    await shot3('77-integrations-list');
+
+    await p3
+      .getByRole('button', { name: /SMTP.*Configure/ })
+      .first()
+      .click();
+    await p3.waitForTimeout(1000);
+    await p3.getByRole('switch', { name: /^Use / }).first().click();
+    await p3
+      .getByRole('button', { name: /^Save / })
+      .first()
+      .click();
+    await p3.waitForTimeout(800);
+    check(
+      'required fields are checked before saving',
+      /Host is required\./.test(await p3.innerText('body')),
+    );
+    await p3.getByLabel('Host', { exact: true }).fill('127.0.0.1');
+    await p3.getByLabel('Port', { exact: true }).fill('2525');
+    const user = p3.getByLabel('Username', { exact: true });
+    if (await user.count()) await user.fill('mailer');
+    await p3.getByLabel('Password', { exact: true }).fill('s3cret-from-phone');
+    const from = p3.getByLabel(/^From/).first();
+    if (await from.count()) await from.fill('meetings@northwind.test');
+    check(
+      'errors clear as fields are filled',
+      !/Host is required\.|From address is required\./.test(await p3.innerText('body')),
+    );
+    await shot3('78-integrations-smtp-form');
+    await p3
+      .getByRole('button', { name: /^Save / })
+      .first()
+      .click();
+    await p3.waitForTimeout(2500);
+    const saved = await p3.innerText('body');
+    check('save confirms it applies at once', /Saved\. It applies straight away\./.test(saved));
+    check('the password is not shown again', /Stored securely/.test(saved));
+    const priyaTok = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'priya@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    const views = await api('GET', '/v1/admin/integrations', undefined, priyaTok);
+    const smtp = views.find((v) => v.provider.id === 'smtp');
+    check(
+      'SMTP settings are stored on the server with the secret kept write-only',
+      smtp.enabled &&
+        smtp.source === 'tenant' &&
+        (smtp.saved?.secretsSet ?? []).includes('password') &&
+        !JSON.stringify(smtp).includes('s3cret-from-phone'),
+    );
+    await p3.getByRole('button', { name: 'Test connection' }).first().click();
+    await p3.waitForTimeout(6000);
+    check(
+      'test connection reports the result from the server',
+      /Last test (passed|failed)|refused|connect|ECONN|timed out|Reached/i.test(
+        await p3.innerText('body'),
+      ),
+    );
+    await shot3('79-integrations-tested');
+    await ctx3.close();
+  }
+
+  // ---- Two-step verification: Lena turns it on; the phone asks for her code after the
+  // password, refuses a wrong one, and accepts a code from her authenticator. A recovery code
+  // turns it off again at the end so later runs can sign her in with a password.
+  {
+    const lenaTok = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'lena@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    const setup = await api('POST', '/v1/auth/mfa/totp/setup', {}, lenaTok);
+    const { recoveryCodes } = await api(
+      'POST',
+      '/v1/auth/mfa/totp/enable',
+      { code: totp(setup.secret) },
+      lenaTok,
+    );
+    const ctx4 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p4 = await ctx4.newPage();
+    const shot4 = async (n) => {
+      await p4.waitForTimeout(1200);
+      await p4.screenshot({ path: `${out}/${n}.png` });
+      console.log('shot', n);
+    };
+    await p4.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p4.waitForTimeout(1500);
+    const f4 = p4.locator('input');
+    await f4.nth(0).fill(API);
+    await f4.nth(1).fill('northwind');
+    await f4.nth(2).fill('lena@northwind.test');
+    await f4.nth(3).fill(pw);
+    await p4.getByRole('button', { name: 'Sign in' }).click();
+    await p4.waitForTimeout(2500);
+    check(
+      'password sign-in asks for the two-step code',
+      /Two-step verification/.test(await p4.innerText('body')),
+    );
+    await shot4('80-two-step-code');
+    await p4.getByLabel('Code', { exact: true }).fill('000000');
+    await p4.getByRole('button', { name: 'Verify and sign in' }).click();
+    await p4.waitForTimeout(2000);
+    const wrong = await p4.innerText('body');
+    check(
+      'a wrong code is refused and the code step stays',
+      /didn.t work/.test(wrong) && /Two-step verification/.test(wrong),
+    );
+    await shot4('81-two-step-wrong-code');
+    await p4.getByRole('button', { name: 'Lost your phone? Use a recovery code' }).click();
+    check(
+      'recovery codes can be used instead',
+      (await p4.getByLabel('Recovery code', { exact: true }).count()) > 0,
+    );
+    await p4.getByRole('button', { name: 'Use my authenticator app instead' }).click();
+    await p4.getByLabel('Code', { exact: true }).fill(totp(setup.secret, 1));
+    await p4.getByRole('button', { name: 'Verify and sign in' }).click();
+    await p4.waitForTimeout(4500);
+    const home = await p4.innerText('body');
+    check(
+      'the authenticator code finishes sign-in',
+      !/Two-step verification/.test(home) && /fieldwork-ops/.test(home),
+    );
+    await shot4('82-two-step-signed-in');
+    await ctx4.close();
+    await api('POST', '/v1/auth/mfa/disable', { password: pw, code: recoveryCodes[0] }, lenaTok);
+  }
+
+  // ---- Pins and saved messages: Sam pins a message (everyone sees the bar), Marco's pin
+  // arrives live, the pinned list opens the message in place, Unpin from the list, and
+  // Save for later shows up under Saved messages and on the server.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const post = async (text, tok) =>
+      api(
+        'POST',
+        `/v1/conversations/${ops.conversationId}/messages`,
+        {
+          conversationId: ops.conversationId,
+          clientMessageId: crypto.randomUUID(),
+          messageType: 'text',
+          content: { text, mentions: [] },
+        },
+        tok,
+      );
+    // Start from no pins (an earlier interrupted run may have left some).
+    const before = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=100`,
+      undefined,
+      samTok,
+    );
+    for (const m of Array.isArray(before) ? before : (before.messages ?? before.items))
+      if (m.pinned) await api('DELETE', `/v1/messages/${m.messageId}/pin`, undefined, samTok);
+    const run = Date.now().toString(36).slice(-4);
+    const first = `Wave 3 quotas are final (${run}).`;
+    const second = `Fieldwork closes Friday at 6 pm (${run}).`;
+    const m1 = await post(first, marcoTok);
+    const m2 = await post(second, marcoTok);
+    const id1 = m1.message?.messageId ?? m1.messageId;
+    const id2 = m2.message?.messageId ?? m2.messageId;
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(first, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Pin to conversation' }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'pinning shows the pinned bar',
+      (await p.getByRole('button', { name: /^1 pinned\. Latest from Marco Silva/ }).count()) > 0,
+    );
+    const msgs = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=20`,
+      undefined,
+      marcoTok,
+    );
+    const list = Array.isArray(msgs) ? msgs : (msgs.messages ?? msgs.items);
+    check(
+      'the pin is saved on the server for everyone',
+      !!list.find((m) => m.messageId === id1)?.pinned,
+    );
+    await api('PUT', `/v1/messages/${id2}/pin`, undefined, marcoTok);
+    await p.waitForTimeout(2500);
+    check(
+      "another member's pin arrives live",
+      (await p.getByRole('button', { name: /^2 pinned\. Latest from Marco Silva/ }).count()) > 0,
+    );
+    await shot('83-pinned-bar');
+    await p
+      .getByRole('button', { name: /^2 pinned/ })
+      .first()
+      .click();
+    await p.waitForTimeout(2000);
+    const pinnedList = await p.innerText('body');
+    check(
+      'the pinned list shows both, newest pin first',
+      pinnedList.indexOf(second) > -1 &&
+        pinnedList.indexOf(first) > pinnedList.indexOf(second) &&
+        /Pinned by Marco Silva/.test(pinnedList) &&
+        /Pinned by you/.test(pinnedList),
+    );
+    await shot('84-pinned-list');
+    await p.getByRole('button', { name: 'Unpin' }).first().click();
+    await p.waitForTimeout(2000);
+    check(
+      'Unpin from the list removes it',
+      !(await p.innerText('body')).includes(second) && (await p.innerText('body')).includes(first),
+    );
+    await p
+      .getByRole('button', { name: /Open in conversation/ })
+      .first()
+      .click();
+    await p.waitForTimeout(2500);
+    check(
+      'opening a pin returns to the conversation',
+      (await p.getByRole('button', { name: /^1 pinned/ }).count()) > 0,
+    );
+
+    await p.getByText(second, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Save for later' }).click();
+    await p.waitForTimeout(1500);
+    const bms = (await api('GET', '/v1/bookmarks', undefined, samTok)).items;
+    check(
+      'Save for later is stored on the server',
+      bms.some((b) => b.messageId === id2),
+    );
+    await p.goto(`${APP}/more`);
+    await p.waitForTimeout(2000);
+    await p.getByText('Saved messages', { exact: true }).first().click();
+    await p.waitForTimeout(2500);
+    const saved = await p.innerText('body');
+    check(
+      'Saved messages lists it with its conversation',
+      saved.includes(second) && /fieldwork-ops · saved/.test(saved),
+    );
+    await shot('85-saved-messages');
+    await p.getByRole('button', { name: 'Remove from saved' }).first().click();
+    await p.waitForTimeout(1500);
+    check(
+      'removing it takes it off the list and the server',
+      !(await p.innerText('body')).includes(second) &&
+        !(await api('GET', '/v1/bookmarks', undefined, samTok)).items.some(
+          (b) => b.messageId === id2,
+        ),
+    );
+    await api('DELETE', `/v1/messages/${id1}/pin`, undefined, samTok);
+  }
+
+  // ---- Polls: Sam posts a poll from the composer, votes, sees Marco's vote arrive live,
+  // changes the vote, and closes the poll from the message sheet.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const question = `Which day for the wave 4 kickoff? (${run})`;
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3000);
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Poll' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByRole('button', { name: 'Post poll' }).click();
+    await p.waitForTimeout(400);
+    check('an empty poll is not posted', /Write a question\./.test(await p.innerText('body')));
+    await p.getByLabel('Question', { exact: true }).fill(question);
+    await p.getByLabel('Option 1', { exact: true }).fill('Monday');
+    await p.getByLabel('Option 2', { exact: true }).fill('Tuesday');
+    await p.getByRole('button', { name: 'Add option' }).click();
+    await p.getByLabel('Option 3', { exact: true }).fill('Wednesday');
+    await p.getByRole('radio', { name: '1 day' }).click();
+    await shot('86-new-poll');
+    await p.getByRole('button', { name: 'Post poll' }).click();
+    await p.waitForTimeout(3000);
+    check('the poll shows in the conversation', (await p.getByText(question).count()) > 0);
+    const findPoll = async () => {
+      const r = await api(
+        'GET',
+        `/v1/conversations/${ops.conversationId}/messages?limit=30`,
+        undefined,
+        samTok,
+      );
+      return (Array.isArray(r) ? r : (r.messages ?? r.items)).find(
+        (m) => m.poll?.question === question,
+      );
+    };
+    const created = await findPoll();
+    check(
+      'the poll is on the server with three options and a closing time',
+      created?.poll.options.length === 3 && !!created.poll.closesAt,
+    );
+    await p
+      .getByRole('radio', { name: /^Tuesday/ })
+      .last()
+      .click();
+    await p.waitForTimeout(2000);
+    check(
+      'voting shows results',
+      (await p.getByRole('radio', { name: /^Tuesday, 1 vote: you/i }).count()) > 0 ||
+        (await p.getByRole('radio', { name: /^Tuesday, 1 vote/ }).count()) > 0,
+    );
+    await api(
+      'PUT',
+      `/v1/messages/${created.messageId}/poll/vote`,
+      { optionIds: ['o1'] },
+      marcoTok,
+    );
+    await p.waitForTimeout(2500);
+    check(
+      "Marco's vote arrives live",
+      (await p.getByRole('radio', { name: /^Monday, 1 vote: Marco Silva/ }).count()) > 0 &&
+        /2 voters/.test(await p.innerText('body')),
+    );
+    await shot('87-poll-results');
+    await p
+      .getByRole('radio', { name: /^Monday/ })
+      .last()
+      .click();
+    await p.waitForTimeout(2000);
+    const after = await findPoll();
+    check(
+      'changing a single-choice vote moves it',
+      after.poll.options.find((o) => o.optionId === 'o1').count === 2 &&
+        after.poll.options.find((o) => o.optionId === 'o2').count === 0,
+    );
+    await p.getByText(question).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Close poll' }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'closing the poll stops voting',
+      (await p.getByText('Poll · closed').count()) > 0 && !!(await findPoll()).poll.closedAt,
+    );
+    await shot('88-poll-closed');
+  }
+
+  // ---- Scheduled messages and announcement channels: Sam schedules a message from the
+  // composer, sees it in the conversation's scheduled list, changes the time, sends one now
+  // and deletes another; then Priya makes the channel announcement-only and Sam's composer
+  // turns read-only (and back).
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const priyaTok = await tokenOf('priya@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const mine = async () => {
+      const r = await api(
+        'GET',
+        `/v1/scheduled-messages?conversationId=${ops.conversationId}`,
+        undefined,
+        samTok,
+      );
+      return Array.isArray(r) ? r : r.items;
+    };
+    for (const m of await mine())
+      await api('DELETE', `/v1/scheduled-messages/${m.scheduledId}`, undefined, samTok);
+    const run = Date.now().toString(36).slice(-4);
+    const later = `Reminder: upload the wave 3 data files (${run}).`;
+    const other = `Draft I will not send (${run}).`;
+
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3000);
+    const schedule = async (text, preset) => {
+      await p.locator('textarea').last().fill(text);
+      await p.getByRole('button', { name: 'Attach' }).click();
+      await p.getByRole('button', { name: 'Send later' }).click();
+      await p.waitForTimeout(600);
+      await p.getByRole('button', { name: preset }).click();
+      await p.waitForTimeout(2000);
+    };
+    await p.locator('textarea').last().fill(later);
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Send later' }).click();
+    await p.waitForTimeout(800);
+    await shot('89-send-later');
+    await p.getByRole('button', { name: /^In 1 hour/ }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'scheduling confirms the time and clears the composer',
+      /Scheduled for /.test(await p.innerText('body')) &&
+        (await p.locator('textarea').last().inputValue()) === '',
+    );
+    const s1 = (await mine()).find((m) => m.content.text === later);
+    check('the server holds the scheduled message', s1?.status === 'scheduled');
+    await schedule(other, /^Tomorrow, 9 AM/);
+    check(
+      'the conversation shows what is scheduled',
+      (await p.getByRole('button', { name: /^2 scheduled messages/ }).count()) > 0,
+    );
+    await p.getByRole('button', { name: /^2 scheduled messages/ }).click();
+    await p.waitForTimeout(2000);
+    await p.getByRole('button', { name: 'Change time' }).first().click();
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: /^Tomorrow, 9 AM/ }).click();
+    await p.waitForTimeout(2000);
+    const moved = (await mine()).find((m) => m.scheduledId === s1.scheduledId);
+    check(
+      'changing the time reaches the server',
+      Date.parse(moved.sendAt) > Date.parse(s1.sendAt) + 3_600_000,
+    );
+    await shot('90-scheduled-list');
+    const cards = async () => p.innerText('body');
+    // Delete the draft, send the reminder now.
+    const draftIdx = (await mine()).findIndex((m) => m.content.text === other);
+    await p.getByRole('button', { name: 'Delete' }).nth(draftIdx).click();
+    await p.waitForTimeout(2000);
+    check(
+      'deleting removes it',
+      !(await cards()).includes(other) &&
+        !(await mine()).some((m) => m.content.text === other && m.status === 'scheduled'),
+    );
+    await p.getByRole('button', { name: 'Send now' }).first().click();
+    await p.waitForTimeout(3000);
+    const sent = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=10`,
+      undefined,
+      samTok,
+    );
+    check(
+      'Send now posts it as Sam',
+      (Array.isArray(sent) ? sent : (sent.messages ?? sent.items)).some((m) =>
+        m.content.text === later && m.senderId === s1.senderId ? true : m.content.text === later,
+      ) && /Nothing scheduled/.test(await cards()),
+    );
+
+    await api(
+      'PUT',
+      `/v1/conversations/${ops.conversationId}/posting-policy`,
+      { policy: 'moderators' },
+      priyaTok,
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    check(
+      'members see a read-only bar in an announcement channel',
+      /Announcement channel\. Only owners and moderators post here\./.test(
+        await p.innerText('body'),
+      ) && (await p.locator('textarea').count()) === 0,
+    );
+    await shot('91-announcement-channel');
+    await api(
+      'PUT',
+      `/v1/conversations/${ops.conversationId}/posting-policy`,
+      { policy: 'everyone' },
+      priyaTok,
+    );
+    await p.waitForTimeout(3000);
+    check('turning it off gives the composer back', (await p.locator('textarea').count()) > 0);
+
+    // Priya turns it on from the details screen on her phone.
+    const ctx5 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p5 = await ctx5.newPage();
+    await p5.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p5.waitForTimeout(1500);
+    const f5 = p5.locator('input');
+    await f5.nth(0).fill(API);
+    await f5.nth(1).fill('northwind');
+    await f5.nth(2).fill('priya@northwind.test');
+    await f5.nth(3).fill(pw);
+    await p5.getByRole('button', { name: 'Sign in' }).click();
+    await p5.waitForTimeout(4000);
+    await p5.goto(`${APP}/conversation-info/${ops.conversationId}`);
+    await p5.waitForTimeout(2500);
+    await p5.getByRole('switch', { name: 'Announcement channel' }).click();
+    await p5.waitForTimeout(2000);
+    const list = await api('GET', '/v1/conversations', undefined, priyaTok);
+    check(
+      'the owner turns on announcement-only from details',
+      (Array.isArray(list) ? list : list.conversations).find(
+        (c) => c.conversationId === ops.conversationId,
+      ).postingPolicy === 'moderators',
+    );
+    await p5.waitForTimeout(800);
+    await p5.screenshot({ path: `${out}/92-announcement-switch.png` });
+    console.log('shot 92-announcement-switch');
+    await p5.getByRole('switch', { name: 'Announcement channel' }).click();
+    await p5.waitForTimeout(1500);
+    await ctx5.close();
+  }
+  // ---- Tasks and approvals: Sam turns a message into a task for Marco and an approval
+  // request for Priya; both cards land in the conversation; Priya approves from her phone;
+  // Sam ticks the task done from the list.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const ask = `Can someone recheck the wave 3 quota sheet before launch? (${run})`;
+    const posted = await api(
+      'POST',
+      `/v1/conversations/${ops.conversationId}/messages`,
+      {
+        conversationId: ops.conversationId,
+        clientMessageId: crypto.randomUUID(),
+        messageType: 'text',
+        content: { text: ask, mentions: [] },
+      },
+      samTok,
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(ask, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Create task' }).click();
+    await p.waitForTimeout(2500);
+    check(
+      'a task from a message starts with its text as the title',
+      (await p.getByLabel('Title', { exact: true }).inputValue()) === ask,
+    );
+    await p.getByRole('checkbox', { name: /^Marco/ }).click();
+    await p.getByRole('radio', { name: 'Tomorrow' }).click();
+    await p.getByRole('radio', { name: 'High' }).click();
+    await shot('93-new-task');
+    await p.getByRole('button', { name: 'Create task' }).click();
+    await p.waitForTimeout(3000);
+    const created = await api('GET', '/v1/tasks?scope=created', undefined, samTok);
+    const task = created.find((t) => t.title === ask);
+    check(
+      'the task reaches the server with its source message, assignee and due date',
+      !!task &&
+        task.sourceMessageId === (posted.messageId ?? posted.message?.messageId) &&
+        task.assigneeIds.length === 1 &&
+        task.priority === 'high' &&
+        !!task.dueAt,
+    );
+    check(
+      'the task opens after it is created',
+      /Assigned to/.test(await p.innerText('body')) &&
+        /High priority/.test(await p.innerText('body')),
+    );
+    await shot('94-task-detail');
+
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(ask, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Request approval' }).click();
+    await p.waitForTimeout(2500);
+    const what = `Approve the wave 3 boost incentive (${run})`;
+    await p.getByLabel('What needs approving').fill(what);
+    await p.getByRole('radio', { name: 'Budget' }).click();
+    await p.getByLabel('Amount').fill('1,250');
+    await p.getByRole('checkbox', { name: /^Priya/ }).click();
+    await shot('95-request-approval');
+    await p.getByRole('button', { name: 'Send request' }).click();
+    await p.waitForTimeout(3000);
+    const requested = await api('GET', '/v1/approvals?scope=requested', undefined, samTok);
+    const appr = requested.find((a) => a.title === what);
+    check(
+      'the approval reaches the server with its amount and approver',
+      !!appr && appr.amount?.amountMinor === 125_000 && appr.status === 'pending',
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    check(
+      'task and approval cards appear in the conversation',
+      (await p.getByRole('button', { name: new RegExp(`^Task: .*${run}`) }).count()) > 0 &&
+        (await p.getByRole('button', { name: new RegExp(`^Approval: .*${run}`) }).count()) > 0,
+    );
+    await shot('96-work-cards');
+
+    // Priya decides on her phone.
+    const ctx6 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p6 = await ctx6.newPage();
+    await p6.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p6.waitForTimeout(1500);
+    const f6 = p6.locator('input');
+    await f6.nth(0).fill(API);
+    await f6.nth(1).fill('northwind');
+    await f6.nth(2).fill('priya@northwind.test');
+    await f6.nth(3).fill(pw);
+    await p6.getByRole('button', { name: 'Sign in' }).click();
+    await p6.waitForTimeout(4000);
+    await p6.goto(`${APP}/tasks`);
+    await p6.waitForTimeout(2500);
+    await p6.getByRole('tab', { name: 'To decide' }).click();
+    await p6.waitForTimeout(2500);
+    check(
+      'the approver sees it under To decide',
+      /Your decision/.test(await p6.innerText('body')) &&
+        (await p6.innerText('body')).includes(what),
+    );
+    await p6.screenshot({ path: `${out}/97-to-decide.png` });
+    console.log('shot 97-to-decide');
+    await p6.getByText(what).first().click();
+    await p6.waitForTimeout(2500);
+    await p6.getByLabel('Comment').fill('Fine for this wave. Keep it under $1,500.');
+    await p6.getByRole('button', { name: 'Approve' }).click();
+    await p6.waitForTimeout(3000);
+    const after = await api('GET', `/v1/approvals/${appr.approvalId}`, undefined, samTok);
+    check(
+      'approving reaches the server with the comment',
+      after.status === 'approved' && after.decisions[0]?.comment.startsWith('Fine for this wave'),
+    );
+    await p6.waitForTimeout(800);
+    await p6.screenshot({ path: `${out}/98-approved.png` });
+    console.log('shot 98-approved');
+    await ctx6.close();
+
+    // Sam ticks the task done from the list.
+    await p.goto(`${APP}/tasks`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('tab', { name: 'Created by me' }).click();
+    await p.waitForTimeout(2500);
+    await p.getByRole('checkbox', { name: `Mark ${ask} done` }).click();
+    await p.waitForTimeout(2500);
+    const done = await api('GET', `/v1/tasks/${task.taskId}`, undefined, samTok);
+    check('ticking a task marks it done on the server', done.status === 'done');
+    await p.getByLabel('Show finished tasks').click();
+    await p.waitForTimeout(2000);
+    await shot('99-created-by-me');
+  }
+  // ---- AI assistant: Sam asks a question with sources, searches, reads the digest, summarizes
+  // the channel and shares the summary (with confirmation), uses a suggested reply and
+  // translates a message; Priya (owner) sees the organization switch.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const marcoSays = `Should we extend the Germany fieldwork to Friday? (${run})`;
+    await api(
+      'POST',
+      `/v1/conversations/${ops.conversationId}/messages`,
+      {
+        conversationId: ops.conversationId,
+        clientMessageId: crypto.randomUUID(),
+        messageType: 'text',
+        content: { text: marcoSays, mentions: [] },
+      },
+      marcoTok,
+    );
+
+    await p.goto(`${APP}/assistant`);
+    await p.waitForTimeout(3000);
+    await p.getByLabel('Ask a question').fill('What did we say about the wave 3 quotas?');
+    await p.getByRole('button', { name: 'Ask', exact: true }).click();
+    await p.waitForTimeout(3500);
+    const askBody = await p.innerText('body');
+    check(
+      'Ask answers with numbered sources',
+      /Sources/.test(askBody) && /\[1\]/.test(askBody) && /Built-in assistant/.test(askBody),
+    );
+    await shot('100-ai-ask');
+    await p.getByRole('radio', { name: 'Status digest' }).click();
+    await p.waitForTimeout(3500);
+    check(
+      'the status digest lists conversations with a status',
+      /On track|Needs attention|Quiet/.test(await p.innerText('body')),
+    );
+    await shot('101-ai-digest');
+    await p.getByRole('radio', { name: 'Search', exact: true }).click();
+    await p.waitForTimeout(800);
+    await p.getByLabel('Search by meaning').fill('Germany fieldwork extension');
+    await p.getByLabel('Search by meaning').press('Enter');
+    await p.waitForTimeout(3000);
+    check('search by meaning finds the message', (await p.innerText('body')).includes(marcoSays));
+    await p.getByText(marcoSays).first().click();
+    await p.waitForTimeout(3000);
+    check(
+      'a search hit opens its conversation',
+      p.url().includes(`/conversation/${ops.conversationId}`),
+    );
+
+    // Suggested replies to Marco's question.
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Suggest replies' }).click();
+    await p.waitForTimeout(3000);
+    const chips = p.getByRole('button', { name: /^Use reply: / });
+    check('suggested replies appear above the composer', (await chips.count()) > 0);
+    await shot('102-ai-suggested-replies');
+    const first = (await chips.first().getAttribute('aria-label')).replace(/^Use reply: /, '');
+    await chips.first().click();
+    await p.waitForTimeout(500);
+    check(
+      'tapping a suggestion puts it in the composer (not sent)',
+      (await p.locator('textarea').last().inputValue()) === first,
+    );
+    await p.locator('textarea').last().fill('');
+
+    // Translate (needs a model server: the built-in engine says so).
+    await p.getByText(marcoSays, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: 'Translate' }).click();
+    await p.waitForTimeout(2500);
+    check(
+      'translate explains that it needs a model server',
+      /Translation needs a model server/.test(await p.innerText('body')),
+    );
+    await shot('103-ai-translate');
+    await p.getByRole('button', { name: 'Close translation' }).click();
+
+    // Summary, then share it.
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Summarize conversation' }).click();
+    await p.waitForTimeout(3500);
+    check(
+      'the summary screen summarizes the channel',
+      /\d+ messages?/.test(await p.innerText('body')),
+    );
+    await shot('104-ai-summary');
+    await p.getByRole('button', { name: 'Share in the conversation' }).click();
+    await p.waitForTimeout(800);
+    await p.getByRole('button', { name: 'Send', exact: true }).click();
+    await p.waitForTimeout(2500);
+    if (await p.getByRole('switch', { name: 'I checked it, send it' }).count()) {
+      await shot('105-ai-share-sensitive');
+      await p.getByRole('switch', { name: 'I checked it, send it' }).click();
+      await p.getByRole('button', { name: 'Send', exact: true }).click();
+      await p.waitForTimeout(2500);
+    }
+    const latest = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=5`,
+      undefined,
+      samTok,
+    );
+    check(
+      'sharing posts the summary as Sam only after Send',
+      (Array.isArray(latest) ? latest : (latest.messages ?? latest.items)).some((m) =>
+        m.content.text?.startsWith('Summary:'),
+      ) && /Shared in the conversation/.test(await p.innerText('body')),
+    );
+
+    // Priya manages the assistant for the organization.
+    const ctx7 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p7 = await ctx7.newPage();
+    await p7.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p7.waitForTimeout(1500);
+    const f7 = p7.locator('input');
+    await f7.nth(0).fill(API);
+    await f7.nth(1).fill('northwind');
+    await f7.nth(2).fill('priya@northwind.test');
+    await f7.nth(3).fill(pw);
+    await p7.getByRole('button', { name: 'Sign in' }).click();
+    await p7.waitForTimeout(4000);
+    await p7.goto(`${APP}/assistant`);
+    await p7.waitForTimeout(3000);
+    const sw = p7.getByRole('switch', { name: 'Assistant on for everyone' });
+    check('owners get the organization switch', (await sw.count()) === 1);
+    await p7.screenshot({ path: `${out}/106-ai-admin.png` });
+    console.log('shot 106-ai-admin');
+    await sw.click();
+    await p7.waitForTimeout(2000);
+    const off = await api('GET', '/v1/ai/status', undefined, samTok);
+    check(
+      'turning it off reaches the server',
+      off.enabled === false && /assistant is off/.test(await p7.innerText('body')),
+    );
+    await p7.getByRole('switch', { name: 'Assistant on for everyone' }).click();
+    await p7.waitForTimeout(2000);
+    check('and back on', (await api('GET', '/v1/ai/status', undefined, samTok)).enabled === true);
+    await ctx7.close();
+  }
+  // ---- White-label branding: Priya (owner) sets the name, logo, colors and sign-in message on
+  // her phone; Sam's app picks up the organization theme and logo; the sign-in screen shows
+  // the branding once the workspace is typed; enforcing the theme locks Appearance.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const priyaTok = await tokenOf('priya@northwind.test');
+    const before = await api('GET', '/v1/branding', undefined, priyaTok);
+    const restore = {
+      appName: before.appName,
+      logo: before.logo,
+      primary: before.primary,
+      secondary: before.secondary,
+      mode: before.mode,
+      useBrandTheme: before.useBrandTheme,
+      enforceTheme: before.enforceTheme,
+      loginMessage: before.loginMessage,
+      supportEmail: before.supportEmail,
+      supportUrl: before.supportUrl,
+      hidePoweredBy: before.hidePoweredBy,
+    };
+    try {
+      const ctx8 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+      const p8 = await ctx8.newPage();
+      await p8.goto(`${APP}/`, { waitUntil: 'networkidle' });
+      await p8.waitForTimeout(1500);
+      const f8 = p8.locator('input');
+      await f8.nth(0).fill(API);
+      await f8.nth(1).fill('northwind');
+      await f8.nth(2).fill('priya@northwind.test');
+      await f8.nth(3).fill(pw);
+      await p8.getByRole('button', { name: 'Sign in' }).click();
+      await p8.waitForTimeout(4000);
+      await p8.goto(`${APP}/admin/branding`);
+      await p8.waitForTimeout(3000);
+      await p8.getByLabel('App name').fill('Northwind Connect');
+      await p8.getByLabel('Primary color').fill('#0EA5E9');
+      await p8.getByLabel('Accent color').fill('#F97316');
+      await p8.getByRole('switch', { name: 'Start everyone on this theme' }).click();
+      await p8
+        .getByLabel('Sign-in message')
+        .fill('Northwind staff: use your work email. Help: #it-help.');
+      const chooser = p8.waitForEvent('filechooser');
+      await p8.getByRole('button', { name: 'Add logo' }).click();
+      await (
+        await chooser
+      ).setFiles({
+        name: 'logo.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAyElEQVR4nO3QyRGAMAzFUCqg/wYojirgCgynbLIT/RnfrbdtzjnnnOu5/Tiv0qN/r1pNeFqIltHpMEbEh0QYGR4OgozHEehwFIEORhHoUBSBDkQR6DAcgY5CAeggFIEOwRHoCAFIADoAR6CfRwHox3EE+mkBBBBAAAEEEEAAAQQQQAABCIBZEIrjBZgAoTpeAAHyIjSLz4jQPF6ARAjd4jMgdI+PjDAsPiLC8PhICFh8BAS6/bVlw59bOv67JaP/tmy4c8654LsB57d4K/DEVr0AAAAASUVORK5CYII=',
+          'base64',
+        ),
+      });
+      await p8.waitForTimeout(1500);
+      await p8.screenshot({ path: `${out}/107-branding-editor.png` });
+      console.log('shot 107-branding-editor');
+      await p8.getByRole('button', { name: 'Save branding' }).click();
+      await p8.waitForTimeout(2500);
+      const saved = await api('GET', '/v1/branding', undefined, priyaTok);
+      check(
+        'the owner saves branding from the phone',
+        saved.appName === 'Northwind Connect' &&
+          saved.primary.toUpperCase() === '#0EA5E9' &&
+          saved.useBrandTheme === true &&
+          /^data:image\/png;base64,/.test(saved.logo ?? '') &&
+          /Saved\./.test(await p8.innerText('body')),
+      );
+      await ctx8.close();
+
+      // Sam (never picked a theme in this context) starts on the organization theme.
+      const ctx9 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+      const p9 = await ctx9.newPage();
+      await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
+      await p9.waitForTimeout(1500);
+      const f9 = p9.locator('input');
+      await f9.nth(0).fill(API);
+      await f9.nth(1).fill('northwind');
+      await p9.waitForTimeout(1500);
+      check(
+        'the sign-in screen shows the workspace branding',
+        /Northwind Connect/.test(await p9.innerText('body')) &&
+          /use your work email/.test(await p9.innerText('body')) &&
+          (await p9.getByLabel('Northwind Connect logo').count()) > 0,
+      );
+      await p9.screenshot({ path: `${out}/108-branded-sign-in.png` });
+      console.log('shot 108-branded-sign-in');
+      await f9.nth(2).fill('sam@northwind.test');
+      await f9.nth(3).fill(pw);
+      await p9.getByRole('button', { name: 'Sign in' }).click();
+      await p9.waitForTimeout(5000);
+      check(
+        'home shows the organization logo',
+        (await p9.getByLabel('Northwind Connect logo').count()) > 0,
+      );
+      await p9.screenshot({ path: `${out}/109-branded-home.png` });
+      console.log('shot 109-branded-home');
+      await p9.goto(`${APP}/settings/appearance`);
+      await p9.waitForTimeout(2500);
+      check(
+        'members start on the organization theme',
+        /You are on the Northwind .*theme/.test(await p9.innerText('body')),
+      );
+      await api(
+        'PUT',
+        '/v1/branding',
+        {
+          ...restore,
+          appName: saved.appName,
+          logo: saved.logo,
+          primary: saved.primary,
+          secondary: saved.secondary,
+          useBrandTheme: true,
+          enforceTheme: true,
+          loginMessage: saved.loginMessage,
+        },
+        priyaTok,
+      );
+      await p9.reload({ waitUntil: 'networkidle' });
+      await p9.waitForTimeout(4000);
+      check(
+        'an enforced theme locks the choice',
+        /sets the theme for everyone/.test(await p9.innerText('body')) &&
+          (await p9.getByRole('radio', { name: 'Arctic Professional' }).isDisabled()),
+      );
+      await p9.screenshot({ path: `${out}/110-enforced-theme.png` });
+      console.log('shot 110-enforced-theme');
+      await ctx9.close();
+    } finally {
+      await api('PUT', '/v1/branding', restore, priyaTok);
+    }
+  }
+  // ---- Administration: Priya (owner) sees the overview, adds a member, changes their role,
+  // deactivates and reactivates them, filters the audit log and sees everyone's devices.
+  {
+    const ctx9 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p9 = await ctx9.newPage();
+    await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p9.waitForTimeout(1500);
+    const f9 = p9.locator('input');
+    await f9.nth(0).fill(API);
+    await f9.nth(1).fill('northwind');
+    await f9.nth(2).fill('priya@northwind.test');
+    await f9.nth(3).fill(pw);
+    await p9.getByRole('button', { name: 'Sign in' }).click();
+    await p9.waitForTimeout(4000);
+    await p9.goto(`${APP}/admin`);
+    await p9.waitForTimeout(3000);
+    check('admin overview shows members', await p9.getByText('active members').first().isVisible());
+    check(
+      'admin overview shows two-step share',
+      await p9.getByText('use two-step sign-in').isVisible(),
+    );
+    await p9.screenshot({ path: `${out}/111-admin-overview.png` });
+    console.log('shot 111-admin-overview');
+
+    await p9.goto(`${APP}/admin/members`);
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/112-admin-members.png` });
+    console.log('shot 112-admin-members');
+    await p9.getByRole('button', { name: 'Add member' }).first().click();
+    await p9.waitForTimeout(1500);
+    const tag = Date.now().toString(36);
+    const email = `ana.${tag}@northwind.test`;
+    const anaName = `Ana Costa ${tag.slice(-4)}`;
+    await p9.getByLabel('Name', { exact: true }).fill(anaName);
+    await p9.getByLabel('Work email').fill(email);
+    await p9.getByLabel('Temporary password').fill('welcome-to-northwind-1');
+    await p9.screenshot({ path: `${out}/113-admin-add-member.png` });
+    console.log('shot 113-admin-add-member');
+    await p9.getByRole('button', { name: 'Add member' }).last().click();
+    await p9.waitForTimeout(3000);
+    await p9.getByLabel('Search members').fill(anaName);
+    await p9.waitForTimeout(800);
+    const row = p9.getByRole('button', { name: `${anaName}, Member` });
+    check('new member is listed', (await row.count()) === 1);
+    await row.click();
+    await p9.waitForTimeout(800);
+    await p9.getByRole('radio', { name: 'Admin', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('role changed to admin', await p9.getByText(`${anaName} is now admin.`).isVisible());
+    await p9.screenshot({ path: `${out}/114-admin-member-role.png` });
+    console.log('shot 114-admin-member-role');
+    await p9.getByRole('button', { name: 'Deactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check(
+      'member deactivated',
+      await p9.getByText(/is deactivated and signed out everywhere/).isVisible(),
+    );
+    await p9.getByRole('button', { name: 'Reactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check('member reactivated', await p9.getByText(`${anaName} can sign in again.`).isVisible());
+    const users = await api(
+      'GET',
+      '/v1/users',
+      undefined,
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email: 'priya@northwind.test',
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken,
+    );
+    const ana = (users.items ?? users).find((u) => u.email === email);
+    check('server has Ana as active admin', ana?.role === 'admin' && ana?.status === 'active');
+    await p9.getByRole('button', { name: 'Activity' }).click();
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/115-admin-audit-person.png` });
+    console.log('shot 115-admin-audit-person');
+    await p9.goto(`${APP}/admin/audit`);
+    await p9.waitForTimeout(2500);
+    await p9.getByRole('radio', { name: 'Members', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('audit log lists member changes', (await p9.getByText(anaName).count()) > 0);
+    await p9.screenshot({ path: `${out}/116-admin-audit.png` });
+    console.log('shot 116-admin-audit');
+    await p9.goto(`${APP}/admin/devices`);
+    await p9.waitForTimeout(2500);
+    check(
+      'org devices listed',
+      (await p9.getByRole('button', { name: /^Sign out .+ on / }).count()) > 0,
+    );
+    await p9.screenshot({ path: `${out}/117-admin-devices.png` });
+    console.log('shot 117-admin-devices');
+    await ctx9.close();
   }
   await b.close();
   if (failures.length) process.exit(1);

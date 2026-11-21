@@ -5,6 +5,7 @@ import {
   AddMembersRequestSchema,
   CreateConversationRequestSchema,
   SetNotifyLevelRequestSchema,
+  SetPostingPolicyRequestSchema,
   conversationCan,
   tenantCan,
   type Conversation,
@@ -56,6 +57,16 @@ export class ConversationsService {
     };
     if (!conversationCan(access, 'conversation.read')) throw notFound('Conversation');
     if (!conversationCan(access, permission)) throw forbidden();
+    if (
+      permission === 'message.send' &&
+      conversation.postingPolicy === 'moderators' &&
+      access.conversationRole !== 'owner' &&
+      access.conversationRole !== 'moderator' &&
+      ctx.role !== 'owner' &&
+      ctx.role !== 'admin'
+    ) {
+      throw forbidden('Only moderators can post in this announcement channel');
+    }
     return { conversation, membership, access };
   }
 
@@ -95,6 +106,7 @@ export class ConversationsService {
       lastMessageAt: c.lastMessageAt?.toISOString() ?? null,
       myRole: mine?.role ?? null,
       myNotifyLevel: mine?.notifyLevel ?? 'all',
+      ...(c.postingPolicy ? { postingPolicy: c.postingPolicy } : {}),
     };
   }
 
@@ -415,6 +427,34 @@ export class ConversationsService {
       actorId: ctx.userId,
       action: archived ? 'conversation.archived' : 'conversation.unarchived',
       target: { type: 'conversation', id: conversationId },
+    });
+    const members = await this.memberIds(ctx.tenantId, conversationId);
+    return this.announce(ctx, updated!, members);
+  }
+
+  /** Turn a channel into an announcement channel (moderators post) or back. */
+  async setPostingPolicy(
+    ctx: TenantContext,
+    conversationId: string,
+    input: unknown,
+  ): Promise<Conversation> {
+    const { policy } = parse(SetPostingPolicyRequestSchema, input);
+    const { conversation } = await this.authorize(ctx, conversationId, 'conversation.rename');
+    if (conversation.kind !== 'channel_public' && conversation.kind !== 'channel_private')
+      throw new AppError('VALIDATION_FAILED', 'Only channels can be announcement-only');
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .conversations.findOneAndUpdate(
+        { _id: conversation._id },
+        { $set: { postingPolicy: policy } },
+        { returnDocument: 'after' },
+      );
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'conversation.posting_policy',
+      target: { type: 'conversation', id: conversationId },
+      metadata: { policy },
     });
     const members = await this.memberIds(ctx.tenantId, conversationId);
     return this.announce(ctx, updated!, members);

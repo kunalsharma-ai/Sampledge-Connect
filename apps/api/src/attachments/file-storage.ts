@@ -5,7 +5,8 @@ import { pipeline } from 'node:stream/promises';
 /**
  * Where attachment bytes live. Metadata and access control stay in MongoDB
  * (`attachments`), so a storage backend only ever sees opaque keys.
- * GridFS is built; a Nextcloud (WebDAV) adapter is planned behind the same interface.
+ * GridFS always takes the upload (so size and checksum checks run in one place);
+ * `commit` then decides where the finished file lives (see RoutingStorage).
  */
 export interface FileStorage {
   /** Streams `body` through `transforms` (e.g. size/hash meters) into storage. */
@@ -18,7 +19,24 @@ export interface FileStorage {
   /** Streams the bytes; `range` is inclusive [start, end] for HTTP Range requests (media seeking). */
   get(key: string, range?: { start: number; end: number }): Readable;
   delete(key: string): Promise<void>;
+  /**
+   * Called once a file is complete and verified. Returns the key to store from now on
+   * (it may move to another backend) and, for copies made in the background, a promise
+   * that settles with the copy's outcome.
+   */
+  commit?(key: string, meta: { tenantId: string; size: number }): Promise<StorageCommit>;
 }
+
+export interface StorageCommit {
+  key: string;
+  backend: StorageBackend;
+  /** Test-mode mirror copy running in the background. */
+  mirror?: Promise<{ ok: boolean; error: string | null }>;
+  /** Live mode could not reach the target; the file stayed in Connect storage. */
+  fallbackError?: string;
+}
+
+export type StorageBackend = 'gridfs' | 'nextcloud';
 
 export const FILE_STORAGE = Symbol('FILE_STORAGE');
 

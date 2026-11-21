@@ -1,3 +1,4 @@
+import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
 import type { Meeting, MeetingReminderEvent } from './meetings.js';
@@ -49,6 +50,8 @@ export interface ServerToClientEvents {
   'conversation:revoked': (e: { conversationId: string }) => void;
   /** A new in-app notification for the caller (all of their devices). */
   'notification:new': (notification: Notification) => void;
+  /** One of the caller's scheduled messages changed (sent, failed, edited, cancelled). */
+  'scheduled:updated': (scheduled: ScheduledMessage) => void;
   /** Notifications were marked read on another device; refetch the unread count. */
   'notification:read': (e: { unreadCount: number }) => void;
   /** You are invited to a call (sent to each invitee's devices). Stop ringing at expiresAt. */
@@ -65,6 +68,16 @@ export interface ServerToClientEvents {
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
+  /**
+   * You saved or unsaved a message (sent to all of your devices; nobody else sees bookmarks).
+   * Saved lists refetch GET /v1/bookmarks after a reconnect, so a missed event is recovered.
+   */
+  'bookmark:updated': (e: { messageId: string; conversationId: string; saved: boolean }) => void;
+  /**
+   * Your own choice in a poll changed (sent to all of your devices). The only live source of it
+   * in anonymous polls, where `message:updated` carries counts without voter ids.
+   */
+  'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -25,7 +26,9 @@ import {
 import { useWorkspace } from '../state/AppProvider';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { formatSendAt } from '../lib/schedule';
 import { Avatar } from './Avatar';
+import { ScheduleSheet } from './ScheduleSheet';
 import { Text } from './Text';
 import { useVoiceRecorder, VoiceRecordBar } from './VoiceRecorder';
 
@@ -105,6 +108,33 @@ export function Composer({
 
   const canSend =
     (text.trim().length > 0 || (files.length > 0 && !editing)) && text.length <= MAX_MESSAGE_LENGTH;
+  const canSchedule =
+    !editing && files.length === 0 && text.trim().length > 0 && text.length <= MAX_MESSAGE_LENGTH;
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // AI suggested replies: null when not asked, [] while loading.
+  const [replies, setReplies] = useState<string[] | null>(null);
+
+  const suggestReplies = async () => {
+    setAttachOpen(false);
+    setFileError(null);
+    setReplies([]);
+    try {
+      const r = await engine.aiReplies(conversationId);
+      if (!r.suggestions.length) {
+        setReplies(null);
+        setNotice('No reply suggestions for the latest message.');
+        setTimeout(() => setNotice(null), 4000);
+        return;
+      }
+      setReplies(r.suggestions);
+    } catch (e) {
+      setReplies(null);
+      setFileError(e instanceof Error ? e.message : String(e));
+    }
+  };
   /** With nothing typed or attached, the send button becomes the voice message mic. */
   const showMic = !editing && !canSend && text.trim().length === 0;
 
@@ -245,6 +275,36 @@ export function Composer({
     await engine.send(conversationId, body, { replyTo, mentions, files: attached });
   };
 
+  const openSchedule = () => {
+    setAttachOpen(false);
+    if (files.length) return setFileError('Files can’t be scheduled. Send them now instead.');
+    if (!canSchedule) return setFileError('Write the message first, then choose Send later.');
+    setScheduleError(null);
+    setScheduleOpen(true);
+  };
+
+  const schedule = async (at: Date) => {
+    const body = text;
+    setScheduleBusy(true);
+    setScheduleError(null);
+    try {
+      const m = await engine.scheduleMessage(conversationId, body, at, {
+        mentions: mentionsInText(body, picked),
+        replyTo: mode?.kind === 'reply' ? mode.message.messageId : null,
+      });
+      setScheduleOpen(false);
+      setText('');
+      setPicked([]);
+      onCancelMode();
+      setNotice(`Scheduled for ${formatSendAt(m.sendAt, new Date())}`);
+      setTimeout(() => setNotice(null), 4000);
+    } catch (e) {
+      setScheduleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
+
   const pick = (m: MentionCandidate) => {
     setText((t) => insertMention(t, m.name));
     setPicked((p) => (p.some((x) => x.userId === m.userId) ? p : [...p, m]));
@@ -344,6 +404,62 @@ export function Composer({
           ))}
         </View>
       ) : null}
+      <ScheduleSheet
+        visible={scheduleOpen}
+        busy={scheduleBusy}
+        error={scheduleError}
+        onPick={(at) => void schedule(at)}
+        onClose={() => setScheduleOpen(false)}
+      />
+      {replies ? (
+        <View style={styles.replies} accessibilityLabel="Suggested replies">
+          <Ionicons name="sparkles" size={14} color={c.accent} />
+          {replies.length ? (
+            replies.map((r) => (
+              <Pressable
+                key={r}
+                onPress={() => {
+                  setText(r);
+                  setReplies(null);
+                  input.current?.focus();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Use reply: ${r}`}
+                style={[
+                  styles.replyChip,
+                  { borderColor: c.accent, backgroundColor: alpha(c.accent, 0.1) },
+                ]}
+              >
+                <Text variant="label" numberOfLines={1} style={{ color: c.accent }}>
+                  {r}
+                </Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text variant="meta" tone="muted">
+              Thinking of replies…
+            </Text>
+          )}
+          <Pressable
+            onPress={() => setReplies(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Hide suggested replies"
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={16} color={c.textSubtle} />
+          </Pressable>
+        </View>
+      ) : null}
+      {notice ? (
+        <Text
+          variant="meta"
+          tone="accent"
+          style={{ marginLeft: 6 }}
+          accessibilityLiveRegion="polite"
+        >
+          {notice}
+        </Text>
+      ) : null}
       {fileError || voice.error ? (
         <Text variant="meta" tone="danger" style={{ marginLeft: 6 }}>
           {fileError ?? voice.error}
@@ -372,6 +488,57 @@ export function Composer({
           >
             <Ionicons name="document-attach-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Files</Text>
+          </Pressable>
+          <Pressable
+            onPress={openSchedule}
+            accessibilityRole="button"
+            accessibilityHint="Write the message first"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="time-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Send later</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setAttachOpen(false);
+              router.push({ pathname: '/poll/new', params: { conversationId } });
+            }}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="stats-chart-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Poll</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void suggestReplies()}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="sparkles-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Suggest replies</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setAttachOpen(false);
+              router.push({ pathname: '/summary/[id]', params: { id: conversationId } });
+            }}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="reader-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Summarize conversation</Text>
           </Pressable>
           {Platform.OS !== 'web' ? (
             <Pressable
@@ -439,6 +606,7 @@ export function Composer({
             <Animated.View style={sendStyle}>
               <Pressable
                 onPress={send}
+                onLongPress={canSchedule ? openSchedule : undefined}
                 disabled={!canSend}
                 accessibilityRole="button"
                 accessibilityLabel={editing ? 'Save edit' : 'Send message'}
@@ -460,6 +628,21 @@ export function Composer({
 }
 
 const styles = StyleSheet.create({
+  replies: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 6,
+    marginBottom: 2,
+  },
+  replyChip: {
+    maxWidth: 260,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   wrap: {
     paddingHorizontal: space.md,
     paddingTop: space.sm,
