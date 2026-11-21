@@ -122,7 +122,9 @@ export function LiveCallBanner({
       <div className="flex -space-x-2">
         {joined.slice(0, 4).map((p) => (
           <Avatar
-            key={p.userId} name={nameOf(p.userId, directory)} src={avatarOf(p.userId, directory)}
+            key={p.userId}
+            name={nameOf(p.userId, directory)}
+            src={avatarOf(p.userId, directory)}
             size="xs"
             className="ring-2 ring-bg rounded-full"
           />

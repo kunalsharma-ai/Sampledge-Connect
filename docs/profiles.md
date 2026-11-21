@@ -6,15 +6,15 @@ Every member edits their own profile in **Settings → Profile** (also from the 
 
 ## Fields
 
-| Field | Limit | API field |
-| --- | --- | --- |
-| Name | 1–80 characters, required | `displayName` |
-| Job title | 80 | `title` |
-| Department | 80 | `department` |
-| Phone | 32, digits, spaces and `+ ( ) - .` | `phone` |
-| About you | 500 | `bio` |
-| Time zone | IANA name, e.g. `Asia/Kolkata` | `timeZone` |
-| Photo | PNG, JPEG or WebP, 160 KB after cropping | `avatarUrl` |
+| Field      | Limit                                    | API field     |
+| ---------- | ---------------------------------------- | ------------- |
+| Name       | 1–80 characters, required                | `displayName` |
+| Job title  | 80                                       | `title`       |
+| Department | 80                                       | `department`  |
+| Phone      | 32, digits, spaces and `+ ( ) - .`       | `phone`       |
+| About you  | 500                                      | `bio`         |
+| Time zone  | IANA name, e.g. `Asia/Kolkata`           | `timeZone`    |
+| Photo      | PNG, JPEG or WebP, 160 KB after cropping | `avatarUrl`   |
 
 Role, status and email are changed by admins only, not here.
 
