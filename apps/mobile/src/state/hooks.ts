@@ -253,3 +253,32 @@ export function useNow(ms = 30_000): number {
   }, [ms]);
   return now;
 }
+
+/** Pinned messages of a conversation from the local cache, most recently pinned first. */
+export function usePinned(conversationId: string): LocalMessage[] {
+  const { store } = useWorkspace();
+  const [pins, setPins] = useState<LocalMessage[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void store.listPinned(conversationId).then((p) => alive && setPins(p));
+    load();
+    const off = store.events.on('messages', (e) => e.conversationId === conversationId && load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, conversationId]);
+  return pins;
+}
+
+/** Ids of messages you saved; loads the list once when a connection allows. */
+export function useSavedIds(): ReadonlySet<string> {
+  const { engine } = useWorkspace();
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const off = engine.events.on('bookmarks', setIds);
+    if (!engine.serverActionBlocker()) void engine.listBookmarks().catch(() => undefined);
+    return off;
+  }, [engine]);
+  return ids;
+}

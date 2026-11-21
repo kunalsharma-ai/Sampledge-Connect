@@ -1,6 +1,7 @@
 import {
   ERROR_CODES,
   type Attachment,
+  type Bookmark,
   type AttachmentUrl,
   type CreateUploadRequest,
   type UploadTicket,
@@ -126,6 +127,11 @@ export interface ApiTransport {
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
   /** Recordings library, newest first; page with `before` = the previous page's nextBefore. */
   listRecordings(q: RecordingsQuery): Promise<RecordingList>;
+  /** Pins or unpins for everyone in the conversation; returns the updated message. */
+  pinMessage(messageId: string, pinned: boolean): Promise<Message>;
+  /** Messages you saved for later, newest first. */
+  listBookmarks(): Promise<Bookmark[]>;
+  setBookmark(messageId: string, saved: boolean): Promise<void>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -444,6 +450,27 @@ export class HttpTransport implements ApiTransport {
     return this.request('DELETE', `/v1/recordings/${encodeURIComponent(recordingId)}`, undefined);
   }
 
+  pinMessage(messageId: string, pinned: boolean): Promise<Message> {
+    return this.request(
+      pinned ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(messageId)}/pin`,
+      undefined,
+    );
+  }
+
+  async listBookmarks(): Promise<Bookmark[]> {
+    const r = await this.request<{ items: Bookmark[] }>('GET', '/v1/bookmarks', undefined);
+    return r.items;
+  }
+
+  async setBookmark(messageId: string, saved: boolean): Promise<void> {
+    await this.request(
+      saved ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(messageId)}/bookmark`,
+      undefined,
+    );
+  }
+
   startCallRecording(callId: string): Promise<Call> {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/start`, {});
   }
@@ -628,6 +655,9 @@ export class NoServerTransport implements ApiTransport {
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
   listRecordings = async (): Promise<RecordingList> => this.fail();
   deleteRecording = async (): Promise<void> => this.fail();
+  pinMessage = async (): Promise<Message> => this.fail();
+  listBookmarks = async (): Promise<Bookmark[]> => this.fail();
+  setBookmark = async (): Promise<void> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();

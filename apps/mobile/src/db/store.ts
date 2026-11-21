@@ -8,6 +8,7 @@ import {
   type Meeting,
   type Message,
   type MessageStatus,
+  type Poll,
   type RsvpResponse,
   type NotifyLevel,
   type Reaction,
@@ -60,6 +61,15 @@ export interface LocalMessage {
   /** 'text' for people's messages, 'system' for events the server writes (calls, ...). */
   messageType: string;
   metadata: Record<string, unknown>;
+  /** Pinned to the conversation (synced; everyone sees the same pins). */
+  pinned: MessagePin | null;
+  /** Set on poll messages; counts as of the last sync or vote. */
+  poll: Poll | null;
+}
+
+export interface MessagePin {
+  pinnedBy: string;
+  pinnedAt: string;
 }
 
 /** A file on a message: from the server snapshot, from this device, or both. */
@@ -250,6 +260,8 @@ interface MessageRow {
   pending_op?: MessageOpKind | null;
   message_type?: string;
   metadata?: string;
+  pinned?: string | null;
+  poll?: string | null;
 }
 
 interface FileRow {
@@ -314,7 +326,18 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   attachments: [],
   messageType: r.message_type ?? 'text',
   metadata: parseObject(r.metadata),
+  pinned: r.deleted_at ? null : parseNullable<MessagePin>(r.pinned),
+  poll: r.deleted_at ? null : parseNullable<Poll>(r.poll),
 });
+
+function parseNullable<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return (JSON.parse(raw) as T | null) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const parseObject = (raw: string | undefined): Record<string, unknown> => {
   try {
@@ -746,6 +769,16 @@ export class LocalStore {
     this.events.emit('outbox', undefined);
   }
 
+  /** Pinned messages of a conversation, most recently pinned first (works offline). */
+  async listPinned(conversationId: string): Promise<LocalMessage[]> {
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE m.conversation_id = ? AND m.deleted_at IS NULL AND m.pinned IS NOT NULL`,
+      [conversationId],
+    );
+    const all = await this.hydrate(rows);
+    return all.sort((a, b) => (b.pinned!.pinnedAt > a.pinned!.pinnedAt ? 1 : -1));
+  }
+
   /** Messages that mention you, newest first (for Activity). */
   async listMentions(limit = 50): Promise<LocalMessage[]> {
     return this.hydrate(
@@ -978,15 +1011,16 @@ export class LocalStore {
     const status: MessageStatus =
       existing && CONFIRMED.has(existing.status) ? existing.status : 'sent';
     await tx.run(
-      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, message_type, metadata, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, message_type, metadata, pinned, poll, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(client_id) DO UPDATE SET
          message_id = excluded.message_id, text = excluded.text, mentions = excluded.mentions,
          reply_to = excluded.reply_to, server_seq = excluded.server_seq, change_seq = excluded.change_seq,
          status = excluded.status, created_at = excluded.created_at, edited_at = excluded.edited_at,
          deleted_at = excluded.deleted_at, reactions = excluded.reactions,
          attachments = excluded.attachments, message_type = excluded.message_type,
-         metadata = excluded.metadata, error = NULL`,
+         metadata = excluded.metadata, pinned = excluded.pinned, poll = excluded.poll,
+         error = NULL`,
       [
         m.clientMessageId,
         m.messageId,
@@ -1005,6 +1039,8 @@ export class LocalStore {
         JSON.stringify(m.deletedAt ? [] : (m.attachments ?? [])),
         m.messageType ?? 'text',
         JSON.stringify(m.metadata ?? {}),
+        m.deletedAt || !m.pinned ? null : JSON.stringify(m.pinned),
+        m.deletedAt || !m.poll ? null : JSON.stringify(m.poll),
       ],
     );
     // Server accepted it: the send is done, whichever device sent it.

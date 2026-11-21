@@ -26,12 +26,19 @@ import { Button } from '../../components/Button';
 import { isUnjoinedChannel } from '../../lib/access';
 import { guestSenderLabel } from '../../lib/guests';
 import { useApp, useWorkspace } from '../../state/AppProvider';
-import { conversationTitle, useCalls, useMessages, usePeople } from '../../state/hooks';
-import { space } from '../../theme/themes';
+import {
+  conversationTitle,
+  useCalls,
+  useMessages,
+  usePeople,
+  usePinned,
+  useSavedIds,
+} from '../../state/hooks';
+import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
 export default function ConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
@@ -43,6 +50,9 @@ export default function ConversationScreen() {
   const [sheetFor, setSheetFor] = useState<LocalMessage | null>(null);
   const [mode, setMode] = useState<ComposerMode>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const pins = usePinned(id);
+  const savedIds = useSavedIds();
   const [notifyOpen, setNotifyOpen] = useState(false);
   const calls = useCalls();
   const { engineState } = useApp();
@@ -177,6 +187,16 @@ export default function ConversationScreen() {
     [reversed],
   );
 
+  // Opened from the pinned list or Saved: scroll to that message once it is loaded.
+  useEffect(() => {
+    if (focus && reversed.some((m) => m.messageId === focus)) jumpTo(focus);
+  }, [focus, reversed.length > 0]);
+
+  const serverStep = (work: Promise<void>) => {
+    setActionError(null);
+    work.catch((e: unknown) => setActionError(e instanceof Error ? e.message : String(e)));
+  };
+
   const react = useCallback(
     (m: LocalMessage, emoji: string) => void engine.toggleReaction(m.clientId, emoji),
     [engine],
@@ -196,6 +216,12 @@ export default function ConversationScreen() {
         return void engine.retry(m.clientId);
       case 'discard':
         return void engine.discard(m.clientId);
+      case 'pin':
+      case 'unpin':
+        return serverStep(engine.pinMessage(m.messageId!, action === 'pin'));
+      case 'save':
+      case 'unsave':
+        return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
       case 'delete': {
         const go = () => void engine.remove(m.clientId);
         if (Platform.OS === 'web') return go();
@@ -322,6 +348,27 @@ export default function ConversationScreen() {
             }
             onDismissError={() => engine.calls.dismissError()}
           />
+          {pins.length ? (
+            <PinnedBar
+              latest={pins[0]!}
+              count={pins.length}
+              senderName={guestSenderLabel(pins[0]!.metadata) ?? nameOf(pins[0]!.senderId)}
+              onPress={() => router.push({ pathname: '/pinned/[id]', params: { id, title } })}
+            />
+          ) : null}
+          {actionError ? (
+            <Pressable
+              onPress={() => setActionError(null)}
+              accessibilityRole="button"
+              accessibilityLabel={`${actionError}. Dismiss`}
+              style={[styles.error, { backgroundColor: alpha(theme.colors.danger, 0.12) }]}
+            >
+              <Text variant="meta" style={{ color: theme.colors.danger, flex: 1 }}>
+                {actionError}
+              </Text>
+              <Ionicons name="close" size={16} color={theme.colors.danger} />
+            </Pressable>
+          ) : null}
         </View>
         <FlatList
           ref={list}
@@ -416,6 +463,8 @@ export default function ConversationScreen() {
       <MessageActions
         message={sheetFor}
         own={sheetFor?.senderId === selfId}
+        saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
+        canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
         onAction={onAction}
         onReact={react}
         onClose={() => setSheetFor(null)}
@@ -424,7 +473,65 @@ export default function ConversationScreen() {
   );
 }
 
+/** The newest pin under the header; opens the full list. */
+function PinnedBar({
+  latest,
+  count,
+  senderName,
+  onPress,
+}: {
+  latest: LocalMessage;
+  count: number;
+  senderName: string;
+  onPress: () => void;
+}) {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${count} pinned. Latest from ${senderName}: ${latest.text}. Show all pinned messages`}
+      style={({ pressed }) => [
+        styles.pinned,
+        { backgroundColor: alpha(c.accent, pressed ? 0.14 : 0.08), borderColor: c.border },
+      ]}
+    >
+      <Ionicons name="pin" size={16} color={c.accent} />
+      <View style={{ flex: 1 }}>
+        <Text variant="label" tone="accent">
+          {count === 1 ? 'Pinned' : `${count} pinned`}
+        </Text>
+        <Text variant="meta" tone="muted" numberOfLines={1}>
+          {senderName}: {latest.text || 'Attachment'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  pinned: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginBottom: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  error: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginBottom: space.xs,
+    padding: space.sm,
+    borderRadius: radius.md,
+  },
   typing: { paddingHorizontal: space.lg, paddingBottom: space.xs },
   bar: {
     gap: space.sm,
