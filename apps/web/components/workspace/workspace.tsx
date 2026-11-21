@@ -233,7 +233,7 @@ export function Workspace() {
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
   }, []);
 
-    // Open the most recent conversation on wide screens.
+  // Open the most recent conversation on wide screens.
   React.useEffect(() => {
     if (activeId || !conversations?.length || window.innerWidth < 1024) return;
     const first = [...conversations].sort((a, b) =>

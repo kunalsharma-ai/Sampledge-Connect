@@ -58,7 +58,7 @@ beforeAll(async () => {
   h = await startHarness({ SETTINGS_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString('base64') });
   h.app.get(PushProviders).webSender = async (sub, payload, opts) => {
     // Encrypting for real proves the stored keys and subscription are usable.
-    webpush.generateRequestDetails(sub, payload, opts);
+    webpush.generateRequestDetails(sub, payload ?? undefined, opts);
     if (failWith) throw Object.assign(new Error('gone'), { statusCode: failWith });
     sent.push({
       sub,

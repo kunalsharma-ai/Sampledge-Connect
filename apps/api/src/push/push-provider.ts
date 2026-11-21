@@ -294,9 +294,7 @@ export class PushProviders implements OnModuleInit {
    * where the settings came from (tenant or platform), so every tenant sharing a platform
    * setting shares its keys.
    */
-  async webVapid(
-    tenantId: string,
-  ): Promise<{
+  async webVapid(tenantId: string): Promise<{
     subject: string;
     publicKey: string;
     privateKey: string;
