@@ -1497,6 +1497,142 @@ function totp(secret, offset = 0) {
     await ctx4.close();
     await api('POST', '/v1/auth/mfa/disable', { password: pw, code: recoveryCodes[0] }, lenaTok);
   }
+
+  // ---- Pins and saved messages: Sam pins a message (everyone sees the bar), Marco's pin
+  // arrives live, the pinned list opens the message in place, Unpin from the list, and
+  // Save for later shows up under Saved messages and on the server.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const post = async (text, tok) =>
+      api(
+        'POST',
+        `/v1/conversations/${ops.conversationId}/messages`,
+        {
+          conversationId: ops.conversationId,
+          clientMessageId: crypto.randomUUID(),
+          messageType: 'text',
+          content: { text, mentions: [] },
+        },
+        tok,
+      );
+    // Start from no pins (an earlier interrupted run may have left some).
+    const before = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=100`,
+      undefined,
+      samTok,
+    );
+    for (const m of Array.isArray(before) ? before : (before.messages ?? before.items))
+      if (m.pinned) await api('DELETE', `/v1/messages/${m.messageId}/pin`, undefined, samTok);
+    const run = Date.now().toString(36).slice(-4);
+    const first = `Wave 3 quotas are final (${run}).`;
+    const second = `Fieldwork closes Friday at 6 pm (${run}).`;
+    const m1 = await post(first, marcoTok);
+    const m2 = await post(second, marcoTok);
+    const id1 = m1.message?.messageId ?? m1.messageId;
+    const id2 = m2.message?.messageId ?? m2.messageId;
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    await p.getByText(first, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Pin to conversation' }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'pinning shows the pinned bar',
+      (await p.getByRole('button', { name: /^1 pinned\. Latest from Marco Silva/ }).count()) > 0,
+    );
+    const msgs = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=20`,
+      undefined,
+      marcoTok,
+    );
+    const list = Array.isArray(msgs) ? msgs : (msgs.messages ?? msgs.items);
+    check(
+      'the pin is saved on the server for everyone',
+      !!list.find((m) => m.messageId === id1)?.pinned,
+    );
+    await api('PUT', `/v1/messages/${id2}/pin`, undefined, marcoTok);
+    await p.waitForTimeout(2500);
+    check(
+      "another member's pin arrives live",
+      (await p.getByRole('button', { name: /^2 pinned\. Latest from Marco Silva/ }).count()) > 0,
+    );
+    await shot('83-pinned-bar');
+    await p
+      .getByRole('button', { name: /^2 pinned/ })
+      .first()
+      .click();
+    await p.waitForTimeout(2000);
+    const pinnedList = await p.innerText('body');
+    check(
+      'the pinned list shows both, newest pin first',
+      pinnedList.indexOf(second) > -1 &&
+        pinnedList.indexOf(first) > pinnedList.indexOf(second) &&
+        /Pinned by Marco Silva/.test(pinnedList) &&
+        /Pinned by you/.test(pinnedList),
+    );
+    await shot('84-pinned-list');
+    await p.getByRole('button', { name: 'Unpin' }).first().click();
+    await p.waitForTimeout(2000);
+    check(
+      'Unpin from the list removes it',
+      !(await p.innerText('body')).includes(second) && (await p.innerText('body')).includes(first),
+    );
+    await p
+      .getByRole('button', { name: /Open in conversation/ })
+      .first()
+      .click();
+    await p.waitForTimeout(2500);
+    check(
+      'opening a pin returns to the conversation',
+      (await p.getByRole('button', { name: /^1 pinned/ }).count()) > 0,
+    );
+
+    await p.getByText(second, { exact: true }).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Save for later' }).click();
+    await p.waitForTimeout(1500);
+    const bms = (await api('GET', '/v1/bookmarks', undefined, samTok)).items;
+    check(
+      'Save for later is stored on the server',
+      bms.some((b) => b.messageId === id2),
+    );
+    await p.goto(`${APP}/more`);
+    await p.waitForTimeout(2000);
+    await p.getByText('Saved messages', { exact: true }).first().click();
+    await p.waitForTimeout(2500);
+    const saved = await p.innerText('body');
+    check(
+      'Saved messages lists it with its conversation',
+      saved.includes(second) && /fieldwork-ops · saved/.test(saved),
+    );
+    await shot('85-saved-messages');
+    await p.getByRole('button', { name: 'Remove from saved' }).first().click();
+    await p.waitForTimeout(1500);
+    check(
+      'removing it takes it off the list and the server',
+      !(await p.innerText('body')).includes(second) &&
+        !(await api('GET', '/v1/bookmarks', undefined, samTok)).items.some(
+          (b) => b.messageId === id2,
+        ),
+    );
+    await api('DELETE', `/v1/messages/${id1}/pin`, undefined, samTok);
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

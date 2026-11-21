@@ -19,6 +19,7 @@ import {
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
+  type Bookmark,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -67,7 +68,11 @@ export class ConnectEngine {
     notification: LocalNotification;
     /** A meeting you attend starts soon (drives the reminder banner). */
     meetingReminder: MeetingReminderEvent;
+    /** The set of messages you saved for later changed. */
+    bookmarks: ReadonlySet<string>;
   }>();
+  /** Message ids you saved, as of the last list or change on this device. */
+  private saved = new Set<string>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
   readonly calls: CallController;
@@ -379,6 +384,38 @@ export class ConnectEngine {
     return this.serverAction(async () => {
       await this.api.resendGuestInvite(meetingId, guestId);
       await this.store.upsertMeetings([await this.api.getMeeting(meetingId)]);
+    });
+  }
+
+  /** Pins or unpins for everyone; the change syncs to other devices like an edit. */
+  pinMessage(messageId: string, pinned: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.applyServerMessages([await this.api.pinMessage(messageId, pinned)]);
+    });
+  }
+
+  /** Saved messages, newest first (needs a connection; the list lives on the server). */
+  listBookmarks(): Promise<Bookmark[]> {
+    return this.serverAction(async () => {
+      const list = await this.api.listBookmarks();
+      this.saved = new Set(list.map((b) => b.messageId));
+      this.events.emit('bookmarks', this.saved);
+      return list;
+    });
+  }
+
+  /** Whether you saved this message, as far as this device knows. */
+  isSaved(messageId: string): boolean {
+    return this.saved.has(messageId);
+  }
+
+  setBookmark(messageId: string, saved: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.api.setBookmark(messageId, saved);
+      this.saved = new Set(this.saved);
+      if (saved) this.saved.add(messageId);
+      else this.saved.delete(messageId);
+      this.events.emit('bookmarks', this.saved);
     });
   }
 

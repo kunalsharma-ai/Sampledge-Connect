@@ -182,6 +182,16 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       ALTER TABLE message_files ADD COLUMN duration_ms INTEGER;
     `);
   },
+  // v10: pins and polls ride on the message. Messages pinned or voted on before this version
+  // carry no newer change, so re-download history once to pick them up.
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE messages ADD COLUMN pinned TEXT;
+      ALTER TABLE messages ADD COLUMN poll TEXT;
+      UPDATE messages SET change_seq = 0 WHERE change_seq IS NOT NULL;
+      UPDATE conversations SET cursor = 0;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

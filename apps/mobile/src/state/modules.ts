@@ -61,6 +61,15 @@ export const MODULES: ModuleEntry[] = [
       'Scheduled meetings with RSVP, suggested free times from working hours, reminders and Join. Guest invites by email are planned.',
   },
   {
+    key: 'saved',
+    title: 'Saved messages',
+    icon: 'bookmark-outline',
+    status: 'available',
+    href: '/saved',
+    summary:
+      'Messages you saved for later from any conversation. Pinned messages show at the top of each conversation.',
+  },
+  {
     key: 'recordings',
     title: 'Recordings',
     icon: 'recording-outline',

@@ -37,7 +37,7 @@ export default function More() {
   const groups: { title: string; keys: string[] }[] = [
     {
       title: 'Collaborate',
-      keys: ['channels', 'projects', 'meetings', 'recordings', 'files', 'tasks'],
+      keys: ['channels', 'projects', 'meetings', 'saved', 'recordings', 'files', 'tasks'],
     },
     { title: 'Discover', keys: ['search', 'ai', 'analytics'] },
     { title: 'Workspace', keys: ['integrations', 'admin'] },

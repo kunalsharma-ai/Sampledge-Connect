@@ -71,7 +71,10 @@ invite status and a copied join link, and two guests waiting in a live meeting c
 admitted (gets a call token) and one denied. Then chat during a call (opening the call's
 conversation, returning to the same call, and the unread count on Chat), and Integrations: a
 member is told only admins can change them, and the owner saves SMTP settings with a password
-that the server keeps encrypted and never returns, then runs Test connection.
+that the server keeps encrypted and never returns, then runs Test connection. Then two-step
+sign-in (code step, wrong code, recovery-code option, a real authenticator code), and pins and
+saved messages (pin from the message sheet, another member's pin arriving live, the pinned
+list with Unpin, Save for later and the Saved messages screen).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -162,7 +165,10 @@ guests waiting with Admit and Deny, gets a nudge when one arrives, and sees admi
 (Chat on the call screen with an unread count), Integrations for owners and admins (More,
 Integrations: email, calls, push and AI connections stored encrypted in the server database
 and applied at once, with Test connection; secrets can be replaced or removed but are never
-shown), on-device search, themes, offline and storage settings, sign-out with a warning
+shown), two-step sign-in (authenticator or recovery code), pins (a bar under the conversation
+header with the newest pin, a pinned list, pin and unpin from the message sheet, kept on the
+device so they show offline) and saved messages (Save for later, More, Saved messages), on-device
+search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client

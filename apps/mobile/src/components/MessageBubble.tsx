@@ -166,6 +166,14 @@ function MessageBubbleImpl({
           </Text>
         ) : null}
         <View style={styles.meta}>
+          {m.pinned && !deleted ? (
+            <Ionicons
+              name="pin"
+              size={12}
+              color={alpha(textColor, 0.75)}
+              accessibilityLabel="Pinned"
+            />
+          ) : null}
           {m.pendingOp ? (
             <Ionicons name="time-outline" size={12} color={alpha(textColor, 0.7)} />
           ) : null}
