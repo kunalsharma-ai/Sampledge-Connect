@@ -16,6 +16,7 @@ import { billingMigration } from './021-billing.js';
 import { meetingSeriesMigration } from './030-meeting-series.js';
 import { launchIndexesMigration } from './031-launch-indexes.js';
 import { bookingPagesMigration } from './032-booking-pages.js';
+import { searchMigration } from './040-search.js';
 
 export interface Migration {
   id: string;
@@ -41,6 +42,7 @@ export const MIGRATIONS: Migration[] = [
   meetingSeriesMigration,
   launchIndexesMigration,
   bookingPagesMigration,
+  searchMigration,
 ];
 
 /**

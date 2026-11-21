@@ -31,6 +31,7 @@ export function CommandPalette({
   me,
   directory,
   onSelect,
+  onSearchAll,
   actions,
 }: {
   open: boolean;
@@ -39,6 +40,8 @@ export function CommandPalette({
   me: string;
   directory: Map<string, DirectoryEntry>;
   onSelect: (id: string) => void;
+  /** Opens Universal Search with what was typed. */
+  onSearchAll?: (q: string) => void;
   actions: PaletteAction[];
 }) {
   const [q, setQ] = React.useState('');
@@ -65,6 +68,18 @@ export function CommandPalette({
       })),
     ...actions.filter((a) => !needle || a.label.toLowerCase().includes(needle)),
   ];
+  // Always offer a full search once something is typed: first when nothing else matches.
+  if (needle && onSearchAll) {
+    const all: PaletteAction = {
+      id: 's:all',
+      label: `Search everything for “${q.trim()}”`,
+      hint: 'Messages, files, people…',
+      icon: Search,
+      run: () => onSearchAll(q.trim()),
+    };
+    if (items.length) items.push(all);
+    else items.unshift(all);
+  }
   const safeIndex = Math.min(index, Math.max(items.length - 1, 0));
 
   const choose = (a: PaletteAction | undefined) => {
@@ -106,7 +121,7 @@ export function CommandPalette({
                   choose(items[safeIndex]);
                 }
               }}
-              placeholder="Jump to a conversation or run a command"
+              placeholder="Jump to a conversation, run a command, or search everything"
               aria-label="Search"
               role="combobox"
               aria-expanded="true"
@@ -118,7 +133,7 @@ export function CommandPalette({
           <ul id="palette-list" role="listbox" className="max-h-[360px] overflow-y-auto p-2">
             {items.length === 0 ? (
               <li className="px-3 py-8 text-center text-label font-normal text-text-subtle">
-                No matches. Universal search across messages is planned.
+                Type to search conversations, commands and everything else.
               </li>
             ) : null}
             {items.map((a, i) => (

@@ -87,6 +87,8 @@ export interface ServerToClientEvents {
    * in anonymous polls, where `message:updated` carries counts without voter ids.
    */
   'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
+  /** Your recent searches changed (sent to all of your devices). */
+  'search:recent': (e: { recent: string[] }) => void;
   /** Someone in the organization joined, changed role or status, or edited their profile. */
   'directory:updated': (e: { userId: string }) => void;
   /** An organization-wide setting changed; refetch that area. */

@@ -397,6 +397,13 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+/** A person's recent searches, newest first (synced to all of their devices). */
+export interface SearchHistoryDoc extends TenantOwned {
+  userId: string;
+  recent: string[];
+  updatedAt: Date;
+}
+
 export interface BookmarkDoc extends TenantOwned {
   userId: string;
   messageId: string;
@@ -521,6 +528,7 @@ export interface TenantCollections {
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;
+  search_history: SearchHistoryDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;

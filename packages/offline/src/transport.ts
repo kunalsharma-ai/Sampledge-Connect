@@ -67,6 +67,8 @@ export interface RealtimeHandlers {
 export type ChangeEvent =
   | { type: 'bookmark'; messageId: string; conversationId: string; saved: boolean }
   | { type: 'pollVote'; messageId: string; optionIds: string[] }
+  /** Your recent searches changed on one of your devices. */
+  | { type: 'searchRecent'; recent: string[] }
   | { type: 'directory'; userId: string }
   | { type: 'tenant'; area: TenantArea }
   | { type: 'project'; projectId: string }
@@ -264,6 +266,7 @@ export class HttpSocketTransport implements Transport {
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
+    s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
     s.on('poll:myVote', (e) => this.handlers?.onChange?.({ type: 'pollVote', ...e }));
     s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
     s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));

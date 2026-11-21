@@ -47,6 +47,7 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Invite / change member, edit profile           | `directory:updated`                                     | Needs a connection (admin)             |
 | Branding                                       | `tenant:updated` `branding`                             | Needs a connection (admin)             |
 | Billing, integrations, AI, recordings settings | `tenant:updated` with that area                         | Needs a connection (admin)             |
+| Recent searches (add, remove, clear)           | `search:recent` (own devices only)                      | Queued                                 |
 | Typing, presence                               | `typing:update`, `presence:update`                      | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.

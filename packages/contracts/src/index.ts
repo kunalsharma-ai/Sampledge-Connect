@@ -25,3 +25,4 @@ export * from './billing.js';
 export * from './branding.js';
 export * from './admin.js';
 export * from './booking.js';
+export * from './search.js';

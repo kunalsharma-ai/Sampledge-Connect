@@ -67,10 +67,12 @@ import { RecordingsScreen } from './recordings-screen';
 import { AiScreen } from './ai-screen';
 import { AiSummaryCard } from './ai-summary-card';
 import { AiContext, languageName, preferredLanguage, useAi } from '@/lib/ai';
-import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
+import type { Conversation, MeetingSystemMetadata, Message } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
+import { SearchScreen } from './search-screen';
+import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
 
@@ -112,7 +114,7 @@ function useTick(ms: number) {
 
 export function Workspace() {
   const { session, getAccessToken } = useAuth();
-  const { engine, state, directory, signOut } = useEngine();
+  const { engine, db, state, directory, signOut } = useEngine();
   const { toast } = useToast();
   const bookmarks = useBookmarks();
   const me = session!.user.userId;
@@ -125,6 +127,7 @@ export function Workspace() {
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
   const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings'>(null);
   const [palette, setPalette] = React.useState(false);
+  const [searchSeed, setSearchSeed] = React.useState<{ q: string; nonce: number } | null>(null);
   const [scheduleIn, setScheduleIn] = React.useState<string | null>(null);
   const [focusMeeting, setFocusMeeting] = React.useState<{
     meetingId: string;
@@ -314,11 +317,34 @@ export function Workspace() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPalette((p) => !p);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        // Universal Search, like "find in everything".
+        e.preventDefault();
+        setModule('search');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  /** Opens your DM with someone, creating it if needed (the server keeps one DM per pair). */
+  const messagePerson = async (userId: string) => {
+    const existing = conversations?.find(
+      (c) => c.kind === 'dm' && c.memberIds.includes(userId) && c.memberIds.includes(me),
+    );
+    if (existing) return openConversation(existing.conversationId);
+    try {
+      const conv = await apiRequest<Conversation>('POST', '/v1/conversations', {
+        token: await getAccessToken(),
+        body: { kind: 'dm', memberIds: [userId] },
+      });
+      await db.conversations.put(conv);
+      void engine.syncNow();
+      openConversation(conv.conversationId);
+    } catch {
+      toast({ title: 'Starting a chat needs a connection', tone: 'danger' });
+    }
+  };
 
   const selectModule = (m: ModuleId) => {
     if (m === 'settings') return setDialog('settings');
@@ -425,6 +451,26 @@ export function Workspace() {
           <BrandingScreen />
         ) : module === 'admin' && isAdmin ? (
           <AdminScreen onOpenModule={selectModule} />
+        ) : module === 'search' ? (
+          <SearchScreen
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            initialQuery={searchSeed}
+            onOpenConversation={openConversation}
+            onOpenMessage={(conversationId, messageId, threadRoot) => {
+              setModule('messages');
+              setActiveId(conversationId);
+              if (threadRoot) setTimeout(() => setThreadRootId(threadRoot), 200);
+              if (messageId) setTimeout(() => setHighlightId(messageId), 300);
+            }}
+            onMessagePerson={(userId) => void messagePerson(userId)}
+            onOpenTasks={() => setModule('tasks')}
+            onOpenMeeting={(m) => {
+              setFocusMeeting(m);
+              setModule('meetings');
+            }}
+          />
         ) : module === 'saved' ? (
           <SavedScreen
             api={bookmarks}
@@ -923,6 +969,10 @@ export function Workspace() {
           onSelect={(id) => {
             setModule('messages');
             setActiveId(id);
+          }}
+          onSearchAll={(q) => {
+            setSearchSeed({ q, nonce: Date.now() });
+            setModule('search');
           }}
           actions={[
             {
