@@ -1,5 +1,7 @@
 import {
   ERROR_CODES,
+  type BrandingInput,
+  type BrandingView,
   type AiAskRequest,
   type AiAskResponse,
   type AiDigest,
@@ -202,6 +204,8 @@ export interface ApiTransport {
   createApproval(req: CreateApprovalRequest): Promise<Approval>;
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
+  getBranding(): Promise<BrandingView>;
+  saveBranding(input: BrandingInput): Promise<BrandingView>;
   aiStatus(): Promise<AiStatus>;
   setAiEnabled(enabled: boolean): Promise<AiStatus>;
   aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary>;
@@ -636,6 +640,14 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/cancel`, {});
   }
 
+  getBranding(): Promise<BrandingView> {
+    return this.request('GET', '/v1/branding', undefined);
+  }
+
+  saveBranding(input: BrandingInput): Promise<BrandingView> {
+    return this.request('PUT', '/v1/branding', input);
+  }
+
   aiStatus(): Promise<AiStatus> {
     return this.request('GET', '/v1/ai/status', undefined);
   }
@@ -926,6 +938,8 @@ export class NoServerTransport implements ApiTransport {
   createApproval = async (): Promise<Approval> => this.fail();
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
+  getBranding = async (): Promise<BrandingView> => this.fail();
+  saveBranding = async (): Promise<BrandingView> => this.fail();
   aiStatus = async (): Promise<AiStatus> => this.fail();
   setAiEnabled = async (): Promise<AiStatus> => this.fail();
   aiSummarize = async (): Promise<AiSummary> => this.fail();

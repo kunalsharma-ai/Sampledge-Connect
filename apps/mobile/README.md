@@ -82,7 +82,10 @@ message with an assignee, due date and priority; Request approval with an amount
 approver; both cards in the conversation; the approver deciding from To decide; ticking a task
 done from the list), and the AI assistant (Ask with numbered sources, the status digest, search
 by meaning opening the message, suggested replies filling the composer, Translate, a channel
-summary shared only after Send, and the owner's on/off switch).
+summary shared only after Send, and the owner's on/off switch), and white-label branding (the
+owner sets the name, logo, colors and sign-in message on the phone; the sign-in screen shows them
+once the workspace is typed; members start on the organization theme; an enforced theme locks
+Appearance).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -189,7 +192,10 @@ assistant (More, AI Assistant: Ask about your conversations with sources, search
 a status digest with suggested tasks; Summarize conversation in the + menu and conversation
 details, Summarize meeting on a meeting; Suggest replies in the + menu; Translate on a message;
 a summary is shared only after you press Send, with an extra tick for sensitive drafts; owners
-and admins turn it on or off), on-device
+and admins turn it on or off), white-label branding (the organization's logo and name on Home
+and the sign-in screen, its sign-in message, and its theme: members start on it or always see it
+when the owner says so; owners edit name, logo, colors, mode, sign-in message and support links in
+More, Branding; the last copy is kept on the device), on-device
 search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 

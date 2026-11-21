@@ -145,6 +145,15 @@ export const MODULES: ModuleEntry[] = [
       'Connection settings for email (SMTP), the call server and push, stored encrypted in the database and tested from here. Admins only. The seven Sampledge modules are planned.',
   },
   {
+    key: 'branding',
+    title: 'Branding',
+    icon: 'color-palette-outline',
+    status: 'available',
+    href: '/admin/branding',
+    summary:
+      'Your organization’s name, logo, colors and sign-in message, stored in the database. Owners change them; everyone sees them.',
+  },
+  {
     key: 'admin',
     title: 'Administration',
     icon: 'shield-checkmark-outline',
