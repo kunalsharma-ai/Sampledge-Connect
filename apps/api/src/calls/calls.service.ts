@@ -37,6 +37,7 @@ import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RecordingsService } from '../recordings/recordings.service.js';
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
+import { TranscriptsService } from '../ai/transcripts.service.js';
 import {
   LiveKitClient,
   egressFinished,
@@ -122,6 +123,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly recordings: RecordingsService,
     private readonly settings: IntegrationSettingsService,
+    private readonly transcripts: TranscriptsService,
   ) {
     // Hot reload: a saved change (on any API node) drops the old clients.
     this.stopListening = settings.onChange('livekit', () => this.clients.clear());
@@ -165,6 +167,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       provider: sfu ? 'livekit' : null,
       ringTimeoutSeconds: this.cfg.CALL_RING_TIMEOUT_SECONDS,
       recordingEnabled: await this.recordingAllowed(ctx.tenantId),
+      captionsEnabled: !!(await this.transcripts.settings(ctx.tenantId)),
     };
   }
 

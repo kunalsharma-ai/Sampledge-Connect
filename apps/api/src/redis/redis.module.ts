@@ -26,6 +26,8 @@ const POLICIES = {
   guest_link: { points: 240, duration: 60 },
   /** Public booking: confirmed bookings per IP. */
   booking_create: { points: 10, duration: 3600 },
+  /** Live caption clips: one every ~4 s while speaking, with headroom. */
+  caption_clip: { points: 40, duration: 60 },
   /** A Sampledge module's server calling the integration API (per tenant and module). */
   module_api: { points: 600, duration: 60 },
   /** Two-step verification codes, per account (login and settings). */

@@ -143,6 +143,8 @@ export const GuestJoinStateSchema = z.object({
   callId: ServerIdSchema.nullable(),
   /** The call is being recorded (shown to the guest before and during the call). */
   recording: z.boolean(),
+  /** Live captions are available in this call. */
+  captions: z.boolean().optional(),
   /** Same shape as CallJoin (kept local: calls.ts imports this file). */
   join: z
     .object({ url: z.string(), token: z.string(), expiresAt: z.string().datetime() })

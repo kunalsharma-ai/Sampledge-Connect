@@ -28,6 +28,7 @@ import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { CallsService } from '../calls/calls.service.js';
 import { MailerService } from '../mail/mailer.service.js';
+import { CaptionsService } from '../calls/captions.service.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
@@ -61,6 +62,7 @@ export class GuestsService {
     private readonly rateLimit: RateLimitService,
     private readonly realtime: RealtimePublisher,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    private readonly captions: CaptionsService,
   ) {
     // Same secret as signed file links (required in production). Dev without it: links
     // work until the API restarts.
@@ -523,6 +525,7 @@ export class GuestsService {
         state: 'admitted',
         callId: call._id,
         recording: !!call.recording,
+        captions: await this.captions.available(m.tenantId),
         join: await this.calls.guestJoinToken(call, { guestId: g.guestId, name: decided.name }),
       };
     const waiting = call.lobby?.some((l) => l.guestId === g.guestId);
@@ -541,6 +544,7 @@ export class GuestsService {
         state: 'admitted',
         callId: call._id,
         recording: !!call.recording,
+        captions: await this.captions.available(m.tenantId),
         join: await this.calls.guestJoinToken(call, { guestId: g.guestId, name: now2.name }),
       };
     return none('waiting', call);
@@ -613,6 +617,12 @@ export class GuestsService {
     await this.rateLimit.consume('message_send', `${m.tenantId}:guest:${g.guestId}`);
     await this.messages.postGuest(m.tenantId, m.conversationId, { guestId: g.guestId, name }, text);
     return this.chat(token);
+  }
+
+  /** A caption clip from an admitted guest (see CaptionsService). */
+  async captionClip(token: string, audio: unknown, mimeType: string | undefined) {
+    const { meeting: m, guest: g } = await this.admittedCall(token);
+    return this.captions.guest(m.tenantId, g.guestId, audio, mimeType);
   }
 
   broadcastMeeting(tenantId: string, m: MeetingDoc, toMeeting: ToMeeting) {

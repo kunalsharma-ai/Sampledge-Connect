@@ -173,6 +173,6 @@ behind the same `vectorSearch` method.
 
 ## Planned
 
-- Speaker labels (diarization) in transcripts, and live captions during calls.
+- Speaker labels (diarization) in transcripts. (Live captions during calls are built, see `calls.md`.)
 - AI on mobile (the API above is ready; the mobile app adds the screens).
 - Streaming answers.
