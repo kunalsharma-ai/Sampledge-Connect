@@ -3,7 +3,7 @@ import * as React from 'react';
 import { DEFAULT_APP_NAME, type BrandingView } from '@sampledge/contracts';
 import { useTheme } from '@sampledge/ui';
 import { apiRequest } from './api';
-import { useAuth } from './auth';
+import { isNetworkSession, useAuth } from './auth';
 
 interface OrgBrandingValue {
   branding: BrandingView | null;
@@ -62,6 +62,8 @@ export function OrgBrandingProvider({ children }: { children: React.ReactNode })
     [tenantId],
   );
   const refresh = React.useCallback(async () => {
+    // SampConnect Network is not an organization: it has no branding of its own.
+    if (isNetworkSession(session)) return;
     try {
       replace(
         await apiRequest<BrandingView>('GET', '/v1/branding', { token: await getAccessToken() }),
@@ -69,7 +71,7 @@ export function OrgBrandingProvider({ children }: { children: React.ReactNode })
     } catch {
       /* offline: keep the cached brand */
     }
-  }, [getAccessToken, replace]);
+  }, [getAccessToken, replace, session]);
   React.useEffect(() => {
     void refresh();
   }, [refresh]);

@@ -35,7 +35,10 @@ export function ContextPanel({
   canManage = false,
   onSetPostingPolicy,
   aiCard,
+  network = false,
 }: {
+  /** SampConnect Network conversation: no organization work (tasks, approvals, modules). */
+  network?: boolean;
   /** The AI summary card (right-panel AI), rendered above members. */
   aiCard?: React.ReactNode;
   conversation: Conversation;
@@ -190,7 +193,9 @@ export function ContextPanel({
           </ul>
         </section>
 
-        <WorkContextSection conversation={conversation} me={me} directory={directory} />
+        {network ? null : (
+          <WorkContextSection conversation={conversation} me={me} directory={directory} />
+        )}
 
         <section className="space-y-2">
           <p className="mb-2 text-overline uppercase text-text-subtle">Coming later</p>

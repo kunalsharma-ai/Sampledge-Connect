@@ -170,7 +170,8 @@ function WorkspaceInner({ network }: { network: boolean }) {
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
   const [pollOpen, setPollOpen] = React.useState(false);
-  const scheduled = useScheduled(activeId);
+  // Scheduled messages are an organization feature; not in SampConnect Network.
+  const scheduled = useScheduled(network ? null : activeId);
   const [threadRootId, setThreadRootId] = React.useState<string | null>(null);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -665,37 +666,41 @@ function WorkspaceInner({ network }: { network: boolean }) {
                           : 'Join this channel to send messages.'
                     }
                     onCreatePoll={() => setPollOpen(true)}
-                    onSchedule={async (text, mentions, sendAt) => {
-                      const reply = replyTo?.messageId ?? null;
-                      try {
-                        await scheduledApi.create(
-                          getAccessToken,
-                          active.conversationId,
-                          text,
-                          mentions,
-                          sendAt,
-                          reply,
-                        );
-                        setReplyTo(null);
-                        void scheduled.refresh();
-                        toast({
-                          title: 'Message scheduled',
-                          description: sendAt.toLocaleString(undefined, {
-                            weekday: 'short',
-                            hour: 'numeric',
-                            minute: '2-digit',
-                          }),
-                          tone: 'success',
-                        });
-                      } catch (e) {
-                        toast({
-                          title: 'Couldn’t schedule',
-                          description: (e as Error).message,
-                          tone: 'danger',
-                        });
-                        throw e;
-                      }
-                    }}
+                    onSchedule={
+                      network
+                        ? undefined
+                        : async (text, mentions, sendAt) => {
+                            const reply = replyTo?.messageId ?? null;
+                            try {
+                              await scheduledApi.create(
+                                getAccessToken,
+                                active.conversationId,
+                                text,
+                                mentions,
+                                sendAt,
+                                reply,
+                              );
+                              setReplyTo(null);
+                              void scheduled.refresh();
+                              toast({
+                                title: 'Message scheduled',
+                                description: sendAt.toLocaleString(undefined, {
+                                  weekday: 'short',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                }),
+                                tone: 'success',
+                              });
+                            } catch (e) {
+                              toast({
+                                title: 'Couldn’t schedule',
+                                description: (e as Error).message,
+                                tone: 'danger',
+                              });
+                              throw e;
+                            }
+                          }
+                    }
                     offline={offline}
                     conversationId={active.conversationId}
                     onSend={async (text, mentions, attachments) => {
@@ -810,8 +815,9 @@ function WorkspaceInner({ network }: { network: boolean }) {
                           }),
                         )
                     }
+                    network={network}
                     aiCard={
-                      ai.status?.enabled !== false ? (
+                      !network && ai.status?.enabled !== false ? (
                         <AiSummaryCard
                           ai={ai}
                           conversationId={active.conversationId}

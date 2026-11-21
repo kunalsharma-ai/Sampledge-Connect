@@ -12,7 +12,7 @@ import type {
 import { Avatar, Badge, Button, Field, Input, StateView } from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { LogoMark, Wordmark } from '../brand';
+import { Wordmark } from '../brand';
 import { BACKGROUNDS } from './status';
 import { errorText, plural } from './ui';
 
@@ -46,7 +46,6 @@ function PublicShell({ children }: { children: React.ReactNode }) {
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(90%_60%_at_10%_0%,color-mix(in_srgb,var(--sc-color-accent)_18%,transparent),transparent_60%),radial-gradient(70%_50%_at_100%_10%,color-mix(in_srgb,var(--sc-color-accent2)_14%,transparent),transparent_60%)]" />
       <header className="relative mx-auto flex max-w-5xl items-center gap-3 px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <LogoMark className="size-8" />
           <Wordmark />
         </Link>
         <div className="ml-auto flex gap-2">

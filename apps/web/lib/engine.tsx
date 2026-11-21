@@ -137,7 +137,9 @@ export function EngineProvider({
         window.removeEventListener('offline', offline);
         document.removeEventListener('visibilitychange', onFocus);
         engine.stop();
-        db.close();
+        // Close after the old screens unmount, so their live queries don't hit a closed DB.
+        setValue(null);
+        setTimeout(() => db.close(), 1000);
       };
     })();
     return () => {

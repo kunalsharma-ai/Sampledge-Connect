@@ -87,17 +87,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const { session, getAccessToken } = useAuth();
   const { engine, state } = useEngine();
   const online = state.connectivity !== 'offline';
-  const db = React.useMemo(
-    () =>
-      new NetworkDb(
-        `sampledge-connect:network:${session!.tenant.tenantId}:${session!.user.userId}`,
-      ),
-    [session],
-  );
+  // One cache per network identity (not per session object, which changes on every refresh).
+  const dbName = `sampledge-connect:network:${session!.tenant.tenantId}:${session!.user.userId}`;
+  const db = React.useMemo(() => new NetworkDb(dbName), [dbName]);
   const listeners = React.useRef(new Set<{ scopes: Scope[]; fn: () => void }>());
   const flushing = React.useRef<Promise<void> | null>(null);
 
-  React.useEffect(() => () => db.close(), [db]);
+  // Reopens on next use if this instance is still read after unmount (switching spaces).
+  React.useEffect(() => () => db.close({ disableAutoOpen: false }), [db]);
 
   const refresh = React.useCallback(
     async (path: string) => {

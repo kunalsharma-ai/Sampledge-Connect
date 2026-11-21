@@ -18,7 +18,7 @@ import type {
   SummaryRange,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
-import { useAuth } from './auth';
+import { isNetworkSession, useAuth } from './auth';
 import { useEngine } from './engine';
 
 /**
@@ -26,7 +26,9 @@ import { useEngine } from './engine';
  * here runs on the chat path, and failures never affect sending or reading messages.
  */
 export function useAi() {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, session } = useAuth();
+  // The AI assistant belongs to the organization; SampConnect Network has none.
+  const network = isNetworkSession(session);
   const { state } = useEngine();
   const online = state.connectivity === 'online';
   const [status, setStatus] = React.useState<AiStatus | null>(null);
@@ -38,12 +40,13 @@ export function useAi() {
   );
 
   const refreshStatus = React.useCallback(async () => {
+    if (network) return setStatus(null);
     try {
       setStatus(await call<AiStatus>('GET', '/status'));
     } catch {
       /* offline or AI unavailable: keep the last known status */
     }
-  }, [call]);
+  }, [call, network]);
 
   React.useEffect(() => {
     if (online) void refreshStatus();
