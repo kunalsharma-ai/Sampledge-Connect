@@ -22,6 +22,7 @@ import {
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useEngine } from '@/lib/engine';
+import { BrowserNotificationsCard } from './browser-notifications';
 import { relativeShort } from './helpers';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
@@ -366,10 +367,11 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="w-[min(880px,calc(100vw-2rem))]"
-        title="Appearance"
-        description="Themes apply instantly and are remembered on this device."
+        title="Settings"
+        description="Appearance and notifications for this device."
       >
         <ThemePicker />
+        <BrowserNotificationsCard />
         <div className="mt-6 rounded-xl border border-border p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-label text-text">Organization brand theme</p>

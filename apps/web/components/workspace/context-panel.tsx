@@ -1,11 +1,12 @@
 'use client';
 import type * as React from 'react';
 import { motion } from 'motion/react';
-import { Briefcase, CheckSquare, FileText, Hash, Lock, Users, X } from 'lucide-react';
+import { Bot, FileText, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { conversationTitle, nameOf } from './helpers';
+import { WorkContextSection } from './work-context';
 
 const KIND_LABEL: Record<Conversation['kind'], string> = {
   dm: 'Direct message',
@@ -16,18 +17,6 @@ const KIND_LABEL: Record<Conversation['kind'], string> = {
 
 /** Planned context cards: shown honestly as not yet connected. */
 const PLANNED = [
-  {
-    icon: Briefcase,
-    title: 'Project & client',
-    body: 'Linked Samptrek project, client and bid status.',
-    phase: 'Phase 2',
-  },
-  {
-    icon: CheckSquare,
-    title: 'Tasks & approvals',
-    body: 'Open tasks and approvals raised in this conversation.',
-    phase: 'Phase 2',
-  },
   {
     icon: FileText,
     title: 'Shared files',
@@ -43,6 +32,8 @@ export function ContextPanel({
   presence,
   onClose,
   className,
+  canManage = false,
+  onSetPostingPolicy,
   aiCard,
 }: {
   /** The AI summary card (right-panel AI), rendered above members. */
@@ -53,7 +44,13 @@ export function ContextPanel({
   presence: Map<string, string>;
   onClose: () => void;
   className?: string;
+  /** Channel owner/moderator or tenant admin, while online. */
+  canManage?: boolean;
+  onSetPostingPolicy?: (policy: 'everyone' | 'moderators') => void;
 }) {
+  const isChannel =
+    conversation.kind === 'channel_public' || conversation.kind === 'channel_private';
+  const announcement = conversation.postingPolicy === 'moderators';
   const title = conversationTitle(conversation, me, directory);
   const members = [...conversation.memberIds].sort((a, b) => {
     const pa = presence.get(a) === 'online' || a === me ? 0 : 1;
@@ -121,6 +118,45 @@ export function ContextPanel({
           </dl>
         </div>
 
+        {isChannel ? (
+          <section className="rounded-xl border border-border p-4">
+            <div className="flex items-start gap-3">
+              <Megaphone className="mt-0.5 size-4 text-accent" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-label text-text">Announcement channel</p>
+                <p className="mt-0.5 text-meta text-text-subtle">
+                  {announcement
+                    ? 'Only channel moderators and admins can post. Everyone can read and react.'
+                    : 'Everyone in the channel can post.'}
+                </p>
+              </div>
+              {canManage && onSetPostingPolicy ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={announcement}
+                  aria-label="Announcement channel"
+                  onClick={() => onSetPostingPolicy(announcement ? 'everyone' : 'moderators')}
+                  className={cn(
+                    'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
+                    announcement
+                      ? 'border-accent bg-accent'
+                      : 'border-border-strong bg-surface-raised',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block size-4 rounded-full shadow transition-transform motion-reduce:transition-none',
+                      announcement ? 'translate-x-6 bg-accent-fg' : 'translate-x-1 bg-text',
+                    )}
+                  />
+                </button>
+              ) : announcement ? (
+                <Badge tone="accent">On</Badge>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         {aiCard}
 
         <section>
@@ -154,8 +190,10 @@ export function ContextPanel({
           </ul>
         </section>
 
+        <WorkContextSection conversation={conversation} me={me} directory={directory} />
+
         <section className="space-y-2">
-          <p className="mb-2 text-overline uppercase text-text-subtle">Work context</p>
+          <p className="mb-2 text-overline uppercase text-text-subtle">Coming later</p>
           {PLANNED.map((p) => (
             <div key={p.title} className="rounded-lg border border-dashed border-border p-3">
               <div className="flex items-center justify-between gap-2">

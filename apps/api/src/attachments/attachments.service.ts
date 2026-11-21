@@ -169,13 +169,15 @@ export class AttachmentsService {
     if (!a.storageKey || a.storedBytes !== a.sizeBytes) {
       throw new AppError('CONFLICT', 'Upload the file content before completing');
     }
+    const { fields, saved } = await this.place(ctx.tenantId, a._id, a.storageKey, a.sizeBytes);
     const updated = await this.db
       .for(ctx.tenantId)
       .attachments.findOneAndUpdate(
         { _id: a._id },
-        { $set: { status: 'ready', completedAt: new Date() } },
+        { $set: { status: 'ready', completedAt: new Date(), ...fields } },
         { returnDocument: 'after' },
       );
+    saved();
     return toAttachment(updated!);
   }
 
@@ -235,7 +237,8 @@ export class AttachmentsService {
       await this.storage.delete(key);
       throw new AppError('VALIDATION_FAILED', 'Recording file is empty');
     }
-    return t.attachments.insertOne({
+    const { fields, saved } = await this.place(tenantId, _id, key, bytes);
+    const doc = await t.attachments.insertOne({
       _id,
       ...meta,
       sizeBytes: bytes,
@@ -244,13 +247,62 @@ export class AttachmentsService {
       width: null,
       height: null,
       status: 'ready',
-      storageKey: key,
       messageId: null,
       createdAt: now,
       completedAt: now,
       deletedAt: null,
       deletedBy: null,
+      ...fields,
     });
+    saved();
+    return doc;
+  }
+
+  /**
+   * Hands a verified file to the storage router (Nextcloud test or live mode, see
+   * RoutingStorage). Returns the fields to save; a background copy records its outcome later.
+   */
+  private async place(
+    tenantId: string,
+    id: string,
+    key: string,
+    size: number,
+  ): Promise<{ fields: Pick<AttachmentDoc, 'storageKey' | 'storage'>; saved: () => void }> {
+    if (!this.storage.commit) return { fields: { storageKey: key }, saved: () => {} };
+    const c = await this.storage.commit(key, { tenantId, size });
+    const at = new Date();
+    return {
+      fields: {
+        storageKey: c.key,
+        storage: {
+          backend: c.backend,
+          mirror: c.mirror
+            ? { status: 'copying', at, error: null }
+            : c.fallbackError
+              ? { status: 'failed', at, error: c.fallbackError }
+              : null,
+        },
+      },
+      // Called after the row is written, so a fast copy cannot finish before it exists.
+      saved: () => {
+        void c.mirror
+          ?.then((r) =>
+            this.db.for(tenantId).attachments.updateOne(
+              { _id: id },
+              {
+                $set: {
+                  'storage.mirror': {
+                    status: r.ok ? 'copied' : 'failed',
+                    at: new Date(),
+                    error: r.error,
+                  },
+                },
+              },
+            ),
+          )
+          .catch(() => undefined);
+      },
+    };
   }
 
   /** Opens stored bytes by attachment (for exports). */

@@ -2,7 +2,7 @@
 
 Everything is self-hosted: clips are recorded in the browser, call recordings are made by
 LiveKit Egress running next to the SFU, and every file is stored in the tenant's attachment
-storage (MongoDB GridFS today; the Nextcloud adapter is planned behind the same interface).
+storage (MongoDB GridFS, or Nextcloud when an admin turns it on; see storage.md).
 Nothing is sent to a third-party service.
 
 ## What can be recorded

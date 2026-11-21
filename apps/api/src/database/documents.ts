@@ -68,6 +68,8 @@ export interface ConversationDoc extends TenantOwned {
   archivedAt: Date | null;
   lastChangeSequence: number;
   lastMessageAt: Date | null;
+  /** Channels only; absent = everyone may post. */
+  postingPolicy?: 'everyone' | 'moderators';
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -111,6 +113,21 @@ export interface MessageDoc extends TenantOwned {
   attachments?: AttachmentSnapshot[];
   /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
   reactions?: { emoji: string; userIds: string[] }[];
+  pinned?: { pinnedBy: string; pinnedAt: Date } | null;
+  /** Poll messages only. Votes live inline so tallies change atomically under the conversation lock. */
+  poll?: PollDoc;
+}
+
+export interface PollDoc {
+  question: string;
+  options: { optionId: string; text: string }[];
+  multiple: boolean;
+  anonymous: boolean;
+  closesAt: Date | null;
+  closedAt: Date | null;
+  closedBy: string | null;
+  /** One row per voter, in first-vote order. */
+  votes: { userId: string; optionIds: string[]; at: Date }[];
 }
 
 export interface ReceiptDoc extends TenantOwned {
@@ -136,7 +153,7 @@ export interface DeviceDoc extends TenantOwned {
   revokedReason: string | null;
   /** Push token for this device session; cleared on revoke and sign-out. */
   push?: {
-    provider: 'expo' | 'fcm' | 'apns';
+    provider: 'expo' | 'fcm' | 'apns' | 'webpush';
     token: string;
     platform: string;
     updatedAt: Date;
@@ -185,11 +202,17 @@ export interface AttachmentDoc extends TenantOwned {
   /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  /** Where the bytes live. Absent on older rows (GridFS). */
+  storage?: {
+    backend: 'gridfs' | 'nextcloud';
+    /** Nextcloud test-mode copy, or a live-mode upload that fell back to Connect storage. */
+    mirror?: { status: 'copying' | 'copied' | 'failed'; at: Date; error: string | null } | null;
+  };
 }
 
 export interface NotificationDoc extends TenantOwned {
   userId: string;
-  kind: 'mention' | 'reply';
+  kind: 'mention' | 'reply' | 'alert' | 'task' | 'approval';
   conversationId: string;
   messageId: string;
   actorId: string;
@@ -320,6 +343,29 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+export interface BookmarkDoc extends TenantOwned {
+  userId: string;
+  messageId: string;
+  conversationId: string;
+  createdAt: Date;
+}
+
+export interface ScheduledMessageDoc extends TenantOwned {
+  conversationId: string;
+  userId: string;
+  clientMessageId: string;
+  content: { text: string; mentions: string[] };
+  replyToMessageId: string | null;
+  sendAt: Date;
+  /** 'sending' is a short-lived claim held by the sweeper. */
+  status: 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled';
+  messageId: string | null;
+  error: string | null;
+  attempts: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** One embedding per message per embedding model (the vector index for semantic search). */
 export interface AiEmbeddingDoc extends TenantOwned {
   conversationId: string;
@@ -364,6 +410,25 @@ export interface AiProposalDoc extends TenantOwned {
   confirmedAt: Date | null;
 }
 
+/** One transcript per recording or voice message, from the tenant's own speech-to-text server. */
+export interface AiTranscriptDoc extends TenantOwned {
+  attachmentId: string;
+  conversationId: string;
+  messageId: string | null;
+  kind: string | null;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  text: string | null;
+  segments: { startMs: number; endMs: number; text: string }[];
+  language: string | null;
+  model: string | null;
+  error: string | null;
+  attempts: number;
+  /** null when queued automatically (call recordings). */
+  requestedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -381,8 +446,11 @@ export interface TenantCollections {
   meetings: MeetingDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
+  bookmarks: BookmarkDoc;
+  scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
+  ai_transcripts: AiTranscriptDoc;
 }

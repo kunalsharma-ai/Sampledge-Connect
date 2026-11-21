@@ -6,7 +6,12 @@ import { ServerIdSchema } from './ids.js';
  * attention. Today: being @mentioned, and replies to your messages. Notifications for
  * conversations the user can no longer read are hidden, never shown.
  */
-export const NOTIFICATION_KINDS = ['mention', 'reply'] as const;
+/**
+ * alert: a Sampledge module event for you (milestone due, quota alert...); task: a task was
+ * assigned to you; approval: you are asked to decide. All three point at the card message.
+ * Clients should treat an unknown kind like 'alert'.
+ */
+export const NOTIFICATION_KINDS = ['mention', 'reply', 'alert', 'task', 'approval'] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
 
@@ -53,21 +58,50 @@ export const MarkNotificationsReadRequestSchema = z.union([
 export type MarkNotificationsReadRequest = z.infer<typeof MarkNotificationsReadRequestSchema>;
 
 /** Push token for the caller's current device session. POST /v1/push/token, DELETE /v1/push/token. */
-export const PUSH_TOKEN_PROVIDERS = ['expo', 'fcm', 'apns'] as const;
-export const RegisterPushTokenRequestSchema = z.object({
-  provider: z.enum(PUSH_TOKEN_PROVIDERS),
-  token: z.string().trim().min(8).max(512),
-  platform: z.enum(['ios', 'android', 'web']),
-});
+export const PUSH_TOKEN_PROVIDERS = ['expo', 'fcm', 'apns', 'webpush'] as const;
+/**
+ * For `webpush` the token is the browser's PushSubscription as JSON
+ * (`{ endpoint, keys: { p256dh, auth } }`), which is longer than a mobile token.
+ */
+export const RegisterPushTokenRequestSchema = z
+  .object({
+    provider: z.enum(PUSH_TOKEN_PROVIDERS),
+    token: z.string().trim().min(8).max(4096),
+    platform: z.enum(['ios', 'android', 'web']),
+  })
+  .refine((r) => r.provider === 'webpush' || r.token.length <= 512, {
+    message: 'Token is too long',
+    path: ['token'],
+  });
 export type RegisterPushTokenRequest = z.infer<typeof RegisterPushTokenRequestSchema>;
 
 /** GET /v1/push/status. `enabled` is false until the server has a push provider configured. */
 export const PushStatusSchema = z.object({
   enabled: z.boolean(),
-  provider: z.enum(['expo']).nullable(),
+  provider: z.enum(['expo', 'webpush']).nullable(),
   tokenRegistered: z.boolean(),
 });
 export type PushStatus = z.infer<typeof PushStatusSchema>;
+
+/** GET /v1/push/web: what a browser needs to subscribe. `publicKey` is the VAPID key (base64url). */
+export const WebPushConfigSchema = z.object({
+  enabled: z.boolean(),
+  publicKey: z.string().nullable(),
+  /** Whether this browser session already has a subscription stored. */
+  subscribed: z.boolean(),
+});
+export type WebPushConfig = z.infer<typeof WebPushConfigSchema>;
+
+/** What the service worker receives in a web push. */
+export interface WebPushPayload {
+  title: string;
+  body: string;
+  /** Path inside the app to open on click, e.g. `/app?c=<conversationId>`. */
+  url: string;
+  tag: string;
+  data: Record<string, unknown>;
+  badge?: number;
+}
 
 /** The `data` payload of an incoming-call push. Show a call screen until `expiresAt`. */
 export interface CallPushData {
