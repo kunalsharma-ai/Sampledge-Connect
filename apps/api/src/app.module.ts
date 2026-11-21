@@ -68,6 +68,8 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
 import { BookingService } from './meetings/booking.service.js';
 import { CaptionsService } from './calls/captions.service.js';
+import { CallBackgroundsController } from './calls/call-backgrounds.controller.js';
+import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -137,6 +139,7 @@ export class AppModule {
         StatusController,
         ScheduledMessagesController,
         CallsController,
+        CallBackgroundsController,
         MeetingsController,
         GuestsController,
         BookingPagesController,
@@ -177,6 +180,7 @@ export class AppModule {
         GuestsService,
         BookingService,
         CaptionsService,
+        CallBackgroundsService,
         MailerService,
         WorkStore,
         ModuleSettingsService,

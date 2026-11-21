@@ -329,6 +329,8 @@ export interface TenantSettingsDoc extends TenantOwned {
   callRecordingEnabled: boolean;
   /** Private AI assistant on/off for the organization. Absent means on. */
   aiEnabled?: boolean;
+  /** Call backgrounds: organization default and whether the logo background is required. */
+  callBackgrounds?: { defaultChoice: { kind: string; presetId?: string }; enforceLogo: boolean };
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -436,6 +438,24 @@ export interface SearchHistoryDoc extends TenantOwned {
 
 /** A profile photo. `_id` is a random key, so its public URL can't be guessed. */
 export interface UserAvatarDoc extends TenantOwned {
+  userId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
+/** A person's call background choice, synced to all of their devices. */
+export interface CallBackgroundPrefDoc extends TenantOwned {
+  userId: string;
+  choice: { kind: string; presetId?: string } | null;
+  /** Key of their own image in `call_background_images`, if they uploaded one. */
+  imageKey?: string | null;
+  updatedAt: Date;
+}
+
+/** A personal call background image. `_id` is a random key, so its public URL can't be guessed. */
+export interface CallBackgroundImageDoc extends TenantOwned {
   userId: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   data: Buffer;
@@ -577,6 +597,8 @@ export interface TenantCollections {
   bookmarks: BookmarkDoc;
   search_history: SearchHistoryDoc;
   user_avatars: UserAvatarDoc;
+  call_background_prefs: CallBackgroundPrefDoc;
+  call_background_images: CallBackgroundImageDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;

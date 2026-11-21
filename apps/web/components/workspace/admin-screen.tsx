@@ -25,9 +25,10 @@ import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
 import { avatarUrl, relativeShort } from './helpers';
+import { CallBackgroundsAdmin } from './call-backgrounds-admin';
 import type { ModuleId } from './modules';
 
-type Tab = 'overview' | 'members' | 'devices' | 'audit';
+type Tab = 'overview' | 'members' | 'devices' | 'calls' | 'audit';
 interface Device {
   sessionId: string;
   userId: string;
@@ -86,7 +87,7 @@ function useAdminApi() {
   }, [getAccessToken]);
 }
 
-/** Administration: overview, members, devices and the audit log for owners and admins. */
+/** Administration: overview, members, devices, call backgrounds and the audit log for owners and admins. */
 export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => void }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const [auditActor, setAuditActor] = React.useState<string | null>(null);
@@ -94,6 +95,7 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     { id: 'overview', label: 'Overview' },
     { id: 'members', label: 'Members' },
     { id: 'devices', label: 'Devices' },
+    { id: 'calls', label: 'Calls' },
     { id: 'audit', label: 'Audit log' },
   ];
   return (
@@ -132,6 +134,8 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
             />
           ) : tab === 'devices' ? (
             <DevicesTab />
+          ) : tab === 'calls' ? (
+            <CallBackgroundsAdmin />
           ) : (
             <AuditTab actorId={auditActor} onClearActor={() => setAuditActor(null)} />
           )}

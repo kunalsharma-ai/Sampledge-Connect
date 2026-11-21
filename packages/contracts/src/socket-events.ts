@@ -125,7 +125,7 @@ export interface ServerToClientEvents {
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
 
-export const MEETINGS_AREAS = ['working_hours', 'booking_pages'] as const;
+export const MEETINGS_AREAS = ['working_hours', 'booking_pages', 'call_background'] as const;
 export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
 
 export const TENANT_AREAS = [
@@ -135,6 +135,7 @@ export const TENANT_AREAS = [
   'ai',
   'recordings',
   'chat_themes',
+  'calls',
 ] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
