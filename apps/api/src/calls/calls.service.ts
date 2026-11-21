@@ -10,6 +10,9 @@ import type { Redis } from 'ioredis';
 import {
   StartCallRequestSchema,
   formatCallDuration,
+  guestIdentity,
+  isGuestIdentity,
+  GUEST_IDENTITY_PREFIX,
   type Call,
   type CallJoinResponse,
   type CallSystemMetadata,
@@ -18,7 +21,13 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { CallDoc, CallParticipantDoc, CallRecordingDoc } from '../database/documents.js';
+import type {
+  CallDoc,
+  CallGuestDoc,
+  CallLobbyDoc,
+  CallParticipantDoc,
+  CallRecordingDoc,
+} from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
@@ -62,7 +71,26 @@ export const toCall = (c: CallDoc): Call => ({
         startedAt: c.recording.startedAt.toISOString(),
       }
     : null,
+  lobby: (c.lobby ?? []).map((l) => ({
+    guestId: l.guestId,
+    meetingId: l.meetingId,
+    name: l.name,
+    email: l.email,
+    requestedAt: l.requestedAt.toISOString(),
+  })),
+  guests: (c.guests ?? []).map((g) => ({
+    guestId: g.guestId,
+    meetingId: g.meetingId,
+    name: g.name,
+    email: g.email,
+    state: g.state,
+    decidedBy: g.decidedBy,
+    joinedAt: g.joinedAt?.toISOString() ?? null,
+  })),
 });
+
+/** A guest who stops polling the lobby (closed the tab) drops out of it after this long. */
+export const LOBBY_STALE_MS = 30_000;
 
 /** A starting/stopping recording that hasn't heard from egress for this long is re-checked. */
 const RECORDING_RECHECK_MS = 60_000;
@@ -505,6 +533,16 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     const call = await this.rawDb.collection<CallDoc>('calls').findOne({ room });
     if (!call || call.status !== 'live') return;
     const identity = event.participant?.identity;
+    if (identity && isGuestIdentity(identity) && event.event !== 'room_finished') {
+      const guestId = identity.slice(GUEST_IDENTITY_PREFIX.length);
+      if (event.event === 'participant_joined')
+        await this.setGuestState(call.tenantId, call, guestId, 'joined');
+      else if (event.event === 'participant_left') {
+        const updated = await this.setGuestState(call.tenantId, call, guestId, 'left');
+        await this.maybeFinish(call.tenantId, updated ?? call);
+      }
+      return;
+    }
     if (event.event === 'room_finished') {
       await this.finish(call.tenantId, call._id);
     } else if (event.event === 'participant_joined' && identity) {
@@ -548,6 +586,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
         changed = true;
       }
     }
+    let presentIds: Set<string> | null = null;
     if (this.lk) {
       let present: Set<string> | null = null;
       try {
@@ -555,6 +594,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       } catch {
         present = null; // SFU unreachable: don't guess.
       }
+      presentIds = present;
       if (present) {
         for (const p of participants) {
           if (p.state === 'joined' && !present.has(p.userId)) {
@@ -573,11 +613,34 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
         }
       }
     }
+    const lobby = (call.lobby ?? []).filter(
+      (l) => now.getTime() - (l.seenAt ?? l.requestedAt).getTime() <= LOBBY_STALE_MS,
+    );
+    if (lobby.length !== (call.lobby ?? []).length) changed = true;
+    const guests = (call.guests ?? []).map((g) => ({ ...g }));
+    if (presentIds) {
+      for (const g of guests) {
+        const here = presentIds.has(guestIdentity(g.guestId));
+        if (g.state === 'joined' && !here) {
+          const since = Math.max(call.lastActivityAt.getTime(), g.joinedAt?.getTime() ?? 0);
+          if (now.getTime() - since > CONNECT_GRACE_MS) {
+            g.state = 'left';
+            g.leftAt = now;
+            changed = true;
+          }
+        } else if (here && g.state !== 'joined' && g.state !== 'denied') {
+          g.state = 'joined';
+          g.joinedAt ??= now;
+          g.leftAt = null;
+          changed = true;
+        }
+      }
+    }
     let current: CallDoc = call;
     if (changed) {
       const updated = await t.calls.findOneAndUpdate(
         { _id: call._id, status: 'live', lastActivityAt: call.lastActivityAt },
-        { $set: { participants } },
+        { $set: { participants, lobby, guests } },
         { returnDocument: 'after' },
       );
       if (!updated) return; // changed underneath us; next sweep will look again
@@ -590,6 +653,178 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       );
     }
     await this.maybeFinish(call.tenantId, current);
+  }
+
+  // ---------- external guests (lobby) ----------
+
+  /** The live call in a conversation, across tenants' scoping (guest flows have no user context). */
+  async liveCall(tenantId: string, conversationId: string): Promise<CallDoc | null> {
+    return this.db.for(tenantId).calls.findOne({ conversationId, status: 'live' });
+  }
+
+  /**
+   * Puts a guest in the lobby of a live call (or refreshes their place in it, which the guest
+   * page does on every poll). Returns the call as it now stands. A guest already admitted
+   * (who reloaded the page) or denied stays as they are.
+   */
+  async enterLobby(
+    tenantId: string,
+    call: CallDoc,
+    entry: Omit<CallLobbyDoc, 'requestedAt' | 'seenAt'>,
+  ): Promise<CallDoc> {
+    const t = this.db.for(tenantId);
+    const decided = call.guests?.find((g) => g.guestId === entry.guestId);
+    if (decided) return call;
+    const now = new Date();
+    const waiting = call.lobby?.find((l) => l.guestId === entry.guestId);
+    if (waiting) {
+      const updated = await t.calls.findOneAndUpdate(
+        { _id: call._id, status: 'live', 'lobby.guestId': entry.guestId },
+        { $set: { 'lobby.$.seenAt': now, 'lobby.$.name': entry.name } },
+        { returnDocument: 'after' },
+      );
+      if (updated && waiting.name !== entry.name) this.broadcast(tenantId, updated);
+      return updated ?? call;
+    }
+    const updated = await t.calls.findOneAndUpdate(
+      {
+        _id: call._id,
+        status: 'live',
+        'lobby.guestId': { $ne: entry.guestId },
+        'guests.guestId': { $ne: entry.guestId },
+      },
+      { $push: { lobby: { $each: [{ ...entry, requestedAt: now, seenAt: now }], $slice: -200 } } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) return (await t.calls.findOne({ _id: call._id })) ?? call;
+    this.broadcast(tenantId, updated);
+    return updated;
+  }
+
+  /** A guest closed the join page: leave the lobby. */
+  async leaveLobby(tenantId: string, callId: string, guestId: string): Promise<void> {
+    const updated = await this.db
+      .for(tenantId)
+      .calls.findOneAndUpdate(
+        { _id: callId, status: 'live', 'lobby.guestId': guestId },
+        { $pull: { lobby: { guestId } } },
+        { returnDocument: 'after' },
+      );
+    if (updated) this.broadcast(tenantId, updated);
+  }
+
+  /** Admit or deny someone waiting in the lobby. Anyone currently in the call may decide. */
+  async decideGuest(
+    ctx: TenantContext,
+    callId: string,
+    guestId: string,
+    allow: boolean,
+  ): Promise<Call> {
+    const call = await this.load(ctx, callId);
+    if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
+    const me = call.participants.find((p) => p.userId === ctx.userId);
+    if (me?.state !== 'joined') throw forbidden('Join the call to let people in from the lobby');
+    const waiting = call.lobby?.find((l) => l.guestId === guestId);
+    if (!waiting) {
+      const decided = call.guests?.find((g) => g.guestId === guestId);
+      if (decided) return toCall(call); // someone else got there first
+      throw notFound('Lobby entry');
+    }
+    const guest: CallGuestDoc = {
+      guestId,
+      meetingId: waiting.meetingId,
+      name: waiting.name,
+      email: waiting.email,
+      state: allow ? 'admitted' : 'denied',
+      decidedBy: ctx.userId,
+      joinedAt: null,
+      leftAt: null,
+    };
+    const updated = await this.db.for(ctx.tenantId).calls.findOneAndUpdate(
+      { _id: call._id, status: 'live', 'lobby.guestId': guestId },
+      {
+        $pull: { lobby: { guestId } },
+        $push: { guests: guest },
+        $set: { lastActivityAt: new Date() },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated)
+      return toCall((await this.db.for(ctx.tenantId).calls.findOne({ _id: callId })) ?? call);
+    this.broadcast(ctx.tenantId, updated);
+    return toCall(updated);
+  }
+
+  /** SFU token for an admitted guest. Identity `guest:<id>` keeps them apart from members. */
+  async guestJoinToken(call: CallDoc, guest: { guestId: string; name: string }) {
+    const lk = this.requireSfu();
+    const { token, expiresAt } = await lk.token({
+      identity: guestIdentity(guest.guestId),
+      name: `${guest.name} (guest)`,
+      metadata: JSON.stringify({ guestId: guest.guestId, guest: true }),
+      grant: {
+        room: call.room,
+        roomJoin: true,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+        canUpdateOwnMetadata: true,
+      },
+      ttlSeconds: JOIN_TOKEN_TTL_S,
+    });
+    return { url: lk.settings.publicUrl, token, expiresAt: expiresAt.toISOString() };
+  }
+
+  /** Takes a guest out of a call (their invite was withdrawn). */
+  async removeGuest(tenantId: string, conversationId: string, guestId: string): Promise<void> {
+    const call = await this.liveCall(tenantId, conversationId);
+    if (!call) return;
+    const known =
+      call.lobby?.some((l) => l.guestId === guestId) ||
+      call.guests?.some((g) => g.guestId === guestId);
+    if (!known) return;
+    const updated = await this.db.for(tenantId).calls.findOneAndUpdate(
+      { _id: call._id, status: 'live' },
+      {
+        $pull: { lobby: { guestId } },
+        $set: {
+          guests: (call.guests ?? []).map((g) =>
+            g.guestId === guestId ? { ...g, state: 'denied' as const, leftAt: new Date() } : g,
+          ),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (this.lk)
+      await this.lk.removeParticipant(call.room, guestIdentity(guestId)).catch(() => undefined);
+    if (updated) this.broadcast(tenantId, updated);
+  }
+
+  private async setGuestState(
+    tenantId: string,
+    call: CallDoc,
+    guestId: string,
+    state: 'joined' | 'left',
+  ): Promise<CallDoc | null> {
+    const g = call.guests?.find((x) => x.guestId === guestId);
+    // Only admitted guests can hold a token; anything else is ignored.
+    if (!g || g.state === 'denied' || g.state === state) return call;
+    const now = new Date();
+    const updated = await this.db.for(tenantId).calls.findOneAndUpdate(
+      { _id: call._id, status: 'live', 'guests.guestId': guestId },
+      {
+        $set: {
+          'guests.$.state': state,
+          ...(state === 'joined'
+            ? { 'guests.$.leftAt': null, ...(g.joinedAt ? {} : { 'guests.$.joinedAt': now }) }
+            : { 'guests.$.leftAt': now }),
+          lastActivityAt: now,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (updated) this.broadcast(tenantId, updated);
+    return updated;
   }
 
   // ---------- internals ----------
@@ -659,10 +894,12 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
    */
   private async maybeFinish(tenantId: string, call: CallDoc): Promise<CallDoc | null> {
     if (call.status !== 'live') return null;
-    const joined = call.participants.filter((p) => p.state === 'joined');
+    const guestsIn = (call.guests ?? []).filter((g) => g.state === 'joined').length;
+    const guestsEver = (call.guests ?? []).filter((g) => g.joinedAt).length;
+    const joined = call.participants.filter((p) => p.state === 'joined').length + guestsIn;
     const ringing = call.participants.some((p) => p.state === 'ringing');
-    const everJoined = call.participants.filter((p) => p.joinedAt);
-    if (joined.length === 0 || (joined.length === 1 && !ringing && everJoined.length === 1))
+    const everJoined = call.participants.filter((p) => p.joinedAt).length + guestsEver;
+    if (joined === 0 || (joined === 1 && !ringing && everJoined === 1))
       return this.finish(tenantId, call._id);
     return null;
   }
@@ -683,9 +920,23 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       leftAt: p.state === 'joined' ? now : p.leftAt,
       ringUntil: null,
     }));
+    const guests = (call.guests ?? []).map((g) =>
+      g.state === 'joined' || g.state === 'admitted'
+        ? { ...g, state: g.joinedAt ? ('left' as const) : g.state, leftAt: now }
+        : g,
+    );
     const ended = await t.calls.findOneAndUpdate(
       { _id: callId, status: 'live' },
-      { $set: { status: 'ended', endedAt: now, participants, lastActivityAt: now } },
+      {
+        $set: {
+          status: 'ended',
+          endedAt: now,
+          participants,
+          lobby: [],
+          guests,
+          lastActivityAt: now,
+        },
+      },
       { returnDocument: 'after' },
     );
     if (!ended) return null; // another path finished it first

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GuestInputSchema, MAX_MEETING_GUESTS, MeetingGuestSchema } from './guests.js';
 import { ServerIdSchema } from './ids.js';
 
 /**
@@ -35,6 +36,8 @@ export const MeetingSchema = z.object({
   /** Minutes before start at which attendees get a reminder. */
   remindMinutes: z.array(z.number().int()),
   status: z.enum(MEETING_STATUSES),
+  /** External guests invited by email (see guests.ts). */
+  guests: z.array(MeetingGuestSchema).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -81,6 +84,8 @@ export const CreateMeetingRequestSchema = z
     optionalAttendeeIds: z.array(ServerIdSchema).max(MAX_MEETING_ATTENDEES).default([]),
     /** Hold the meeting in an existing conversation (its members are invited). Otherwise a meeting chat is created. */
     conversationId: ServerIdSchema.optional(),
+    /** People outside the organization, invited by email with a calendar invite and a join link. */
+    guests: z.array(GuestInputSchema).max(MAX_MEETING_GUESTS).default([]),
   })
   .refine(validRange, {
     message: 'endsAt must be after startsAt (max 12 hours)',
@@ -99,6 +104,9 @@ export const UpdateMeetingRequestSchema = z
     media: z.enum(['audio', 'video']).optional(),
     remindMinutes: MeetingFields.remindMinutes.optional(),
     addAttendeeIds: z.array(ServerIdSchema).max(MAX_MEETING_ATTENDEES).default([]),
+    addGuests: z.array(GuestInputSchema).max(MAX_MEETING_GUESTS).default([]),
+    /** Removed guests get a cancellation and their link stops working. */
+    removeGuestIds: z.array(ServerIdSchema).max(MAX_MEETING_GUESTS).default([]),
   })
   .refine(validRange, {
     message: 'endsAt must be after startsAt (max 12 hours)',

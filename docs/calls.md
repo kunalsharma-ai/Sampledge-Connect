@@ -67,7 +67,6 @@ Built: 1:1 and group voice/video calls in any conversation, ringing with timeout
 screen share (with tab audio), raise hand, mute/camera, active speaker, end for everyone, call history cards,
 incoming-call push data, reconnect handling, multi-replica safe sweeper.
 
-Planned next (in order): scheduled meetings with a calendar and booking slots, external guest invites with
-email + `.ics` (self-hosted SMTP), lobby/waiting room, recordings (LiveKit Egress, self-hosted, to your own
-storage), in-call chat panel, device picker, background blur, live captions. Mobile call screen
+Also built: scheduled meetings (`meetings.md`), external guests with a lobby (`guests.md`) and recordings
+(`recordings.md`). Planned next: in-call chat panel, device picker, background blur, live captions. Mobile call screen
 (`@livekit/react-native`, needs an Expo dev build).

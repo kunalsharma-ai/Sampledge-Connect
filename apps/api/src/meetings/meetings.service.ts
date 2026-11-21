@@ -24,7 +24,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { MeetingDoc } from '../database/documents.js';
+import type { MeetingDoc, MeetingGuestDoc } from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
@@ -32,6 +32,8 @@ import { MessagesService } from '../messages/messages.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS } from '../redis/redis.module.js';
+import { CallsService } from '../calls/calls.service.js';
+import { GuestsService } from './guests.service.js';
 import { hhmmToMinutes, localParts } from './time.js';
 
 const REMINDER_SWEEP_MS = 30_000;
@@ -53,6 +55,17 @@ export const toMeeting = (m: MeetingDoc): Meeting => ({
   media: m.media,
   remindMinutes: m.remindMinutes,
   status: m.status,
+  guests: (m.guests ?? []).map((g) => ({
+    guestId: g.guestId,
+    email: g.email,
+    name: g.name,
+    response: g.response,
+    invite: {
+      status: g.invite.status,
+      at: g.invite.at?.toISOString() ?? null,
+      error: g.invite.error,
+    },
+  })),
   createdAt: m.createdAt.toISOString(),
   updatedAt: m.updatedAt.toISOString(),
 });
@@ -78,6 +91,8 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     private readonly realtime: RealtimePublisher,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly guests: GuestsService,
+    private readonly calls: CallsService,
   ) {}
 
   onModuleInit() {
@@ -105,6 +120,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       (id) => id !== ctx.userId,
     );
 
+    const guests = await this.guests.prepare(ctx, req.guests);
     let conversationId: string;
     let attendeeIds: string[];
     if (req.conversationId) {
@@ -116,14 +132,9 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       conversationId = req.conversationId;
       attendeeIds = [...new Set([...members, ...invited])];
     } else {
-      if (invited.length === 0)
+      if (invited.length === 0 && guests.length === 0)
         throw new AppError('VALIDATION_FAILED', 'Invite at least one person');
-      const conv = await this.conversations.create(
-        ctx,
-        invited.length === 1
-          ? { kind: 'dm', memberIds: invited }
-          : { kind: 'group', name: req.title.slice(0, 80), memberIds: invited },
-      );
+      const conv = await this.conversations.createMeetingChat(ctx, req.title, invited);
       conversationId = conv.conversationId;
       attendeeIds = [ctx.userId, ...invited];
     }
@@ -148,6 +159,8 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       remindersSent: [],
       status: 'scheduled',
       messageId: null,
+      guests,
+      sequence: 0,
       createdAt: now,
       updatedAt: now,
     });
@@ -171,6 +184,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       'invite',
       attendeeIds.filter((id) => id !== ctx.userId),
     );
+    this.emailGuests(ctx.tenantId, doc, guests, 'invite');
     return toMeeting(doc);
   }
 
@@ -207,6 +221,24 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     const moved =
       startsAt.getTime() !== m.startsAt.getTime() || endsAt.getTime() !== m.endsAt.getTime();
 
+    const removeIds = new Set(req.removeGuestIds);
+    const removed = (m.guests ?? []).filter((g) => removeIds.has(g.guestId));
+    const kept = (m.guests ?? []).filter((g) => !removeIds.has(g.guestId));
+    const newGuests = await this.guests.prepare(ctx, req.addGuests, kept);
+    const changed =
+      moved ||
+      (req.title !== undefined && req.title !== m.title) ||
+      (req.agenda !== undefined && req.agenda !== m.agenda);
+    const sequence = (m.sequence ?? 0) + (changed || removed.length ? 1 : 0);
+    const guests: MeetingGuestDoc[] = [
+      ...kept.map((g) => ({
+        ...g,
+        response: moved ? ('pending' as const) : g.response,
+        ...(changed ? { invite: { ...g.invite, status: this.sendingStatus() } } : {}),
+      })),
+      ...newGuests,
+    ];
+
     const add = req.addAttendeeIds.filter(
       (id) => id !== ctx.userId && !m.attendees.some((a) => a.userId === id),
     );
@@ -238,6 +270,8 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
             : m.remindMinutes,
           ...(moved ? { remindersSent: [] } : {}),
           attendees,
+          guests,
+          sequence,
           updatedAt: new Date(),
         },
       },
@@ -254,6 +288,21 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       others.filter((id) => !add.includes(id)),
     );
     this.push(ctx.tenantId, updated, 'invite', add);
+    if (changed)
+      this.emailGuests(
+        ctx.tenantId,
+        updated,
+        (updated.guests ?? []).filter((g) => !newGuests.some((n) => n.guestId === g.guestId)),
+        'updated',
+      );
+    this.emailGuests(ctx.tenantId, updated, newGuests, 'invite');
+    if (removed.length) {
+      this.emailGuests(ctx.tenantId, updated, removed, 'cancelled-for-you');
+      for (const g of removed)
+        await this.calls
+          .removeGuest(ctx.tenantId, updated.conversationId, g.guestId)
+          .catch(() => undefined);
+    }
     return toMeeting(updated);
   }
 
@@ -261,13 +310,14 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     const m = await this.load(ctx, meetingId);
     if (m.organizerId !== ctx.userId) throw forbidden('Only the organizer can cancel this meeting');
     if (m.status === 'cancelled') return toMeeting(m);
-    const updated = await this.db
-      .for(ctx.tenantId)
-      .meetings.findOneAndUpdate(
-        { _id: m._id },
-        { $set: { status: 'cancelled', updatedAt: new Date() } },
-        { returnDocument: 'after' },
-      );
+    const updated = await this.db.for(ctx.tenantId).meetings.findOneAndUpdate(
+      { _id: m._id },
+      {
+        $set: { status: 'cancelled', updatedAt: new Date() },
+        $inc: { sequence: 1 },
+      },
+      { returnDocument: 'after' },
+    );
     await this.refreshCard(ctx.tenantId, updated!, 'cancelled');
     this.broadcast(ctx.tenantId, updated!);
     this.push(
@@ -276,7 +326,66 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       'cancelled',
       updated!.attendees.map((a) => a.userId).filter((id) => id !== ctx.userId),
     );
+    this.emailGuests(ctx.tenantId, updated!, updated!.guests ?? [], 'cancelled');
     return toMeeting(updated!);
+  }
+
+  // ---------- external guests ----------
+
+  /** The organizer's copy of a guest's personal join link. */
+  async guestLink(ctx: TenantContext, meetingId: string, guestId: string) {
+    return this.guests.link(ctx, await this.load(ctx, meetingId), guestId);
+  }
+
+  /** Sends a guest their invite again (after fixing SMTP, or if they lost it). */
+  async resendGuestInvite(ctx: TenantContext, meetingId: string, guestId: string) {
+    const m = await this.load(ctx, meetingId);
+    if (m.organizerId !== ctx.userId)
+      throw forbidden('Only the organizer can resend guest invites');
+    if (m.status === 'cancelled') throw new AppError('CONFLICT', 'This meeting was cancelled');
+    const g = m.guests?.find((x) => x.guestId === guestId);
+    if (!g) throw notFound('Guest');
+    if (!this.guests.emailEnabled)
+      throw new AppError(
+        'UNAVAILABLE',
+        "Email isn't set up on this server yet. Copy the guest's link and send it yourself.",
+      );
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .meetings.findOneAndUpdate(
+        { _id: m._id, 'guests.guestId': guestId },
+        { $set: { 'guests.$.invite': { status: 'sending', at: new Date(), error: null } } },
+        { returnDocument: 'after' },
+      );
+    this.broadcast(ctx.tenantId, updated!);
+    this.emailGuests(ctx.tenantId, updated!, [g], 'invite');
+    return toMeeting(updated!);
+  }
+
+  /** The guest page's RSVP, broadcast to attendees like any other change. */
+  guestRsvp(token: string, input: unknown) {
+    return this.guests.rsvp(token, input, toMeeting);
+  }
+
+  private sendingStatus(): MeetingGuestDoc['invite']['status'] {
+    return this.guests.emailEnabled ? 'sending' : 'not_configured';
+  }
+
+  private emailGuests(
+    tenantId: string,
+    m: MeetingDoc,
+    guests: MeetingGuestDoc[],
+    kind: Parameters<GuestsService['email']>[3],
+  ) {
+    if (!guests.length) return;
+    this.guests.email(tenantId, m, guests, kind, () => {
+      // Show the delivery outcome (sent / failed) in everyone's meeting details.
+      void this.db
+        .for(tenantId)
+        .meetings.findOne({ _id: m._id })
+        .then((fresh) => fresh && this.broadcast(tenantId, fresh))
+        .catch(() => undefined);
+    });
   }
 
   async rsvp(ctx: TenantContext, meetingId: string, input: unknown): Promise<Meeting> {

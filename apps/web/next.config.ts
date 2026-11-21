@@ -41,6 +41,15 @@ const config: NextConfig = {
         ],
       },
       {
+        // A guest's link token is in the path: never send it to other sites.
+        source: '/join/:path*',
+        headers: [
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Cache-Control', value: 'no-store' },
+        ],
+      },
+      {
         source: '/sw.js',
         headers: [
           { key: 'Cache-Control', value: 'no-cache' },

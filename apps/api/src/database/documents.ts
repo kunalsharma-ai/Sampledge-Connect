@@ -223,6 +223,31 @@ export interface CallDoc extends TenantOwned {
   lastActivityAt: Date;
   /** The recording in progress (one at a time), or null. */
   recording?: CallRecordingDoc | null;
+  /** External guests waiting to be admitted. */
+  lobby?: CallLobbyDoc[];
+  /** External guests admitted to (or denied from) this call. */
+  guests?: CallGuestDoc[];
+}
+
+export interface CallLobbyDoc {
+  guestId: string;
+  meetingId: string;
+  name: string;
+  email: string;
+  requestedAt: Date;
+  /** Last poll from the guest's page; stale entries are dropped by the sweeper. */
+  seenAt?: Date;
+}
+
+export interface CallGuestDoc {
+  guestId: string;
+  meetingId: string;
+  name: string;
+  email: string;
+  state: 'admitted' | 'joined' | 'left' | 'denied';
+  decidedBy: string;
+  joinedAt: Date | null;
+  leftAt: Date | null;
 }
 
 export interface CallRecordingDoc {
@@ -262,8 +287,29 @@ export interface MeetingDoc extends TenantOwned {
   status: 'scheduled' | 'cancelled';
   /** The meeting card posted in the meeting chat. */
   messageId: string | null;
+  /** External guests invited by email. */
+  guests?: MeetingGuestDoc[];
+  /** iCalendar SEQUENCE: bumped whenever invite emails carry a change. */
+  sequence?: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface MeetingGuestDoc {
+  /** Globally unique (an ObjectId), so a join link can find its tenant. */
+  guestId: string;
+  email: string;
+  name: string;
+  response: 'pending' | 'accepted' | 'tentative' | 'declined';
+  /** Part of the link signature. Rotating it revokes the link. */
+  linkNonce: string;
+  invite: {
+    status: 'sending' | 'sent' | 'failed' | 'not_configured';
+    at: Date | null;
+    error: string | null;
+  };
+  invitedBy: string;
+  invitedAt: Date;
 }
 
 export interface UserSettingsDoc extends TenantOwned {

@@ -67,6 +67,29 @@ const EnvSchema = z.object({
     .min(1)
     .max(24 * 60)
     .default(4 * 60),
+  /** Public URL of the web app, used for links in emails (guest join links). */
+  PUBLIC_WEB_URL: z.string().url().optional(),
+  /**
+   * Outgoing email (meeting invites to external guests) through your own SMTP server.
+   * Email is off until SMTP_HOST and SMTP_FROM are set; invites then show "not sent" and
+   * organizers copy the join link instead.
+   */
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  /** true: TLS from the first byte (usually port 465). false: STARTTLS when offered (587/25). */
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  /** Refuse to send unless the server upgrades to TLS (recommended outside a private network). */
+  SMTP_REQUIRE_TLS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  /** Sender, e.g. "Sampledge Connect <meetings@example.com>". */
+  SMTP_FROM: z.string().min(3).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
@@ -86,6 +109,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (cfg.RATE_LIMIT_DISABLED)
       throw new Error('RATE_LIMIT_DISABLED is not allowed in production');
   }
+  if (cfg.SMTP_USER && !cfg.SMTP_PASSWORD)
+    throw new Error('SMTP_PASSWORD is required when SMTP_USER is set');
   return {
     ...cfg,
     corsOrigins: cfg.CORS_ORIGINS.split(',')

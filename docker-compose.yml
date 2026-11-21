@@ -54,6 +54,18 @@ services:
       RECORDINGS_SPOOL_DIR: /recordings
       LIVEKIT_EGRESS_OUTPUT_DIR: /out
       FILES_URL_SECRET: ${FILES_URL_SECRET:?set FILES_URL_SECRET (openssl rand -base64 48)}
+      # Links in emails (guest join links) point here.
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      # Email to external meeting guests, through your own mail server. Leave SMTP_HOST empty
+      # to turn email off (organizers then copy guest links by hand). See docs/guests.md.
+      # To try it locally: docker compose --profile mail-test up, then open http://localhost:8025.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes: [recordings-spool:/recordings]
     ports: ['4000:4000']
 
@@ -119,6 +131,16 @@ services:
     image: alpine:3.22
     command: ['sh', '-c', 'chmod 0777 /recordings']
     volumes: [recordings-spool:/recordings]
+
+  # Test mailbox for trying guest invites without a real mail server (only with
+  # `--profile mail-test`). Set SMTP_HOST=mailpit SMTP_PORT=1025
+  # SMTP_FROM="Sampledge Connect <meetings@example.test>" and read mail at http://localhost:8025.
+  # Nothing leaves this machine. Don't run it in production.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    profiles: [mail-test]
+    restart: unless-stopped
+    ports: ['127.0.0.1:8025:8025']
 
 volumes:
   mongo-data:
