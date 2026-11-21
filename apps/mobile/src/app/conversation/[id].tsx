@@ -244,7 +244,12 @@ export default function ConversationScreen() {
                 own={item.senderId === selfId}
                 senderName={nameOf(item.senderId)}
                 selfId={selfId}
-                showSender={!older || older.senderId !== item.senderId || !!item.replyTo}
+                showSender={
+                  !older ||
+                  older.senderId !== item.senderId ||
+                  older.messageType === 'system' ||
+                  !!item.replyTo
+                }
                 animate={!firstRender.current}
                 mentioned={item.mentions.map((userId) => ({
                   userId,

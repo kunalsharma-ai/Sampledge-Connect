@@ -11,6 +11,7 @@ import {
   type Receipt,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
+import { systemText } from '../lib/systemMessages';
 import type {
   ListNotificationsResponse,
   MarkNotificationsReadRequest,
@@ -52,6 +53,9 @@ export interface LocalMessage {
   /** Server reactions with your unconfirmed changes applied on top. */
   reactions: LocalReaction[];
   attachments: LocalAttachment[];
+  /** 'text' for people's messages, 'system' for events the server writes (calls, ...). */
+  messageType: string;
+  metadata: Record<string, unknown>;
 }
 
 /** A file on a message: from the server snapshot, from this device, or both. */
@@ -220,6 +224,8 @@ interface MessageRow {
   deleted_at: string | null;
   error: string | null;
   pending_op?: MessageOpKind | null;
+  message_type?: string;
+  metadata?: string;
 }
 
 interface FileRow {
@@ -272,7 +278,18 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   pendingOp: r.pending_op ?? null,
   reactions: [],
   attachments: [],
+  messageType: r.message_type ?? 'text',
+  metadata: parseObject(r.metadata),
 });
+
+const parseObject = (raw: string | undefined): Record<string, unknown> => {
+  try {
+    const v = JSON.parse(raw ?? '{}') as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+};
 
 const parseAttachments = (raw: string | undefined): Attachment[] => {
   try {
@@ -912,14 +929,15 @@ export class LocalStore {
     const status: MessageStatus =
       existing && CONFIRMED.has(existing.status) ? existing.status : 'sent';
     await tx.run(
-      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, message_type, metadata, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(client_id) DO UPDATE SET
          message_id = excluded.message_id, text = excluded.text, mentions = excluded.mentions,
          reply_to = excluded.reply_to, server_seq = excluded.server_seq, change_seq = excluded.change_seq,
          status = excluded.status, created_at = excluded.created_at, edited_at = excluded.edited_at,
          deleted_at = excluded.deleted_at, reactions = excluded.reactions,
-         attachments = excluded.attachments, error = NULL`,
+         attachments = excluded.attachments, message_type = excluded.message_type,
+         metadata = excluded.metadata, error = NULL`,
       [
         m.clientMessageId,
         m.messageId,
@@ -936,6 +954,8 @@ export class LocalStore {
         m.deletedAt ?? null,
         JSON.stringify(m.deletedAt ? [] : (m.reactions ?? [])),
         JSON.stringify(m.deletedAt ? [] : (m.attachments ?? [])),
+        m.messageType ?? 'text',
+        JSON.stringify(m.metadata ?? {}),
       ],
     );
     // Server accepted it: the send is done, whichever device sent it.
@@ -953,7 +973,11 @@ export class LocalStore {
         m.createdAt,
         m.createdAt,
         m.createdAt,
-        m.deletedAt ? 'Message deleted' : m.content.text || filesPreview(m.attachments ?? []),
+        m.deletedAt
+          ? 'Message deleted'
+          : m.messageType === 'system'
+            ? systemText(m.content.text, m.metadata ?? {})
+            : m.content.text || filesPreview(m.attachments ?? []),
         m.conversationId,
       ],
     );

@@ -68,7 +68,13 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     string,
     string,
     string,
-    { mentions?: string[]; replyToSeq?: number; reactions?: [string, string[]][] }?,
+    {
+      mentions?: string[];
+      replyToSeq?: number;
+      reactions?: [string, string[]][];
+      /** A server-written event, e.g. a call. */
+      system?: Record<string, unknown>;
+    }?,
   ][] = [
     [
       'demo-fieldwork',
@@ -95,6 +101,16 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     ],
     ['demo-aisha', 'demo-aisha', 'Do you have five minutes before the client call?'],
     ['demo-aisha', DEMO_SELF, 'Yes, calling you now.'],
+    [
+      'demo-aisha',
+      DEMO_SELF,
+      '',
+      {
+        system: {
+          call: { callId: 'demo-call-1', media: 'audio', status: 'ended', durationSec: 372 },
+        },
+      },
+    ],
     [
       'demo-aisha',
       'demo-aisha',
@@ -131,7 +147,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       tenantId: 'demo',
       conversationId,
       senderId,
-      messageType: 'text',
+      messageType: extra?.system ? 'system' : 'text',
       content: { text, mentions: extra?.mentions ?? [] },
       attachmentIds: [],
       attachments: [],
@@ -141,7 +157,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       createdAt: new Date(at).toISOString(),
       editedAt: null,
       deletedAt: null,
-      metadata: {},
+      metadata: extra?.system ?? {},
       reactions: (extra?.reactions ?? []).map(([emoji, userIds]) => ({
         emoji,
         userIds,
