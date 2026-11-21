@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
+import { Languages, MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
 import type { Conversation, Receipt } from '@sampledge/contracts';
 import {
   displayStatus,
@@ -46,6 +46,7 @@ export function Timeline({
   threadRootId,
   highlightId,
   emptyState,
+  onTranslate,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -69,8 +70,46 @@ export function Timeline({
   /** Briefly highlights a message (jump from pins or saved items). */
   highlightId?: string | null;
   emptyState?: React.ReactNode;
+  /** AI translation of one message, when the assistant is available. */
+  onTranslate?: (messageId: string) => Promise<{ text: string | null; label: string }>;
 }) {
   const reduce = useReducedMotion();
+  const [translations, setTranslations] = React.useState<
+    Map<string, { state: 'loading' | 'done' | 'error'; text?: string; label?: string }>
+  >(new Map());
+  const translate = (messageId: string) => {
+    if (!onTranslate) return;
+    if (translations.get(messageId)?.state === 'done') {
+      setTranslations((t) => {
+        const n = new Map(t);
+        n.delete(messageId);
+        return n;
+      });
+      return;
+    }
+    setTranslations((t) => new Map(t).set(messageId, { state: 'loading' }));
+    onTranslate(messageId).then(
+      (r) =>
+        setTranslations((t) =>
+          new Map(t).set(
+            messageId,
+            r.text === null
+              ? {
+                  state: 'error',
+                  text: 'Translation needs your model server (Administration › Integrations).',
+                }
+              : { state: 'done', text: r.text, label: r.label },
+          ),
+        ),
+      (e: unknown) =>
+        setTranslations((t) =>
+          new Map(t).set(messageId, {
+            state: 'error',
+            text: (e as Error).message || 'Translation failed',
+          }),
+        ),
+    );
+  };
   const scroller = React.useRef<HTMLDivElement>(null);
   const atBottom = React.useRef(true);
   const count = messages?.length ?? 0;
@@ -251,6 +290,11 @@ export function Timeline({
                           }}
                           onReply={() => onReply(m)}
                           {...actions?.(m)}
+                          onTranslate={
+                            onTranslate && m.content.text
+                              ? () => translate(m.messageId!)
+                              : undefined
+                          }
                         />
                       ) : null}
                       {m.deletedAt || m.content.text ? (
@@ -281,6 +325,9 @@ export function Timeline({
                             <span className="ml-1.5 text-meta opacity-70">(edited)</span>
                           ) : null}
                         </div>
+                      ) : null}
+                      {m.messageId && translations.has(m.messageId) && !m.deletedAt ? (
+                        <TranslationNote t={translations.get(m.messageId)!} own={own} />
                       ) : null}
                       {!m.deletedAt && m.attachments?.length ? (
                         <div
@@ -354,5 +401,35 @@ export function Timeline({
         })}
       </AnimatePresence>
     </div>
+  );
+}
+
+function TranslationNote({
+  t,
+  own,
+}: {
+  t: { state: 'loading' | 'done' | 'error'; text?: string; label?: string };
+  own: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -2 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        'mt-1 max-w-full rounded-lg border border-dashed border-border px-3 py-2 text-label font-normal',
+        own ? 'ml-auto' : '',
+        t.state === 'error' ? 'text-text-subtle' : 'text-text',
+      )}
+    >
+      <span className="mb-0.5 flex items-center gap-1 text-meta text-text-subtle">
+        <Languages className="size-3" />
+        {t.state === 'loading'
+          ? 'Translating…'
+          : t.state === 'done'
+            ? `Translated to ${t.label}`
+            : 'Not translated'}
+      </span>
+      {t.state !== 'loading' ? <span className="whitespace-pre-wrap">{t.text}</span> : null}
+    </motion.div>
   );
 }

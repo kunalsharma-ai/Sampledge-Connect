@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { guestIdentity, isGuestIdentity } from '@sampledge/contracts';
 import * as Haptics from 'expo-haptics';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -20,7 +20,7 @@ import type { LocalConversation } from '../../db/store';
 import { guestLabel } from '../../lib/guests';
 import { formatDuration } from '../../lib/systemMessages';
 import { useWorkspace } from '../../state/AppProvider';
-import { conversationTitle, useCalls, usePeople } from '../../state/hooks';
+import { conversationTitle, useCalls, useConversations, usePeople } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -36,6 +36,7 @@ export default function CallScreen() {
   const { current, config, error: callError } = useCalls();
   const [recBusy, setRecBusy] = useState(false);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const { conversations } = useConversations();
   const lobbySeen = useRef(new Set<string>());
   const call = current?.call.callId === id ? current : null;
   const [conv, setConv] = useState<LocalConversation | undefined>();
@@ -50,13 +51,18 @@ export default function CallScreen() {
     if (call) void store.getConversation(call.call.conversationId).then(setConv);
   }, [store, call?.call.conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The call ended, or you left it from elsewhere: close the screen.
+  // The call ended, or you left it from elsewhere: close the screen. If the chat is open on
+  // top, wait until this screen is showing again, so the chat isn't the one that closes.
+  const navigation = useNavigation();
+  const close = useCallback(() => {
+    if (engine.calls.state.current?.call.callId === id) return;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [engine, id]);
   useEffect(() => {
-    if (!call) {
-      if (router.canGoBack()) router.back();
-      else router.replace('/');
-    }
-  }, [call]);
+    if (!call && navigation.isFocused()) close();
+  }, [call, navigation, close]);
+  useFocusEffect(close);
 
   // Leaving the screen any other way (system back) leaves the call.
   useEffect(
@@ -117,6 +123,11 @@ export default function CallScreen() {
     const g = call.call.guests?.find((x) => guestIdentity(x.guestId) === id);
     return guestLabel(g?.name ?? 'Guest');
   };
+  const chatUnread =
+    conversations.find((x) => x.conversationId === call.call.conversationId)?.unread ?? 0;
+  // The chat opens on top; the call keeps running underneath and "Back to call" returns here.
+  const openChat = () =>
+    router.push({ pathname: '/conversation/[id]', params: { id: call.call.conversationId } });
   const decide = async (guestId: string, decision: 'admit' | 'deny') => {
     setDeciding(`${decision}:${guestId}`);
     await engine.calls.decideGuest(guestId, decision);
@@ -316,6 +327,12 @@ export default function CallScreen() {
             onPress={() => void toggleRecording()}
           />
         ) : null}
+        <Control
+          icon="chatbubble-ellipses"
+          label={chatUnread ? `Chat · ${chatUnread}` : 'Chat'}
+          active={chatUnread > 0}
+          onPress={openChat}
+        />
         <Control icon="call" label="Leave" danger onPress={() => void leave()} />
         {canEnd ? (
           <Control icon="stop-circle" label="End for all" danger onPress={() => void leave(true)} />

@@ -68,7 +68,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'notifications', label: 'Notifications', icon: Bell, built: true },
   { id: 'saved', label: 'Saved', icon: Bookmark, built: true },
   { id: 'search', label: 'Universal Search', icon: Search, built: false, phase: 'Phase 2' },
-  { id: 'ai', label: 'AI Assistant', icon: Bot, built: false, phase: 'Phase 4' },
+  { id: 'ai', label: 'AI Assistant', icon: Bot, built: true },
   {
     id: 'analytics',
     label: 'Analytics',
