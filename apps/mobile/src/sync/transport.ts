@@ -11,6 +11,13 @@ import {
   type CallsConfig,
   type Conversation,
   type CreateConversationRequest,
+  type CreateMeetingRequest,
+  type FindTimesRequest,
+  type FindTimesResponse,
+  type Meeting,
+  type RsvpResponse,
+  type UpdateMeetingRequest,
+  type WorkingHours,
   type NotifyLevel,
   type PushStatus,
   type RegisterPushTokenRequest,
@@ -98,6 +105,16 @@ export interface ApiTransport {
   revokeDevice(sessionId: string): Promise<void>;
   /** Ends this device session on the server (also drops its push token). */
   logout(): Promise<void>;
+  /** Your meetings overlapping [from, to) (max 62 days), cancelled ones included. */
+  listMeetings(from: string, to: string): Promise<Meeting[]>;
+  getMeeting(meetingId: string): Promise<Meeting>;
+  createMeeting(req: CreateMeetingRequest): Promise<Meeting>;
+  updateMeeting(meetingId: string, req: UpdateMeetingRequest): Promise<Meeting>;
+  cancelMeeting(meetingId: string): Promise<Meeting>;
+  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting>;
+  findTimes(req: FindTimesRequest): Promise<FindTimesResponse>;
+  getWorkingHours(): Promise<WorkingHours>;
+  setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -335,6 +352,45 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', '/v1/auth/logout', {});
   }
 
+  listMeetings(from: string, to: string): Promise<Meeting[]> {
+    const q = new URLSearchParams({ from, to, includeCancelled: 'true' });
+    return this.request('GET', `/v1/meetings?${q.toString()}`, undefined);
+  }
+
+  getMeeting(meetingId: string): Promise<Meeting> {
+    return this.request('GET', `/v1/meetings/${encodeURIComponent(meetingId)}`, undefined);
+  }
+
+  createMeeting(req: CreateMeetingRequest): Promise<Meeting> {
+    return this.request('POST', '/v1/meetings', req);
+  }
+
+  updateMeeting(meetingId: string, req: UpdateMeetingRequest): Promise<Meeting> {
+    return this.request('PATCH', `/v1/meetings/${encodeURIComponent(meetingId)}`, req);
+  }
+
+  cancelMeeting(meetingId: string): Promise<Meeting> {
+    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/cancel`, {});
+  }
+
+  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting> {
+    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/rsvp`, {
+      response,
+    });
+  }
+
+  findTimes(req: FindTimesRequest): Promise<FindTimesResponse> {
+    return this.request('POST', '/v1/meetings/find-times', req);
+  }
+
+  getWorkingHours(): Promise<WorkingHours> {
+    return this.request('GET', '/v1/me/working-hours', undefined);
+  }
+
+  setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
+    return this.request('PUT', '/v1/me/working-hours', hours);
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -448,4 +504,13 @@ export class NoServerTransport implements ApiTransport {
   listDevices = async (): Promise<DeviceSession[]> => this.fail();
   revokeDevice = async (): Promise<void> => this.fail();
   logout = async (): Promise<void> => this.fail();
+  listMeetings = async (): Promise<Meeting[]> => this.fail();
+  getMeeting = async (): Promise<Meeting> => this.fail();
+  createMeeting = async (): Promise<Meeting> => this.fail();
+  updateMeeting = async (): Promise<Meeting> => this.fail();
+  cancelMeeting = async (): Promise<Meeting> => this.fail();
+  rsvp = async (): Promise<Meeting> => this.fail();
+  findTimes = async (): Promise<FindTimesResponse> => this.fail();
+  getWorkingHours = async (): Promise<WorkingHours> => this.fail();
+  setWorkingHours = async (): Promise<WorkingHours> => this.fail();
 }

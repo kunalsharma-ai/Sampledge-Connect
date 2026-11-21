@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
-import type { LocalConversation, LocalMessage, LocalNotification } from '../db/store';
+import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
 import type { TenantRole } from '@sampledge/contracts';
 import { useApp, useWorkspace } from './AppProvider';
 
@@ -196,4 +196,60 @@ export function useConversation(id: string): LocalConversation | undefined {
     };
   }, [store, id]);
   return conv;
+}
+
+/** Cached meetings overlapping [from, to), soonest first; updates live and works offline. */
+export function useMeetings(
+  from: string,
+  to: string,
+): { meetings: LocalMeeting[]; loading: boolean } {
+  const { store } = useWorkspace();
+  const [state, setState] = useState<{ meetings: LocalMeeting[]; loading: boolean }>({
+    meetings: [],
+    loading: true,
+  });
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void store
+        .listMeetings(from, to)
+        .then((meetings) => alive && setState({ meetings, loading: false }));
+    load();
+    const off = store.events.on('meetings', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, from, to]);
+  return state;
+}
+
+export function useMeeting(id: string): { meeting: LocalMeeting | undefined; loading: boolean } {
+  const { store } = useWorkspace();
+  const [state, setState] = useState<{ meeting: LocalMeeting | undefined; loading: boolean }>({
+    meeting: undefined,
+    loading: true,
+  });
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void store.getMeeting(id).then((meeting) => alive && setState({ meeting, loading: false }));
+    load();
+    const off = store.events.on('meetings', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, id]);
+  return state;
+}
+
+/** Re-renders every `ms` so "in 5 min" labels and Join buttons stay current. */
+export function useNow(ms = 30_000): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
 }

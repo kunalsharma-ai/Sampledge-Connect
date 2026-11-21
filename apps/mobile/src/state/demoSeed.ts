@@ -207,6 +207,68 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     })
     .reverse();
   await store.replaceNotifications({ items, unreadCount: items.length, nextBefore: null });
+  // Two sample meetings, placed relative to now so the agenda always has something upcoming.
+  const at = (dayOffset: number, hour: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + dayOffset);
+    d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+  const meeting = (
+    id: string,
+    conversationId: string,
+    title: string,
+    agenda: string,
+    startsAt: string,
+    minutes: number,
+    organizerId: string,
+    attendees: [string, 'pending' | 'accepted' | 'tentative' | 'declined'][],
+  ) => ({
+    meetingId: id,
+    conversationId,
+    title,
+    agenda,
+    startsAt,
+    endsAt: new Date(Date.parse(startsAt) + minutes * 60_000).toISOString(),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    organizerId,
+    attendees: attendees.map(([userId, response]) => ({ userId, response, optional: false })),
+    media: 'video' as const,
+    remindMinutes: [10],
+    status: 'scheduled' as const,
+    createdAt: new Date(t0).toISOString(),
+    updatedAt: new Date(t0).toISOString(),
+  });
+  await store.upsertMeetings([
+    meeting(
+      'demo-meet-launch',
+      'demo-launch',
+      'Retail tracker launch check-in',
+      'Quota fill by region, soft-launch data checks, go/no-go for full field.',
+      at(1, 10),
+      30,
+      'demo-marco',
+      [
+        ['demo-marco', 'accepted'],
+        [DEMO_SELF, 'pending'],
+        ['demo-aisha', 'accepted'],
+      ],
+    ),
+    meeting(
+      'demo-meet-qa',
+      'demo-qa',
+      'Questionnaire QA sign-off',
+      'Walk through open routing comments before the client review.',
+      at(2, 15),
+      45,
+      DEMO_SELF,
+      [
+        [DEMO_SELF, 'accepted'],
+        ['demo-lena', 'tentative'],
+        ['demo-ravi', 'pending'],
+      ],
+    ),
+  ]);
   await store.setSetting('people', JSON.stringify(DEMO_PEOPLE));
   await store.setSetting('demo.seeded', '1');
 }

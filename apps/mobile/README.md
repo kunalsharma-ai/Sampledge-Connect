@@ -58,7 +58,10 @@ join banner and decline. Without a media server it is skipped.
 
 The last part covers membership: browsing and joining a public channel Sam is not in, creating
 a group and a private channel from the people picker, adding and removing people from the
-details screen, leaving, and signing out another device from Settings, Devices.
+details screen, leaving, and signing out another device from Settings, Devices. Then meetings:
+scheduling from suggested times, answers arriving live, the card in the meeting chat, an
+invitation answered offline and delivered on reconnect, the server's reminder banner (waits up
+to a minute for the reminder sweep), joining the meeting's call, working hours and cancelling.
 
 ## How offline-first works
 
@@ -117,11 +120,19 @@ screen with members, add and remove people, leave, and archive for those allowed
 permission rules the server uses decide which buttons appear; these changes need a connection
 and say so offline), a Devices screen that lists where you are signed in and signs other
 devices out, server-side sign-out of this device (its refresh and push tokens stop working),
-on-device search, themes, offline and storage settings, sign-out with a warning
+scheduled meetings (a Meetings screen with a two-week day strip, upcoming and past, cached on
+the phone for the last week and next eight; scheduling with a people picker, length, video or
+voice, suggested times where everyone is free and inside their working hours, a manual time grid
+that marks clashes without showing anyone's meeting titles, up to three reminders and an agenda;
+editing, rescheduling and cancelling for the organizer; Going, Maybe or Not going answers that
+work offline and are sent when back online; Join, which opens 15 minutes before the start and
+joins the meeting chat's call; meeting cards in the chat that open the meeting; a reminder
+banner with Join; meeting pushes open the meeting; working hours in Settings; the next meeting
+on Home), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, scheduled Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
+Inbox, email invites with calendar files for people outside the workspace and guest join links, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)

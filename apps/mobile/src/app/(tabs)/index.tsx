@@ -8,7 +8,11 @@ import { Screen } from '../../components/Screen';
 import { ConversationSkeleton } from '../../components/Skeleton';
 import { Text } from '../../components/Text';
 import { useApp, useWorkspace } from '../../state/AppProvider';
-import { useConversations, usePeople } from '../../state/hooks';
+import { MeetingRow } from '../../components/MeetingBits';
+import { isUnjoinedChannel } from '../../lib/access';
+import { ConnectEngine } from '../../state/engine';
+import { useCalls, useConversations, useMeetings, useNow, usePeople } from '../../state/hooks';
+import { useMemo } from 'react';
 import { radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -27,7 +31,12 @@ export default function Home() {
   const firstName = session?.user.displayName.split(' ')[0];
   const workspaceName =
     sessionState === 'demo' ? 'Demo workspace' : (session?.tenant.name ?? 'Workspace');
-  const recent = conversations.slice(0, 4);
+  const recent = conversations.filter((c) => !isUnjoinedChannel(c)).slice(0, 4);
+  const now = useNow();
+  const calls = useCalls();
+  const win = useMemo(() => ConnectEngine.meetingWindow(), []);
+  const { meetings } = useMeetings(win.from, win.to);
+  const next = meetings.find((m) => m.status === 'scheduled' && Date.parse(m.endsAt) > now);
 
   return (
     <Screen>
@@ -71,6 +80,22 @@ export default function Home() {
             icon="sync-outline"
           />
         </View>
+
+        {next ? (
+          <>
+            <View style={styles.sectionHead}>
+              <Text variant="heading">Next meeting</Text>
+              <Pressable onPress={() => router.push('/meetings')} hitSlop={8}>
+                <Text variant="label" tone="accent">
+                  All meetings
+                </Text>
+              </Pressable>
+            </View>
+            <View style={{ paddingHorizontal: space.lg }}>
+              <MeetingRow m={next} now={now} nameOf={nameOf} canJoin={!!calls.config?.enabled} />
+            </View>
+          </>
+        ) : null}
 
         <View style={styles.sectionHead}>
           <Text variant="heading">Recent conversations</Text>

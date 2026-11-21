@@ -820,6 +820,173 @@ async function api(method, path, body, token) {
     check('iPad gone from the list', !/Sam's iPad/.test(await p.innerText('body')));
     await shot('47-devices-after-sign-out');
   }
+
+  // ---- Meetings: schedule with suggested times, RSVP (live and offline), card in chat,
+  // working hours, reminder banner, join, cancel
+  {
+    const users = await api('GET', '/v1/users', undefined, samApi);
+    const uid = (email) => users.find((u) => u.email === email).userId;
+    const loginAs = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const priyaApi = await loginAs('priya@northwind.test');
+    const lenaApi = await loginAs('lena@northwind.test');
+
+    // Sam schedules from the phone.
+    await p.goto(`${APP}/meetings`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('button', { name: 'Schedule a meeting' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByLabel('Meeting title').fill('Wave 3 fieldwork kickoff');
+    await p.getByRole('button', { name: 'Add people' }).click();
+    await p.waitForTimeout(800);
+    await p.getByRole('checkbox', { name: 'Priya Shah' }).click();
+    await p.getByRole('checkbox', { name: 'Lena Fischer' }).click();
+    await p.getByRole('button', { name: 'Done' }).click();
+    await p.waitForTimeout(2500);
+    const suggested = p.getByRole('radio', { name: /^Suggested / });
+    check('suggested free times shown', (await suggested.count()) > 0);
+    await suggested.first().click();
+    await p.getByLabel('Agenda').fill('Quotas by region, launch checklist, who owns DE.');
+    await p.getByRole('checkbox', { name: 'Remind 30 minutes before' }).click();
+    await shot('50-schedule-meeting');
+    await p.getByRole('button', { name: 'Send invites' }).click();
+    await p.waitForTimeout(3000);
+    const now = Date.now();
+    const range = `from=${new Date(now - 86_400_000).toISOString()}&to=${new Date(now + 20 * 86_400_000).toISOString()}`;
+    const mine = await api('GET', `/v1/meetings?${range}`, undefined, samApi);
+    const kickoff = mine.find((m) => m.title === 'Wave 3 fieldwork kickoff');
+    check(
+      'meeting created on the server with everyone invited',
+      !!kickoff &&
+        kickoff.organizerId === uid('sam@northwind.test') &&
+        ['priya', 'lena'].every((n) =>
+          kickoff.attendees.some((a) => a.userId === uid(`${n}@northwind.test`)),
+        ) &&
+        kickoff.remindMinutes.includes(30),
+    );
+    check('opens the new meeting', /Wave 3 fieldwork kickoff/.test(await p.innerText('body')));
+
+    // Priya and Lena answer; Sam sees it live.
+    await api('POST', `/v1/meetings/${kickoff.meetingId}/rsvp`, { response: 'accepted' }, priyaApi);
+    await api('POST', `/v1/meetings/${kickoff.meetingId}/rsvp`, { response: 'tentative' }, lenaApi);
+    await p.waitForTimeout(2500);
+    await shot('51-meeting-detail');
+    const detail = await p.innerText('body');
+    check('answers from others arrive live', /2 going/i.test(detail) && /1 maybe/i.test(detail));
+
+    // The card in the meeting chat opens the meeting.
+    await p.getByRole('button', { name: 'Open meeting chat' }).click();
+    await p.waitForTimeout(2500);
+    await shot('52-meeting-card-in-chat');
+    check(
+      'meeting card in the chat',
+      /“Wave 3 fieldwork kickoff” scheduled/.test(await p.innerText('body')),
+    );
+
+    // Priya invites Sam to a meeting that starts in ~10 minutes (reminder at 10).
+    const soon = await api(
+      'POST',
+      '/v1/meetings',
+      {
+        title: 'Client debrief: brand tracker',
+        agenda: 'Topline readout before the client call.',
+        startsAt: new Date(Date.now() + 10 * 60_000 + 20_000).toISOString(),
+        endsAt: new Date(Date.now() + 40 * 60_000).toISOString(),
+        timeZone: 'Europe/London',
+        media: 'video',
+        remindMinutes: [10],
+        attendeeIds: [uid('sam@northwind.test')],
+      },
+      priyaApi,
+    );
+    await p.goto(`${APP}/meetings`);
+    await p.waitForTimeout(2500);
+    check(
+      'invitation shows up in the list',
+      /Client debrief: brand tracker/.test(await p.innerText('body')),
+    );
+    await shot('53-meetings-list');
+
+    // Answer offline, then come back online.
+    await p.getByRole('button', { name: /^Client debrief: brand tracker/ }).click();
+    await p.waitForTimeout(1500);
+    await ctx.setOffline(true);
+    await p.waitForTimeout(1000);
+    await p.getByRole('radio', { name: 'Going', exact: true }).click();
+    await p.waitForTimeout(800);
+    check(
+      'offline answer kept on the phone',
+      /Sent to the organizer when you are online/.test(await p.innerText('body')),
+    );
+    await shot('54-rsvp-offline');
+    const before = await api('GET', `/v1/meetings/${soon.meetingId}`, undefined, priyaApi);
+    check(
+      'offline answer not on the server yet',
+      before.attendees.find((a) => a.userId === uid('sam@northwind.test')).response === 'pending',
+    );
+    await ctx.setOffline(false);
+    await p.waitForTimeout(6000);
+    const after = await api('GET', `/v1/meetings/${soon.meetingId}`, undefined, priyaApi);
+    check(
+      'offline answer reached the organizer',
+      after.attendees.find((a) => a.userId === uid('sam@northwind.test')).response === 'accepted',
+    );
+
+    // The reminder sweeper runs every 30 s; the banner comes from meeting:reminder.
+    let reminded = false;
+    for (let i = 0; i < 20 && !reminded; i++) {
+      await p.waitForTimeout(3000);
+      reminded = /Starts in 10 min/.test(await p.innerText('body'));
+    }
+    check('reminder banner before the meeting', reminded);
+    if (reminded) await shot('55-reminder-banner');
+
+    // Join from the meeting (the meeting chat's call).
+    if (callsConfig.enabled) {
+      await p.goto(`${APP}/meeting/${soon.meetingId}`);
+      await p.waitForTimeout(2500);
+      await p.getByRole('button', { name: 'Join video meeting' }).click();
+      await p.waitForTimeout(5000);
+      const live = await api('GET', '/v1/calls/active', undefined, priyaApi);
+      const calls = Array.isArray(live) ? live : live.calls;
+      check(
+        'joining the meeting starts the call in its chat',
+        calls.some((c) => c.conversationId === soon.conversationId),
+      );
+      await p.getByRole('button', { name: 'Leave' }).click();
+      await p.waitForTimeout(2000);
+    }
+
+    // Working hours.
+    await p.goto(`${APP}/settings/working-hours`);
+    await p.waitForTimeout(2500);
+    await p.getByLabel('Working on Saturday').click();
+    await p.getByRole('button', { name: 'Monday start earlier' }).click();
+    await shot('56-working-hours');
+    await p.getByRole('button', { name: 'Save working hours' }).click();
+    await p.waitForTimeout(1500);
+    const hours = await api('GET', '/v1/me/working-hours', undefined, samApi);
+    check(
+      'working hours saved',
+      hours.days.some((d) => d.day === 6) && hours.days.find((d) => d.day === 1)?.start === '08:30',
+    );
+
+    // Sam cancels his meeting.
+    await p.goto(`${APP}/meeting/${kickoff.meetingId}`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('button', { name: 'Cancel meeting' }).click();
+    await p.waitForTimeout(2500);
+    const cancelled = await api('GET', `/v1/meetings/${kickoff.meetingId}`, undefined, priyaApi);
+    check('meeting cancelled on the server', cancelled.status === 'cancelled');
+    check('cancelled shown on the phone', /Cancelled/.test(await p.innerText('body')));
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

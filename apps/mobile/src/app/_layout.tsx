@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IncomingCall } from '../calls/IncomingCall';
+import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
 import { AppProvider, useApp } from '../state/AppProvider';
@@ -70,6 +71,13 @@ function RootStack() {
             options={{ title: 'New conversation', presentation: 'modal' }}
           />
           <Stack.Screen name="channels" options={{ title: 'Browse channels' }} />
+          <Stack.Screen name="meetings/index" options={{ title: 'Meetings' }} />
+          <Stack.Screen
+            name="meetings/new"
+            options={{ title: 'Schedule a meeting', presentation: 'modal' }}
+          />
+          <Stack.Screen name="meeting/[id]" options={{ title: 'Meeting' }} />
+          <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="conversation-info/[id]" options={{ title: 'Details' }} />
           <Stack.Screen
             name="add-members/[id]"
@@ -89,6 +97,7 @@ function RootStack() {
       {signedIn ? (
         <>
           <NotificationBanner />
+          <MeetingReminderBanner />
           <PushOpenHandler />
           <IncomingCall />
         </>
