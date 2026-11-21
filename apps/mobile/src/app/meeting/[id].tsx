@@ -10,6 +10,8 @@ import { RSVP_ICON, RSVP_LABEL, useJoinMeeting, useRsvpColor } from '../../compo
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { confirmThen } from '../../lib/confirm';
+import { GUEST_RESPONSE_LABEL, INVITE_LABEL } from '../../lib/guests';
+import { shareLink } from '../../lib/shareLink';
 import {
   canJoinNow,
   dayLabel,
@@ -42,6 +44,7 @@ export default function MeetingDetail() {
   const join = useJoinMeeting();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   if (!m) {
     return (
@@ -263,6 +266,109 @@ export default function MeetingDetail() {
           </Glass>
         </View>
 
+        {m.guests?.length ? (
+          <View style={{ gap: space.sm }}>
+            <Text variant="overline" tone="subtle" style={{ marginLeft: space.xs }}>
+              Guests from outside · {m.guests.length}
+            </Text>
+            <Glass>
+              {m.guests.map((g, i) => {
+                const r = g.response;
+                const failed = g.invite.status === 'failed';
+                return (
+                  <View
+                    key={g.guestId}
+                    style={[
+                      styles.guest,
+                      i > 0 && {
+                        borderTopWidth: StyleSheet.hairlineWidth,
+                        borderTopColor: c.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.guestHead}>
+                      <View
+                        style={[
+                          styles.guestIcon,
+                          { backgroundColor: alpha(c.accentSecondary, 0.14) },
+                        ]}
+                      >
+                        <Ionicons name="mail-outline" size={16} color={c.accentSecondary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyStrong" numberOfLines={1}>
+                          {g.name}
+                        </Text>
+                        <Text variant="meta" tone="muted" numberOfLines={1}>
+                          {g.email}
+                        </Text>
+                      </View>
+                      <Ionicons name={RSVP_ICON[r]} size={16} color={color(r)} />
+                      <Text variant="meta" style={{ color: color(r) }}>
+                        {GUEST_RESPONSE_LABEL[r]}
+                      </Text>
+                    </View>
+                    <Text
+                      variant="meta"
+                      style={{ color: failed ? c.danger : c.textSubtle, marginLeft: 46 }}
+                      numberOfLines={2}
+                    >
+                      {INVITE_LABEL[g.invite.status]}
+                      {failed && g.invite.error ? `: ${g.invite.error}` : ''}
+                    </Text>
+                    {organizer && !cancelled ? (
+                      <View style={styles.guestActions}>
+                        <Button
+                          title="Share link"
+                          kind="quiet"
+                          icon="link-outline"
+                          busy={busy === `link:${g.guestId}`}
+                          disabled={!!blocked}
+                          accessibilityLabel={`Share ${g.name}'s join link`}
+                          onPress={() =>
+                            void run(`link:${g.guestId}`, async () => {
+                              const url = await engine.guestLink(m.meetingId, g.guestId);
+                              const how = await shareLink(url, `Join ${m.title}`);
+                              setNotice(
+                                how === 'copied'
+                                  ? `${g.name}'s join link is copied. It only works for them.`
+                                  : null,
+                              );
+                            })
+                          }
+                          style={styles.smallButton}
+                        />
+                        {g.invite.status !== 'not_configured' ? (
+                          <Button
+                            title="Resend"
+                            kind="quiet"
+                            icon="refresh"
+                            busy={busy === `resend:${g.guestId}`}
+                            disabled={!!blocked}
+                            accessibilityLabel={`Resend the invitation to ${g.name}`}
+                            onPress={() =>
+                              void run(`resend:${g.guestId}`, async () => {
+                                await engine.resendGuestInvite(m.meetingId, g.guestId);
+                                setNotice(`Invitation sent to ${g.email} again.`);
+                              })
+                            }
+                            style={styles.smallButton}
+                          />
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </Glass>
+            {notice ? (
+              <Text variant="meta" tone="accent" accessibilityLiveRegion="polite">
+                {notice}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
         {organizer && !cancelled && !started ? (
           <View style={{ gap: space.sm }}>
             {blocked ? (
@@ -327,6 +433,17 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'transparent',
   },
+  guest: { paddingHorizontal: space.lg, paddingVertical: 12, gap: 4 },
+  guestHead: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  guestIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestActions: { flexDirection: 'row', gap: space.sm, marginLeft: 46, marginTop: 4 },
+  smallButton: { paddingVertical: 6, paddingHorizontal: space.md },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

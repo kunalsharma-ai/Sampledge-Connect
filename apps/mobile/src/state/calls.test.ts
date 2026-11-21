@@ -160,4 +160,39 @@ describe('calls', () => {
     expect(await t.calls.setRecording(true)).toBe(false);
     expect(t.calls.state.error).toContain('turned off');
   });
+
+  it('admits a guest from the lobby, and settles when someone else answered first', async () => {
+    const waiting = {
+      guestId: 'g1',
+      meetingId: 'm1',
+      name: 'Ana Ruiz',
+      email: 'ana@client.com',
+      requestedAt: '2026-11-21T10:02:00.000Z',
+    };
+    let conflict = false;
+    const asked: string[] = [];
+    const t = setup({
+      startCall: async () => ({ call: call({ startedBy: ME, lobby: [waiting] }), join }),
+      lobbyDecision: async (_c: string, g: string, d: string) => {
+        asked.push(`${g}:${d}`);
+        if (conflict) throw new TransportError('Already answered', 'api', 'CONFLICT');
+        return call({
+          startedBy: ME,
+          lobby: [],
+          guests: [{ ...waiting, state: 'admitted', decidedBy: ME, joinedAt: null }],
+        });
+      },
+      getCall: async () => call({ startedBy: ME, lobby: [] }),
+    });
+    await t.calls.start('c1', 'video');
+    expect(t.calls.state.current?.call.lobby).toHaveLength(1);
+    expect(await t.calls.decideGuest('g1', 'admit')).toBe(true);
+    expect(t.calls.state.current?.call.lobby).toEqual([]);
+    expect(t.calls.state.current?.call.guests?.[0]?.state).toBe('admitted');
+
+    conflict = true;
+    expect(await t.calls.decideGuest('g1', 'deny')).toBe(false);
+    expect(t.calls.state.error).toBeNull();
+    expect(asked).toEqual(['g1:admit', 'g1:deny']);
+  });
 });

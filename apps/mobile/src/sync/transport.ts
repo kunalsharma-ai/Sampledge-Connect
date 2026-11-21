@@ -123,6 +123,10 @@ export interface ApiTransport {
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
+  /** Let a guest in from the lobby, or turn them away (anyone in the call; first answer wins). */
+  lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call>;
+  guestLink(meetingId: string, guestId: string): Promise<{ url: string }>;
+  resendGuestInvite(meetingId: string, guestId: string): Promise<void>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -429,6 +433,30 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/stop`, {});
   }
 
+  lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call> {
+    return this.request(
+      'POST',
+      `/v1/calls/${encodeURIComponent(callId)}/lobby/${encodeURIComponent(guestId)}/${decision}`,
+      {},
+    );
+  }
+
+  guestLink(meetingId: string, guestId: string): Promise<{ url: string }> {
+    return this.request(
+      'GET',
+      `/v1/meetings/${encodeURIComponent(meetingId)}/guests/${encodeURIComponent(guestId)}/link`,
+      undefined,
+    );
+  }
+
+  resendGuestInvite(meetingId: string, guestId: string): Promise<void> {
+    return this.request(
+      'POST',
+      `/v1/meetings/${encodeURIComponent(meetingId)}/guests/${encodeURIComponent(guestId)}/resend`,
+      {},
+    );
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -555,4 +583,7 @@ export class NoServerTransport implements ApiTransport {
   deleteRecording = async (): Promise<void> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
+  lobbyDecision = async (): Promise<Call> => this.fail();
+  guestLink = async (): Promise<{ url: string }> => this.fail();
+  resendGuestInvite = async (): Promise<void> => this.fail();
 }
