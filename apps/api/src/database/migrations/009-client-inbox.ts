@@ -187,16 +187,14 @@ export const clientInboxMigration: Migration = {
     await db
       .collection('inbox_activity')
       .createIndex({ tenantId: 1, conversationId: 1, createdAt: 1 }, { name: 'timeline' });
-    await db
-      .collection('inbox_templates')
-      .createIndex(
-        { tenantId: 1, shortcut: 1 },
-        {
-          name: 'shortcut',
-          unique: true,
-          partialFilterExpression: { shortcut: { $type: 'string' } },
-        },
-      );
+    await db.collection('inbox_templates').createIndex(
+      { tenantId: 1, shortcut: 1 },
+      {
+        name: 'shortcut',
+        unique: true,
+        partialFilterExpression: { shortcut: { $type: 'string' } },
+      },
+    );
     await db
       .collection('inbox_settings')
       .createIndex({ tenantId: 1 }, { name: 'one_per_tenant', unique: true });
