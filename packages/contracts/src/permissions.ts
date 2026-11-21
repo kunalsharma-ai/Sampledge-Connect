@@ -25,6 +25,7 @@ export const TENANT_PERMISSIONS = [
   'devices.revoke.any',
   'audit.read',
   'recordings.manage', // retention settings, delete any recording, bulk export
+  'ai.manage', // turn the private AI assistant on or off for the organization
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',
