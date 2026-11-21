@@ -15,7 +15,7 @@ const csp = [
   "font-src 'self' https://fonts.gstatic.com data:",
   `img-src 'self' data: blob: ${api}`,
   `connect-src 'self' ${api} ${apiWs} ${rtc} ${rtcHttp}`,
-  "media-src 'self' blob: mediastream:",
+  `media-src 'self' blob: mediastream: ${api}`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "frame-ancestors 'none'",
@@ -38,6 +38,15 @@ const config: NextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
           },
+        ],
+      },
+      {
+        // A guest's link token is in the path: never send it to other sites.
+        source: '/join/:path*',
+        headers: [
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Cache-Control', value: 'no-store' },
         ],
       },
       {

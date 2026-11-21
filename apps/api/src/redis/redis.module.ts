@@ -20,6 +20,8 @@ const POLICIES = {
   reaction: { points: 60, duration: 10 },
   upload: { points: 30, duration: 60 },
   api_user: { points: 300, duration: 60 },
+  /** Public guest join page: it polls every few seconds; allows a few guests behind one NAT. */
+  guest_link: { points: 240, duration: 60 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;
 

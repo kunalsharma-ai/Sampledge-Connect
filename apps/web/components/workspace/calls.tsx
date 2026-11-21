@@ -2,6 +2,10 @@
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  Check,
+  Circle,
+  CircleStop,
+  DoorOpen,
   Hand,
   Maximize2,
   Mic,
@@ -17,6 +21,7 @@ import {
   Video,
   VideoOff,
   WifiOff,
+  X,
 } from 'lucide-react';
 import { Track, type Participant } from 'livekit-client';
 import {
@@ -256,7 +261,7 @@ export function IncomingCall({
   );
 }
 
-function TrackVideo({
+export function TrackVideo({
   track,
   mirror,
   contain,
@@ -290,7 +295,7 @@ function TrackVideo({
 }
 
 /** Plays every remote microphone and screen-share audio track. */
-function RemoteAudio({ participants }: { participants: Participant[] }) {
+export function RemoteAudio({ participants }: { participants: Participant[] }) {
   return (
     <>
       {participants.flatMap((p) =>
@@ -315,7 +320,7 @@ function AudioEl({ track }: { track: Track }) {
   return <audio ref={ref} autoPlay />;
 }
 
-function Tile({
+export function Tile({
   p,
   isLocal,
   speaking,
@@ -372,7 +377,7 @@ function useElapsed(since: string) {
   return formatCallDuration(Math.max(0, Math.round((Date.now() - Date.parse(since)) / 1000)));
 }
 
-function ControlButton({
+export function ControlButton({
   on,
   label,
   onClick,
@@ -474,7 +479,17 @@ export function CallStage({
           aria-label="Return to call"
         >
           <p className="max-w-40 truncate text-label">{title}</p>
-          <p className="text-meta text-white/70">{statusLine}</p>
+          <p className="flex items-center gap-1.5 text-meta text-white/70">
+            {call.recording ? (
+              <span className="flex items-center gap-1 font-semibold text-[#ff6b6b]">
+                <span className="size-1.5 rounded-full bg-[#ff6b6b]" /> REC
+              </span>
+            ) : null}
+            {statusLine}
+            {call.lobby?.length ? (
+              <span className="font-semibold text-warning">· {call.lobby.length} in lobby</span>
+            ) : null}
+          </p>
         </button>
         <button
           onClick={() => void calls.toggleMic()}
@@ -535,6 +550,7 @@ export function CallStage({
             ) : null}
           </p>
         </div>
+        <RecordingBadge call={call} me={me} directory={directory} />
         <span className="hidden rounded-full border border-white/15 px-2.5 py-1 text-meta text-white/70 sm:inline">
           Self-hosted media
         </span>
@@ -557,6 +573,7 @@ export function CallStage({
           {cur.error}
         </p>
       ) : null}
+      <LobbyPanel call={call} onDecide={(id, allow) => void calls.decideGuest(id, allow)} />
 
       <div className="flex min-h-0 flex-1 gap-3 p-3 sm:p-4">
         {share && sharer ? (
@@ -629,6 +646,25 @@ export function CallStage({
         >
           <Hand className={cn(handRaisedAt(lp) && 'text-warning')} />
         </ControlButton>
+        {calls.config?.recordingEnabled ? (
+          <ControlButton
+            label={
+              call.recording?.status === 'stopping'
+                ? 'Saving the recording…'
+                : call.recording
+                  ? 'Stop recording'
+                  : 'Record this call'
+            }
+            onClick={() => void calls.toggleRecording()}
+            disabled={call.recording?.status === 'stopping'}
+          >
+            {call.recording ? (
+              <CircleStop className="text-[#ff6b6b]" />
+            ) : (
+              <Circle className="fill-[#ff6b6b] text-[#ff6b6b]" />
+            )}
+          </ControlButton>
+        ) : null}
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>
@@ -651,6 +687,113 @@ export function CallStage({
       </footer>
       <RemoteAudio participants={remotes} />
     </motion.div>
+  );
+}
+
+/**
+ * External guests waiting to be let in. Everyone in the call sees it and anyone can decide;
+ * the first answer wins and the list updates for everyone.
+ */
+function LobbyPanel({
+  call,
+  onDecide,
+}: {
+  call: Call;
+  onDecide: (guestId: string, allow: boolean) => void;
+}) {
+  const waiting = call.lobby ?? [];
+  const [busy, setBusy] = React.useState<string | null>(null);
+  if (!waiting.length) return null;
+  return (
+    <section
+      className="mx-4 rounded-xl border border-warning/35 bg-[#2a2210]/85 px-3 py-2.5 backdrop-blur sm:mx-6"
+      aria-live="polite"
+      aria-label="Lobby"
+      data-testid="call-lobby"
+    >
+      <p className="mb-1.5 flex items-center gap-1.5 text-meta font-semibold text-warning">
+        <DoorOpen className="size-3.5" />
+        {waiting.length === 1
+          ? '1 guest is waiting in the lobby'
+          : `${waiting.length} guests are waiting in the lobby`}
+      </p>
+      <ul className="space-y-1.5">
+        {waiting.map((g) => (
+          <li key={g.guestId} className="flex flex-wrap items-center gap-2">
+            <Avatar name={g.name} size="xs" />
+            <span className="min-w-0 flex-1 truncate text-label">
+              {g.name}{' '}
+              <span className="font-normal text-white/60">
+                · {g.email} · guest from outside your organization
+              </span>
+            </span>
+            <Button
+              size="sm"
+              className="bg-success text-bg hover:bg-success/90"
+              loading={busy === g.guestId}
+              onClick={() => {
+                setBusy(g.guestId);
+                onDecide(g.guestId, true);
+              }}
+            >
+              <Check /> Admit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-white/80 hover:bg-white/10 hover:text-white"
+              disabled={busy === g.guestId}
+              onClick={() => {
+                setBusy(g.guestId);
+                onDecide(g.guestId, false);
+              }}
+            >
+              <X /> Deny
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Shown to everyone in the call while it is being recorded (consent indicator), with who
+ * started it. Announced to screen readers when it changes.
+ */
+function RecordingBadge({
+  call,
+  me,
+  directory,
+}: {
+  call: Call;
+  me: string;
+  directory: Map<string, DirectoryEntry>;
+}) {
+  const rec = call.recording;
+  const elapsed = useElapsed(rec?.startedAt ?? new Date().toISOString());
+  return (
+    <span aria-live="polite" className="contents">
+      {rec ? (
+        <span
+          data-testid="recording-indicator"
+          className="flex items-center gap-2 rounded-full border border-[#ff6b6b]/50 bg-[#ff6b6b]/15 px-3 py-1 text-meta font-semibold text-[#ffb4b4]"
+        >
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#ff6b6b] opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-[#ff6b6b]" />
+          </span>
+          {rec.status === 'stopping'
+            ? 'Saving recording…'
+            : rec.status === 'starting'
+              ? 'Starting recording…'
+              : `Recording · ${elapsed}`}
+          <span className="hidden font-normal text-white/70 md:inline">
+            by {rec.startedBy === me ? 'you' : nameOf(rec.startedBy, directory).split(' ')[0]}
+          </span>
+        </span>
+      ) : null}
+    </span>
   );
 }
 

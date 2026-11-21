@@ -50,6 +50,10 @@ interface CallsContextValue {
   toggleCamera(): Promise<void>;
   toggleScreenShare(): Promise<void>;
   toggleHand(): Promise<void>;
+  /** Start or stop recording the current call (everyone sees the indicator). */
+  toggleRecording(): Promise<void>;
+  /** Let an external guest in from the lobby, or turn them away. */
+  decideGuest(guestId: string, allow: boolean): Promise<void>;
 }
 
 const CallsContext = React.createContext<CallsContextValue | null>(null);
@@ -362,6 +366,35 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     bump();
   }, [bump]);
 
+  const toggleRecording = React.useCallback(async () => {
+    const c = currentRef.current;
+    if (!c) return;
+    const action = c.call.recording ? 'stop' : 'start';
+    try {
+      const call = await req<Call>('POST', `/v1/calls/${c.call.callId}/recording/${action}`);
+      setCurrent((x) => (x && x.call.callId === call.callId ? { ...x, call } : x));
+    } catch (e) {
+      bump({ error: messageOf(e) });
+    }
+  }, [req, bump]);
+
+  const decideGuest = React.useCallback(
+    async (guestId: string, allow: boolean) => {
+      const c = currentRef.current;
+      if (!c) return;
+      try {
+        const call = await req<Call>(
+          'POST',
+          `/v1/calls/${c.call.callId}/lobby/${guestId}/${allow ? 'admit' : 'deny'}`,
+        );
+        setCurrent((x) => (x && x.call.callId === call.callId ? { ...x, call } : x));
+      } catch (e) {
+        bump({ error: messageOf(e) });
+      }
+    },
+    [req, bump],
+  );
+
   const value: CallsContextValue = {
     config,
     live,
@@ -379,6 +412,8 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     toggleCamera,
     toggleScreenShare,
     toggleHand,
+    toggleRecording,
+    decideGuest,
   };
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

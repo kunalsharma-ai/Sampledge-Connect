@@ -3,6 +3,7 @@ import {
   Bot,
   CalendarClock,
   ChartNoAxesCombined,
+  Clapperboard,
   CheckSquare,
   FolderKanban,
   FolderOpen,
@@ -24,6 +25,7 @@ export type ModuleId =
   | 'projects'
   | 'client-inbox'
   | 'meetings'
+  | 'recordings'
   | 'files'
   | 'tasks'
   | 'notifications'
@@ -44,7 +46,7 @@ export interface ModuleDef {
   adminOnly?: boolean;
 }
 
-/** The 15 navigation modules from the product spec, honestly flagged. */
+/** The navigation modules from the product spec, honestly flagged. */
 export const MODULES: ModuleDef[] = [
   { id: 'home', label: 'Home', icon: House, built: false, phase: 'Phase 1b' },
   { id: 'messages', label: 'Messages', icon: MessagesSquare, built: true },
@@ -58,6 +60,7 @@ export const MODULES: ModuleDef[] = [
   },
   { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: false, phase: 'Phase 3' },
   { id: 'meetings', label: 'Meetings', icon: CalendarClock, built: true },
+  { id: 'recordings', label: 'Recordings', icon: Clapperboard, built: true },
   { id: 'files', label: 'Files', icon: FolderOpen, built: false, phase: 'Phase 1b · Nextcloud' },
   { id: 'tasks', label: 'Tasks & Approvals', icon: CheckSquare, built: false, phase: 'Phase 2' },
   { id: 'notifications', label: 'Notifications', icon: Bell, built: true },

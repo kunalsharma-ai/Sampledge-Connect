@@ -16,6 +16,7 @@ import { MessageAttachments } from './attachments';
 import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
 import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
+import { CallRecordingCard } from './recordings';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -134,6 +135,8 @@ export function Timeline({
                   directory={directory}
                   onOpen={() => onOpenMeeting?.(m.metadata.meeting as MeetingSystemMetadata)}
                 />
+              ) : m.messageType === 'system' && m.metadata?.recording && !m.deletedAt ? (
+                <CallRecordingCard message={m} me={me} directory={directory} />
               ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
                 <CallCard message={m} me={me} directory={directory} offline={offline} />
               ) : (

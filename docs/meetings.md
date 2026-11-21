@@ -18,16 +18,16 @@ Meetings run on the same self-hosted stack as calls (see `docs/calls.md`). Nothi
 
 ## API
 
-| Method  | Path                      | Notes                                                                                                                          |
-| ------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| GET     | `/v1/meetings?from=&to=`  | My meetings overlapping the range (max 62 days). `includeCancelled=true` optional.                                             |
-| POST    | `/v1/meetings`            | `{ title, agenda?, startsAt, endsAt, timeZone?, media?, remindMinutes?, attendeeIds?, optionalAttendeeIds?, conversationId? }` |
-| GET     | `/v1/meetings/:id`        | Attendees, or anyone who can read the meeting chat. Others get 404.                                                            |
-| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too.                                                          |
-| POST    | `/v1/meetings/:id/cancel` | Organizer only.                                                                                                                |
-| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined' }`                                                                        |
-| POST    | `/v1/meetings/find-times` | `{ attendeeIds, durationMinutes, from, to, stepMinutes?, limit?, ignoreMeetingId? }` → `{ slots, busy }`                       |
-| GET/PUT | `/v1/me/working-hours`    | `{ timeZone, days: [{ day: 0-6, start: 'HH:MM', end: 'HH:MM' }] }`                                                             |
+| Method  | Path                      | Notes                                                                                                                                   |
+| ------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| GET     | `/v1/meetings?from=&to=`  | My meetings overlapping the range (max 62 days). `includeCancelled=true` optional.                                                      |
+| POST    | `/v1/meetings`            | `{ title, agenda?, startsAt, endsAt, timeZone?, media?, remindMinutes?, attendeeIds?, optionalAttendeeIds?, conversationId?, guests? }` |
+| GET     | `/v1/meetings/:id`        | Attendees, or anyone who can read the meeting chat. Others get 404.                                                                     |
+| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too.                                                                   |
+| POST    | `/v1/meetings/:id/cancel` | Organizer only.                                                                                                                         |
+| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined' }`                                                                                 |
+| POST    | `/v1/meetings/find-times` | `{ attendeeIds, durationMinutes, from, to, stepMinutes?, limit?, ignoreMeetingId? }` → `{ slots, busy }`                                |
+| GET/PUT | `/v1/me/working-hours`    | `{ timeZone, days: [{ day: 0-6, start: 'HH:MM', end: 'HH:MM' }] }`                                                                      |
 
 Socket: `meeting:upsert` (a `Meeting`, to every attendee on create, change, cancel and RSVP) and `meeting:reminder`
 `{ meeting, minutesBefore }`. Push data: `{ type: 'meeting', event: 'invite' | 'reminder' | 'updated' | 'cancelled', meetingId, conversationId, startsAt }`.
@@ -35,5 +35,5 @@ Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetada
 
 ## Planned next
 
-Email invites with `.ics` for people outside the workspace through your own SMTP server, guest join links with a lobby,
-public booking pages (pick a slot from a team's availability), recurring meetings, recordings.
+Public booking pages (pick a slot from a team's availability) and recurring meetings. Guests from outside the
+organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.

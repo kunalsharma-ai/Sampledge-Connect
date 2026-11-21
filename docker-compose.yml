@@ -49,6 +49,24 @@ services:
       LIVEKIT_API_URL: http://livekit:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-sampledge}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET (openssl rand -base64 48)}
+      # Call recording: egress writes finished files to the shared volume, the API moves them
+      # into tenant storage. Remove these two lines to turn call recording off.
+      RECORDINGS_SPOOL_DIR: /recordings
+      LIVEKIT_EGRESS_OUTPUT_DIR: /out
+      FILES_URL_SECRET: ${FILES_URL_SECRET:?set FILES_URL_SECRET (openssl rand -base64 48)}
+      # Links in emails (guest join links) point here.
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      # Email to external meeting guests, through your own mail server. Leave SMTP_HOST empty
+      # to turn email off (organizers then copy guest links by hand). See docs/guests.md.
+      # To try it locally: docker compose --profile mail-test up, then open http://localhost:8025.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes: [recordings-spool:/recordings]
     ports: ['4000:4000']
 
   # Self-hosted SFU for voice/video calls and screen sharing (LiveKit, Apache-2.0).
@@ -76,6 +94,8 @@ services:
           udp_port: 3478
           relay_range_start: 50101
           relay_range_end: 50200
+        redis:
+          address: redis:6379
         webhook:
           api_key: ${LIVEKIT_API_KEY:-sampledge}
           urls: ['http://api:4000/v1/calls/livekit/webhook']
@@ -87,6 +107,42 @@ services:
       - '3478:3478/udp'
       - '50000-50200:50000-50200/udp'
 
+  # Self-hosted call/meeting recording (LiveKit Egress, Apache-2.0). Joins a call as a hidden
+  # participant, renders the speaker layout (cameras + screen share) in its own headless Chrome
+  # and writes an MP4/M4A into the shared spool volume. Needs ~2 CPU cores per recording.
+  egress:
+    image: livekit/egress:v1.11.0
+    restart: unless-stopped
+    depends_on: [livekit, redis, recordings-init]
+    cap_add: [SYS_ADMIN] # Chrome sandbox
+    environment:
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:-sampledge}
+        api_secret: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: redis:6379
+        health_port: 9090
+        log_level: info
+    volumes: [recordings-spool:/out]
+
+  # Lets egress (uid 1001) write and the API (user app) read and remove spool files.
+  recordings-init:
+    image: alpine:3.22
+    command: ['sh', '-c', 'chmod 0777 /recordings']
+    volumes: [recordings-spool:/recordings]
+
+  # Test mailbox for trying guest invites without a real mail server (only with
+  # `--profile mail-test`). Set SMTP_HOST=mailpit SMTP_PORT=1025
+  # SMTP_FROM="Sampledge Connect <meetings@example.test>" and read mail at http://localhost:8025.
+  # Nothing leaves this machine. Don't run it in production.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    profiles: [mail-test]
+    restart: unless-stopped
+    ports: ['127.0.0.1:8025:8025']
+
 volumes:
   mongo-data:
   redis-data:
+  recordings-spool:

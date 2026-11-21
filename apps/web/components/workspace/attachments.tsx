@@ -1,10 +1,18 @@
 'use client';
 import * as React from 'react';
 import { AlertCircle, Download, FileText, ImageIcon, Loader2, RotateCw, X } from 'lucide-react';
-import { isImageAttachment, type Attachment } from '@sampledge/contracts';
+import {
+  formatClipDuration,
+  isAudioAttachment,
+  isImageAttachment,
+  isVideoAttachment,
+  type Attachment,
+} from '@sampledge/contracts';
 import { cn } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
 import { formatBytes, useAttachmentUrl } from '@/lib/uploads';
+import type { ClipKind } from '@/lib/recorder';
+import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 
 export interface DraftAttachment {
   key: string;
@@ -14,6 +22,8 @@ export interface DraftAttachment {
   error?: string;
   attachment?: Attachment;
   previewUrl?: string;
+  /** Set for a clip recorded in the composer. */
+  recording?: { kind: ClipKind; durationMs: number };
 }
 
 /** Files waiting in the composer, with upload progress. */
@@ -37,7 +47,11 @@ export function DraftAttachments({
             d.state === 'failed' ? 'border-danger' : 'border-border',
           )}
         >
-          {d.previewUrl ? (
+          {d.recording ? (
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-danger/15 text-danger">
+              {React.createElement(KIND_ICON[d.recording.kind], { className: 'size-5' })}
+            </span>
+          ) : d.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={d.previewUrl} alt="" className="size-10 shrink-0 rounded-md object-cover" />
           ) : (
@@ -46,7 +60,11 @@ export function DraftAttachments({
             </span>
           )}
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-label text-text">{d.file.name}</span>
+            <span className="block truncate text-label text-text">
+              {d.recording
+                ? `${KIND_LABEL[d.recording.kind]} · ${formatClipDuration(d.recording.durationMs)}`
+                : d.file.name}
+            </span>
             <span
               className={cn(
                 'block truncate text-meta',
@@ -163,8 +181,10 @@ export function MessageAttachments({
   own: boolean;
 }) {
   if (attachments.length === 0) return null;
-  const images = attachments.filter(isImageAttachment);
-  const files = attachments.filter((a) => !isImageAttachment(a));
+  const isMedia = (a: Attachment) => !!a.recording || isAudioAttachment(a) || isVideoAttachment(a);
+  const images = attachments.filter((a) => isImageAttachment(a) && !a.deletedAt);
+  const media = attachments.filter(isMedia);
+  const files = attachments.filter((a) => !isImageAttachment(a) && !isMedia(a));
   return (
     <div className={cn('mt-1 flex flex-col gap-1.5', own ? 'items-end' : 'items-start')}>
       {images.length > 0 ? (
@@ -174,9 +194,18 @@ export function MessageAttachments({
           ))}
         </div>
       ) : null}
-      {files.map((a) => (
-        <FileCard key={a.attachmentId} a={a} own={own} />
+      {media.map((a) => (
+        <RecordingAttachment key={a.attachmentId} a={a} own={own} />
       ))}
+      {files.map((a) =>
+        a.deletedAt ? (
+          <span key={a.attachmentId} className="text-meta text-text-subtle">
+            {a.fileName} was deleted
+          </span>
+        ) : (
+          <FileCard key={a.attachmentId} a={a} own={own} />
+        ),
+      )}
     </div>
   );
 }

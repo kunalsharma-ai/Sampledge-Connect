@@ -97,6 +97,29 @@ export class CallsController {
     return this.calls.stopRecording(ctx, callId);
   }
 
+  /** Let a guest in from the lobby (anyone in the call). */
+  @Post('calls/:callId/lobby/:guestId/admit')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  admit(
+    @Ctx() ctx: TenantContext,
+    @Param('callId') callId: string,
+    @Param('guestId') guestId: string,
+  ) {
+    return this.calls.decideGuest(ctx, callId, guestId, true);
+  }
+
+  @Post('calls/:callId/lobby/:guestId/deny')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  deny(
+    @Ctx() ctx: TenantContext,
+    @Param('callId') callId: string,
+    @Param('guestId') guestId: string,
+  ) {
+    return this.calls.decideGuest(ctx, callId, guestId, false);
+  }
+
   /**
    * LiveKit webhook receiver (configure it in livekit.yaml). Authenticated by the signed JWT
    * LiveKit sends, not by a user token. The body arrives raw so its hash can be checked.
