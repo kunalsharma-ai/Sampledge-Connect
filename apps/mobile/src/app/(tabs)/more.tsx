@@ -129,6 +129,12 @@ export default function More() {
               divider
             />
             <Row
+              icon="chatbubbles-outline"
+              title="Chat theme"
+              onPress={() => router.push('/settings/chat-theme')}
+              divider
+            />
+            <Row
               icon="notifications-outline"
               title="Notifications"
               onPress={() => router.push('/settings/notifications')}
