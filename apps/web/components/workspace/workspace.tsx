@@ -296,12 +296,14 @@ export function Workspace() {
                       : 'Join this channel to send messages.'
                   }
                   offline={offline}
-                  onSend={async (text, mentions) => {
+                  conversationId={active.conversationId}
+                  onSend={async (text, mentions, attachments) => {
                     const reply = replyTo?.messageId ?? null;
                     setReplyTo(null);
                     await engine.compose(active.conversationId, text, {
                       mentions,
                       replyToMessageId: reply,
+                      attachments,
                     });
                   }}
                   members={active.memberIds
@@ -318,7 +320,9 @@ export function Workspace() {
                             replyTo.senderId === me
                               ? 'yourself'
                               : nameOf(replyTo.senderId, directory),
-                          text: replyTo.content.text,
+                          text:
+                            replyTo.content.text ||
+                            `${replyTo.attachments?.length ?? 0} attachment(s)`,
                         }
                       : null
                   }
