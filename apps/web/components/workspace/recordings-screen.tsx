@@ -106,6 +106,20 @@ export function RecordingsScreen({
     setItems(null);
     if (online) void load();
   }, [load, online]);
+  // Stay in step with other devices: new recordings and deletions show within 20 seconds,
+  // and at once when this window comes back to the front.
+  React.useEffect(() => {
+    if (!online) return;
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    const t = setInterval(tick, 20_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [load, online]);
 
   const download = async (r: Recording) => {
     try {

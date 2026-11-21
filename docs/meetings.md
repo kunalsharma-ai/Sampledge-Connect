@@ -33,6 +33,17 @@ Socket: `meeting:upsert` (a `Meeting`, to every attendee on create, change, canc
 `{ meeting, minutesBefore }`. Push data: `{ type: 'meeting', event: 'invite' | 'reminder' | 'updated' | 'cancelled', meetingId, conversationId, startsAt }`.
 Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetadata`).
 
+## Sync across devices
+
+- Every change (create, edit, cancel, RSVP, guest answers) is pushed live with `meeting:upsert` to every signed-in
+  device of everyone invited, on web and mobile.
+- The web calendar keeps a copy on the device, so it shows offline, and refetches when the connection returns.
+- RSVPs made offline are saved on the device, shown at once, and sent when the connection returns (latest answer per
+  meeting wins; answers the server refuses, such as for a cancelled meeting, are dropped).
+- Scheduling and editing need a connection, so two devices can't create conflicting versions of a meeting.
+- The recordings library refreshes on reconnect, every 20 seconds while open, and when the window comes back to the
+  front.
+
 ## Recurring meetings
 
 Create a meeting with `recurrence` to repeat it:
