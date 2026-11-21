@@ -5,7 +5,7 @@ import {
   type SendMessageRequest,
   type SetReactionRequest,
 } from '@sampledge/contracts';
-import type { LocalStore, MessageOp } from '../db/store';
+import type { LocalStore, MessageOp, PendingFile } from '../db/store';
 import { TransportError } from './transport';
 
 export interface OutboxOptions {
@@ -16,6 +16,8 @@ export interface OutboxOptions {
   edit?: (messageId: string, text: string, mentions: string[]) => Promise<Message>;
   /** Deletes a sent message for everyone (DELETE /v1/messages/:id). */
   remove?: (messageId: string) => Promise<Message>;
+  /** Uploads one file (ticket, bytes, complete) and returns its attachment id. */
+  upload?: (file: PendingFile, conversationId: string) => Promise<string>;
   /** Adds or removes your reaction (socket `reaction:set`, REST PUT/DELETE as fallback). */
   react?: (req: SetReactionRequest) => Promise<Message>;
   /** Whether it is worth trying right now (network up, signed in, not paused). */
@@ -91,11 +93,25 @@ export class OutboxProcessor {
       if (!msg) continue; // cascade-deleted
       await store.markSending(item.clientId);
       try {
+        // Files first: each is uploaded once; a retry resumes with the ones not yet on the server.
+        const files = await store.pendingFiles(item.clientId);
+        const attachmentIds: string[] = [];
+        for (const f of files) {
+          let id = f.attachmentId;
+          if (!id) {
+            if (!this.opts.upload)
+              throw new TransportError('File uploads are not available', 'not_configured');
+            id = await this.opts.upload(f, msg.conversationId);
+            await store.markFileUploaded(f.clientId, f.position, id);
+          }
+          attachmentIds.push(id);
+        }
         const ack = await this.opts.send({
           conversationId: msg.conversationId,
           clientMessageId: msg.clientId,
           messageType: 'text',
           content: { text: msg.text, mentions: msg.mentions },
+          attachmentIds,
           replyToMessageId: msg.replyTo,
           composedAt: msg.createdAt,
         });

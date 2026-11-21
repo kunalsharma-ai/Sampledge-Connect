@@ -6,6 +6,7 @@ import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { AttachmentList } from './Attachments';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
 import { Text } from './Text';
 
@@ -85,7 +86,7 @@ function MessageBubbleImpl({
         onPress={m.status === 'failed' ? () => onOpenActions(m) : undefined}
         delayLongPress={300}
         accessibilityHint="Double tap and hold for reply, edit and other actions"
-        accessibilityLabel={`${own ? 'You' : senderName}: ${deleted ? 'message deleted' : m.text}. ${own ? STATUS_LABEL[m.status] : ''}${m.pendingOp ? ', change not saved yet' : ''}`}
+        accessibilityLabel={`${own ? 'You' : senderName}: ${deleted ? 'message deleted' : [m.text, ...m.attachments.map((a) => `attachment ${a.fileName}`)].filter(Boolean).join(', ')}. ${own ? STATUS_LABEL[m.status] : ''}${m.pendingOp ? ', change not saved yet' : ''}`}
         style={[
           styles.bubble,
           own ? styles.bubbleOwn : styles.bubbleOther,
@@ -129,35 +130,38 @@ function MessageBubbleImpl({
             </Text>
           </Pressable>
         ) : null}
-        <Text
-          variant="body"
-          style={{
-            color: textColor,
-            fontStyle: deleted ? 'italic' : 'normal',
-            opacity: deleted ? 0.7 : 1,
-          }}
-        >
-          {deleted
-            ? 'This message was deleted'
-            : segments.map((s, i) =>
-                s.userId ? (
-                  <RNText
-                    key={i}
-                    style={{
-                      fontFamily: fonts.semibold,
-                      color: own ? textColor : c.accent,
-                      backgroundColor:
-                        s.userId === selfId ? alpha(c.accentSecondary, 0.25) : undefined,
-                      textDecorationLine: own ? 'underline' : 'none',
-                    }}
-                  >
-                    {s.text}
-                  </RNText>
-                ) : (
-                  s.text
-                ),
-              )}
-        </Text>
+        {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
+        {deleted || m.text ? (
+          <Text
+            variant="body"
+            style={{
+              color: textColor,
+              fontStyle: deleted ? 'italic' : 'normal',
+              opacity: deleted ? 0.7 : 1,
+            }}
+          >
+            {deleted
+              ? 'This message was deleted'
+              : segments.map((s, i) =>
+                  s.userId ? (
+                    <RNText
+                      key={i}
+                      style={{
+                        fontFamily: fonts.semibold,
+                        color: own ? textColor : c.accent,
+                        backgroundColor:
+                          s.userId === selfId ? alpha(c.accentSecondary, 0.25) : undefined,
+                        textDecorationLine: own ? 'underline' : 'none',
+                      }}
+                    >
+                      {s.text}
+                    </RNText>
+                  ) : (
+                    s.text
+                  ),
+                )}
+          </Text>
+        ) : null}
         <View style={styles.meta}>
           {m.pendingOp ? (
             <Ionicons name="time-outline" size={12} color={alpha(textColor, 0.7)} />

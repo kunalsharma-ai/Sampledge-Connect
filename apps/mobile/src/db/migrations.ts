@@ -106,6 +106,24 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       CREATE INDEX reaction_ops_due ON reaction_ops (next_attempt_at, enqueued_at);
     `);
   },
+  // v4: attachments (server snapshot on the message) and files waiting to upload
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]';
+      CREATE TABLE message_files (
+        client_id         TEXT NOT NULL REFERENCES messages(client_id) ON DELETE CASCADE,
+        position          INTEGER NOT NULL,
+        local_uri         TEXT NOT NULL,
+        file_name         TEXT NOT NULL,
+        mime_type         TEXT NOT NULL,
+        size_bytes        INTEGER NOT NULL,
+        width             INTEGER,
+        height            INTEGER,
+        attachment_id     TEXT,
+        PRIMARY KEY (client_id, position)
+      );
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
