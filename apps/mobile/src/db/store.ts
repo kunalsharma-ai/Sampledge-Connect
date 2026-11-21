@@ -67,6 +67,7 @@ type StoreEvents = {
   messages: { conversationId: string };
   conversations: undefined;
   outbox: undefined;
+  settings: { key: string };
 };
 
 interface MessageRow {
@@ -598,6 +599,7 @@ export class LocalStore {
       'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       [key, value],
     );
+    this.events.emit('settings', { key });
   }
 
   // ---------------------------------------------------------------- quota

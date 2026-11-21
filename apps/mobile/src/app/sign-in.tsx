@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -36,7 +36,7 @@ function errorText(e: unknown): string {
 
 export default function SignIn() {
   const { theme, motion } = useTheme();
-  const { sessions, sessionState, session } = useApp();
+  const { sessions, sessionState, session, workspace } = useApp();
   const reauth = sessionState === 'expired';
   const [serverUrl, setServerUrl] = useState(session?.serverUrl ?? '');
   const [tenantSlug, setTenantSlug] = useState(session?.tenant.slug ?? '');
@@ -44,6 +44,14 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+
+  // Leave this screen once the account's local database is open (it opens after sign-in).
+  useEffect(() => {
+    if (!signedIn || !workspace) return;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [signedIn, workspace]);
 
   const canSubmit = serverUrl.trim() && tenantSlug.trim() && email.trim() && password && !busy;
 
@@ -59,11 +67,9 @@ export default function SignIn() {
         deviceName: Constants.deviceName ?? `${Platform.OS} device`,
         platform: devicePlatform,
       });
-      if (router.canGoBack()) router.back();
-      else router.replace('/');
+      setSignedIn(true);
     } catch (e) {
       setError(errorText(e));
-    } finally {
       setBusy(false);
     }
   };
@@ -190,7 +196,7 @@ export default function SignIn() {
 
             {!reauth ? (
               <Pressable
-                onPress={() => void sessions.enterDemo()}
+                onPress={() => void sessions.enterDemo().then(() => setSignedIn(true))}
                 accessibilityRole="button"
                 style={[styles.secondary, { borderColor: theme.colors.border }]}
               >

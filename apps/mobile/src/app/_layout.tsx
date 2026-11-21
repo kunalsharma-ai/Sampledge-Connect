@@ -10,7 +10,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '../state/AppProvider';
@@ -22,9 +22,15 @@ void SplashScreen.preventAutoHideAsync();
 function RootStack() {
   const { theme, motion } = useTheme();
   const { sessionState, workspace } = useApp();
-  const signedIn =
+  const hasSession =
     sessionState === 'active' || sessionState === 'expired' || sessionState === 'demo';
-  const ready = sessionState !== 'loading' && (!signedIn || workspace !== null);
+  // Protected screens need the local database, so they open only once it is ready.
+  const signedIn = hasSession && workspace !== null;
+  // Hold the splash screen only for the first load; after that the navigator stays mounted
+  // (unmounting it while a newly signed-in account's database opens would lose the route).
+  const booted = useRef(false);
+  if (sessionState !== 'loading' && (!hasSession || workspace !== null)) booted.current = true;
+  const ready = booted.current;
 
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(theme.colors.background);
