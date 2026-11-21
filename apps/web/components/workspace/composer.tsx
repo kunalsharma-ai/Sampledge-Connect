@@ -12,14 +12,20 @@ import {
   Smile,
   X,
 } from 'lucide-react';
-import { MAX_MESSAGE_LENGTH } from '@sampledge/contracts';
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MESSAGE_LENGTH,
+  type Attachment,
+} from '@sampledge/contracts';
 import { Avatar, Kbd, Tooltip, cn } from '@sampledge/ui';
+import { useAuth } from '@/lib/auth';
+import { rejectReason, uploadFile } from '@/lib/uploads';
+import { DraftAttachments, type DraftAttachment } from './attachments';
 
 const PLANNED_TOOLS = [
   { icon: Bold, label: 'Bold (rich text is planned)' },
   { icon: Italic, label: 'Italic (rich text is planned)' },
   { icon: Smile, label: 'Emoji picker (planned)' },
-  { icon: Paperclip, label: 'Attach files (planned, Nextcloud)' },
   { icon: Mic, label: 'Voice message (planned)' },
 ];
 
@@ -50,17 +56,100 @@ export function Composer({
   members = [],
   replyTo,
   onCancelReply,
+  conversationId,
 }: {
   placeholder: string;
   disabled?: boolean;
   disabledReason?: string;
   offline: boolean;
-  onSend: (text: string, mentions: string[]) => Promise<void> | void;
+  onSend: (text: string, mentions: string[], attachments: Attachment[]) => Promise<void> | void;
   onTyping: (typing: boolean) => void;
   members?: MentionCandidate[];
   replyTo?: { name: string; text: string } | null;
   onCancelReply?: () => void;
+  conversationId: string;
 }) {
+  const { getAccessToken } = useAuth();
+  const [drafts, setDrafts] = React.useState<DraftAttachment[]>([]);
+  const [dragging, setDragging] = React.useState(false);
+  const fileInput = React.useRef<HTMLInputElement>(null);
+  const aborts = React.useRef(new Map<string, AbortController>());
+  const patch = (key: string, p: Partial<DraftAttachment>) =>
+    setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...p } : d)));
+
+  const start = React.useCallback(
+    (d: DraftAttachment) => {
+      const ac = new AbortController();
+      aborts.current.set(d.key, ac);
+      uploadFile(
+        d.file,
+        conversationId,
+        getAccessToken,
+        (f) => patch(d.key, { progress: f }),
+        ac.signal,
+      )
+        .then((attachment) => patch(d.key, { state: 'ready', progress: 1, attachment }))
+        .catch((e: unknown) => {
+          if (ac.signal.aborted) return;
+          patch(d.key, {
+            state: 'failed',
+            error: e instanceof Error ? e.message : 'Upload failed',
+          });
+        })
+        .finally(() => aborts.current.delete(d.key));
+    },
+    [conversationId, getAccessToken],
+  );
+
+  const addFiles = (files: Iterable<File>) => {
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - drafts.length;
+    const next = [...files].slice(0, Math.max(0, room)).map((file): DraftAttachment => {
+      const reason = rejectReason(file);
+      return {
+        key: crypto.randomUUID(),
+        file,
+        progress: 0,
+        state: reason ? 'failed' : 'uploading',
+        error: reason ?? undefined,
+        previewUrl: /^image\//.test(file.type) ? URL.createObjectURL(file) : undefined,
+      };
+    });
+    setDrafts((ds) => [...ds, ...next]);
+    next.filter((d) => d.state === 'uploading').forEach(start);
+  };
+
+  const removeDraft = (key: string) => {
+    aborts.current.get(key)?.abort();
+    setDrafts((ds) => {
+      const d = ds.find((x) => x.key === key);
+      if (d?.previewUrl) URL.revokeObjectURL(d.previewUrl);
+      return ds.filter((x) => x.key !== key);
+    });
+  };
+
+  const retryDraft = (key: string) => {
+    const d = drafts.find((x) => x.key === key);
+    if (!d) return;
+    const fresh = { ...d, state: 'uploading' as const, progress: 0, error: undefined };
+    patch(key, fresh);
+    start(fresh);
+  };
+
+  // Drafts belong to one conversation: switching conversations discards them.
+  React.useEffect(() => {
+    const current = aborts.current;
+    return () => {
+      current.forEach((a) => a.abort());
+      setDrafts((ds) => {
+        ds.forEach((d) => d.previewUrl && URL.revokeObjectURL(d.previewUrl));
+        return [];
+      });
+    };
+  }, [conversationId]);
+
+  const uploading = drafts.some((d) => d.state === 'uploading');
+  const ready = drafts.filter((d) => d.state === 'ready' && d.attachment);
+
   const [text, setText] = React.useState('');
   const [mentioned, setMentioned] = React.useState<MentionCandidate[]>([]);
   const [query, setQuery] = React.useState<{ start: number; query: string } | null>(null);
@@ -114,14 +203,19 @@ export function Composer({
     });
   };
 
+  const canSend = (trimmed.length > 0 || ready.length > 0) && !tooLong && !uploading;
+
   const submit = async () => {
-    if (!trimmed || tooLong || disabled) return;
+    if (!canSend || disabled) return;
+    const files = ready.map((d) => d.attachment!);
     const ids = mentioned.filter((m) => trimmed.includes(`@${m.displayName}`)).map((m) => m.userId);
     setText('');
     setMentioned([]);
     setQuery(null);
+    drafts.forEach((d) => d.previewUrl && URL.revokeObjectURL(d.previewUrl));
+    setDrafts([]);
     stopTyping();
-    await onSend(trimmed, ids);
+    await onSend(trimmed, ids, files);
     ref.current?.focus();
   };
 
@@ -174,7 +268,29 @@ export function Composer({
           </motion.ul>
         ) : null}
       </AnimatePresence>
-      <div className="rounded-xl border border-border bg-surface-raised shadow-md transition-[border-color,box-shadow] duration-[var(--sc-duration-fast)] focus-within:border-accent focus-within:shadow-lg">
+      <div
+        onDragOver={(e) => {
+          if (offline || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          setDragging(false);
+          if (offline || e.dataTransfer.files.length === 0) return;
+          e.preventDefault();
+          addFiles(e.dataTransfer.files);
+        }}
+        className={cn(
+          'relative rounded-xl border border-border bg-surface-raised shadow-md transition-[border-color,box-shadow] duration-[var(--sc-duration-fast)] focus-within:border-accent focus-within:shadow-lg',
+          dragging && 'border-accent shadow-lg',
+        )}
+      >
+        {dragging ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-accent-soft text-label text-accent">
+            Drop files to attach
+          </div>
+        ) : null}
         {replyTo ? (
           <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-meta">
             <CornerUpLeft className="size-3.5 shrink-0 text-accent" />
@@ -191,6 +307,17 @@ export function Composer({
             </button>
           </div>
         ) : null}
+        <DraftAttachments drafts={drafts} onRemove={removeDraft} onRetry={retryDraft} />
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) addFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
         <textarea
           ref={ref}
           value={text}
@@ -213,6 +340,11 @@ export function Composer({
             typingTimer.current = setTimeout(stopTyping, 3000);
           }}
           onBlur={() => setQuery(null)}
+          onPaste={(e) => {
+            if (offline || e.clipboardData.files.length === 0) return;
+            e.preventDefault();
+            addFiles(e.clipboardData.files);
+          }}
           onKeyDown={(e) => {
             if (candidates.length > 0) {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -268,6 +400,28 @@ export function Composer({
                 <AtSign className="size-4" />
               </button>
             </Tooltip>
+            <Tooltip
+              content={
+                offline
+                  ? 'Attaching files needs a connection'
+                  : drafts.length >= MAX_ATTACHMENTS_PER_MESSAGE
+                    ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`
+                    : 'Attach files (up to 100 MB each)'
+              }
+              side="top"
+            >
+              <span>
+                <button
+                  type="button"
+                  aria-label="Attach files"
+                  disabled={offline || drafts.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+                  onClick={() => fileInput.current?.click()}
+                  className="flex size-8 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <Paperclip className="size-4" />
+                </button>
+              </span>
+            </Tooltip>
             {PLANNED_TOOLS.map((t) => (
               <Tooltip key={t.label} content={t.label} side="top">
                 <span>
@@ -292,6 +446,8 @@ export function Composer({
             >
               {tooLong ? (
                 `${text.length}/${MAX_MESSAGE_LENGTH}`
+              ) : uploading ? (
+                'Uploading…'
               ) : offline ? (
                 'Offline · sends on reconnect'
               ) : (
@@ -303,7 +459,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={!trimmed || tooLong}
+              disabled={!canSend}
               aria-label={offline ? 'Queue message' : 'Send message'}
               className="flex h-9 items-center gap-2 rounded-md bg-accent px-3.5 text-label text-accent-fg shadow-sm transition-[transform,opacity,background-color] duration-[var(--sc-duration-fast)] hover:-translate-y-px hover:bg-accent-hover disabled:translate-y-0 disabled:opacity-40"
             >

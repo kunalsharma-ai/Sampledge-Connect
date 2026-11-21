@@ -10,7 +10,7 @@ const csp = [
     (process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${api}`,
   `connect-src 'self' ${api} ${apiWs}`,
   "worker-src 'self'",
   "manifest-src 'self'",
