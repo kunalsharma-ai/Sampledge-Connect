@@ -1,0 +1,62 @@
+import { LinearGradient } from 'expo-linear-gradient';
+import { StyleSheet, View } from 'react-native';
+import { fonts, mix } from '../theme/themes';
+import { useTheme } from '../theme/ThemeProvider';
+import { Text } from './Text';
+
+function initials(name: string): string {
+  const parts = name.replace(/^#\s*/, '').trim().split(/\s+/);
+  return (
+    ((parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts.at(-1)?.[0] ?? '') : '')).toUpperCase() ||
+    '?'
+  );
+}
+
+/** Initials avatar; the hue is derived from the name so people are recognisable at a glance. */
+export function Avatar({
+  name,
+  size = 44,
+  channel = false,
+}: {
+  name: string;
+  size?: number;
+  channel?: boolean;
+}) {
+  const { theme } = useTheme();
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const t = (h % 100) / 100;
+  const a = mix(theme.colors.accent, theme.colors.accentSecondary, t);
+  const b = mix(theme.colors.accentSecondary, theme.colors.accent, t * 0.5);
+  return (
+    <LinearGradient
+      colors={[a, b]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[
+        styles.base,
+        { width: size, height: size, borderRadius: channel ? size * 0.3 : size / 2 },
+      ]}
+    >
+      <View style={styles.sheen} />
+      <Text
+        style={{ fontFamily: fonts.semibold, fontSize: size * 0.38, color: theme.colors.onAccent }}
+      >
+        {channel ? '#' : initials(name)}
+      </Text>
+    </LinearGradient>
+  );
+}
+
+const styles = StyleSheet.create({
+  base: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  sheen: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: '-50%',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 999,
+  },
+});
