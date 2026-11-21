@@ -26,6 +26,9 @@ import { HealthController } from './health/health.controller.js';
 import { AttachmentsController } from './attachments/attachments.controller.js';
 import { AttachmentsService } from './attachments/attachments.service.js';
 import { FILE_STORAGE, GridFsStorage } from './attachments/file-storage.js';
+import { NextcloudIntegration } from './attachments/nextcloud-integration.js';
+import { RoutingStorage } from './attachments/routing-storage.js';
+import { IntegrationSettingsService } from './integration-settings/integration-settings.service.js';
 import { MONGO_DB } from './database/database.module.js';
 import { NotificationsController } from './notifications/notifications.controller.js';
 import { NotificationsService } from './notifications/notifications.service.js';
@@ -109,10 +112,12 @@ export class AppModule {
         AiIntegration,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
+        NextcloudIntegration,
         {
           provide: FILE_STORAGE,
-          inject: [MONGO_DB],
-          useFactory: (db: Db) => new GridFsStorage(db),
+          inject: [MONGO_DB, IntegrationSettingsService],
+          useFactory: (db: Db, settings: IntegrationSettingsService) =>
+            new RoutingStorage(new GridFsStorage(db), settings),
         },
       ],
     };

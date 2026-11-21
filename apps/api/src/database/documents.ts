@@ -202,6 +202,12 @@ export interface AttachmentDoc extends TenantOwned {
   /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  /** Where the bytes live. Absent on older rows (GridFS). */
+  storage?: {
+    backend: 'gridfs' | 'nextcloud';
+    /** Nextcloud test-mode copy, or a live-mode upload that fell back to Connect storage. */
+    mirror?: { status: 'copying' | 'copied' | 'failed'; at: Date; error: string | null } | null;
+  };
 }
 
 export interface NotificationDoc extends TenantOwned {
