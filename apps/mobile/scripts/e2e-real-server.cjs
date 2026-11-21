@@ -2186,6 +2186,241 @@ function totp(secret, offset = 0) {
     check('and back on', (await api('GET', '/v1/ai/status', undefined, samTok)).enabled === true);
     await ctx7.close();
   }
+  // ---- White-label branding: Priya (owner) sets the name, logo, colors and sign-in message on
+  // her phone; Sam's app picks up the organization theme and logo; the sign-in screen shows
+  // the branding once the workspace is typed; enforcing the theme locks Appearance.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const priyaTok = await tokenOf('priya@northwind.test');
+    const before = await api('GET', '/v1/branding', undefined, priyaTok);
+    const restore = {
+      appName: before.appName,
+      logo: before.logo,
+      primary: before.primary,
+      secondary: before.secondary,
+      mode: before.mode,
+      useBrandTheme: before.useBrandTheme,
+      enforceTheme: before.enforceTheme,
+      loginMessage: before.loginMessage,
+      supportEmail: before.supportEmail,
+      supportUrl: before.supportUrl,
+      hidePoweredBy: before.hidePoweredBy,
+    };
+    try {
+      const ctx8 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+      const p8 = await ctx8.newPage();
+      await p8.goto(`${APP}/`, { waitUntil: 'networkidle' });
+      await p8.waitForTimeout(1500);
+      const f8 = p8.locator('input');
+      await f8.nth(0).fill(API);
+      await f8.nth(1).fill('northwind');
+      await f8.nth(2).fill('priya@northwind.test');
+      await f8.nth(3).fill(pw);
+      await p8.getByRole('button', { name: 'Sign in' }).click();
+      await p8.waitForTimeout(4000);
+      await p8.goto(`${APP}/admin/branding`);
+      await p8.waitForTimeout(3000);
+      await p8.getByLabel('App name').fill('Northwind Connect');
+      await p8.getByLabel('Primary color').fill('#0EA5E9');
+      await p8.getByLabel('Accent color').fill('#F97316');
+      await p8.getByRole('switch', { name: 'Start everyone on this theme' }).click();
+      await p8
+        .getByLabel('Sign-in message')
+        .fill('Northwind staff: use your work email. Help: #it-help.');
+      const chooser = p8.waitForEvent('filechooser');
+      await p8.getByRole('button', { name: 'Add logo' }).click();
+      await (
+        await chooser
+      ).setFiles({
+        name: 'logo.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAyElEQVR4nO3QyRGAMAzFUCqg/wYojirgCgynbLIT/RnfrbdtzjnnnOu5/Tiv0qN/r1pNeFqIltHpMEbEh0QYGR4OgozHEehwFIEORhHoUBSBDkQR6DAcgY5CAeggFIEOwRHoCAFIADoAR6CfRwHox3EE+mkBBBBAAAEEEEAAAQQQQAABCIBZEIrjBZgAoTpeAAHyIjSLz4jQPF6ARAjd4jMgdI+PjDAsPiLC8PhICFh8BAS6/bVlw59bOv67JaP/tmy4c8654LsB57d4K/DEVr0AAAAASUVORK5CYII=',
+          'base64',
+        ),
+      });
+      await p8.waitForTimeout(1500);
+      await p8.screenshot({ path: `${out}/107-branding-editor.png` });
+      console.log('shot 107-branding-editor');
+      await p8.getByRole('button', { name: 'Save branding' }).click();
+      await p8.waitForTimeout(2500);
+      const saved = await api('GET', '/v1/branding', undefined, priyaTok);
+      check(
+        'the owner saves branding from the phone',
+        saved.appName === 'Northwind Connect' &&
+          saved.primary.toUpperCase() === '#0EA5E9' &&
+          saved.useBrandTheme === true &&
+          /^data:image\/png;base64,/.test(saved.logo ?? '') &&
+          /Saved\./.test(await p8.innerText('body')),
+      );
+      await ctx8.close();
+
+      // Sam (never picked a theme in this context) starts on the organization theme.
+      const ctx9 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+      const p9 = await ctx9.newPage();
+      await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
+      await p9.waitForTimeout(1500);
+      const f9 = p9.locator('input');
+      await f9.nth(0).fill(API);
+      await f9.nth(1).fill('northwind');
+      await p9.waitForTimeout(1500);
+      check(
+        'the sign-in screen shows the workspace branding',
+        /Northwind Connect/.test(await p9.innerText('body')) &&
+          /use your work email/.test(await p9.innerText('body')) &&
+          (await p9.getByLabel('Northwind Connect logo').count()) > 0,
+      );
+      await p9.screenshot({ path: `${out}/108-branded-sign-in.png` });
+      console.log('shot 108-branded-sign-in');
+      await f9.nth(2).fill('sam@northwind.test');
+      await f9.nth(3).fill(pw);
+      await p9.getByRole('button', { name: 'Sign in' }).click();
+      await p9.waitForTimeout(5000);
+      check(
+        'home shows the organization logo',
+        (await p9.getByLabel('Northwind Connect logo').count()) > 0,
+      );
+      await p9.screenshot({ path: `${out}/109-branded-home.png` });
+      console.log('shot 109-branded-home');
+      await p9.goto(`${APP}/settings/appearance`);
+      await p9.waitForTimeout(2500);
+      check(
+        'members start on the organization theme',
+        /You are on the Northwind .*theme/.test(await p9.innerText('body')),
+      );
+      await api(
+        'PUT',
+        '/v1/branding',
+        {
+          ...restore,
+          appName: saved.appName,
+          logo: saved.logo,
+          primary: saved.primary,
+          secondary: saved.secondary,
+          useBrandTheme: true,
+          enforceTheme: true,
+          loginMessage: saved.loginMessage,
+        },
+        priyaTok,
+      );
+      await p9.reload({ waitUntil: 'networkidle' });
+      await p9.waitForTimeout(4000);
+      check(
+        'an enforced theme locks the choice',
+        /sets the theme for everyone/.test(await p9.innerText('body')) &&
+          (await p9.getByRole('radio', { name: 'Arctic Professional' }).isDisabled()),
+      );
+      await p9.screenshot({ path: `${out}/110-enforced-theme.png` });
+      console.log('shot 110-enforced-theme');
+      await ctx9.close();
+    } finally {
+      await api('PUT', '/v1/branding', restore, priyaTok);
+    }
+  }
+  // ---- Administration: Priya (owner) sees the overview, adds a member, changes their role,
+  // deactivates and reactivates them, filters the audit log and sees everyone's devices.
+  {
+    const ctx9 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p9 = await ctx9.newPage();
+    await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p9.waitForTimeout(1500);
+    const f9 = p9.locator('input');
+    await f9.nth(0).fill(API);
+    await f9.nth(1).fill('northwind');
+    await f9.nth(2).fill('priya@northwind.test');
+    await f9.nth(3).fill(pw);
+    await p9.getByRole('button', { name: 'Sign in' }).click();
+    await p9.waitForTimeout(4000);
+    await p9.goto(`${APP}/admin`);
+    await p9.waitForTimeout(3000);
+    check('admin overview shows members', await p9.getByText('active members').first().isVisible());
+    check(
+      'admin overview shows two-step share',
+      await p9.getByText('use two-step sign-in').isVisible(),
+    );
+    await p9.screenshot({ path: `${out}/111-admin-overview.png` });
+    console.log('shot 111-admin-overview');
+
+    await p9.goto(`${APP}/admin/members`);
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/112-admin-members.png` });
+    console.log('shot 112-admin-members');
+    await p9.getByRole('button', { name: 'Add member' }).first().click();
+    await p9.waitForTimeout(1500);
+    const tag = Date.now().toString(36);
+    const email = `ana.${tag}@northwind.test`;
+    const anaName = `Ana Costa ${tag.slice(-4)}`;
+    await p9.getByLabel('Name', { exact: true }).fill(anaName);
+    await p9.getByLabel('Work email').fill(email);
+    await p9.getByLabel('Temporary password').fill('welcome-to-northwind-1');
+    await p9.screenshot({ path: `${out}/113-admin-add-member.png` });
+    console.log('shot 113-admin-add-member');
+    await p9.getByRole('button', { name: 'Add member' }).last().click();
+    await p9.waitForTimeout(3000);
+    await p9.getByLabel('Search members').fill(anaName);
+    await p9.waitForTimeout(800);
+    const row = p9.getByRole('button', { name: `${anaName}, Member` });
+    check('new member is listed', (await row.count()) === 1);
+    await row.click();
+    await p9.waitForTimeout(800);
+    await p9.getByRole('radio', { name: 'Admin', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('role changed to admin', await p9.getByText(`${anaName} is now admin.`).isVisible());
+    await p9.screenshot({ path: `${out}/114-admin-member-role.png` });
+    console.log('shot 114-admin-member-role');
+    await p9.getByRole('button', { name: 'Deactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check(
+      'member deactivated',
+      await p9.getByText(/is deactivated and signed out everywhere/).isVisible(),
+    );
+    await p9.getByRole('button', { name: 'Reactivate' }).click();
+    await p9.waitForTimeout(2000);
+    check('member reactivated', await p9.getByText(`${anaName} can sign in again.`).isVisible());
+    const users = await api(
+      'GET',
+      '/v1/users',
+      undefined,
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email: 'priya@northwind.test',
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken,
+    );
+    const ana = (users.items ?? users).find((u) => u.email === email);
+    check('server has Ana as active admin', ana?.role === 'admin' && ana?.status === 'active');
+    await p9.getByRole('button', { name: 'Activity' }).click();
+    await p9.waitForTimeout(2500);
+    await p9.screenshot({ path: `${out}/115-admin-audit-person.png` });
+    console.log('shot 115-admin-audit-person');
+    await p9.goto(`${APP}/admin/audit`);
+    await p9.waitForTimeout(2500);
+    await p9.getByRole('radio', { name: 'Members', exact: true }).click();
+    await p9.waitForTimeout(2000);
+    check('audit log lists member changes', (await p9.getByText(anaName).count()) > 0);
+    await p9.screenshot({ path: `${out}/116-admin-audit.png` });
+    console.log('shot 116-admin-audit');
+    await p9.goto(`${APP}/admin/devices`);
+    await p9.waitForTimeout(2500);
+    check(
+      'org devices listed',
+      (await p9.getByRole('button', { name: /^Sign out .+ on / }).count()) > 0,
+    );
+    await p9.screenshot({ path: `${out}/117-admin-devices.png` });
+    console.log('shot 117-admin-devices');
+    await ctx9.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

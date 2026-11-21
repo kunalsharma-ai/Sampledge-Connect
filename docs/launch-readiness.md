@@ -36,7 +36,7 @@ The STRIDE analysis is in [threat-model.md](threat-model.md).
 - **Indexes:** every hot query (message history, sync, conversation lists, receipts,
   notifications, audit log, devices, directory) is explained against MongoDB and must use an
   index with no in-memory sort. This found three sorted lists without a matching index
-  (audit log, devices, directory), added in migration `022-launch-indexes`.
+  (audit log, devices, directory), added in migration `031-launch-indexes`.
 - **Latency budget with 20,000 messages in one conversation** (p95, 30 calls each; CI fails
   above 250 ms, `PERF_BUDGET_MS` to change):
 

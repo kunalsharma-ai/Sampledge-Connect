@@ -27,6 +27,13 @@ import {
   type ScheduledMessage,
   type Task,
   type Approval,
+  type AdminOverview,
+  type AuditPage,
+  type AuditQuery,
+  type InviteMemberRequest,
+  type UserSummary,
+  type BrandingInput,
+  type BrandingView,
   type AiAskRequest,
   type AiAskResponse,
   type AiDigest,
@@ -60,6 +67,7 @@ import {
   TransportError,
   type ApiTransport,
   type DeviceSession,
+  type DirectoryUser,
   type ApprovalQuery,
   type RecordingsQuery,
   type TaskQuery,
@@ -102,6 +110,9 @@ export class ConnectEngine {
     scheduled: ScheduledMessage | null;
     /** A task or approval you are involved in was created or changed (here or live). */
     work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
+    branding: BrandingView;
+    /** An admin added or changed a member on this device (other devices see it on sync). */
+    members: UserSummary;
   }>();
   /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
   private myVotes = new Map<string, string[]>();
@@ -606,6 +617,71 @@ export class ConnectEngine {
       const approval = await this.api.cancelApproval(approvalId);
       this.events.emit('work', { kind: 'approval', approval });
       return approval;
+    });
+  }
+
+  // ------------------------------------------------------------ administration (owners, admins)
+
+  /** Everyone in the organization with role and status (fresh from the server). */
+  listMembers(): Promise<DirectoryUser[]> {
+    return this.serverAction(() => this.api.listUsers());
+  }
+
+  adminOverview(): Promise<AdminOverview> {
+    return this.serverAction(() => this.api.adminOverview());
+  }
+
+  auditLog(q: AuditQuery): Promise<AuditPage> {
+    return this.serverAction(() => this.api.auditLog(q));
+  }
+
+  /** Adds a member; the plan's seat limit can refuse it (409 with the reason). */
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary> {
+    return this.serverAction(async () => {
+      const u = await this.api.inviteMember(req);
+      this.events.emit('members', u);
+      void this.runSync();
+      return u;
+    });
+  }
+
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary> {
+    return this.serverAction(async () => {
+      const u = await this.api.updateMember(userId, patch);
+      this.events.emit('members', u);
+      void this.runSync();
+      return u;
+    });
+  }
+
+  resetMemberMfa(userId: string): Promise<void> {
+    return this.serverAction(() => this.api.resetMemberMfa(userId));
+  }
+
+  listAllDevices(): Promise<DeviceSession[]> {
+    return this.serverAction(() => this.api.listAllDevices());
+  }
+
+  /** Sign any device out (admins); the server checks. */
+  revokeAnyDevice(sessionId: string): Promise<void> {
+    return this.serverAction(() => this.api.revokeDevice(sessionId));
+  }
+
+  // ------------------------------------------------------------ white-label branding
+
+  getBranding(): Promise<BrandingView> {
+    return this.serverAction(() => this.api.getBranding());
+  }
+
+  /** Owners only; the server checks. Emits `branding` so the theme updates at once. */
+  saveBranding(input: BrandingInput): Promise<BrandingView> {
+    return this.serverAction(async () => {
+      const v = await this.api.saveBranding(input);
+      this.events.emit('branding', v);
+      return v;
     });
   }
 

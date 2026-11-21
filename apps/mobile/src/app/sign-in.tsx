@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,7 +18,8 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Glass } from '../components/Glass';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
-import type { PendingMfa } from '../auth/session';
+import { DEFAULT_APP_NAME, type PublicBranding } from '@sampledge/contracts';
+import { normaliseUrl, type PendingMfa } from '../auth/session';
 import { devicePlatform, useApp } from '../state/AppProvider';
 import { TransportError } from '../sync/transport';
 import { fonts, radius, space } from '../theme/themes';
@@ -31,6 +33,9 @@ function errorText(e: unknown): string {
       return 'Email, password or workspace is incorrect.';
     if (e.code === 'VALIDATION_FAILED') return 'Check the details and try again.';
     if (e.code === 'RATE_LIMITED') return 'Too many attempts. Wait a moment and try again.';
+    // Single sign-on only workspaces say so (the phone can't do SSO yet).
+    if (e.code === 'FORBIDDEN' && e.message)
+      return `${e.message} Single sign-on on the phone is coming; for now sign in on the web.`;
   }
   return e instanceof Error ? e.message : 'Sign-in failed.';
 }
@@ -60,6 +65,30 @@ export default function SignIn() {
   const [mfa, setMfa] = useState<PendingMfa | null>(null);
   const [code, setCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
+  const [brand, setBrand] = useState<PublicBranding | null>(null);
+
+  // The workspace's own logo, name and sign-in message once the address and workspace are typed.
+  useEffect(() => {
+    const slug = tenantSlug.trim().toLowerCase();
+    let base: string;
+    try {
+      base = normaliseUrl(serverUrl);
+    } catch {
+      return setBrand(null);
+    }
+    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || slug.length < 3) return setBrand(null);
+    let alive = true;
+    const t = setTimeout(() => {
+      fetch(`${base}/v1/branding/public/${slug}`)
+        .then((r) => (r.ok ? (r.json() as Promise<PublicBranding>) : null))
+        .then((b) => alive && setBrand(b))
+        .catch(() => alive && setBrand(null));
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [serverUrl, tenantSlug]);
 
   // Leave this screen once the account's local database is open (it opens after sign-in).
   useEffect(() => {
@@ -155,23 +184,46 @@ export default function SignIn() {
             style={{ gap: space.xl }}
           >
             <View style={{ gap: space.md }}>
-              <LinearGradient
-                colors={[theme.colors.accent, theme.colors.accentSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.logo}
-              >
-                <Text
-                  style={{ fontFamily: fonts.bold, fontSize: 24, color: theme.colors.onAccent }}
+              {brand?.logo ? (
+                <Image
+                  source={{ uri: brand.logo }}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  accessibilityLabel={`${brand.displayName} logo`}
+                />
+              ) : (
+                <LinearGradient
+                  colors={
+                    brand
+                      ? [brand.primary, brand.secondary]
+                      : [theme.colors.accent, theme.colors.accentSecondary]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.logo}
                 >
-                  S
+                  <Text
+                    style={{ fontFamily: fonts.bold, fontSize: 24, color: theme.colors.onAccent }}
+                  >
+                    {(brand?.displayName ?? 'S').slice(0, 1).toUpperCase()}
+                  </Text>
+                </LinearGradient>
+              )}
+              <Text variant="display">
+                {reauth ? 'Sign in again' : (brand?.displayName ?? DEFAULT_APP_NAME)}
+              </Text>
+              {brand &&
+              !reauth &&
+              brand.displayName !== DEFAULT_APP_NAME &&
+              !brand.hidePoweredBy ? (
+                <Text variant="meta" tone="subtle">
+                  with {DEFAULT_APP_NAME}
                 </Text>
-              </LinearGradient>
-              <Text variant="display">{reauth ? 'Sign in again' : 'Sampledge Connect'}</Text>
+              ) : null}
               <Text tone="muted">
                 {reauth
                   ? 'Your session ended. Messages you wrote are still queued on this device and send once you sign in.'
-                  : 'One Workspace. Every Conversation. Connected.'}
+                  : (brand?.loginMessage ?? 'One Workspace. Every Conversation. Connected.')}
               </Text>
             </View>
 

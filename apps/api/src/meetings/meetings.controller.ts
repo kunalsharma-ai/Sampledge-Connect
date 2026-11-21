@@ -49,8 +49,8 @@ export class MeetingsController {
 
   @Post('meetings/:id/cancel')
   @HttpCode(200)
-  cancel(@Ctx() ctx: TenantContext, @Param('id') id: string) {
-    return this.meetings.cancel(ctx, id);
+  cancel(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.meetings.cancel(ctx, id, body);
   }
 
   @Post('meetings/:id/rsvp')

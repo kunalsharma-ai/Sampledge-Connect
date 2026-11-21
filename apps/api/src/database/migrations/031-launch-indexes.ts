@@ -5,7 +5,7 @@ import type { Migration } from './runner.js';
  * (found by test/performance.test.ts).
  */
 export const launchIndexesMigration: Migration = {
-  id: '022-launch-indexes',
+  id: '031-launch-indexes',
   async up(db) {
     // Audit log pages sort by time, then id as a tie-breaker for the cursor.
     await db.collection('audit_logs').createIndex({ tenantId: 1, at: -1, _id: -1 });

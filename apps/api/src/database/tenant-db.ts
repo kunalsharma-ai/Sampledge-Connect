@@ -144,6 +144,7 @@ export class TenantDb {
       notifications: c('notifications'),
       calls: c('calls'),
       meetings: c('meetings'),
+      meeting_series: c('meeting_series'),
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
       bookmarks: c('bookmarks'),

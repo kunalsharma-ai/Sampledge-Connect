@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { ConnectivityBanner, ConnectivityDot } from '../../components/Connectivity';
 import { ConversationRow, relativeTime } from '../../components/ConversationRow';
 import { Glass } from '../../components/Glass';
@@ -22,7 +22,7 @@ function greeting(): string {
 }
 
 export default function Home() {
-  const { theme } = useTheme();
+  const { theme, org } = useTheme();
   const { session, sessionState, engineState } = useApp();
   const { selfId } = useWorkspace();
   const { conversations, loading } = useConversations();
@@ -30,7 +30,9 @@ export default function Home() {
   const unread = conversations.reduce((n, c) => n + c.unread, 0);
   const firstName = session?.user.displayName.split(' ')[0];
   const workspaceName =
-    sessionState === 'demo' ? 'Demo workspace' : (session?.tenant.name ?? 'Workspace');
+    sessionState === 'demo'
+      ? 'Demo workspace'
+      : (org?.organizationName ?? session?.tenant.name ?? 'Workspace');
   const recent = conversations.filter((c) => !isUnjoinedChannel(c)).slice(0, 4);
   const now = useNow();
   const calls = useCalls();
@@ -44,6 +46,14 @@ export default function Home() {
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <View style={styles.workspace}>
+              {org?.logo && sessionState !== 'demo' ? (
+                <Image
+                  source={{ uri: org.logo }}
+                  style={styles.orgLogo}
+                  resizeMode="contain"
+                  accessibilityLabel={`${org.displayName} logo`}
+                />
+              ) : null}
               <ConnectivityDot />
               <Text variant="overline" tone="muted">
                 {workspaceName}
@@ -156,6 +166,7 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   workspace: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  orgLogo: { width: 22, height: 22, borderRadius: 5 },
   iconBtn: {
     width: 42,
     height: 42,
