@@ -536,6 +536,14 @@ export class SyncEngine {
     );
     for (const id of res.revokedConversationIds) await this.purgeConversation(id);
     await this.refreshCounts();
+    // Acknowledge delivery of everything received from others.
+    for (const r of res.results) {
+      const top = Math.max(
+        0,
+        ...r.changes.filter((m) => m.senderId !== this.opts.userId).map((m) => m.serverSequence),
+      );
+      if (top > 0) void this.markDelivered(r.conversationId, top);
+    }
     return more;
   }
 

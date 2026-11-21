@@ -74,7 +74,13 @@ export class HttpSocketTransport implements Transport {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const token = await this.opts.getAccessToken();
+    let token: string | null;
+    try {
+      token = await this.opts.getAccessToken();
+    } catch (e) {
+      // Could not refresh because the network is down: that's a network failure, not an auth one.
+      throw new NetworkError((e as Error).message);
+    }
     if (!token) throw new ServerError({ code: 'SESSION_EXPIRED', message: 'Not signed in' });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 15_000);
@@ -152,7 +158,10 @@ export class HttpSocketTransport implements Transport {
       reconnection: false,
       autoConnect: false,
       auth: (cb) => {
-        void this.opts.getAccessToken().then((token) => cb({ token }));
+        this.opts.getAccessToken().then(
+          (token) => cb({ token }),
+          () => cb({ token: null }),
+        );
       },
     });
     s.on('connect', () => this.handlers?.onConnectionChange(true));

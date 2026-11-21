@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+@import '@sampledge/design-tokens/themes.css';
+@import '@sampledge/design-tokens/tailwind.css';
+@import '@sampledge/ui/styles.css';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/plus-jakarta-sans';
+
+@source '../node_modules/@sampledge/ui/dist';
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, var(--sc-color-bg-gradient-from), transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, var(--sc-color-bg-gradient-to), transparent 60%),
+    var(--sc-color-bg);
+  background-attachment: fixed;
+}
+
+/* Thin, theme-aware scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sc-color-border-strong) transparent;
+}
+
+.sc-noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
