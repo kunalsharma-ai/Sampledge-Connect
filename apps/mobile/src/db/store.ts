@@ -8,6 +8,8 @@ import {
   type Meeting,
   type Message,
   type MessageStatus,
+  type Poll,
+  type PostingPolicy,
   type RsvpResponse,
   type NotifyLevel,
   type Reaction,
@@ -23,6 +25,7 @@ import type {
   ServerNotification,
 } from '../sync/notificationTypes';
 import type { SqlDriver, SqlExecutor } from './driver';
+import { overlayVote, WorkStore, type ActionInput } from './work';
 
 /** A notification from the server feed as cached on this device. */
 export type LocalNotification = ServerNotification;
@@ -60,6 +63,17 @@ export interface LocalMessage {
   /** 'text' for people's messages, 'system' for events the server writes (calls, ...). */
   messageType: string;
   metadata: Record<string, unknown>;
+  /** Pinned to the conversation (synced; everyone sees the same pins). */
+  pinned: MessagePin | null;
+  /** Set on poll messages; counts as of the last sync or vote. */
+  poll: Poll | null;
+  /** A pin, vote or close made on this device has not reached the server yet. */
+  actionPending: boolean;
+}
+
+export interface MessagePin {
+  pinnedBy: string;
+  pinnedAt: string;
 }
 
 /** A file on a message: from the server snapshot, from this device, or both. */
@@ -189,6 +203,8 @@ export interface LocalConversation {
   notifyLevel: NotifyLevel;
   /** True while a level set on this device has not reached the server. */
   notifyLevelPending: boolean;
+  /** 'moderators' makes a channel an announcement channel. */
+  postingPolicy: PostingPolicy;
 }
 
 export interface OutboxItem {
@@ -250,6 +266,8 @@ interface MessageRow {
   pending_op?: MessageOpKind | null;
   message_type?: string;
   metadata?: string;
+  pinned?: string | null;
+  poll?: string | null;
 }
 
 interface FileRow {
@@ -314,7 +332,19 @@ const toMessage = (r: MessageRow): LocalMessage => ({
   attachments: [],
   messageType: r.message_type ?? 'text',
   metadata: parseObject(r.metadata),
+  pinned: r.deleted_at ? null : parseNullable<MessagePin>(r.pinned),
+  poll: r.deleted_at ? null : parseNullable<Poll>(r.poll),
+  actionPending: false,
 });
+
+function parseNullable<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return (JSON.parse(raw) as T | null) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const parseObject = (raw: string | undefined): Record<string, unknown> => {
   try {
@@ -352,6 +382,8 @@ const CONFIRMED: ReadonlySet<MessageStatus> = new Set(['sent', 'delivered', 'rea
  */
 export class LocalStore {
   readonly events = new Emitter<StoreEvents>();
+  /** Queued actions other than sends, edits, deletes and reactions, and the lists they change. */
+  readonly work: WorkStore;
 
   constructor(
     private readonly db: SqlDriver,
@@ -359,7 +391,65 @@ export class LocalStore {
     private readonly selfId: string,
     private readonly quota: QuotaPolicy = DEFAULT_QUOTA,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.work = new WorkStore(db, selfId, now);
+    this.work.events.on('changed', () => this.events.emit('outbox', undefined));
+  }
+
+  /** Tells screens showing a conversation to reload (a queued pin or vote changed). */
+  notifyMessages(conversationId: string): void {
+    this.events.emit('messages', { conversationId });
+  }
+
+  /**
+   * A poll made on this device: shown in the conversation at once and posted when possible.
+   * It waits in the action queue (not the message outbox) because it is created by its own call.
+   */
+  async enqueuePoll(
+    conversationId: string,
+    request: Extract<ActionInput, { kind: 'poll.create' }>['request'],
+  ): Promise<void> {
+    const createdAt = new Date(this.now()).toISOString();
+    const poll: Poll = {
+      question: request.question,
+      options: request.options.map((text, i) => ({
+        optionId: `o${i + 1}`,
+        text,
+        count: 0,
+        voterIds: [],
+      })),
+      multiple: request.multiple ?? false,
+      anonymous: request.anonymous ?? false,
+      totalVoters: 0,
+      closesAt: request.closesAt ?? null,
+      closedAt: null,
+      closedBy: null,
+    };
+    await this.db.run(
+      `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, status, created_at, poll)
+       VALUES (?, ?, ?, ?, '[]', 'queued', ?, ?)`,
+      [
+        request.clientMessageId,
+        conversationId,
+        this.selfId,
+        request.question,
+        createdAt,
+        JSON.stringify(poll),
+      ],
+    );
+    await this.work.enqueue({ kind: 'poll.create', conversationId, request });
+    this.events.emit('messages', { conversationId });
+    this.events.emit('conversations', undefined);
+  }
+
+  /** The server refused a poll made here: it shows as not sent, with the reason. */
+  async markPollFailed(clientId: string, error: string): Promise<void> {
+    await this.db.run(
+      "UPDATE messages SET status = 'failed', error = ? WHERE client_id = ? AND message_id IS NULL",
+      [error, clientId],
+    );
+    await this.emitForMessage(clientId);
+  }
 
   /** Signed-in user's id. */
   get selfUserId(): string {
@@ -489,6 +579,11 @@ export class LocalStore {
              SELECT MIN(next_attempt_at) AS t FROM outbox WHERE state = 'pending'
              UNION ALL SELECT MIN(next_attempt_at) FROM message_ops
              UNION ALL SELECT MIN(next_attempt_at) FROM reaction_ops
+             UNION ALL SELECT * FROM (
+               SELECT next_attempt_at FROM actions WHERE state = 'pending'
+                 AND target NOT IN (SELECT target FROM actions WHERE state = 'failed')
+               ORDER BY enqueued_at, rowid LIMIT 1
+             )
            )`,
         )
       )?.t ?? undefined
@@ -499,7 +594,7 @@ export class LocalStore {
     return (
       (
         await this.db.get<{ n: number }>(
-          "SELECT (SELECT COUNT(*) FROM outbox WHERE state != 'failed') + (SELECT COUNT(*) FROM message_ops) + (SELECT COUNT(*) FROM reaction_ops) AS n",
+          "SELECT (SELECT COUNT(*) FROM outbox WHERE state != 'failed') + (SELECT COUNT(*) FROM message_ops) + (SELECT COUNT(*) FROM reaction_ops) + (SELECT COUNT(*) FROM actions WHERE state != 'failed') AS n",
         )
       )?.n ?? 0
     );
@@ -580,6 +675,7 @@ export class LocalStore {
   async requeueInflight(): Promise<number> {
     const r = await this.db.transaction(async (tx) => {
       await tx.run("UPDATE messages SET status = 'queued' WHERE status = 'sending'");
+      await tx.run("UPDATE actions SET state = 'pending' WHERE state = 'sending'");
       return tx.run("UPDATE outbox SET state = 'pending' WHERE state = 'inflight'");
     });
     if (r.changes) this.events.emit('outbox', undefined);
@@ -746,6 +842,17 @@ export class LocalStore {
     this.events.emit('outbox', undefined);
   }
 
+  /** Pinned messages of a conversation, most recently pinned first (works offline). */
+  async listPinned(conversationId: string): Promise<LocalMessage[]> {
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE m.conversation_id = ? AND m.deleted_at IS NULL
+         AND (m.pinned IS NOT NULL OR 'pin:' || m.message_id IN (SELECT target FROM actions))`,
+      [conversationId],
+    );
+    const all = (await this.hydrate(rows)).filter((m) => m.pinned);
+    return all.sort((a, b) => (b.pinned!.pinnedAt > a.pinned!.pinnedAt ? 1 : -1));
+  }
+
   /** Messages that mention you, newest first (for Activity). */
   async listMentions(limit = 50): Promise<LocalMessage[]> {
     return this.hydrate(
@@ -767,6 +874,20 @@ export class LocalStore {
           ids,
         )
       : [];
+    const targets = ids.flatMap((id) => [`pin:${id}`, `vote:${id}`, `close:${id}`]);
+    const actions = targets.length
+      ? await this.db.all<{ target: string; payload: string; enqueued_at: number }>(
+          `SELECT target, payload, enqueued_at FROM actions WHERE target IN (${targets.map(() => '?').join(',')})
+             AND state != 'failed' ORDER BY enqueued_at, rowid`,
+          targets,
+        )
+      : [];
+    const votes = new Map<string, string[]>();
+    if (actions.some((a) => a.target.startsWith('vote:')))
+      for (const r of await this.db.all<{ id: string; data: string }>(
+        `SELECT id, data FROM work_cache WHERE kind = 'vote'`,
+      ))
+        votes.set(r.id, JSON.parse(r.data) as string[]);
     const clientIds = rows.map((r) => r.client_id);
     const files = clientIds.length
       ? await this.db.all<FileRow>(
@@ -805,8 +926,35 @@ export class LocalStore {
               durationMs: f.duration_ms ?? null,
               deletedAt: null,
             }));
+      const base = toMessage(r);
+      for (const a of actions) {
+        if (a.target.slice(a.target.indexOf(':') + 1) !== r.message_id || base.deletedAt) continue;
+        const input = JSON.parse(a.payload) as ActionInput;
+        base.actionPending = true;
+        if (input.kind === 'pin')
+          base.pinned = input.pinned
+            ? (base.pinned ?? {
+                pinnedBy: this.selfId,
+                pinnedAt: new Date(a.enqueued_at).toISOString(),
+              })
+            : null;
+        if (input.kind === 'poll.close' && base.poll && !base.poll.closedAt)
+          base.poll = {
+            ...base.poll,
+            closedAt: new Date(a.enqueued_at).toISOString(),
+            closedBy: this.selfId,
+          };
+        if (input.kind === 'poll.vote' && base.poll) {
+          const before =
+            votes.get(r.message_id!) ??
+            base.poll.options
+              .filter((o) => o.voterIds.includes(this.selfId))
+              .map((o) => o.optionId);
+          base.poll = overlayVote(base.poll, this.selfId, before, input.optionIds);
+        }
+      }
       return {
-        ...toMessage(r),
+        ...base,
         reactions: overlayReactions(
           parseReactions(r.reactions),
           ops.filter((o) => o.message_id === r.message_id),
@@ -978,15 +1126,16 @@ export class LocalStore {
     const status: MessageStatus =
       existing && CONFIRMED.has(existing.status) ? existing.status : 'sent';
     await tx.run(
-      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, message_type, metadata, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO messages (client_id, message_id, conversation_id, sender_id, text, mentions, reply_to, server_seq, change_seq, status, created_at, edited_at, deleted_at, reactions, attachments, message_type, metadata, pinned, poll, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(client_id) DO UPDATE SET
          message_id = excluded.message_id, text = excluded.text, mentions = excluded.mentions,
          reply_to = excluded.reply_to, server_seq = excluded.server_seq, change_seq = excluded.change_seq,
          status = excluded.status, created_at = excluded.created_at, edited_at = excluded.edited_at,
          deleted_at = excluded.deleted_at, reactions = excluded.reactions,
          attachments = excluded.attachments, message_type = excluded.message_type,
-         metadata = excluded.metadata, error = NULL`,
+         metadata = excluded.metadata, pinned = excluded.pinned, poll = excluded.poll,
+         error = NULL`,
       [
         m.clientMessageId,
         m.messageId,
@@ -1005,6 +1154,8 @@ export class LocalStore {
         JSON.stringify(m.deletedAt ? [] : (m.attachments ?? [])),
         m.messageType ?? 'text',
         JSON.stringify(m.metadata ?? {}),
+        m.deletedAt || !m.pinned ? null : JSON.stringify(m.pinned),
+        m.deletedAt || !m.poll ? null : JSON.stringify(m.poll),
       ],
     );
     // Server accepted it: the send is done, whichever device sent it.
@@ -1038,11 +1189,12 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const c of conversations) {
         await tx.run(
-          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id) DO UPDATE SET
              kind = excluded.kind, name = excluded.name, topic = excluded.topic, member_ids = excluded.member_ids,
              archived_at = excluded.archived_at, my_role = excluded.my_role, notify_level = excluded.notify_level,
+             posting_policy = excluded.posting_policy,
              last_change_seq = MAX(conversations.last_change_seq, excluded.last_change_seq),
              last_message_at = COALESCE(MAX(conversations.last_message_at, excluded.last_message_at), excluded.last_message_at, conversations.last_message_at)`,
           [
@@ -1056,6 +1208,7 @@ export class LocalStore {
             c.lastChangeSequence,
             c.lastMessageAt,
             c.myNotifyLevel ?? 'all',
+            c.postingPolicy ?? 'everyone',
           ],
         );
       }
@@ -1221,6 +1374,7 @@ export class LocalStore {
       pending: number;
       notify_level: NotifyLevel;
       pending_notify_level: NotifyLevel | null;
+      posting_policy: PostingPolicy | null;
     }>(
       `SELECT c.*,
          CASE WHEN c.kind = 'channel_public' AND c.my_role IS NULL THEN 0 ELSE
@@ -1247,6 +1401,7 @@ export class LocalStore {
       pending: r.pending,
       notifyLevel: r.pending_notify_level ?? r.notify_level,
       notifyLevelPending: r.pending_notify_level != null,
+      postingPolicy: r.posting_policy ?? 'everyone',
     }));
   }
 
@@ -1373,6 +1528,9 @@ export class LocalStore {
   async retryAllFailed(): Promise<number> {
     const r = await this.db.transaction(async (tx) => {
       await tx.run("UPDATE messages SET status = 'queued', error = NULL WHERE status = 'failed'");
+      await tx.run(
+        "UPDATE actions SET state = 'pending', attempts = 0, next_attempt_at = 0, last_error = NULL WHERE state = 'failed'",
+      );
       return tx.run(
         "UPDATE outbox SET state = 'pending', next_attempt_at = 0, attempts = 0 WHERE state = 'failed'",
       );
@@ -1407,6 +1565,9 @@ export class LocalStore {
       for (const table of [
         'reaction_ops',
         'message_ops',
+        'actions',
+        'work_cache',
+        'id_map',
         'outbox',
         'messages',
         'receipts',

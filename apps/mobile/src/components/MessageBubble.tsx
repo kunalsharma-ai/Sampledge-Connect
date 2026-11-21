@@ -6,11 +6,14 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
 import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemMessages';
+import { workMeta } from '../lib/work';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AttachmentList } from './Attachments';
+import { PollCard } from './PollCard';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
 import { Text } from './Text';
+import { WorkCard } from './WorkRows';
 
 export interface ReplyPreview {
   /** Server id of the quoted message. */
@@ -134,7 +137,9 @@ function MessageBubbleImpl({
           </Pressable>
         ) : null}
         {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
-        {deleted || m.text ? (
+        {m.poll && !deleted ? (
+          <PollCard messageId={m.messageId} poll={m.poll} own={own} nameOf={nameOf} />
+        ) : deleted || m.text ? (
           <Text
             variant="body"
             style={{
@@ -166,8 +171,24 @@ function MessageBubbleImpl({
           </Text>
         ) : null}
         <View style={styles.meta}>
+          {m.pinned && !deleted ? (
+            <Ionicons
+              name="pin"
+              size={12}
+              color={alpha(textColor, 0.75)}
+              accessibilityLabel="Pinned"
+            />
+          ) : null}
           {m.pendingOp ? (
             <Ionicons name="time-outline" size={12} color={alpha(textColor, 0.7)} />
+          ) : null}
+          {m.actionPending && !deleted ? (
+            <Ionicons
+              name="cloud-upload-outline"
+              size={12}
+              color={alpha(textColor, 0.7)}
+              accessibilityLabel="Your change is waiting to sync"
+            />
           ) : null}
           {m.editedAt && !deleted ? (
             <Text variant="meta" style={{ color: textColor, opacity: 0.7 }}>
@@ -232,6 +253,7 @@ export const MessageBubble = memo(MessageBubbleImpl);
 function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: boolean }) {
   const { theme, motion } = useTheme();
   const c = theme.colors;
+  const work = workMeta(m.metadata);
   const call = callMeta(m.metadata);
   const meeting = meetingMeta(m.metadata);
   const rec = recordingMeta(m.metadata);
@@ -253,6 +275,15 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
   const openMeeting = meeting?.meetingId
     ? () => router.push({ pathname: '/meeting/[id]', params: { id: meeting.meetingId! } })
     : undefined;
+  if (work)
+    return (
+      <Animated.View
+        entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}
+        style={styles.systemRow}
+      >
+        <WorkCard work={work} time={time(m.createdAt)} />
+      </Animated.View>
+    );
   return (
     <Animated.View
       entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}

@@ -23,9 +23,9 @@ Meetings run on the same self-hosted stack as calls (see `docs/calls.md`). Nothi
 | GET     | `/v1/meetings?from=&to=`  | My meetings overlapping the range (max 62 days). `includeCancelled=true` optional.                                                      |
 | POST    | `/v1/meetings`            | `{ title, agenda?, startsAt, endsAt, timeZone?, media?, remindMinutes?, attendeeIds?, optionalAttendeeIds?, conversationId?, guests? }` |
 | GET     | `/v1/meetings/:id`        | Attendees, or anyone who can read the meeting chat. Others get 404.                                                                     |
-| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too.                                                                   |
-| POST    | `/v1/meetings/:id/cancel` | Organizer only.                                                                                                                         |
-| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined' }`                                                                                 |
+| PATCH   | `/v1/meetings/:id`        | Organizer only. `addAttendeeIds` adds people to the meeting chat too. `scope`, `recurrence` for series.                                 |
+| POST    | `/v1/meetings/:id/cancel` | Organizer only. `{ scope?: 'occurrence' \| 'series' }`.                                                                                 |
+| POST    | `/v1/meetings/:id/rsvp`   | `{ response: 'accepted' \| 'tentative' \| 'declined', scope? }`                                                                         |
 | POST    | `/v1/meetings/find-times` | `{ attendeeIds, durationMinutes, from, to, stepMinutes?, limit?, ignoreMeetingId? }` → `{ slots, busy }`                                |
 | GET/PUT | `/v1/me/working-hours`    | `{ timeZone, days: [{ day: 0-6, start: 'HH:MM', end: 'HH:MM' }] }`                                                                      |
 
@@ -33,7 +33,69 @@ Socket: `meeting:upsert` (a `Meeting`, to every attendee on create, change, canc
 `{ meeting, minutesBefore }`. Push data: `{ type: 'meeting', event: 'invite' | 'reminder' | 'updated' | 'cancelled', meetingId, conversationId, startsAt }`.
 Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetadata`).
 
+## Sync across devices
+
+- Every change (create, edit, cancel, RSVP, guest answers) is pushed live with `meeting:upsert` to every signed-in
+  device of everyone invited, on web and mobile.
+- The web calendar keeps a copy on the device, so it shows offline, and refetches when the connection returns.
+- RSVPs made offline are saved on the device, shown at once, and sent when the connection returns (latest answer per
+  meeting wins; answers the server refuses, such as for a cancelled meeting, are dropped).
+- Scheduling and editing need a connection, so two devices can't create conflicting versions of a meeting.
+- The recordings library refreshes on reconnect, every 20 seconds while open, and when the window comes back to the
+  front.
+
+## Recurring meetings
+
+Create a meeting with `recurrence` to repeat it:
+
+```json
+{ "frequency": "weekly", "interval": 1, "weekdays": [1, 3], "endsAfter": 10 }
+```
+
+- `frequency`: `daily`, `weekly` (on `weekdays`, 0 = Sunday; defaults to the first meeting's day) or `monthly`
+  (on the first meeting's day of the month; months without that day are skipped). `interval`: every 1 to 30.
+- Ends after `endsAfter` meetings (2 to 200), on `endsOn` (a local date, at most 2 years out) or never.
+- Every occurrence is its own meeting (own RSVPs, reminders and call) in the same meeting chat, with
+  `meeting.series = { seriesId, recurrence, summary, detached }`. `summary` reads like "Weekly on Tuesday".
+- Meetings keep the same local time in the organizer's time zone across daylight-saving changes.
+- Series that never end are created 180 days ahead; a background job adds more as time passes.
+- `scope: 'occurrence'` (default) changes, cancels or answers one meeting. `scope: 'series'` applies to every
+  meeting that hasn't started. A series time change (or a new `recurrence`) recreates the upcoming meetings,
+  so their answers reset and one-off changes are replaced. Other series changes keep answers.
+- Guests are added and removed for the whole series. They get one invite with an `RRULE` (local time and
+  `VTIMEZONE`), `EXDATE` for cancelled meetings, and a `RECURRENCE-ID` update when one meeting changes. Their
+  one join link opens whichever meeting of the series is next, and their RSVP covers the series.
+
+## Booking pages
+
+A booking page is a public link (`/book/<slug>`) where people outside the organization pick a free
+time with one person or a team. Hosts manage them from Meetings → Booking pages.
+
+- **Free times** come from each host's working hours and meetings, the same as "find a time". A
+  booking blocks that time everywhere: on every other page and in "find a time".
+- **Who attends:** `any` books one free host (the one with the fewest meetings that day), `all`
+  needs every host free and invites them all.
+- **Settings:** length (10 to 240 min), gap kept before and after meetings, earliest booking
+  (minimum notice), how many days ahead, audio or video, paused or taking bookings.
+- **Booking** creates an ordinary meeting organized by a host, with the booker as an external
+  guest: they get the calendar invite and join link by email (when SMTP is set up) and on the
+  confirmation screen. Hosts get a notification and the meeting appears live on all their devices.
+- **Safety:** the public page shows host names only, never emails. Booking is rate limited
+  (10 per hour per IP), a slot is locked while it is booked and checked again before it is
+  saved, so two people can't take the same time. Members can't book their own org's page as a guest.
+- The public page refreshes its free times every 30 seconds and reloads them if a time was just taken.
+
+| Method | Path                    | Who                                          |
+| ------ | ----------------------- | -------------------------------------------- |
+| GET    | `/v1/booking-pages`     | pages I host                                 |
+| POST   | `/v1/booking-pages`     | create (the creator is always a host)        |
+| PATCH  | `/v1/booking-pages/:id` | any host                                     |
+| DELETE | `/v1/booking-pages/:id` | any host                                     |
+| GET    | `/v1/book/:slug`        | public: title, hosts' names, window          |
+| GET    | `/v1/book/:slug/slots`  | public: `from`, `to` (at most 14 days)       |
+| POST   | `/v1/book/:slug`        | public: `startsAt`, `name`, `email`, `notes` |
+
 ## Planned next
 
-Public booking pages (pick a slot from a team's availability) and recurring meetings. Guests from outside the
+Booking pages on mobile (the public page already works in a phone browser). Guests from outside the
 organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.

@@ -124,7 +124,7 @@ export function ChannelsPanel({
           <StateView
             state="empty"
             title="No channels yet"
-            description="Start with any channel in test mode: Sampledge generates credentials, signs simulated messages and captures replies, so nothing reaches a real provider."
+            description="Start with any channel in test mode: the inbox generates credentials, signs simulated messages and captures replies, so nothing reaches a real provider."
             action={
               <Button onClick={() => setAdding('catalog')}>
                 <Plus /> Add a channel

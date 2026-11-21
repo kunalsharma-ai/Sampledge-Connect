@@ -9,8 +9,18 @@ import { RecordingsController } from './recordings/recordings.controller.js';
 import { RecordingsService } from './recordings/recordings.service.js';
 import { TokenService } from './auth/token.service.js';
 import { SessionService } from './auth/session.service.js';
+import { MfaService } from './auth/mfa.service.js';
 import { AuthService } from './auth/auth.service.js';
 import { AuthController } from './auth/auth.controller.js';
+import { SsoController } from './auth/sso.controller.js';
+import { SsoService } from './auth/sso.service.js';
+import { BillingController, PlatformBillingController } from './billing/billing.controller.js';
+import { BillingService } from './billing/billing.service.js';
+import { BrandingController } from './branding/branding.controller.js';
+import { BrandingService } from './branding/branding.service.js';
+import { AdminController } from './admin/admin.controller.js';
+import { AdminService } from './admin/admin.service.js';
+import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
@@ -23,9 +33,13 @@ import { SyncController } from './sync/sync.controller.js';
 import { RealtimePublisher } from './realtime/realtime.publisher.js';
 import { RealtimeGateway } from './realtime/realtime.gateway.js';
 import { HealthController } from './health/health.controller.js';
+import { Metrics } from './health/metrics.js';
 import { AttachmentsController } from './attachments/attachments.controller.js';
 import { AttachmentsService } from './attachments/attachments.service.js';
 import { FILE_STORAGE, GridFsStorage } from './attachments/file-storage.js';
+import { NextcloudIntegration } from './attachments/nextcloud-integration.js';
+import { RoutingStorage } from './attachments/routing-storage.js';
+import { IntegrationSettingsService } from './integration-settings/integration-settings.service.js';
 import { MONGO_DB } from './database/database.module.js';
 import { NotificationsController } from './notifications/notifications.controller.js';
 import { NotificationsService } from './notifications/notifications.service.js';
@@ -36,10 +50,16 @@ import {
   PlatformIntegrationsController,
   TenantIntegrationsController,
 } from './integration-settings/integration-settings.controller.js';
+import { BookmarksController } from './bookmarks/bookmarks.controller.js';
+import { BookmarksService } from './bookmarks/bookmarks.service.js';
+import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
+import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
+import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
+import { BookingService } from './meetings/booking.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -75,6 +95,7 @@ import { WorkController } from './work/work.controller.js';
 import { AiController } from './ai/ai.controller.js';
 import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
+import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
 
@@ -94,6 +115,11 @@ export class AppModule {
         TenantIntegrationsController,
         PlatformIntegrationsController,
         AuthController,
+        SsoController,
+        BillingController,
+        PlatformBillingController,
+        BrandingController,
+        AdminController,
         RecordingsController,
         DirectoryController,
         ConversationsController,
@@ -103,12 +129,16 @@ export class AppModule {
         AttachmentsController,
         NotificationsController,
         PushController,
+        BookmarksController,
+        ScheduledMessagesController,
         CallsController,
         MeetingsController,
         GuestsController,
         ConnectorsController,
         ConnectorWebhooksController,
         InboxController,
+        BookingPagesController,
+        PublicBookingController,
         IntegrationApiController,
         IntegrationsController,
         WorkController,
@@ -116,11 +146,18 @@ export class AppModule {
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
+        { provide: Metrics, useValue: new Metrics() },
         AuditService,
         RecordingsService,
         TokenService,
         SessionService,
         AuthService,
+        MfaService,
+        SsoService,
+        BillingService,
+        BrandingService,
+        AdminService,
+        PlatformAdmins,
         ConversationsService,
         MessagesService,
         SyncService,
@@ -128,9 +165,12 @@ export class AppModule {
         RealtimeGateway,
         AttachmentsService,
         NotificationsService,
+        BookmarksService,
+        ScheduledMessagesService,
         CallsService,
         MeetingsService,
         GuestsService,
+        BookingService,
         MailerService,
         CredentialVault,
         ConnectorHttp,
@@ -155,12 +195,15 @@ export class AppModule {
         ProjectsService,
         AiService,
         AiIntegration,
+        TranscriptsService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
+        NextcloudIntegration,
         {
           provide: FILE_STORAGE,
-          inject: [MONGO_DB],
-          useFactory: (db: Db) => new GridFsStorage(db),
+          inject: [MONGO_DB, IntegrationSettingsService],
+          useFactory: (db: Db, settings: IntegrationSettingsService) =>
+            new RoutingStorage(new GridFsStorage(db), settings),
         },
       ],
     };

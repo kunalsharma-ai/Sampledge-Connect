@@ -61,6 +61,24 @@ export const MODULES: ModuleEntry[] = [
       'Scheduled meetings with RSVP, suggested free times from working hours, reminders and Join. Guest invites by email are planned.',
   },
   {
+    key: 'saved',
+    title: 'Saved messages',
+    icon: 'bookmark-outline',
+    status: 'available',
+    href: '/saved',
+    summary:
+      'Messages you saved for later from any conversation. Pinned messages show at the top of each conversation.',
+  },
+  {
+    key: 'scheduled',
+    title: 'Scheduled messages',
+    icon: 'time-outline',
+    status: 'available',
+    href: '/scheduled',
+    summary:
+      'Messages you wrote to send later. The server sends them as you at the time you picked; send now, change the time or delete.',
+  },
+  {
     key: 'recordings',
     title: 'Recordings',
     icon: 'recording-outline',
@@ -80,8 +98,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'tasks',
     title: 'Tasks & Approvals',
     icon: 'checkbox-outline',
-    status: 'planned',
-    summary: 'Assignments and approval workflows.',
+    status: 'available',
+    href: '/tasks',
+    summary:
+      'Turn a message into a task or an approval request. Assign people, set a due date, and decide approvals from your phone.',
   },
   {
     key: 'notifications',
@@ -103,8 +123,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'ai',
     title: 'AI Assistant',
     icon: 'sparkles-outline',
-    status: 'planned',
-    summary: 'Summaries and drafting help.',
+    status: 'available',
+    href: '/assistant',
+    summary:
+      'Ask about your conversations, search by meaning and get a status digest. Runs on your own server and only reads what you can read.',
   },
   {
     key: 'analytics',
@@ -117,15 +139,28 @@ export const MODULES: ModuleEntry[] = [
     key: 'integrations',
     title: 'Integrations',
     icon: 'extension-puzzle-outline',
-    status: 'planned',
-    summary: 'The seven Sampledge modules and third-party apps.',
+    status: 'available',
+    href: '/admin/integrations',
+    summary:
+      'Connection settings for email (SMTP), the call server and push, stored encrypted in the database and tested from here. Admins only. The seven Sampledge modules are planned.',
+  },
+  {
+    key: 'branding',
+    title: 'Branding',
+    icon: 'color-palette-outline',
+    status: 'available',
+    href: '/admin/branding',
+    summary:
+      'Your organization’s name, logo, colors and sign-in message, stored in the database. Owners change them; everyone sees them.',
   },
   {
     key: 'admin',
     title: 'Administration',
     icon: 'shield-checkmark-outline',
-    status: 'planned',
-    summary: 'Members, roles, retention and security policies.',
+    status: 'available',
+    href: '/admin',
+    summary:
+      'For owners and admins: the organization at a glance, members and roles, two-step resets, every signed-in device, and the audit log.',
   },
   {
     key: 'settings',

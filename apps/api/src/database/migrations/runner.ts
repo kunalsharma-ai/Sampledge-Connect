@@ -9,7 +9,14 @@ import { guestsMigration } from './007-guests.js';
 import { clientInboxMigration } from './009-client-inbox.js';
 import { sampledgeModulesMigration } from './012-sampledge-modules.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
+import { bookmarksMigration } from './008-bookmarks.js';
+import { scheduledMessagesMigration } from './020-scheduled-messages.js';
 import { aiMigration } from './011-ai.js';
+import { aiTranscriptsMigration } from './013-ai-transcripts.js';
+import { billingMigration } from './021-billing.js';
+import { meetingSeriesMigration } from './030-meeting-series.js';
+import { launchIndexesMigration } from './031-launch-indexes.js';
+import { bookingPagesMigration } from './032-booking-pages.js';
 
 export interface Migration {
   id: string;
@@ -29,6 +36,13 @@ export const MIGRATIONS: Migration[] = [
   integrationSettingsMigration,
   aiMigration,
   sampledgeModulesMigration,
+  aiTranscriptsMigration,
+  bookmarksMigration,
+  scheduledMessagesMigration,
+  billingMigration,
+  meetingSeriesMigration,
+  launchIndexesMigration,
+  bookingPagesMigration,
 ];
 
 /**

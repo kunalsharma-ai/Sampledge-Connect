@@ -6,6 +6,7 @@ import { AppModule } from './app.module.js';
 import type { AppConfig } from './config/config.js';
 import { RedisIoAdapter } from './realtime/redis-io.adapter.js';
 import { ModuleSettingsService } from './integrations/module-settings.service.js';
+import { Metrics } from './health/metrics.js';
 
 /** Builds the Nest application (used by main.ts and integration tests). */
 export async function createApp(cfg: AppConfig): Promise<NestExpressApplication> {
@@ -27,6 +28,7 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
       contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
     }),
   );
+  app.use(app.get(Metrics).middleware);
   app.useBodyParser('json', { limit: '256kb' });
   // LiveKit webhooks are verified against a hash of the exact bytes, so keep them raw.
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });

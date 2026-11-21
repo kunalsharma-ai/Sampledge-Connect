@@ -1,4 +1,4 @@
-# Sampledge Connect: system architecture
+# SampConnect: system architecture
 
 Status legend used across these docs: **Built** (working code with tests in this repo), **In progress** (open PR), **Planned** (designed here, not implemented). Anything not marked Built is not functional yet.
 
@@ -57,28 +57,28 @@ Status legend used across these docs: **Built** (working code with tests in this
 | `apps/api`               | `@sampledge/api`           | In progress     | NestJS API + Socket.IO gateway                                                                                          |
 | `apps/web`               | `@sampledge/web`           | In progress     | Next.js app: auth, onboarding, three-column workspace, design gallery, PWA                                              |
 | `apps/mobile`            |                            | Separate thread | Expo app                                                                                                                |
-| `packages/sdk`           |                            | Planned         | Sampledge Connect SDK + embeddable chat widget                                                                          |
+| `packages/sdk`           |                            | Planned         | SampConnect SDK + embeddable chat widget                                                                                |
 | `apps/connector-gateway` |                            | Planned         | External messaging adapters                                                                                             |
 
 Tooling: pnpm 12 workspaces, Turborepo, TypeScript 7, Node.js **26.13.1 LTS** (pinned in `.nvmrc`, `engines`, Dockerfiles and CI), Vitest, Playwright.
 
 ## 4. Backend modules (apps/api)
 
-| Module          | Responsibility                                                                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config`        | Typed env parsing with zod; refuses to boot on missing secrets                                                                                                  |
-| `database`      | Mongo client, migrations runner, `TenantScoped` collection wrapper                                                                                              |
-| `redis`         | ioredis clients (command + pub/sub), rate limiter                                                                                                               |
-| `auth`          | Password login (argon2id), short-lived access JWT (EdDSA), rotating refresh tokens with reuse detection, device sessions, revocation. OIDC/SSO and MFA: Planned |
-| `tenancy`       | Tenant registration (tenant + owner + default workspace + #general), membership lookups, tenant context guard                                                   |
-| `directory`     | Users list, invite member (admin)                                                                                                                               |
-| `conversations` | DM (deduplicated per pair), group, public/private channels, membership, archive                                                                                 |
-| `messages`      | Idempotent send, edit, soft delete, history pagination, sequence allocation                                                                                     |
-| `receipts`      | Delivered/read watermarks                                                                                                                                       |
-| `sync`          | Cursor sync over all readable conversations                                                                                                                     |
-| `realtime`      | Socket.IO gateway, room management, Redis adapter, typing and presence                                                                                          |
-| `audit`         | Append-only audit log for security-relevant actions                                                                                                             |
-| `health`        | Liveness / readiness (Mongo + Redis ping)                                                                                                                       |
+| Module          | Responsibility                                                                                                                                                                                             |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`        | Typed env parsing with zod; refuses to boot on missing secrets                                                                                                                                             |
+| `database`      | Mongo client, migrations runner, `TenantScoped` collection wrapper                                                                                                                                         |
+| `redis`         | ioredis clients (command + pub/sub), rate limiter                                                                                                                                                          |
+| `auth`          | Password login (argon2id), short-lived access JWT (EdDSA), rotating refresh tokens with reuse detection, device sessions, revocation. OIDC single sign-on and TOTP two-step verification (docs/sign-in.md) |
+| `tenancy`       | Tenant registration (tenant + owner + default workspace + #general), membership lookups, tenant context guard                                                                                              |
+| `directory`     | Users list, invite member (admin)                                                                                                                                                                          |
+| `conversations` | DM (deduplicated per pair), group, public/private channels, membership, archive                                                                                                                            |
+| `messages`      | Idempotent send, edit, soft delete, history pagination, sequence allocation                                                                                                                                |
+| `receipts`      | Delivered/read watermarks                                                                                                                                                                                  |
+| `sync`          | Cursor sync over all readable conversations                                                                                                                                                                |
+| `realtime`      | Socket.IO gateway, room management, Redis adapter, typing and presence                                                                                                                                     |
+| `audit`         | Append-only audit log for security-relevant actions                                                                                                                                                        |
+| `health`        | Liveness / readiness (Mongo + Redis ping)                                                                                                                                                                  |
 
 ## 5. Message write path
 

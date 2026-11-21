@@ -513,7 +513,7 @@ function TimelineRow({
       ? item.activity.actorId === me
         ? 'You'
         : nameOf(item.activity.actorId, directory)
-      : 'Sampledge';
+      : 'System';
     return (
       <li className="flex justify-center">
         <span className="rounded-full bg-surface-raised/70 px-3 py-1 text-meta text-text-subtle">

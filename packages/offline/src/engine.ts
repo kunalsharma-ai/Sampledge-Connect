@@ -12,6 +12,7 @@ import {
   type MessageStatus,
   type Reaction,
   type Receipt,
+  type ScheduledMessage,
   type SyncResponse,
 } from '@sampledge/contracts';
 import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
@@ -87,6 +88,7 @@ export class SyncEngine {
   private callListeners = new Set<(e: CallEvent) => void>();
   private meetingListeners = new Set<(e: MeetingEvent) => void>();
   private inboxListeners = new Set<(e: InboxChangedEvent) => void>();
+  private scheduledListeners = new Set<(s: ScheduledMessage) => void>();
   private workListeners = new Set<(e: WorkEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
@@ -135,6 +137,11 @@ export class SyncEngine {
     return () => this.inboxListeners.delete(fn);
   }
   /** Live meeting events (invites, changes, RSVPs, reminders). */
+  /** Live updates to the caller's scheduled messages (the list itself is fetched over REST). */
+  onScheduled(fn: (s: ScheduledMessage) => void): () => void {
+    this.scheduledListeners.add(fn);
+    return () => this.scheduledListeners.delete(fn);
+  }
   onMeeting(fn: (e: MeetingEvent) => void): () => void {
     this.meetingListeners.add(fn);
     return () => this.meetingListeners.delete(fn);
@@ -254,6 +261,9 @@ export class SyncEngine {
       onCall: (e) => {
         for (const l of this.callListeners) l(e);
       },
+      onScheduled: (x) => {
+        for (const l of this.scheduledListeners) l(x);
+      },
       onMeeting: (e) => {
         for (const l of this.meetingListeners) l(e);
       },
@@ -338,6 +348,7 @@ export class SyncEngine {
       deletedAt: null,
       metadata: {},
       reactions: [],
+      pinned: null,
       status,
       localCreatedAt: it.createdAt,
       error: it.lastError,

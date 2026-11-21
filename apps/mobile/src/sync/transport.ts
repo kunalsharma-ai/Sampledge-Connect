@@ -1,6 +1,41 @@
 import {
   ERROR_CODES,
+  type AdminOverview,
+  type AuditPage,
+  type AuditQuery,
+  type InviteMemberRequest,
+  type UserSummary,
+  type BrandingInput,
+  type BrandingView,
+  type AiAskRequest,
+  type AiAskResponse,
+  type AiDigest,
+  type AiDigestRequest,
+  type AiMeetingSummary,
+  type AiProposal,
+  type AiSearchRequest,
+  type AiSearchResponse,
+  type AiStatus,
+  type AiSuggestedReplies,
+  type AiSummary,
+  type AiTranscript,
+  type AiTranslation,
+  type ConfirmAiProposalRequest,
+  type SummaryRange,
   type Attachment,
+  type Approval,
+  type Bookmark,
+  type CreateApprovalRequest,
+  type CreateTaskRequest,
+  type DecideApprovalRequest,
+  type Task,
+  type UpdateTaskRequest,
+  type CreatePollRequest,
+  type CreateScheduledMessageRequest,
+  type PostingPolicy,
+  type ScheduledMessage,
+  type UpdateScheduledMessageRequest,
+  type MyPollVote,
   type AttachmentUrl,
   type CreateUploadRequest,
   type UploadTicket,
@@ -9,6 +44,9 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type IntegrationTestResult,
+  type IntegrationValues,
+  type IntegrationView,
   type Recording,
   type RecordingKind,
   type RecordingList,
@@ -27,6 +65,7 @@ import {
   type EditMessageRequest,
   type ErrorCode,
   type LoginRequest,
+  type LoginResponse,
   type Message,
   type Receipt,
   type SendMessageAck,
@@ -46,6 +85,25 @@ import type {
 } from './notificationTypes';
 
 /** Why a request failed, in terms the offline queue can act on. */
+export interface TaskQuery {
+  scope: 'mine' | 'created' | 'conversation' | 'all';
+  conversationId?: string;
+  status?: 'active' | 'done' | 'any';
+}
+
+export interface ApprovalQuery {
+  scope: 'to_decide' | 'requested' | 'conversation' | 'all';
+  conversationId?: string;
+  status?: 'pending' | 'decided' | 'any';
+}
+
+function workQuery(q: TaskQuery | ApprovalQuery): string {
+  const p = new URLSearchParams({ scope: q.scope });
+  if (q.conversationId) p.set('conversationId', q.conversationId);
+  if (q.status) p.set('status', q.status);
+  return p.toString();
+}
+
 export class TransportError extends Error {
   constructor(
     message: string,
@@ -70,7 +128,9 @@ export class TransportError extends Error {
 
 /** The REST surface the mobile app uses. */
 export interface ApiTransport {
-  login(req: LoginRequest): Promise<Session>;
+  /** A Session, or a two-step challenge to finish with verifyMfa. */
+  login(req: LoginRequest): Promise<LoginResponse>;
+  verifyMfa(challengeId: string, code: string): Promise<Session>;
   refresh(refreshToken: string): Promise<Session>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
@@ -120,6 +180,59 @@ export interface ApiTransport {
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
   /** Recordings library, newest first; page with `before` = the previous page's nextBefore. */
   listRecordings(q: RecordingsQuery): Promise<RecordingList>;
+  /** Pins or unpins for everyone in the conversation; returns the updated message. */
+  pinMessage(messageId: string, pinned: boolean): Promise<Message>;
+  /** Messages you saved for later, newest first. */
+  listBookmarks(): Promise<Bookmark[]>;
+  setBookmark(messageId: string, saved: boolean): Promise<void>;
+  createPoll(conversationId: string, req: CreatePollRequest): Promise<Message>;
+  /** Replaces your choice; [] withdraws it. Returns the message with new counts. */
+  votePoll(messageId: string, optionIds: string[]): Promise<Message>;
+  myPollVote(messageId: string): Promise<MyPollVote>;
+  closePoll(messageId: string): Promise<Message>;
+  /** Your own scheduled messages (scheduled and failed unless a status is given). */
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]>;
+  scheduleMessage(
+    conversationId: string,
+    req: CreateScheduledMessageRequest,
+  ): Promise<ScheduledMessage>;
+  updateScheduled(id: string, req: UpdateScheduledMessageRequest): Promise<ScheduledMessage>;
+  cancelScheduled(id: string): Promise<ScheduledMessage>;
+  sendScheduledNow(id: string): Promise<ScheduledMessage>;
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation>;
+  listTasks(q: TaskQuery): Promise<Task[]>;
+  getTask(taskId: string): Promise<Task>;
+  createTask(req: CreateTaskRequest): Promise<Task>;
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task>;
+  listApprovals(q: ApprovalQuery): Promise<Approval[]>;
+  getApproval(approvalId: string): Promise<Approval>;
+  createApproval(req: CreateApprovalRequest): Promise<Approval>;
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
+  cancelApproval(approvalId: string): Promise<Approval>;
+  getBranding(): Promise<BrandingView>;
+  adminOverview(): Promise<AdminOverview>;
+  auditLog(q: AuditQuery): Promise<AuditPage>;
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary>;
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary>;
+  resetMemberMfa(userId: string): Promise<void>;
+  listAllDevices(): Promise<DeviceSession[]>;
+  saveBranding(input: BrandingInput): Promise<BrandingView>;
+  aiStatus(): Promise<AiStatus>;
+  setAiEnabled(enabled: boolean): Promise<AiStatus>;
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary>;
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary>;
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies>;
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse>;
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse>;
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation>;
+  aiDigest(req: AiDigestRequest): Promise<AiDigest>;
+  aiPropose(conversationId: string, text: string): Promise<AiProposal>;
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal>;
+  aiDismiss(proposalId: string): Promise<AiProposal>;
+  aiTranscript(attachmentId: string, queue?: boolean): Promise<AiTranscript>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -127,6 +240,15 @@ export interface ApiTransport {
   lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call>;
   guestLink(meetingId: string, guestId: string): Promise<{ url: string }>;
   resendGuestInvite(meetingId: string, guestId: string): Promise<void>;
+  /** Administration, Integrations (integrations.manage): settings stored in the database. */
+  listIntegrations(): Promise<IntegrationView[]>;
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView>;
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult>;
+  resetIntegration(id: string): Promise<IntegrationView>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -169,7 +291,7 @@ export interface HttpTransportOptions {
   timeoutMs?: number;
 }
 
-/** fetch-based client for the Sampledge Connect API (`/v1/...`). */
+/** fetch-based client for the SampConnect API (`/v1/...`). */
 export class HttpTransport implements ApiTransport {
   private readonly fetchImpl: typeof fetch;
 
@@ -177,8 +299,12 @@ export class HttpTransport implements ApiTransport {
     this.fetchImpl = opts.fetchImpl ?? ((...a) => fetch(...a));
   }
 
-  login(req: LoginRequest): Promise<Session> {
+  login(req: LoginRequest): Promise<LoginResponse> {
     return this.request('POST', '/v1/auth/login', req, false);
+  }
+
+  verifyMfa(challengeId: string, code: string): Promise<Session> {
+    return this.request('POST', '/v1/auth/mfa/verify', { challengeId, code }, false);
   }
 
   refresh(refreshToken: string): Promise<Session> {
@@ -425,6 +551,230 @@ export class HttpTransport implements ApiTransport {
     return this.request('DELETE', `/v1/recordings/${encodeURIComponent(recordingId)}`, undefined);
   }
 
+  pinMessage(messageId: string, pinned: boolean): Promise<Message> {
+    return this.request(
+      pinned ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(messageId)}/pin`,
+      undefined,
+    );
+  }
+
+  async listBookmarks(): Promise<Bookmark[]> {
+    const r = await this.request<{ items: Bookmark[] }>('GET', '/v1/bookmarks', undefined);
+    return r.items;
+  }
+
+  createPoll(conversationId: string, req: CreatePollRequest): Promise<Message> {
+    return this.request(
+      'POST',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/polls`,
+      req,
+    );
+  }
+
+  votePoll(messageId: string, optionIds: string[]): Promise<Message> {
+    return this.request('PUT', `/v1/messages/${encodeURIComponent(messageId)}/poll/vote`, {
+      optionIds,
+    });
+  }
+
+  myPollVote(messageId: string): Promise<MyPollVote> {
+    return this.request(
+      'GET',
+      `/v1/messages/${encodeURIComponent(messageId)}/poll/vote`,
+      undefined,
+    );
+  }
+
+  closePoll(messageId: string): Promise<Message> {
+    return this.request('POST', `/v1/messages/${encodeURIComponent(messageId)}/poll/close`, {});
+  }
+
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]> {
+    const q = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : '';
+    return this.request('GET', `/v1/scheduled-messages${q}`, undefined);
+  }
+
+  scheduleMessage(
+    conversationId: string,
+    req: CreateScheduledMessageRequest,
+  ): Promise<ScheduledMessage> {
+    return this.request(
+      'POST',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/scheduled-messages`,
+      req,
+    );
+  }
+
+  updateScheduled(id: string, req: UpdateScheduledMessageRequest): Promise<ScheduledMessage> {
+    return this.request('PATCH', `/v1/scheduled-messages/${encodeURIComponent(id)}`, req);
+  }
+
+  cancelScheduled(id: string): Promise<ScheduledMessage> {
+    return this.request('DELETE', `/v1/scheduled-messages/${encodeURIComponent(id)}`, undefined);
+  }
+
+  sendScheduledNow(id: string): Promise<ScheduledMessage> {
+    return this.request('POST', `/v1/scheduled-messages/${encodeURIComponent(id)}/send-now`, {});
+  }
+
+  listTasks(q: TaskQuery): Promise<Task[]> {
+    return this.request('GET', `/v1/tasks?${workQuery(q)}`, undefined);
+  }
+
+  getTask(taskId: string): Promise<Task> {
+    return this.request('GET', `/v1/tasks/${encodeURIComponent(taskId)}`, undefined);
+  }
+
+  createTask(req: CreateTaskRequest): Promise<Task> {
+    return this.request('POST', '/v1/tasks', req);
+  }
+
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task> {
+    return this.request('PATCH', `/v1/tasks/${encodeURIComponent(taskId)}`, req);
+  }
+
+  listApprovals(q: ApprovalQuery): Promise<Approval[]> {
+    return this.request('GET', `/v1/approvals?${workQuery(q)}`, undefined);
+  }
+
+  getApproval(approvalId: string): Promise<Approval> {
+    return this.request('GET', `/v1/approvals/${encodeURIComponent(approvalId)}`, undefined);
+  }
+
+  createApproval(req: CreateApprovalRequest): Promise<Approval> {
+    return this.request('POST', '/v1/approvals', req);
+  }
+
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval> {
+    return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/decision`, req);
+  }
+
+  cancelApproval(approvalId: string): Promise<Approval> {
+    return this.request('POST', `/v1/approvals/${encodeURIComponent(approvalId)}/cancel`, {});
+  }
+
+  getBranding(): Promise<BrandingView> {
+    return this.request('GET', '/v1/branding', undefined);
+  }
+
+  adminOverview(): Promise<AdminOverview> {
+    return this.request('GET', '/v1/admin/overview', undefined);
+  }
+
+  auditLog(q: AuditQuery): Promise<AuditPage> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v));
+    return this.request('GET', `/v1/admin/audit?${p.toString()}`, undefined);
+  }
+
+  inviteMember(req: InviteMemberRequest): Promise<UserSummary> {
+    return this.request('POST', '/v1/users', req);
+  }
+
+  updateMember(
+    userId: string,
+    patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
+  ): Promise<UserSummary> {
+    return this.request('PATCH', `/v1/users/${encodeURIComponent(userId)}`, patch);
+  }
+
+  resetMemberMfa(userId: string): Promise<void> {
+    return this.request('POST', `/v1/users/${encodeURIComponent(userId)}/mfa/reset`, {});
+  }
+
+  listAllDevices(): Promise<DeviceSession[]> {
+    return this.request('GET', '/v1/devices?all=true', undefined);
+  }
+
+  saveBranding(input: BrandingInput): Promise<BrandingView> {
+    return this.request('PUT', '/v1/branding', input);
+  }
+
+  aiStatus(): Promise<AiStatus> {
+    return this.request('GET', '/v1/ai/status', undefined);
+  }
+
+  setAiEnabled(enabled: boolean): Promise<AiStatus> {
+    return this.request('PUT', '/v1/ai/settings', { enabled });
+  }
+
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary> {
+    return this.request(
+      'POST',
+      `/v1/ai/conversations/${encodeURIComponent(conversationId)}/summary`,
+      { range },
+    );
+  }
+
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary> {
+    return this.request('POST', `/v1/ai/meetings/${encodeURIComponent(meetingId)}/summary`, {});
+  }
+
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies> {
+    return this.request(
+      'POST',
+      `/v1/ai/conversations/${encodeURIComponent(conversationId)}/replies`,
+      {},
+    );
+  }
+
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse> {
+    return this.request('POST', '/v1/ai/search', req);
+  }
+
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse> {
+    return this.request('POST', '/v1/ai/ask', req);
+  }
+
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation> {
+    return this.request('POST', '/v1/ai/translate', { messageId, targetLanguage });
+  }
+
+  aiDigest(req: AiDigestRequest): Promise<AiDigest> {
+    return this.request('POST', '/v1/ai/digest', req);
+  }
+
+  aiPropose(conversationId: string, text: string): Promise<AiProposal> {
+    return this.request('POST', '/v1/ai/proposals', {
+      kind: 'send_message',
+      conversationId,
+      text,
+    });
+  }
+
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal> {
+    return this.request('POST', `/v1/ai/proposals/${encodeURIComponent(proposalId)}/confirm`, req);
+  }
+
+  aiDismiss(proposalId: string): Promise<AiProposal> {
+    return this.request('POST', `/v1/ai/proposals/${encodeURIComponent(proposalId)}/dismiss`, {});
+  }
+
+  aiTranscript(attachmentId: string, queue = false): Promise<AiTranscript> {
+    return this.request(
+      queue ? 'POST' : 'GET',
+      `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}`,
+      queue ? {} : undefined,
+    );
+  }
+
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
+    return this.request(
+      'PUT',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/posting-policy`,
+      { policy },
+    );
+  }
+
+  async setBookmark(messageId: string, saved: boolean): Promise<void> {
+    await this.request(
+      saved ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(messageId)}/bookmark`,
+      undefined,
+    );
+  }
+
   startCallRecording(callId: string): Promise<Call> {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/start`, {});
   }
@@ -455,6 +805,33 @@ export class HttpTransport implements ApiTransport {
       `/v1/meetings/${encodeURIComponent(meetingId)}/guests/${encodeURIComponent(guestId)}/resend`,
       {},
     );
+  }
+
+  listIntegrations(): Promise<IntegrationView[]> {
+    return this.request('GET', '/v1/admin/integrations', undefined);
+  }
+
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView> {
+    return this.request('PUT', `/v1/admin/integrations/${encodeURIComponent(id)}`, {
+      enabled,
+      values,
+    });
+  }
+
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult> {
+    return this.request(
+      'POST',
+      `/v1/admin/integrations/${encodeURIComponent(id)}/test`,
+      values ? { values } : {},
+    );
+  }
+
+  resetIntegration(id: string): Promise<IntegrationView> {
+    return this.request('DELETE', `/v1/admin/integrations/${encodeURIComponent(id)}`, undefined);
   }
 
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
@@ -539,7 +916,8 @@ export class NoServerTransport implements ApiTransport {
   private fail(): never {
     throw new TransportError('No server connected', 'not_configured');
   }
-  login = async (): Promise<Session> => this.fail();
+  login = async (): Promise<LoginResponse> => this.fail();
+  verifyMfa = async (): Promise<Session> => this.fail();
   refresh = async (): Promise<Session> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
@@ -581,9 +959,56 @@ export class NoServerTransport implements ApiTransport {
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
   listRecordings = async (): Promise<RecordingList> => this.fail();
   deleteRecording = async (): Promise<void> => this.fail();
+  pinMessage = async (): Promise<Message> => this.fail();
+  listBookmarks = async (): Promise<Bookmark[]> => this.fail();
+  setBookmark = async (): Promise<void> => this.fail();
+  createPoll = async (): Promise<Message> => this.fail();
+  votePoll = async (): Promise<Message> => this.fail();
+  myPollVote = async (): Promise<MyPollVote> => this.fail();
+  closePoll = async (): Promise<Message> => this.fail();
+  listScheduled = async (): Promise<ScheduledMessage[]> => this.fail();
+  scheduleMessage = async (): Promise<ScheduledMessage> => this.fail();
+  updateScheduled = async (): Promise<ScheduledMessage> => this.fail();
+  cancelScheduled = async (): Promise<ScheduledMessage> => this.fail();
+  sendScheduledNow = async (): Promise<ScheduledMessage> => this.fail();
+  setPostingPolicy = async (): Promise<Conversation> => this.fail();
+  listTasks = async (): Promise<Task[]> => this.fail();
+  getTask = async (): Promise<Task> => this.fail();
+  createTask = async (): Promise<Task> => this.fail();
+  updateTask = async (): Promise<Task> => this.fail();
+  listApprovals = async (): Promise<Approval[]> => this.fail();
+  getApproval = async (): Promise<Approval> => this.fail();
+  createApproval = async (): Promise<Approval> => this.fail();
+  decideApproval = async (): Promise<Approval> => this.fail();
+  cancelApproval = async (): Promise<Approval> => this.fail();
+  getBranding = async (): Promise<BrandingView> => this.fail();
+  adminOverview = async (): Promise<AdminOverview> => this.fail();
+  auditLog = async (): Promise<AuditPage> => this.fail();
+  inviteMember = async (): Promise<UserSummary> => this.fail();
+  updateMember = async (): Promise<UserSummary> => this.fail();
+  resetMemberMfa = async (): Promise<void> => this.fail();
+  listAllDevices = async (): Promise<DeviceSession[]> => this.fail();
+  saveBranding = async (): Promise<BrandingView> => this.fail();
+  aiStatus = async (): Promise<AiStatus> => this.fail();
+  setAiEnabled = async (): Promise<AiStatus> => this.fail();
+  aiSummarize = async (): Promise<AiSummary> => this.fail();
+  aiSummarizeMeeting = async (): Promise<AiMeetingSummary> => this.fail();
+  aiReplies = async (): Promise<AiSuggestedReplies> => this.fail();
+  aiSearch = async (): Promise<AiSearchResponse> => this.fail();
+  aiAsk = async (): Promise<AiAskResponse> => this.fail();
+  aiTranslate = async (): Promise<AiTranslation> => this.fail();
+  aiDigest = async (): Promise<AiDigest> => this.fail();
+  aiPropose = async (): Promise<AiProposal> => this.fail();
+  aiConfirm = async (): Promise<AiProposal> => this.fail();
+  aiDismiss = async (): Promise<AiProposal> => this.fail();
+  aiTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();
+  listIntegrations = async (): Promise<IntegrationView[]> => this.fail();
+  saveIntegration = async (): Promise<IntegrationView> => this.fail();
+  testIntegration = async (): Promise<IntegrationTestResult> => this.fail();
+  resetIntegration = async (): Promise<IntegrationView> => this.fail();
 }

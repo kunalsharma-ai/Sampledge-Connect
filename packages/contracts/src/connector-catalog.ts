@@ -18,7 +18,7 @@ export const CONNECTOR_CATALOG: Record<ConnectorProvider, ConnectorDescriptor> =
     auth: {
       method: 'Bot token from @BotFather',
       authorization:
-        'Create a bot with @BotFather, paste its token. Sampledge sets the webhook with a secret token.',
+        'Create a bot with @BotFather, paste its token. The inbox sets the webhook with a secret token.',
     },
     credentialFields: [
       {
@@ -449,7 +449,7 @@ export const CONNECTOR_CATALOG: Record<ConnectorProvider, ConnectorDescriptor> =
     deliveryStates: 'Replies are marked Handoff until the agent sends them in Signal.',
     credentialRotation: 'Not applicable.',
     limitations: [
-      'Handoff only: Signal has no supported business or bot API, so Sampledge never automates it.',
+      'Handoff only: Signal has no supported business or bot API, so it is never automated.',
     ],
     docsUrl: 'https://support.signal.org/',
   },

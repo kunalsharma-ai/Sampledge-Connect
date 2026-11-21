@@ -1,4 +1,4 @@
-# Sampledge Connect SDK and chat widget
+# SampConnect SDK and chat widget
 
 There are two workspace packages for module teams:
 

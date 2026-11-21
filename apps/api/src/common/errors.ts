@@ -47,9 +47,11 @@ export function toApiError(err: unknown): ApiError {
           ? 'UNAUTHENTICATED'
           : status === 403
             ? 'FORBIDDEN'
-            : status < 500
-              ? 'VALIDATION_FAILED'
-              : 'INTERNAL';
+            : status === 413
+              ? 'PAYLOAD_TOO_LARGE'
+              : status < 500
+                ? 'VALIDATION_FAILED'
+                : 'INTERNAL';
     return { code, message: err.message };
   }
   return { code: 'INTERNAL', message: 'Internal server error' };

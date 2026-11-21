@@ -17,21 +17,33 @@ import { ConnectivityBanner } from '../../components/Connectivity';
 import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
 import { MessageActions, type MessageAction } from '../../components/MessageActions';
 import { MessageBubble, type ReplyPreview } from '../../components/MessageBubble';
+import { pollIsClosed } from '../../lib/polls';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { Button } from '../../components/Button';
-import { isUnjoinedChannel } from '../../lib/access';
+import { canPostIn, isUnjoinedChannel } from '../../lib/access';
+import { formatSendAt } from '../../lib/schedule';
+import { defaultTargetLanguage, TRANSLATE_LANGUAGES } from '../../lib/ai';
 import { guestSenderLabel } from '../../lib/guests';
 import { useApp, useWorkspace } from '../../state/AppProvider';
-import { conversationTitle, useCalls, useMessages, usePeople } from '../../state/hooks';
-import { space } from '../../theme/themes';
+import {
+  conversationTitle,
+  useCalls,
+  useMessages,
+  usePeople,
+  usePinned,
+  useScheduled,
+  useTenantRole,
+  useSavedIds,
+} from '../../state/hooks';
+import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
 export default function ConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
@@ -43,6 +55,34 @@ export default function ConversationScreen() {
   const [sheetFor, setSheetFor] = useState<LocalMessage | null>(null);
   const [mode, setMode] = useState<ComposerMode>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // AI translation of one message, shown above the list until dismissed.
+  const [translation, setTranslation] = useState<{
+    messageId: string;
+    lang: string;
+    text: string | null;
+    busy: boolean;
+  } | null>(null);
+  const translate = (messageId: string, lang: string) => {
+    setTranslation({ messageId, lang, text: null, busy: true });
+    engine
+      .aiTranslate(messageId, lang)
+      .then((r) =>
+        setTranslation((t) =>
+          t?.messageId === messageId ? { messageId, lang, text: r.text, busy: false } : t,
+        ),
+      )
+      .catch((e: unknown) => {
+        setTranslation(null);
+        setActionError(e instanceof Error ? e.message : String(e));
+      });
+  };
+  const pins = usePinned(id);
+  const savedIds = useSavedIds();
+  const tenantRole = useTenantRole();
+  const scheduled = useScheduled(id).items?.filter(
+    (m) => m.status === 'scheduled' || m.status === 'failed',
+  );
   const [notifyOpen, setNotifyOpen] = useState(false);
   const calls = useCalls();
   const { engineState } = useApp();
@@ -177,6 +217,16 @@ export default function ConversationScreen() {
     [reversed],
   );
 
+  // Opened from the pinned list or Saved: scroll to that message once it is loaded.
+  useEffect(() => {
+    if (focus && reversed.some((m) => m.messageId === focus)) jumpTo(focus);
+  }, [focus, reversed.length > 0]);
+
+  const serverStep = (work: Promise<void>) => {
+    setActionError(null);
+    work.catch((e: unknown) => setActionError(e instanceof Error ? e.message : String(e)));
+  };
+
   const react = useCallback(
     (m: LocalMessage, emoji: string) => void engine.toggleReaction(m.clientId, emoji),
     [engine],
@@ -196,6 +246,25 @@ export default function ConversationScreen() {
         return void engine.retry(m.clientId);
       case 'discard':
         return void engine.discard(m.clientId);
+      case 'pin':
+      case 'unpin':
+        return serverStep(engine.pinMessage(m.messageId!, action === 'pin'));
+      case 'closePoll':
+        return serverStep(engine.closePoll(m.messageId!));
+      case 'createTask':
+      case 'requestApproval':
+        return router.push({
+          pathname: action === 'createTask' ? '/task/new' : '/approval/new',
+          params: { conversationId: id, messageId: m.messageId! },
+        });
+      case 'translate':
+        return translate(
+          m.messageId!,
+          defaultTargetLanguage(Intl.DateTimeFormat().resolvedOptions().locale),
+        );
+      case 'save':
+      case 'unsave':
+        return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
       case 'delete': {
         const go = () => void engine.remove(m.clientId);
         if (Platform.OS === 'web') return go();
@@ -322,6 +391,94 @@ export default function ConversationScreen() {
             }
             onDismissError={() => engine.calls.dismissError()}
           />
+          {pins.length ? (
+            <PinnedBar
+              latest={pins[0]!}
+              count={pins.length}
+              senderName={guestSenderLabel(pins[0]!.metadata) ?? nameOf(pins[0]!.senderId)}
+              onPress={() => router.push({ pathname: '/pinned/[id]', params: { id, title } })}
+            />
+          ) : null}
+          {scheduled?.length ? (
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/scheduled', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${scheduled.length} scheduled ${scheduled.length === 1 ? 'message' : 'messages'}. Show`}
+              style={({ pressed }) => [
+                styles.pinned,
+                {
+                  backgroundColor: alpha(theme.colors.accent, pressed ? 0.14 : 0.08),
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Ionicons name="time-outline" size={16} color={theme.colors.accent} />
+              <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                {scheduled.length} scheduled · next {formatSendAt(scheduled[0]!.sendAt, new Date())}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.textSubtle} />
+            </Pressable>
+          ) : null}
+          {actionError ? (
+            <Pressable
+              onPress={() => setActionError(null)}
+              accessibilityRole="button"
+              accessibilityLabel={`${actionError}. Dismiss`}
+              style={[styles.error, { backgroundColor: alpha(theme.colors.danger, 0.12) }]}
+            >
+              <Text variant="meta" style={{ color: theme.colors.danger, flex: 1 }}>
+                {actionError}
+              </Text>
+              <Ionicons name="close" size={16} color={theme.colors.danger} />
+            </Pressable>
+          ) : null}
+          {translation ? (
+            <View
+              style={[styles.translation, { backgroundColor: alpha(theme.colors.accent, 0.1) }]}
+              accessibilityLiveRegion="polite"
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Ionicons name="language-outline" size={16} color={theme.colors.accent} />
+                <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                  Translation ·{' '}
+                  {TRANSLATE_LANGUAGES.find((l) => l.tag === translation.lang)?.label ??
+                    translation.lang}
+                </Text>
+                <Pressable
+                  onPress={() => setTranslation(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close translation"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={16} color={theme.colors.textSubtle} />
+                </Pressable>
+              </View>
+              <Text variant="meta" numberOfLines={6}>
+                {translation.busy
+                  ? 'Translating…'
+                  : (translation.text ??
+                    'Translation needs a model server. An admin can connect one in More, Integrations.')}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {TRANSLATE_LANGUAGES.filter((l) => l.tag !== translation.lang)
+                  .slice(0, 5)
+                  .map((l) => (
+                    <Pressable
+                      key={l.tag}
+                      onPress={() => translate(translation.messageId, l.tag)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Translate to ${l.label}`}
+                    >
+                      <Text variant="meta" tone="accent">
+                        {l.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+              </View>
+            </View>
+          ) : null}
         </View>
         <FlatList
           ref={list}
@@ -403,6 +560,15 @@ export default function ConversationScreen() {
               This conversation is archived and read-only.
             </Text>
           </View>
+        ) : conv && !canPostIn(conv, tenantRole) ? (
+          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+            <View style={{ flexDirection: 'row', gap: space.sm, justifyContent: 'center' }}>
+              <Ionicons name="megaphone-outline" size={16} color={theme.colors.textMuted} />
+              <Text variant="meta" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>
+                Announcement channel. Only owners and moderators post here. You can read and react.
+              </Text>
+            </View>
+          </View>
         ) : (
           <Composer
             conversationId={id}
@@ -416,6 +582,14 @@ export default function ConversationScreen() {
       <MessageActions
         message={sheetFor}
         own={sheetFor?.senderId === selfId}
+        saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
+        canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
+        canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
+        canClosePoll={
+          !!sheetFor?.poll &&
+          !pollIsClosed(sheetFor.poll) &&
+          (sheetFor.senderId === selfId || conv?.myRole === 'owner' || conv?.myRole === 'moderator')
+        }
         onAction={onAction}
         onReact={react}
         onClose={() => setSheetFor(null)}
@@ -424,7 +598,72 @@ export default function ConversationScreen() {
   );
 }
 
+/** The newest pin under the header; opens the full list. */
+function PinnedBar({
+  latest,
+  count,
+  senderName,
+  onPress,
+}: {
+  latest: LocalMessage;
+  count: number;
+  senderName: string;
+  onPress: () => void;
+}) {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${count} pinned. Latest from ${senderName}: ${latest.text}. Show all pinned messages`}
+      style={({ pressed }) => [
+        styles.pinned,
+        { backgroundColor: alpha(c.accent, pressed ? 0.14 : 0.08), borderColor: c.border },
+      ]}
+    >
+      <Ionicons name="pin" size={16} color={c.accent} />
+      <View style={{ flex: 1 }}>
+        <Text variant="label" tone="accent">
+          {count === 1 ? 'Pinned' : `${count} pinned`}
+        </Text>
+        <Text variant="meta" tone="muted" numberOfLines={1}>
+          {senderName}: {latest.text || 'Attachment'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  translation: {
+    marginHorizontal: space.md,
+    marginTop: space.xs,
+    padding: space.sm,
+    gap: 4,
+    borderRadius: radius.md,
+  },
+  pinned: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginBottom: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  error: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginBottom: space.xs,
+    padding: space.sm,
+    borderRadius: radius.md,
+  },
   typing: { paddingHorizontal: space.lg, paddingBottom: space.xs },
   bar: {
     gap: space.sm,

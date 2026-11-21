@@ -108,6 +108,11 @@ export class RealtimeGateway
     socket.data.timer = setInterval(() => void this.recheck(socket), RECHECK_MS);
   }
 
+  /** Open Socket.IO connections on this instance (for /health/metrics). */
+  connectedSockets(): number {
+    return this.server?.engine?.clientsCount ?? 0;
+  }
+
   /** Drop sockets before Redis/Mongo close, so disconnect handlers don't hit closed connections. */
   beforeApplicationShutdown() {
     this.shuttingDown = true;

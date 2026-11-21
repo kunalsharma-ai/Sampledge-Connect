@@ -134,7 +134,7 @@ export const teamsAdapter: ConnectorAdapter = {
         aadObjectId: `aad-${input.fromHandle.replace(/\W/g, '')}`,
       },
       conversation: { id: conversationId, conversationType: 'personal' },
-      recipient: { id: `28:${c.appId}`, name: 'Sampledge' },
+      recipient: { id: `28:${c.appId}`, name: 'Client Inbox' },
       text: input.text,
     });
     const token = await signTestToken(c.testSigningKey!, {

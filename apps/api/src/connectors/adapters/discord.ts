@@ -168,8 +168,7 @@ export const discordAdapter: ConnectorAdapter = {
   },
 
   sandboxResponse(req) {
-    if (req.url.endsWith('/users/@me'))
-      return { id: '1', username: 'Sampledge Support', bot: true };
+    if (req.url.endsWith('/users/@me')) return { id: '1', username: 'Client Support', bot: true };
     return { id: String(1e18 + Math.floor(Math.random() * 1e17)) };
   },
 };

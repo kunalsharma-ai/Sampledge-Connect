@@ -45,6 +45,7 @@ export function serverMessage(
     deletedAt: null,
     metadata: {},
     reactions: [],
+    pinned: null,
     ...over,
   };
 }

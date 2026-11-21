@@ -14,9 +14,11 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IncomingCall } from '../calls/IncomingCall';
+import { ActionRefusedBanner } from '../components/ActionRefusedBanner';
 import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
+import { BrandingSync } from '../components/BrandingSync';
 import { AppProvider, useApp } from '../state/AppProvider';
 import { fonts } from '../theme/themes';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
@@ -47,6 +49,7 @@ function RootStack() {
   return (
     <>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <BrandingSync />
       <Stack
         screenOptions={{
           headerShadowVisible: false,
@@ -79,6 +82,30 @@ function RootStack() {
           <Stack.Screen name="meeting/[id]" options={{ title: 'Meeting' }} />
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
+          <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
+          <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
+          <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />
+          <Stack.Screen name="admin/members" options={{ title: 'Members' }} />
+          <Stack.Screen
+            name="admin/add-member"
+            options={{ title: 'Add member', presentation: 'modal' }}
+          />
+          <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
+          <Stack.Screen name="admin/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
+          <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
+          <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
+          <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
+          <Stack.Screen name="tasks" options={{ title: 'Tasks & Approvals' }} />
+          <Stack.Screen name="assistant" options={{ title: 'AI Assistant' }} />
+          <Stack.Screen name="summary/[id]" options={{ title: 'Summary' }} />
+          <Stack.Screen name="task/[id]" options={{ title: 'Task' }} />
+          <Stack.Screen name="task/new" options={{ title: 'New task', presentation: 'modal' }} />
+          <Stack.Screen name="approval/[id]" options={{ title: 'Approval' }} />
+          <Stack.Screen
+            name="approval/new"
+            options={{ title: 'Request approval', presentation: 'modal' }}
+          />
           <Stack.Screen name="conversation-info/[id]" options={{ title: 'Details' }} />
           <Stack.Screen
             name="add-members/[id]"
@@ -99,6 +126,7 @@ function RootStack() {
         <>
           <NotificationBanner />
           <MeetingReminderBanner />
+          <ActionRefusedBanner />
           <PushOpenHandler />
           <IncomingCall />
         </>
