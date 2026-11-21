@@ -90,6 +90,12 @@ export default function More() {
               onPress={() => router.push('/settings/appearance')}
             />
             <Row
+              icon="notifications-outline"
+              title="Notifications"
+              onPress={() => router.push('/settings/notifications')}
+              divider
+            />
+            <Row
               icon="cloud-offline-outline"
               title="Offline & storage"
               onPress={() => router.push('/settings/storage')}

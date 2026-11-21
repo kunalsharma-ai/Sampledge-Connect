@@ -140,7 +140,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       workspace.engine.setNetworkUp(!!s.isConnected && s.isInternetReachable !== false),
     );
     const offApp = AppState.addEventListener('change', (st) => {
-      if (st === 'active') void workspace.engine.resume();
+      if (st === 'active') workspace.engine.setForeground(true);
+      else if (st === 'background') workspace.engine.setForeground(false);
     });
     // Browsers that expose navigator.connection never fire NetInfo for a plain offline
     // switch, so the web preview also follows the window online/offline events.

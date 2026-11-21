@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LocalConversation, LocalMessage } from '../db/store';
+import type { LocalConversation, LocalMessage, LocalNotification } from '../db/store';
 import { useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -88,19 +88,26 @@ export function conversationTitle(
   return others.map(nameOf).join(', ') || 'Just you';
 }
 
-/** Messages that mention you, newest first. Refreshes whenever messages change. */
-export function useMentions(): { mentions: LocalMessage[]; loading: boolean } {
+/** The cached notification feed and unread count; both update live and work offline. */
+export function useNotifications(): {
+  items: LocalNotification[];
+  unread: number;
+  loading: boolean;
+} {
   const { store } = useWorkspace();
-  const [state, setState] = useState<{ mentions: LocalMessage[]; loading: boolean }>({
-    mentions: [],
-    loading: true,
-  });
+  const [state, setState] = useState<{
+    items: LocalNotification[];
+    unread: number;
+    loading: boolean;
+  }>({ items: [], unread: 0, loading: true });
   useEffect(() => {
     let alive = true;
     const load = () =>
-      void store.listMentions().then((mentions) => alive && setState({ mentions, loading: false }));
+      void Promise.all([store.listNotifications(), store.notificationUnread()]).then(
+        ([items, unread]) => alive && setState({ items, unread, loading: false }),
+      );
     load();
-    const off = store.events.on('messages', load);
+    const off = store.events.on('notifications', load);
     return () => {
       alive = false;
       off();

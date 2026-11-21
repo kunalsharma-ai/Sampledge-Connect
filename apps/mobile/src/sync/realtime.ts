@@ -13,6 +13,7 @@ import type {
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
+import type { ServerNotification } from './notificationTypes';
 import { TransportError } from './transport';
 
 export type SocketState = 'disconnected' | 'connecting' | 'connected';
@@ -25,6 +26,10 @@ type RealtimeEvents = {
   sessionExpired: undefined;
   /** Something arrived that the cursor sync should confirm (missed-event recovery). */
   needsSync: undefined;
+  /** A mention or reply for you (also sent to your other devices). */
+  notification: ServerNotification;
+  /** Another of your devices marked notifications read. */
+  notificationsRead: { unreadCount: number };
 };
 
 /**
@@ -82,7 +87,8 @@ export class RealtimeClient {
       ({ conversationId }) => void this.store.purgeConversations([conversationId]),
     );
     socket.on('typing:update', (t) => this.events.emit('typing', t));
-    socket.on('presence:update', (p) => this.events.emit('presence', p));
+    socket.on('notification:new', (n) => this.events.emit('notification', n));
+    socket.on('notification:read', (r) => this.events.emit('notificationsRead', r));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);
