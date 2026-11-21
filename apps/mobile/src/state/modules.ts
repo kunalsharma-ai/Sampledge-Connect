@@ -117,8 +117,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'integrations',
     title: 'Integrations',
     icon: 'extension-puzzle-outline',
-    status: 'planned',
-    summary: 'The seven Sampledge modules and third-party apps.',
+    status: 'available',
+    href: '/admin/integrations',
+    summary:
+      'Connection settings for email (SMTP), the call server and push, stored encrypted in the database and tested from here. Admins only. The seven Sampledge modules are planned.',
   },
   {
     key: 'admin',

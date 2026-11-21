@@ -79,6 +79,7 @@ function RootStack() {
           <Stack.Screen name="meeting/[id]" options={{ title: 'Meeting' }} />
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
+          <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="conversation-info/[id]" options={{ title: 'Details' }} />
           <Stack.Screen
             name="add-members/[id]"
