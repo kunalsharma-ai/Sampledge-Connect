@@ -33,4 +33,8 @@ Owners and admins see **Organization rules**. There they choose the default for 
 - Organization rules: `tenant:updated` with area `chat_themes`. Every device refetches. Changing rules needs a connection.
 - On reconnect the app refetches; a change still waiting in the queue wins over the server's older copy.
 
+## Mobile
+
+More → Chat theme has the same tiles, grouped by category, and owners and admins get **Organization rules** (Manage: tap to offer or hide a theme, long-press to make it the default; saving needs a connection). Conversations use the same colors from `chatThemeStyle`, and the scenes and patterns are drawn from the same SVG art with `react-native-svg`. Your pick is kept on the phone, queued as `theme.set` (target `my-chat-theme`) and sent on reconnect; `chat-theme:changed` and `tenant:updated` (`chat_themes`) refetch live.
+
 Video call backgrounds (blur, company logo, office scenes) are part of meetings, not this feature.

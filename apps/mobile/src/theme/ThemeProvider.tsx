@@ -115,6 +115,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+/** Replaces some colors for everything inside (a conversation's chat theme). */
+export function ThemeOverride({
+  colors,
+  children,
+}: {
+  colors: Partial<Theme['colors']> | null;
+  children: ReactNode;
+}) {
+  const outer = useTheme();
+  const value = useMemo(
+    () =>
+      colors
+        ? { ...outer, theme: { ...outer.theme, colors: { ...outer.theme.colors, ...colors } } }
+        : outer,
+    [outer, colors],
+  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
 export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useTheme must be used inside ThemeProvider');

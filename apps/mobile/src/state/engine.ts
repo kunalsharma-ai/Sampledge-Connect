@@ -18,6 +18,10 @@ import {
   type SearchResponse,
   type UpdateMeetingRequest,
   type WorkingHours,
+  effectiveChatTheme,
+  type ChatThemeId,
+  type ChatThemePolicy,
+  type ChatThemeState,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -139,6 +143,8 @@ export interface EngineState {
  */
 /** Settings key for the server's copy of your recent searches. */
 const HOURS_KEY = 'workingHours';
+/** Settings key for the server's copy of your chat theme and the organization's rules. */
+const THEME_KEY = 'chatTheme';
 const RECENT_KEY = 'search.recent';
 
 export class ConnectEngine {
@@ -171,6 +177,8 @@ export class ConnectEngine {
     recentSearches: string[];
     /** Your working hours changed here or on another device. */
     workingHours: WorkingHours;
+    /** Your chat theme or the organization's rules changed, here or elsewhere. */
+    chatTheme: ChatThemeState;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -280,6 +288,10 @@ export class ConnectEngine {
         this.realtime.events.on('project', (e) => this.events.emit('project', e)),
         this.realtime.events.on('booking', (e) => void this.receiveBooking(e)),
         this.realtime.events.on('searchRecent', (e) => void this.receiveRecent(e.recent)),
+        this.realtime.events.on(
+          'chatTheme',
+          () => void this.refreshChatTheme().catch(() => undefined),
+        ),
         this.realtime.events.on('meetingsChanged', (e) => {
           if (e.area === 'working_hours') void this.refreshWorkingHours().catch(() => undefined);
         }),
@@ -480,6 +492,7 @@ export class ConnectEngine {
 
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
+    if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
     if (area === 'branding' && this.online) {
       try {
         this.events.emit('branding', await this.api.getBranding());
@@ -1238,6 +1251,12 @@ export class ConnectEngine {
       case 'dnd.set':
         await this.receivePresence(await this.api.setDndSchedule(i.schedule));
         break;
+      case 'theme.set':
+        await this.store.setSetting(
+          THEME_KEY,
+          JSON.stringify(await this.api.setChatTheme(i.themeId)),
+        );
+        break;
       case 'hours.set':
         await this.store.setSetting(
           HOURS_KEY,
@@ -1294,6 +1313,7 @@ export class ConnectEngine {
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
     if (i.kind === 'search.recent') void this.emitRecent();
+    if (i.kind === 'theme.set') void this.emitChatTheme();
     if (i.kind === 'hours.set')
       void this.getWorkingHours()
         .then((h) => this.events.emit('workingHours', h))
@@ -1325,6 +1345,7 @@ export class ConnectEngine {
           this.listBookingPages(),
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
+          this.refreshChatTheme(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
@@ -1709,6 +1730,62 @@ export class ConnectEngine {
     await this.store.setSetting(HOURS_KEY, JSON.stringify(hours));
     this.events.emit('workingHours', (await this.store.work.pendingWorkingHours()) ?? hours);
     return hours;
+  }
+
+  /**
+   * Your chat theme: the server's copy on this phone with your unsent pick laid over it, so
+   * conversations look right offline. Null before the first load with no connection.
+   */
+  async getChatTheme(): Promise<ChatThemeState | null> {
+    const raw = await this.store.getSetting(THEME_KEY);
+    const saved = raw ? (JSON.parse(raw) as ChatThemeState) : null;
+    const pending = await this.store.work.pendingChatTheme();
+    if (!saved) {
+      if (!pending) return null;
+      const policy: ChatThemePolicy = { defaultThemeId: 'default', allowed: null };
+      return {
+        themeId: pending.themeId,
+        policy,
+        effective: effectiveChatTheme(pending.themeId, policy),
+      };
+    }
+    if (!pending) return saved;
+    return {
+      ...saved,
+      themeId: pending.themeId,
+      effective: effectiveChatTheme(pending.themeId, saved.policy),
+    };
+  }
+
+  /** Picks a chat theme (null: the organization default). Works offline; follows you to every device. */
+  async setChatTheme(themeId: ChatThemeId | null): Promise<void> {
+    if (this.session.state === 'demo') {
+      const cur = await this.getChatTheme();
+      const policy = cur?.policy ?? { defaultThemeId: 'default', allowed: null };
+      await this.store.setSetting(
+        THEME_KEY,
+        JSON.stringify({ themeId, policy, effective: effectiveChatTheme(themeId, policy) }),
+      );
+    } else await this.queue({ kind: 'theme.set', themeId });
+    await this.emitChatTheme();
+  }
+
+  /** Owners and admins: the organization default and which themes people may choose. */
+  async setChatThemePolicy(policy: ChatThemePolicy): Promise<void> {
+    const state = await this.serverAction(() => this.api.setChatThemePolicy(policy));
+    await this.store.setSetting(THEME_KEY, JSON.stringify(state));
+    await this.emitChatTheme();
+  }
+
+  private async refreshChatTheme(): Promise<void> {
+    const state = await this.api.getChatTheme();
+    await this.store.setSetting(THEME_KEY, JSON.stringify(state));
+    await this.emitChatTheme();
+  }
+
+  private async emitChatTheme(): Promise<void> {
+    const s = await this.getChatTheme();
+    if (s) this.events.emit('chatTheme', s);
   }
 
   async send(

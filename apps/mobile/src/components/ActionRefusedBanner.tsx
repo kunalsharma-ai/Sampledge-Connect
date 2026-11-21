@@ -36,6 +36,7 @@ const WHAT: Record<ActionKind, string> = {
   'status.set': 'Changing your status',
   'dnd.set': 'Changing your quiet hours',
   'hours.set': 'Saving your working hours',
+  'theme.set': 'Changing your chat theme',
 };
 
 /**

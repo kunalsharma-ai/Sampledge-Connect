@@ -45,6 +45,9 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type ChatThemeId,
+  type ChatThemePolicy,
+  type ChatThemeState,
   type CallCaptionResponse,
   type IntegrationTestResult,
   type IntegrationValues,
@@ -183,6 +186,11 @@ export interface ApiTransport {
   pushStatus(): Promise<PushStatus>;
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus>;
   callsConfig(): Promise<CallsConfig>;
+  /** Your chat theme, the organization's rules and the theme in effect. */
+  getChatTheme(): Promise<ChatThemeState>;
+  setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
+  /** Owners and admins: the default theme and which themes people may choose. */
+  setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
   activeCalls(): Promise<Call[]>;
   getCall(callId: string): Promise<Call>;
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
@@ -522,6 +530,18 @@ export class HttpTransport implements ApiTransport {
   }
 
   /** Whether this deployment has a media server (calls are hidden when it does not). */
+  getChatTheme(): Promise<ChatThemeState> {
+    return this.request('GET', '/v1/me/chat-theme', undefined);
+  }
+
+  setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState> {
+    return this.request('PUT', '/v1/me/chat-theme', { themeId });
+  }
+
+  setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
+    return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
   callsConfig(): Promise<CallsConfig> {
     return this.request('GET', '/v1/calls/config', undefined);
   }
@@ -1192,6 +1212,9 @@ export class NoServerTransport implements ApiTransport {
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   transcribeCaption = async (): Promise<CallCaptionResponse> => this.fail();
+  getChatTheme = async (): Promise<ChatThemeState> => this.fail();
+  setChatTheme = async (): Promise<ChatThemeState> => this.fail();
+  setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();

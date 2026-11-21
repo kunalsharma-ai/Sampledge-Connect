@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_DND_SCHEDULE } from '@sampledge/contracts';
+import { DEFAULT_DND_SCHEDULE, effectiveChatTheme } from '@sampledge/contracts';
 import type {
+  ChatThemeId,
+  ChatThemePolicy,
   Approval,
   BookingPage,
   CreateBookingPageRequest,
@@ -103,6 +105,10 @@ async function setup() {
       timeZone: 'Asia/Kolkata',
       days: [{ day: 1, start: '09:00', end: '17:30' }],
     } as WorkingHours,
+    theme: { themeId: null, policy: { defaultThemeId: 'default', allowed: null } } as {
+      themeId: ChatThemeId | null;
+      policy: ChatThemePolicy;
+    },
     users: new Map<string, DirectoryUser>([
       [
         SELF,
@@ -198,6 +204,25 @@ async function setup() {
       step(`setWorkingHours ${h.days.map((d) => `${d.day}:${d.start}-${d.end}`).join(',')}`);
       server.hours = h;
       return h;
+    },
+    getChatTheme: async () => {
+      step('listChatTheme');
+      return {
+        ...server.theme,
+        effective: effectiveChatTheme(server.theme.themeId, server.theme.policy),
+      };
+    },
+    setChatTheme: async (themeId: ChatThemeId | null) => {
+      step(`setChatTheme ${themeId}`);
+      const p = server.theme.policy;
+      if (themeId && p.allowed && !p.allowed.includes(themeId))
+        throw new TransportError(
+          'Your organization doesn’t offer that chat theme',
+          'api',
+          'VALIDATION_FAILED',
+        );
+      server.theme = { ...server.theme, themeId };
+      return { ...server.theme, effective: effectiveChatTheme(themeId, p) };
     },
     getRecentSearches: async () => {
       step('listRecentSearches');
@@ -1053,5 +1078,51 @@ describe('working hours offline and across devices', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect((await t.engine.getWorkingHours()).days[0]!.start).toBe('07:30');
     expect(seen).toContain('07:30');
+  });
+});
+
+describe('chat theme offline and across devices', () => {
+  it('picks offline (latest wins), keeps the pick over older server copies, and follows other devices', async () => {
+    const t = await setup();
+    await t.online();
+    expect((await t.engine.getChatTheme())?.effective).toBe('default'); // cached by refreshWork
+    t.engine.setNetworkUp(false);
+    await t.engine.setChatTheme('blueprint');
+    await t.engine.setChatTheme('evergreen');
+    expect((await t.engine.getChatTheme())?.effective).toBe('evergreen');
+    // An older server copy arriving while ours is unsent never replaces it.
+    t.rt.events.emit('chatTheme', { themeId: null });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getChatTheme())?.effective).toBe('evergreen');
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setChatTheme'))).toEqual(['setChatTheme evergreen']);
+    // Another device picks Library: this phone follows live.
+    const seen: string[] = [];
+    t.engine.events.on('chatTheme', (s) => seen.push(s.effective));
+    t.server.theme = { ...t.server.theme, themeId: 'library' };
+    t.rt.events.emit('chatTheme', { themeId: 'library' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getChatTheme())?.effective).toBe('library');
+    expect(seen).toContain('library');
+  });
+
+  it('organization rules: a removed theme falls back to the default, and a refused pick is reported', async () => {
+    const t = await setup();
+    await t.online();
+    await t.engine.setChatTheme('aurora');
+    await t.online();
+    t.server.theme = {
+      themeId: 'aurora',
+      policy: { defaultThemeId: 'graphite', allowed: ['graphite', 'linen'] },
+    };
+    t.rt.events.emit('tenant', { area: 'chat_themes' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getChatTheme())?.effective).toBe('graphite');
+    // Picked offline before the rule reached this phone: the server refuses it.
+    t.engine.setNetworkUp(false);
+    await t.engine.setChatTheme('aurora');
+    await t.online();
+    expect(t.refused).toEqual(['theme.set: Your organization doesn’t offer that chat theme']);
+    expect((await t.engine.getChatTheme())?.effective).toBe('graphite');
   });
 });

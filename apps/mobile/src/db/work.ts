@@ -19,6 +19,7 @@ import {
   type UserStatus,
   type DndSchedule,
   type WorkingHours,
+  type ChatThemeId,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -68,7 +69,8 @@ export type ActionInput =
   /** Quiet hours, replaced as a whole (the latest wins). */
   | { kind: 'dnd.set'; schedule: DndSchedule }
   /** Your working hours, replaced as a whole (the latest wins). */
-  | { kind: 'hours.set'; hours: WorkingHours };
+  | { kind: 'hours.set'; hours: WorkingHours }
+  | { kind: 'theme.set'; themeId: ChatThemeId | null };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -175,11 +177,17 @@ const targetOf = (a: ActionInput): string => {
       return 'dnd:me';
     case 'hours.set':
       return 'hours:me';
+    case 'theme.set':
+      return 'my-chat-theme';
   }
 };
 
 const kindOfCache = (k: ActionKind): CacheKind =>
-  k.startsWith('avatar.') || k === 'status.set' || k === 'dnd.set' || k === 'hours.set'
+  k.startsWith('avatar.') ||
+  k === 'status.set' ||
+  k === 'dnd.set' ||
+  k === 'hours.set' ||
+  k === 'theme.set'
     ? 'profile'
     : k === 'pin' || k === 'poll.create' || k === 'poll.close'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
@@ -427,6 +435,7 @@ export class WorkStore {
         case 'status.set':
         case 'dnd.set':
         case 'hours.set':
+        case 'theme.set':
         case 'avatar.set':
         case 'avatar.remove':
           // Only the latest photo (or its removal, or recent list) matters.
@@ -880,6 +889,17 @@ export class WorkStore {
       if (a.input.kind === 'avatar.remove') out.avatar = null;
     }
     return out;
+  }
+
+  /** A chat theme picked on this device and not on the server yet (undefined: none). */
+  async pendingChatTheme(): Promise<{ themeId: ChatThemeId | null } | undefined> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'my-chat-theme' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'theme.set' ? { themeId: last.themeId } : undefined;
   }
 
   /** Working hours changed on this device and not on the server yet (null: none). */

@@ -18,6 +18,7 @@ import type {
   Approval,
   TenantArea,
   BookingPage,
+  ChatThemeId,
   MeetingsArea,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
@@ -60,6 +61,8 @@ type RealtimeEvents = {
   project: { projectId: string };
   /** A booking page you host was created, changed or deleted (page is null when deleted). */
   booking: { bookingPageId: string; page: BookingPage | null };
+  /** You picked a chat theme on one of your devices. */
+  chatTheme: { themeId: ChatThemeId | null };
   /** Your recent searches changed on one of your devices. */
   searchRecent: { recent: string[] };
   /** Your booking pages or working hours changed (on any of your devices). */
@@ -143,6 +146,7 @@ export class RealtimeClient {
     socket.on('project:changed', (e) => this.events.emit('project', e));
     socket.on('booking:changed', (e) => this.events.emit('booking', e));
     socket.on('search:recent', (e) => this.events.emit('searchRecent', e));
+    socket.on('chat-theme:changed', (e) => this.events.emit('chatTheme', e));
     socket.on('meetings:changed', (e) => this.events.emit('meetingsChanged', e));
     socket.on('session:expired', () => {
       socket.disconnect();
