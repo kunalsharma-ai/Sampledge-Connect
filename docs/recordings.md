@@ -60,7 +60,8 @@ with the API. The pieces that must line up:
 3. `LIVEKIT_NODE_IP` must be an address egress's Chrome can reach. Do not use `127.0.0.1`
    when egress runs in another container: its WebRTC connection fails and the recording
    reports "Start signal not received". Use the server's LAN or public IP.
-4. Each concurrent recording needs about 2 CPU cores and 2 GB RAM.
+4. Each concurrent recording needs about 2 CPU cores and 2 GB RAM. The egress container needs
+   `shm_size: 1g` (set in `docker-compose.yml`); Chrome crashes with Docker's 64 MB default.
 
 Flow: start → egress joins as a hidden participant → `egress_updated` (active) → stop, call end
 or time limit → egress writes the file → `egress_ended` webhook (or the API's sweeper, which
