@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
-import { canInConversation, isUnjoinedChannel } from '../../lib/access';
+import { canInConversation, canSetPostingPolicy, isUnjoinedChannel } from '../../lib/access';
 import { confirmThen } from '../../lib/confirm';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useConversation, usePeople, useTenantRole } from '../../state/hooks';
@@ -187,6 +187,36 @@ export default function ConversationInfo() {
               </Text>
               <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
             </Pressable>
+            {canSetPostingPolicy(conv, role) ? (
+              <View
+                style={[
+                  styles.row,
+                  { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                ]}
+              >
+                <Ionicons name="megaphone-outline" size={20} color={c.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong">Announcement channel</Text>
+                  <Text variant="meta" tone="muted">
+                    Only owners and moderators post. Everyone can read and react.
+                  </Text>
+                </View>
+                {busy === 'policy' ? (
+                  <ActivityIndicator size="small" color={c.accent} />
+                ) : (
+                  <Switch
+                    value={conv.postingPolicy === 'moderators'}
+                    disabled={!!blocked}
+                    onValueChange={(on) =>
+                      void run('policy', () =>
+                        engine.setPostingPolicy(id, on ? 'moderators' : 'everyone'),
+                      )
+                    }
+                    accessibilityLabel="Announcement channel"
+                  />
+                )}
+              </View>
+            ) : null}
           </Glass>
         ) : null}
 

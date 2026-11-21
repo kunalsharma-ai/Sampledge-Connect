@@ -23,6 +23,8 @@ import {
   type Bookmark,
   type CreatePollRequest,
   type Poll,
+  type PostingPolicy,
+  type ScheduledMessage,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -73,6 +75,8 @@ export class ConnectEngine {
     meetingReminder: MeetingReminderEvent;
     /** The set of messages you saved for later changed. */
     bookmarks: ReadonlySet<string>;
+    /** One of your scheduled messages changed here, on another device or by being sent. */
+    scheduled: ScheduledMessage | null;
   }>();
   /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
   private myVotes = new Map<string, string[]>();
@@ -163,6 +167,7 @@ export class ConnectEngine {
         this.realtime.events.on('needsSync', () => void this.resume()),
         this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
+        this.realtime.events.on('scheduledUpdated', (m) => this.events.emit('scheduled', m)),
         this.realtime.events.on('meetingReminder', (e) => {
           const mine = e.meeting.attendees.find((a) => a.userId === this.store.selfUserId);
           if (e.meeting.status === 'scheduled' && mine?.response !== 'declined')
@@ -466,6 +471,63 @@ export class ConnectEngine {
   closePoll(messageId: string): Promise<void> {
     return this.serverAction(async () => {
       await this.store.applyServerMessages([await this.api.closePoll(messageId)]);
+    });
+  }
+
+  /** Your scheduled messages (scheduled and failed), soonest first. Kept on the server. */
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]> {
+    return this.serverAction(async () =>
+      (await this.api.listScheduled(conversationId)).sort((a, b) => (a.sendAt < b.sendAt ? -1 : 1)),
+    );
+  }
+
+  /** The server holds it and sends it as you at `sendAt`, even with this phone off. */
+  scheduleMessage(
+    conversationId: string,
+    text: string,
+    sendAt: Date,
+    opts: { mentions?: string[]; replyTo?: string | null } = {},
+  ): Promise<ScheduledMessage> {
+    const clientMessageId = uuidv7();
+    return this.serverAction(async () => {
+      const m = await this.api.scheduleMessage(conversationId, {
+        clientMessageId,
+        content: { text, mentions: opts.mentions ?? [] },
+        replyToMessageId: opts.replyTo ?? null,
+        sendAt: sendAt.toISOString(),
+      });
+      this.events.emit('scheduled', m);
+      return m;
+    });
+  }
+
+  rescheduleMessage(id: string, sendAt: Date): Promise<ScheduledMessage> {
+    return this.serverAction(async () => {
+      const m = await this.api.updateScheduled(id, { sendAt: sendAt.toISOString() });
+      this.events.emit('scheduled', m);
+      return m;
+    });
+  }
+
+  cancelScheduled(id: string): Promise<void> {
+    return this.serverAction(async () => {
+      this.events.emit('scheduled', await this.api.cancelScheduled(id));
+    });
+  }
+
+  sendScheduledNow(id: string): Promise<void> {
+    return this.serverAction(async () => {
+      this.events.emit('scheduled', await this.api.sendScheduledNow(id));
+      void this.resume();
+    });
+  }
+
+  /** Announcement channel on or off (channel owners and moderators). */
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([
+        await this.api.setPostingPolicy(conversationId, policy),
+      ]);
     });
   }
 

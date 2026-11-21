@@ -26,7 +26,9 @@ import {
 import { useWorkspace } from '../state/AppProvider';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { formatSendAt } from '../lib/schedule';
 import { Avatar } from './Avatar';
+import { ScheduleSheet } from './ScheduleSheet';
 import { Text } from './Text';
 import { useVoiceRecorder, VoiceRecordBar } from './VoiceRecorder';
 
@@ -106,6 +108,12 @@ export function Composer({
 
   const canSend =
     (text.trim().length > 0 || (files.length > 0 && !editing)) && text.length <= MAX_MESSAGE_LENGTH;
+  const canSchedule =
+    !editing && files.length === 0 && text.trim().length > 0 && text.length <= MAX_MESSAGE_LENGTH;
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   /** With nothing typed or attached, the send button becomes the voice message mic. */
   const showMic = !editing && !canSend && text.trim().length === 0;
 
@@ -246,6 +254,36 @@ export function Composer({
     await engine.send(conversationId, body, { replyTo, mentions, files: attached });
   };
 
+  const openSchedule = () => {
+    setAttachOpen(false);
+    if (files.length) return setFileError('Files can’t be scheduled. Send them now instead.');
+    if (!canSchedule) return setFileError('Write the message first, then choose Send later.');
+    setScheduleError(null);
+    setScheduleOpen(true);
+  };
+
+  const schedule = async (at: Date) => {
+    const body = text;
+    setScheduleBusy(true);
+    setScheduleError(null);
+    try {
+      const m = await engine.scheduleMessage(conversationId, body, at, {
+        mentions: mentionsInText(body, picked),
+        replyTo: mode?.kind === 'reply' ? mode.message.messageId : null,
+      });
+      setScheduleOpen(false);
+      setText('');
+      setPicked([]);
+      onCancelMode();
+      setNotice(`Scheduled for ${formatSendAt(m.sendAt, new Date())}`);
+      setTimeout(() => setNotice(null), 4000);
+    } catch (e) {
+      setScheduleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
+
   const pick = (m: MentionCandidate) => {
     setText((t) => insertMention(t, m.name));
     setPicked((p) => (p.some((x) => x.userId === m.userId) ? p : [...p, m]));
@@ -345,6 +383,23 @@ export function Composer({
           ))}
         </View>
       ) : null}
+      <ScheduleSheet
+        visible={scheduleOpen}
+        busy={scheduleBusy}
+        error={scheduleError}
+        onPick={(at) => void schedule(at)}
+        onClose={() => setScheduleOpen(false)}
+      />
+      {notice ? (
+        <Text
+          variant="meta"
+          tone="accent"
+          style={{ marginLeft: 6 }}
+          accessibilityLiveRegion="polite"
+        >
+          {notice}
+        </Text>
+      ) : null}
       {fileError || voice.error ? (
         <Text variant="meta" tone="danger" style={{ marginLeft: 6 }}>
           {fileError ?? voice.error}
@@ -373,6 +428,18 @@ export function Composer({
           >
             <Ionicons name="document-attach-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Files</Text>
+          </Pressable>
+          <Pressable
+            onPress={openSchedule}
+            accessibilityRole="button"
+            accessibilityHint="Write the message first"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="time-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Send later</Text>
           </Pressable>
           <Pressable
             onPress={() => {
@@ -454,6 +521,7 @@ export function Composer({
             <Animated.View style={sendStyle}>
               <Pressable
                 onPress={send}
+                onLongPress={canSchedule ? openSchedule : undefined}
                 disabled={!canSend}
                 accessibilityRole="button"
                 accessibilityLabel={editing ? 'Save edit' : 'Send message'}

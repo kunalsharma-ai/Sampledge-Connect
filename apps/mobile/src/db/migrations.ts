@@ -192,6 +192,12 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       UPDATE conversations SET cursor = 0;
     `);
   },
+  // v11: announcement channels (only owners and moderators post)
+  async (tx) => {
+    await tx.exec(
+      "ALTER TABLE conversations ADD COLUMN posting_policy TEXT NOT NULL DEFAULT 'everyone';",
+    );
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

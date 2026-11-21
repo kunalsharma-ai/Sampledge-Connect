@@ -24,7 +24,8 @@ import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { Button } from '../../components/Button';
-import { isUnjoinedChannel } from '../../lib/access';
+import { canPostIn, isUnjoinedChannel } from '../../lib/access';
+import { formatSendAt } from '../../lib/schedule';
 import { guestSenderLabel } from '../../lib/guests';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import {
@@ -33,6 +34,8 @@ import {
   useMessages,
   usePeople,
   usePinned,
+  useScheduled,
+  useTenantRole,
   useSavedIds,
 } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
@@ -54,6 +57,10 @@ export default function ConversationScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const pins = usePinned(id);
   const savedIds = useSavedIds();
+  const tenantRole = useTenantRole();
+  const scheduled = useScheduled(id).items?.filter(
+    (m) => m.status === 'scheduled' || m.status === 'failed',
+  );
   const [notifyOpen, setNotifyOpen] = useState(false);
   const calls = useCalls();
   const { engineState } = useApp();
@@ -359,6 +366,28 @@ export default function ConversationScreen() {
               onPress={() => router.push({ pathname: '/pinned/[id]', params: { id, title } })}
             />
           ) : null}
+          {scheduled?.length ? (
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/scheduled', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${scheduled.length} scheduled ${scheduled.length === 1 ? 'message' : 'messages'}. Show`}
+              style={({ pressed }) => [
+                styles.pinned,
+                {
+                  backgroundColor: alpha(theme.colors.accent, pressed ? 0.14 : 0.08),
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Ionicons name="time-outline" size={16} color={theme.colors.accent} />
+              <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                {scheduled.length} scheduled · next {formatSendAt(scheduled[0]!.sendAt, new Date())}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.textSubtle} />
+            </Pressable>
+          ) : null}
           {actionError ? (
             <Pressable
               onPress={() => setActionError(null)}
@@ -452,6 +481,15 @@ export default function ConversationScreen() {
             <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
               This conversation is archived and read-only.
             </Text>
+          </View>
+        ) : conv && !canPostIn(conv, tenantRole) ? (
+          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+            <View style={{ flexDirection: 'row', gap: space.sm, justifyContent: 'center' }}>
+              <Ionicons name="megaphone-outline" size={16} color={theme.colors.textMuted} />
+              <Text variant="meta" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>
+                Announcement channel. Only owners and moderators post here. You can read and react.
+              </Text>
+            </View>
           </View>
         ) : (
           <Composer
