@@ -104,6 +104,7 @@ for (const theme of THEMES) {
         /^Messages/,
         /^Universal Search/,
         /^Files/,
+        /^Analytics/,
         /^Administration/,
         /^Integrations/,
         /^Billing/,
