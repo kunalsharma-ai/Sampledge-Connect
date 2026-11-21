@@ -125,5 +125,4 @@ expiresAt }`), `denied`, `ended`, `cancelled`.
 
 ## Planned
 
-Reading guests' calendar replies (iTIP REPLY) by email, public
-booking pages, the lobby on mobile. Recurring meetings with guests: see `meetings.md`.
+Reading guests' calendar replies (iTIP REPLY) by email, the lobby on mobile. Recurring meetings with guests and public booking pages: see `meetings.md`.

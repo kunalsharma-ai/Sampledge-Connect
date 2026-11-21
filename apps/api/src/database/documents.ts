@@ -483,6 +483,24 @@ export interface AiTranscriptDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+/** A public booking page (`/book/<slug>`); slugs are unique across all tenants. */
+export interface BookingPageDoc extends TenantOwned {
+  slug: string;
+  title: string;
+  description: string;
+  durationMinutes: number;
+  hostIds: string[];
+  mode: 'all' | 'any';
+  bufferMinutes: number;
+  minNoticeMinutes: number;
+  horizonDays: number;
+  media: 'audio' | 'video';
+  enabled: boolean;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -499,6 +517,7 @@ export interface TenantCollections {
   calls: CallDoc;
   meetings: MeetingDoc;
   meeting_series: MeetingSeriesDoc;
+  booking_pages: BookingPageDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;

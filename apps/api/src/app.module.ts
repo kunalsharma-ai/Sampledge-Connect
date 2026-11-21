@@ -58,6 +58,8 @@ import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
+import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
+import { BookingService } from './meetings/booking.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -116,6 +118,8 @@ export class AppModule {
         CallsController,
         MeetingsController,
         GuestsController,
+        BookingPagesController,
+        PublicBookingController,
         IntegrationApiController,
         IntegrationsController,
         WorkController,
@@ -147,6 +151,7 @@ export class AppModule {
         CallsService,
         MeetingsService,
         GuestsService,
+        BookingService,
         MailerService,
         WorkStore,
         ModuleSettingsService,
