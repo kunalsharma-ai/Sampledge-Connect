@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
 import type { TenantRole } from '@sampledge/contracts';
-import type { LocalScheduled } from '../db/work';
+import type { LocalBookingPage, LocalScheduled } from '../db/work';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -371,6 +371,45 @@ export function useWorkList<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, engineState?.networkUp, tick, ...deps]);
   return { items, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * Booking pages you host: the copy on this phone at once (with changes made offline), refreshed
+ * when online, and reloaded when one changes here, on another device or by a co-host.
+ */
+export function useBookingPages(): {
+  items: LocalBookingPage[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<LocalBookingPage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = (fresh = false) => {
+      void engine
+        .listBookingPages({ fresh })
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load(true);
+    const offs = [
+      engine.events.on('booking', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'booking' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
 }
 
 /**

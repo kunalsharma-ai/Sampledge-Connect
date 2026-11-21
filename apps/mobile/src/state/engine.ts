@@ -25,6 +25,9 @@ import {
   type PostingPolicy,
   type ScheduledMessage,
   type Task,
+  type BookingPage,
+  type CreateBookingPageRequest,
+  type UpdateBookingPageRequest,
   type Approval,
   type AdminOverview,
   type AuditPage,
@@ -65,7 +68,9 @@ import {
   type ActionInput,
   type ActionKind,
   type LocalApproval,
+  type LocalBookingPage,
   type LocalBookmark,
+  type LocalKind,
   type LocalScheduled,
   type LocalTask,
   type QueuedAction,
@@ -133,6 +138,8 @@ export class ConnectEngine {
     tenant: { area: TenantArea };
     /** A project changed (for the projects screen when it ships on mobile). */
     project: { projectId: string };
+    /** A booking page you host changed here, on another device or by a co-host. */
+    booking: { bookingPageId: string } | null;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -240,6 +247,7 @@ export class ConnectEngine {
         this.realtime.events.on('directory', () => void this.sync.refreshDirectory()),
         this.realtime.events.on('tenant', (e) => void this.receiveTenant(e.area)),
         this.realtime.events.on('project', (e) => this.events.emit('project', e)),
+        this.realtime.events.on('booking', (e) => void this.receiveBooking(e)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -815,16 +823,59 @@ export class ConnectEngine {
     this.events.emit('work', { kind: 'approval' });
   }
 
+  // ------------------------------------------------ booking pages (cached, queued offline)
+
+  /** Booking pages you host: the copy on this phone, refreshed when online. */
+  async listBookingPages(opts: { fresh?: boolean } = {}): Promise<LocalBookingPage[]> {
+    await this.refreshFrom(async () => {
+      const list = await this.api.listBookingPages();
+      await this.store.work.replace<BookingPage>('booking', list, () => true);
+    }, opts.fresh ?? true);
+    return this.store.work.listBookingPages();
+  }
+
+  async getBookingPage(id: string): Promise<LocalBookingPage> {
+    const p = await this.store.work.getBookingPage(id);
+    if (!p) throw new Error('This booking page is not on this phone.');
+    return p;
+  }
+
+  /** Creates a booking page (you are always a host). Works offline. */
+  async createBookingPage(req: CreateBookingPageRequest): Promise<LocalBookingPage> {
+    const localId = `${LOCAL_PREFIX}${uuidv7()}`;
+    await this.queue({ kind: 'booking.create', localId, request: req });
+    this.events.emit('booking', { bookingPageId: localId });
+    return (await this.store.work.getBookingPage(localId))!;
+  }
+
+  async updateBookingPage(id: string, patch: UpdateBookingPageRequest): Promise<void> {
+    await this.queue({ kind: 'booking.update', bookingPageId: id, patch });
+    this.events.emit('booking', { bookingPageId: id });
+  }
+
+  async deleteBookingPage(id: string): Promise<void> {
+    await this.queue({ kind: 'booking.delete', bookingPageId: id });
+    this.events.emit('booking', { bookingPageId: id });
+  }
+
+  private async receiveBooking(e: { bookingPageId: string; page: BookingPage | null }) {
+    if (e.page && e.page.hostIds.includes(this.store.selfUserId))
+      await this.store.work.upsert('booking', [e.page]);
+    else await this.store.work.removeBooking(e.bookingPageId);
+    this.events.emit('booking', { bookingPageId: e.bookingPageId });
+  }
+
   /** Try again something created here that the server refused. */
-  async retryLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+  async retryLocal(kind: LocalKind, localId: string): Promise<void> {
     await this.store.work.retry(localId, kind);
     void this.outbox.kick();
   }
 
   /** Forget something created here that the server refused. */
-  async discardLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+  async discardLocal(kind: LocalKind, localId: string): Promise<void> {
     await this.store.work.discard(localId, kind);
-    this.events.emit(kind === 'scheduled' ? 'scheduled' : 'work', null as never);
+    if (kind === 'booking') this.events.emit('booking', null);
+    else this.events.emit(kind === 'scheduled' ? 'scheduled' : 'work', null as never);
   }
 
   /** Sends one queued action and applies the server's answer (called by the outbox). */
@@ -929,6 +980,42 @@ export class ConnectEngine {
         await w.upsert('scheduled', [await this.api.sendScheduledNow(await need(i.scheduledId))]);
         void this.runSync();
         break;
+      case 'booking.create': {
+        let page: BookingPage;
+        try {
+          page = await this.api.createBookingPage(i.request);
+        } catch (err) {
+          // The link is the page's identity: if the first try reached the server but its answer
+          // was lost, the retry finds our own page under that link.
+          const slug = i.request.slug.trim().toLowerCase();
+          const own =
+            err instanceof TransportError && err.code === 'CONFLICT'
+              ? (await this.api.listBookingPages()).find(
+                  (p) => p.slug === slug && p.createdBy === this.store.selfUserId,
+                )
+              : undefined;
+          if (!own) throw err;
+          page = own;
+        }
+        await w.settleCreate(a, { kind: 'booking', data: page });
+        this.events.emit('booking', { bookingPageId: page.bookingPageId });
+        return;
+      }
+      case 'booking.update': {
+        const page = await this.api.updateBookingPage(await need(i.bookingPageId), i.patch);
+        if (page.hostIds.includes(this.store.selfUserId)) await w.upsert('booking', [page]);
+        else await w.removeBooking(page.bookingPageId);
+        break;
+      }
+      case 'booking.delete':
+        try {
+          await this.api.deleteBookingPage(await need(i.bookingPageId));
+        } catch (err) {
+          // Already gone (deleted by a co-host): that is what we wanted.
+          if (!(err instanceof TransportError && err.code === 'NOT_FOUND')) throw err;
+        }
+        await w.removeBooking((await w.resolveId(i.bookingPageId)) ?? i.bookingPageId);
+        break;
     }
     await w.complete(a);
     this.afterAction(a);
@@ -962,6 +1049,7 @@ export class ConnectEngine {
     if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
+    if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
   }
 
   /**
@@ -979,10 +1067,12 @@ export class ConnectEngine {
           this.listApprovals({ scope: 'requested', status: 'pending' }),
           this.listScheduled(),
           this.listBookmarks(),
+          this.listBookingPages(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
         this.events.emit('scheduled', null);
+        this.events.emit('booking', null);
       } finally {
         this.workRun = null;
       }

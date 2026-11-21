@@ -13,6 +13,7 @@ import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
 import type { AiProposal, AiSuggestionEvent } from './ai.js';
+import type { BookingPage } from './booking.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -88,6 +89,12 @@ export interface ServerToClientEvents {
    * in anonymous polls, where `message:updated` carries counts without voter ids.
    */
   'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
+  /**
+   * A booking page you host (or hosted until now) was created, changed or deleted, by you on
+   * another device or by a co-host. `page` is null when it was deleted; a page whose hostIds no
+   * longer include you was taken off your list. Lists refetch GET /v1/booking-pages on reconnect.
+   */
+  'booking:changed': (e: { bookingPageId: string; page: BookingPage | null }) => void;
   /** Someone in the organization joined, changed role or status, or edited their profile. */
   'directory:updated': (e: { userId: string }) => void;
   /** An organization-wide setting changed; refetch that area. */

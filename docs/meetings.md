@@ -100,5 +100,7 @@ time with one person or a team. Hosts manage them from Meetings → Booking page
 
 ## Planned next
 
-Booking pages on mobile (the public page already works in a phone browser). Guests from outside the
+Booking pages are on mobile too (Meetings → link icon): create, edit, pause, share and delete,
+offline as well, and every change reaches each host's devices live through `booking:changed`
+`{bookingPageId, page | null}`. The public page itself opens in the phone's browser. Guests from outside the
 organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.
