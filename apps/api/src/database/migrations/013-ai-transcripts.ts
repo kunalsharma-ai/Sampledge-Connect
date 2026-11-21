@@ -6,7 +6,7 @@ import { date, ensureCollection, int, nullable, str, tenantScoped } from './001-
  * speech-to-text server (Integrations › Speech-to-text). One per attachment.
  */
 export const aiTranscriptsMigration: Migration = {
-  id: '012-ai-transcripts',
+  id: '013-ai-transcripts',
   async up(db) {
     await ensureCollection(
       db,

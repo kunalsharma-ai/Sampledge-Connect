@@ -28,10 +28,23 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | 1c     | Booking pages, recurring meetings, lobby and recording on mobile                                                                                                                                                                               | Planned                          |
 | 4      | Private AI assistant: summaries, meeting summaries, action items, semantic search, ask with sources, translation, suggested replies, status digest, task suggestions, duplicate check, notification priority, confirm-before-send drafts (web) | Built (see docs/ai.md)           |
 | 4      | Call recording and voice message transcripts from your own speech-to-text server (Integrations); used in meeting and chat summaries, search and ask                                                                                            | Built (see docs/ai.md)           |
-| 4      | AI on mobile, create-task from suggestions, Samptrek project status, speaker labels in transcripts                                                                                                                                             | Planned                          |
+| 4      | AI on mobile, create-task from suggestions, Samptrek project status (tasks and projects APIs now exist), speaker labels in transcripts                                                                                                         | Planned                          |
 |        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                                                                                                                                                    | Planned                          |
 | Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                                                                                                                                 | Planned (Phase 1b)               |
 
-## Phase 2 to 4
+## Phase 2: Sampledge modules, tasks and approvals
 
-Sampledge SDK and the seven module adapters (Samptrek, SampleAudience, Sampcode, SampBidX, SampForce, SampCrew, Talk2Tax); connector gateway and unified client inbox; billing and white-label: all Planned.
+| Item                                                                                                                                                              | Status                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| API gateway for modules: per-module Connect keys (hashed), HMAC-signed idempotent events, rate limits, audit                                                      | Built (see docs/sampledge-modules.md)                 |
+| Adapters for Samptrek, SampleAudience, Sampcode, SampBidX, SampForce, SampCrew, Talk2Tax: record channels, cards, notifications, tasks, approvals, identity sync  | Built, test mode (real module APIs not yet available) |
+| Module settings in the database (mode, base URL, API key, signing secret, channel visibility, widget origins); admin panel with test events, logs, identity links | Built                                                 |
+| Outbound module actions (task created, approval decided, Log to SampForce, …): live mode calls `{base}/connect/actions`, test mode records only                   | Built                                                 |
+| Signed outbound webhooks with a durable retry queue and delivery log                                                                                              | Built                                                 |
+| Server SDK `@sampledge/connect-sdk` and React chat widget `@sampledge/chat-widget`                                                                                | Built (see docs/sdk.md)                               |
+| Tasks & Approvals screen, Projects screen, chat-to-task and request approval from any message, linked records in Details (web)                                    | Built (see docs/work.md)                              |
+| Automatic retries for failed module actions, conversation-scoped widget tokens, tasks/projects screens on mobile, publishing the SDK packages                     | Planned                                               |
+
+## Phase 3 and later
+
+Connector gateway and unified client inbox (in progress in its own thread); billing and white-label: Planned.

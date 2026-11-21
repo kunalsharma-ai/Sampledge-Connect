@@ -6,7 +6,12 @@ import { ServerIdSchema } from './ids.js';
  * attention. Today: being @mentioned, and replies to your messages. Notifications for
  * conversations the user can no longer read are hidden, never shown.
  */
-export const NOTIFICATION_KINDS = ['mention', 'reply'] as const;
+/**
+ * alert: a Sampledge module event for you (milestone due, quota alert...); task: a task was
+ * assigned to you; approval: you are asked to decide. All three point at the card message.
+ * Clients should treat an unknown kind like 'alert'.
+ */
+export const NOTIFICATION_KINDS = ['mention', 'reply', 'alert', 'task', 'approval'] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
 
