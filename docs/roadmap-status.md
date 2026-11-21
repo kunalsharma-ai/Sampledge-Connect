@@ -24,7 +24,8 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | 1c     | Recordings: voice/video/screen clips in chat, call and meeting recording (LiveKit Egress), library, auto-delete, ZIP backup (web) | Built (see docs/recordings.md)   |
 | 1c     | External guests: email invites with .ics via your SMTP, updates/cancellations, join links, RSVP, lobby with admit/deny (web)      | Built (see docs/guests.md)       |
 | 1c     | Meeting chat inside calls, for members and admitted guests (web)                                                                  | Built (see docs/guests.md)       |
-| 1c     | Booking pages, recurring meetings, lobby and recording on mobile                                                                  | Planned                          |
+| 1c     | Recurring meetings: daily/weekly/monthly, edit or cancel one or the series, recurring guest invites (web)                         | Built (see docs/meetings.md)     |
+| 1c     | Booking pages, lobby and recording on mobile                                                                                      | Planned                          |
 |        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                                       | Planned                          |
 | Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                    | Planned (Phase 1b)               |
 

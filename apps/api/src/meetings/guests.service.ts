@@ -13,11 +13,17 @@ import {
   type GuestJoinState,
   type GuestMeetingView,
   type Meeting,
+  describeRecurrence,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { CallDoc, MeetingDoc, MeetingGuestDoc } from '../database/documents.js';
+import type {
+  CallDoc,
+  MeetingDoc,
+  MeetingGuestDoc,
+  MeetingSeriesDoc,
+} from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { CallsService } from '../calls/calls.service.js';
@@ -25,7 +31,8 @@ import { MailerService } from '../mail/mailer.service.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
-import { buildIcs } from './ics.js';
+import { buildCalendar, buildIcs, type IcsVEvent } from './ics.js';
+import { toRRule } from './recurrence.js';
 import { guestEmail, type GuestEmailKind } from './guest-email.js';
 
 /** What a meeting:upsert broadcast needs (MeetingsService owns the mapping). */
@@ -67,24 +74,29 @@ export class GuestsService {
 
   // ---------- links ----------
 
-  private signature(tenantId: string, meetingId: string, g: MeetingGuestDoc): string {
+  /** A recurring meeting's guests get one link for the whole series. */
+  private linkKey(m: Pick<MeetingDoc, '_id' | 'series'>) {
+    return m.series?.seriesId ?? m._id;
+  }
+
+  private signature(tenantId: string, key: string, g: MeetingGuestDoc): string {
     return createHmac('sha256', this.secret)
-      .update(`${tenantId}|${meetingId}|${g.guestId}|${g.linkNonce}`)
+      .update(`${tenantId}|${key}|${g.guestId}|${g.linkNonce}`)
       .digest('base64url')
       .slice(0, 32);
   }
 
-  token(tenantId: string, meetingId: string, g: MeetingGuestDoc): string {
-    return `${g.guestId}.${this.signature(tenantId, meetingId, g)}`;
+  token(tenantId: string, m: Pick<MeetingDoc, '_id' | 'series'>, g: MeetingGuestDoc): string {
+    return `${g.guestId}.${this.signature(tenantId, this.linkKey(m), g)}`;
   }
 
-  joinUrl(tenantId: string, meetingId: string, g: MeetingGuestDoc): string {
+  joinUrl(tenantId: string, m: Pick<MeetingDoc, '_id' | 'series'>, g: MeetingGuestDoc): string {
     const base = (
       this.cfg.PUBLIC_WEB_URL ??
       this.cfg.corsOrigins[0] ??
       'http://localhost:3000'
     ).replace(/\/+$/, '');
-    return `${base}/join/${this.token(tenantId, meetingId, g)}`;
+    return `${base}/join/${this.token(tenantId, m, g)}`;
   }
 
   /** Finds the meeting and guest a link belongs to. Any mismatch is a plain 404. */
@@ -92,15 +104,39 @@ export class GuestsService {
     const m = /^([0-9a-f]{24})\.([A-Za-z0-9_-]{32})$/.exec(token ?? '');
     if (!m) throw notFound('Invitation');
     const [, guestId, sig] = m as unknown as [string, string, string];
-    const meeting = await this.rawDb
-      .collection<MeetingDoc>('meetings')
-      .findOne({ 'guests.guestId': guestId });
+    const col = this.rawDb.collection<MeetingDoc>('meetings');
+    let meeting = await col.findOne({ 'guests.guestId': guestId });
+    if (meeting?.series) meeting = await this.currentOccurrence(meeting, guestId);
     const guest = meeting?.guests?.find((g) => g.guestId === guestId);
     if (!meeting || !guest) throw notFound('Invitation');
-    const want = Buffer.from(this.signature(meeting.tenantId, meeting._id, guest));
+    const want = Buffer.from(this.signature(meeting.tenantId, this.linkKey(meeting), guest));
     const got = Buffer.from(sig);
     if (want.length !== got.length || !timingSafeEqual(want, got)) throw notFound('Invitation');
     return { meeting, guest };
+  }
+
+  /**
+   * The occurrence a series link points at now: the first scheduled one the guest can still
+   * join (or that is still ahead), else the last one, so the page can say it has ended.
+   */
+  private async currentOccurrence(any: MeetingDoc, guestId: string): Promise<MeetingDoc | null> {
+    const col = this.rawDb.collection<MeetingDoc>('meetings');
+    const base = {
+      tenantId: any.tenantId,
+      'series.seriesId': any.series!.seriesId,
+      'guests.guestId': guestId,
+    };
+    const lateMs = GUEST_LATE_JOIN_MINUTES * 60_000;
+    return (
+      (await col.findOne(
+        { ...base, status: 'scheduled', endsAt: { $gt: new Date(Date.now() - lateMs) } },
+        { sort: { startsAt: 1 } },
+      )) ?? (await col.findOne(base, { sort: { startsAt: -1 } }))
+    );
+  }
+
+  private loadSeries(tenantId: string, seriesId: string) {
+    return this.db.for(tenantId).meeting_series.findOne({ _id: seriesId });
   }
 
   // ---------- organizer side ----------
@@ -156,7 +192,7 @@ export class GuestsService {
       throw forbidden('Only the organizer can share guest links');
     const g = meeting.guests?.find((x) => x.guestId === guestId);
     if (!g) throw notFound('Guest');
-    return { url: this.joinUrl(ctx.tenantId, meeting._id, g) };
+    return { url: this.joinUrl(ctx.tenantId, meeting, g) };
   }
 
   /**
@@ -169,17 +205,26 @@ export class GuestsService {
     guests: MeetingGuestDoc[],
     kind: GuestEmailKind,
     onUpdated?: () => void,
+    scope: 'occurrence' | 'series' = 'series',
   ) {
     if (!guests.length) return;
-    const col = this.db.for(tenantId).meetings;
+    const t = this.db.for(tenantId);
+    const seriesId = meeting.series?.seriesId;
     const mark = async (guestId: string, invite: MeetingGuestDoc['invite']) => {
       if (kind === 'cancelled-for-you') return; // that guest record is gone
-      await col
-        .updateOne(
-          { _id: meeting._id, 'guests.guestId': guestId },
-          { $set: { 'guests.$.invite': invite } },
-        )
-        .catch(() => undefined);
+      const set = { $set: { 'guests.$.invite': invite } };
+      // A series invite's status shows on every meeting of the series.
+      await (
+        seriesId && scope === 'series'
+          ? Promise.all([
+              t.meetings.updateMany(
+                { 'series.seriesId': seriesId, 'guests.guestId': guestId },
+                set,
+              ),
+              t.meeting_series.updateOne({ _id: seriesId, 'guests.guestId': guestId }, set),
+            ])
+          : t.meetings.updateOne({ _id: meeting._id, 'guests.guestId': guestId }, set)
+      ).catch(() => undefined);
     };
     if (!this.mailer.enabled) {
       const job = (async () => {
@@ -195,7 +240,7 @@ export class GuestsService {
       for (const g of guests) {
         await mark(g.guestId, { status: 'sending', at: new Date(), error: null });
         try {
-          await this.sendOne(tenantId, meeting, g, kind, organizer);
+          await this.sendOne(tenantId, meeting, g, kind, organizer, scope);
           await mark(g.guestId, { status: 'sent', at: new Date(), error: null });
         } catch (e) {
           await mark(g.guestId, {
@@ -241,22 +286,14 @@ export class GuestsService {
     g: MeetingGuestDoc,
     kind: GuestEmailKind,
     organizer: { name: string; email: string; organization: string },
+    scope: 'occurrence' | 'series',
   ) {
-    const url = this.joinUrl(tenantId, meeting._id, g);
+    const url = this.joinUrl(tenantId, meeting, g);
     const cancel = kind === 'cancelled' || kind === 'cancelled-for-you';
-    const ics = buildIcs({
-      method: cancel ? 'CANCEL' : 'REQUEST',
-      uid: `${meeting._id}@sampledge-connect`,
-      sequence: meeting.sequence ?? 0,
-      startsAt: meeting.startsAt,
-      endsAt: meeting.endsAt,
-      stamp: new Date(),
-      title: meeting.title,
-      description: [meeting.agenda, `Join: ${url}`].filter(Boolean).join('\n\n'),
-      url,
-      organizer: { name: organizer.name, email: organizer.email },
-      attendee: { name: g.name, email: g.email },
-      alarmMinutes: meeting.remindMinutes[meeting.remindMinutes.length - 1] ?? null,
+    const series = meeting.series ? await this.loadSeries(tenantId, meeting.series.seriesId) : null;
+    const ics = await this.calendar(meeting, series, g, url, organizer, {
+      cancel,
+      occurrenceOnly: !!series && scope === 'occurrence',
     });
     const body = guestEmail(kind, {
       title: meeting.title,
@@ -268,6 +305,8 @@ export class GuestsService {
       organizationName: organizer.organization,
       guestName: g.name,
       url,
+      recurrence: series ? this.summary(series) : null,
+      occurrenceOnly: !!series && scope === 'occurrence',
     });
     await this.mailer.send({
       to: { name: g.name, email: g.email },
@@ -275,6 +314,98 @@ export class GuestsService {
       text: body.text,
       html: body.html,
       calendar: { method: cancel ? 'CANCEL' : 'REQUEST', content: ics },
+    });
+  }
+
+  private summary(s: MeetingSeriesDoc) {
+    return describeRecurrence(s.recurrence, s.anchorStartsAt.toISOString(), s.timeZone);
+  }
+
+  /**
+   * The calendar invite for one guest. A plain meeting is one event in UTC. A series is a
+   * master event with RRULE (local time + VTIMEZONE), EXDATEs for cancelled meetings and an
+   * override for each meeting changed on its own. `occurrenceOnly` sends just one meeting's
+   * change (RECURRENCE-ID), which calendars apply to that day only.
+   */
+  private async calendar(
+    m: MeetingDoc,
+    series: MeetingSeriesDoc | null,
+    g: MeetingGuestDoc,
+    url: string,
+    organizer: { name: string; email: string },
+    opts: { cancel: boolean; occurrenceOnly: boolean },
+  ): Promise<string> {
+    const common = {
+      stamp: new Date(),
+      url,
+      organizer: { name: organizer.name, email: organizer.email },
+      attendee: { name: g.name, email: g.email },
+    };
+    const event = (x: MeetingDoc | MeetingSeriesDoc, startsAt: Date, endsAt: Date) => ({
+      ...common,
+      startsAt,
+      endsAt,
+      title: x.title,
+      description: [x.agenda, `Join: ${url}`].filter(Boolean).join('\n\n'),
+      alarmMinutes: x.remindMinutes[x.remindMinutes.length - 1] ?? null,
+    });
+    if (!series || !m.series)
+      return buildIcs({
+        ...event(m, m.startsAt, m.endsAt),
+        method: opts.cancel ? 'CANCEL' : 'REQUEST',
+        uid: `${m._id}@sampledge-connect`,
+        sequence: m.sequence ?? 0,
+      });
+
+    const uid = `${series._id}@sampledge-connect`;
+    const anchor = series.anchorStartsAt;
+    const tz = { timeZone: series.timeZone, tzFrom: anchor };
+    if (opts.occurrenceOnly)
+      return buildCalendar({
+        ...tz,
+        method: opts.cancel ? 'CANCEL' : 'REQUEST',
+        events: [
+          {
+            ...event(m, m.startsAt, m.endsAt),
+            uid,
+            sequence: Math.max(series.sequence, m.sequence ?? 0),
+            recurrenceId: m.series.originalStartsAt,
+            cancelled: opts.cancel,
+          },
+        ],
+      });
+
+    const occ = await this.db
+      .for(m.tenantId)
+      .meetings.find(
+        { 'series.seriesId': series._id, 'series.originalStartsAt': { $gte: anchor } },
+        { sort: { startsAt: 1 } },
+      )
+      .toArray();
+    const master: IcsVEvent = {
+      ...event(series, anchor, new Date(anchor.getTime() + series.durationMinutes * 60_000)),
+      uid,
+      sequence: series.sequence,
+      rrule: toRRule(series.recurrence, { startsAt: anchor, timeZone: series.timeZone }),
+      exdates: opts.cancel
+        ? []
+        : occ.filter((o) => o.status === 'cancelled').map((o) => o.series!.originalStartsAt),
+    };
+    const overrides: IcsVEvent[] = opts.cancel
+      ? []
+      : occ
+          .filter((o) => o.status === 'scheduled' && o.series?.detached)
+          .map((o) => ({
+            ...event(o, o.startsAt, o.endsAt),
+            uid,
+            sequence: Math.max(series.sequence, o.sequence ?? 0),
+            recurrenceId: o.series!.originalStartsAt,
+          }));
+    return buildCalendar({
+      ...tz,
+      tzTo: occ.at(-1)?.endsAt,
+      method: opts.cancel ? 'CANCEL' : 'REQUEST',
+      events: [master, ...overrides],
     });
   }
 
@@ -291,6 +422,7 @@ export class GuestsService {
     const { meeting: m, guest: g } = await this.resolve(token);
     const organizer = await this.organizer(m.tenantId, m);
     const w = this.window(m);
+    const series = m.series ? await this.loadSeries(m.tenantId, m.series.seriesId) : null;
     return {
       meetingId: m._id,
       title: m.title,
@@ -299,7 +431,8 @@ export class GuestsService {
       endsAt: m.endsAt.toISOString(),
       timeZone: m.timeZone,
       media: m.media,
-      status: m.status,
+      status: series?.status === 'cancelled' ? 'cancelled' : m.status,
+      recurrence: series ? this.summary(series) : null,
       organizerName: organizer.name,
       organizationName: organizer.organization,
       guest: { guestId: g.guestId, name: g.name, email: g.email, response: g.response },
@@ -312,13 +445,29 @@ export class GuestsService {
     const { response } = parse(GuestRsvpRequestSchema, input);
     const { meeting: m, guest: g } = await this.resolve(token);
     if (m.status === 'cancelled') throw new AppError('CONFLICT', 'This meeting was cancelled');
-    const updated = await this.db
-      .for(m.tenantId)
-      .meetings.findOneAndUpdate(
-        { _id: m._id, 'guests.guestId': g.guestId },
-        { $set: { 'guests.$.response': response, updatedAt: new Date() } },
-        { returnDocument: 'after' },
+    const t = this.db.for(m.tenantId);
+    const set = { $set: { 'guests.$.response': response, updatedAt: new Date() } };
+    if (m.series) {
+      // A guest answers for the whole series (their calendar holds one recurring event).
+      const filter = {
+        'series.seriesId': m.series.seriesId,
+        'guests.guestId': g.guestId,
+        endsAt: { $gt: new Date() },
+      };
+      await t.meetings.updateMany(filter, set);
+      await t.meeting_series.updateOne(
+        { _id: m.series.seriesId, 'guests.guestId': g.guestId },
+        { $set: { 'guests.$.response': response } },
       );
+      const changed = await t.meetings.find(filter, { sort: { startsAt: 1 }, limit: 20 }).toArray();
+      for (const x of changed) this.broadcastMeeting(m.tenantId, x, toMeeting);
+      return this.view(token);
+    }
+    const updated = await t.meetings.findOneAndUpdate(
+      { _id: m._id, 'guests.guestId': g.guestId },
+      set,
+      { returnDocument: 'after' },
+    );
     if (updated) this.broadcastMeeting(m.tenantId, updated, toMeeting);
     return this.view(token);
   }
@@ -327,20 +476,11 @@ export class GuestsService {
   async ics(token: string): Promise<{ fileName: string; content: string }> {
     const { meeting: m, guest: g } = await this.resolve(token);
     const organizer = await this.organizer(m.tenantId, m);
-    const url = this.joinUrl(m.tenantId, m._id, g);
-    const content = buildIcs({
-      method: m.status === 'cancelled' ? 'CANCEL' : 'REQUEST',
-      uid: `${m._id}@sampledge-connect`,
-      sequence: m.sequence ?? 0,
-      startsAt: m.startsAt,
-      endsAt: m.endsAt,
-      stamp: new Date(),
-      title: m.title,
-      description: [m.agenda, `Join: ${url}`].filter(Boolean).join('\n\n'),
-      url,
-      organizer: { name: organizer.name, email: organizer.email },
-      attendee: { name: g.name, email: g.email },
-      alarmMinutes: m.remindMinutes[m.remindMinutes.length - 1] ?? null,
+    const url = this.joinUrl(m.tenantId, m, g);
+    const series = m.series ? await this.loadSeries(m.tenantId, m.series.seriesId) : null;
+    const content = await this.calendar(m, series, g, url, organizer, {
+      cancel: (series?.status ?? m.status) === 'cancelled',
+      occurrenceOnly: false,
     });
     const safe =
       m.title

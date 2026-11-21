@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { GuestInputSchema, MAX_MEETING_GUESTS, MeetingGuestSchema } from './guests.js';
 import { ServerIdSchema } from './ids.js';
+import { MeetingSeriesInfoSchema, RecurrenceSchema, SeriesScopeSchema } from './recurrence.js';
 
 /**
  * Scheduled meetings. Every meeting lives in a conversation (its "meeting chat"): either one
@@ -38,6 +39,8 @@ export const MeetingSchema = z.object({
   status: z.enum(MEETING_STATUSES),
   /** External guests invited by email (see guests.ts). */
   guests: z.array(MeetingGuestSchema).optional(),
+  /** Set on every occurrence of a recurring meeting (see recurrence.ts). */
+  series: MeetingSeriesInfoSchema.nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -86,6 +89,8 @@ export const CreateMeetingRequestSchema = z
     conversationId: ServerIdSchema.optional(),
     /** People outside the organization, invited by email with a calendar invite and a join link. */
     guests: z.array(GuestInputSchema).max(MAX_MEETING_GUESTS).default([]),
+    /** Repeat the meeting. `startsAt`/`endsAt` are the first meeting's. */
+    recurrence: RecurrenceSchema.optional(),
   })
   .refine(validRange, {
     message: 'endsAt must be after startsAt (max 12 hours)',
@@ -93,9 +98,18 @@ export const CreateMeetingRequestSchema = z
   });
 export type CreateMeetingRequest = z.input<typeof CreateMeetingRequestSchema>;
 
-/** PATCH /v1/meetings/:id (organizer). Changing the time resets everyone's RSVP to pending. */
+/**
+ * PATCH /v1/meetings/:id (organizer). Changing the time resets everyone's RSVP to pending.
+ *
+ * For a recurring meeting, `scope: 'occurrence'` (default) changes just this meeting;
+ * `'series'` changes every meeting that hasn't started yet. Guests, and the rule itself
+ * (`recurrence`), can only change for the whole series. A series time change moves every
+ * upcoming meeting by the same amount on the clock (and the same number of days).
+ */
 export const UpdateMeetingRequestSchema = z
   .object({
+    scope: SeriesScopeSchema,
+    recurrence: RecurrenceSchema.optional(),
     title: MeetingFields.title.optional(),
     agenda: z.string().trim().max(4000).optional(),
     startsAt: MeetingFields.startsAt.optional(),
@@ -116,7 +130,14 @@ export type UpdateMeetingRequest = z.input<typeof UpdateMeetingRequestSchema>;
 
 export const RsvpRequestSchema = z.object({
   response: z.enum(['accepted', 'tentative', 'declined']),
+  /** For a recurring meeting: answer for this meeting only, or for every upcoming one. */
+  scope: SeriesScopeSchema,
 });
+
+/** POST /v1/meetings/:id/cancel (organizer). Body optional. */
+export const CancelMeetingRequestSchema = z
+  .object({ scope: SeriesScopeSchema })
+  .default({ scope: 'occurrence' });
 
 /** GET /v1/meetings?from=&to= (my meetings overlapping the range; max 62 days). */
 export const ListMeetingsQuerySchema = z
@@ -209,5 +230,8 @@ export const MeetingSystemMetadataSchema = z.object({
   endsAt: z.string().datetime(),
   organizerId: ServerIdSchema,
   status: z.enum(['scheduled', 'updated', 'cancelled']),
+  /** Recurring meetings: the series and its summary ("Weekly on Tuesday"). */
+  seriesId: ServerIdSchema.optional(),
+  recurrence: z.string().optional(),
 });
 export type MeetingSystemMetadata = z.infer<typeof MeetingSystemMetadataSchema>;

@@ -99,6 +99,8 @@ export const GuestMeetingViewSchema = z.object({
   timeZone: z.string(),
   media: z.enum(['audio', 'video']),
   status: z.enum(['scheduled', 'cancelled']),
+  /** Recurring meetings: "Weekly on Tuesday". The times above are the next meeting's. */
+  recurrence: z.string().nullable().optional(),
   organizerName: z.string(),
   organizationName: z.string(),
   guest: z.object({
