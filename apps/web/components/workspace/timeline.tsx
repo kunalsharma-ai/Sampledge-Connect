@@ -19,6 +19,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
 import { ForwardedCard } from './forward';
+import { useChatTheme, useChatThemeStyle } from '@/lib/chat-theme';
 import {
   MessageActions,
   MessageText,
@@ -93,6 +94,8 @@ export function Timeline({
   onOpenForwarded?: (s: ForwardedSnapshot) => void;
 }) {
   const reduce = useReducedMotion();
+  const { effective: chatThemeId } = useChatTheme();
+  const chatStyle = useChatThemeStyle(chatThemeId);
   const [translations, setTranslations] = React.useState<
     Map<string, { state: 'loading' | 'done' | 'error'; text?: string; label?: string }>
   >(new Map());
@@ -186,6 +189,8 @@ export function Timeline({
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       }}
       className="flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+      style={chatStyle}
+      data-chat-theme={chatThemeId}
       role="log"
       aria-live="polite"
       aria-label="Messages"

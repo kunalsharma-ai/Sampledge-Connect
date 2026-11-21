@@ -20,6 +20,7 @@ import { aiSuggestionDismissalsMigration } from './014-ai-suggestion-dismissals.
 import { searchMigration } from './040-search.js';
 import { analyticsMigration } from './041-analytics.js';
 import { minutesMigration } from './050-minutes.js';
+import { callBackgroundsMigration } from './042-call-backgrounds.js';
 
 export interface Migration {
   id: string;
@@ -49,6 +50,7 @@ export const MIGRATIONS: Migration[] = [
   searchMigration,
   analyticsMigration,
   minutesMigration,
+  callBackgroundsMigration,
 ];
 
 /**

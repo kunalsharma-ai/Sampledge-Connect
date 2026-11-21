@@ -47,6 +47,8 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Booking page create / change / delete           | `meetings:changed` `booking_pages` (every host)             | Needs a connection                     |
 | Book a slot (public page)                       | `meeting:upsert` to the hosts                               | Needs a connection by nature           |
 | Call recording added, any recording deleted     | `recording:changed` (conversation members)                  | Delete needs a connection              |
+| Call background (mine), own image               | `meetings:changed` `call_background` (my devices)           | Choice queued, sent on reconnect       |
+| Call background rules (default, require logo)   | `tenant:updated` `calls`                                    | Needs a connection                     |
 | Live captions on/off, caption lines             | LiveKit attribute `captions` and data topic `captions`      | Live only (not stored)                 |
 | Calls                                           | `call:ringing`, `call:updated`, `call:ended`                | Needs a connection by nature           |
 | Invite / change member, edit profile            | `directory:updated`                                         | Needs a connection (admin)             |
@@ -63,6 +65,8 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Analytics                                       | Computed on request, refreshed each minute and on reconnect | Last result cached on the device       |
 | Minutes of meeting (edit, share, delete)        | `minutes:changed`                                           | Edits queued                           |
 | Transcript corrections and translations         | `transcript:changed`                                        | Corrections queued                     |
+| Chat theme (your choice)                        | `chat-theme:changed` to your other devices                  | Queued; shows at once on this device   |
+| Chat theme rules (owners and admins)            | `tenant:updated` area `chat_themes`                         | Needs a connection                     |
 | Typing, presence                                | `typing:update`, `presence:update`                          | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.

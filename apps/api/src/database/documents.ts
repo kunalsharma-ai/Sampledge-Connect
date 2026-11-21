@@ -30,6 +30,8 @@ export interface TenantDoc {
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
   /** White-label settings (see BrandingInputSchema); older tenants may have none. */
   branding: Record<string, unknown> | null;
+  /** Chat theme default and allowed list (see ChatThemePolicySchema); absent = all allowed. */
+  chatThemePolicy?: { defaultThemeId: string; allowed: string[] | null } | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
@@ -64,6 +66,8 @@ export interface UserDoc extends TenantOwned {
     start: string;
     end: string;
   } | null;
+  /** Chosen chat theme (PUT /v1/me/chat-theme); absent = organization default. */
+  chatTheme?: string | null;
   /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
   mfa?: UserMfaDoc | null;
 }
@@ -332,6 +336,8 @@ export interface TenantSettingsDoc extends TenantOwned {
   aiEnabled?: boolean;
   /** Minutes and chat export (Administration › Minutes and export). Absent: defaults. */
   minutes?: MinutesSettings;
+  /** Call backgrounds: organization default and whether the logo background is required. */
+  callBackgrounds?: { defaultChoice: { kind: string; presetId?: string }; enforceLogo: boolean };
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -439,6 +445,24 @@ export interface SearchHistoryDoc extends TenantOwned {
 
 /** A profile photo. `_id` is a random key, so its public URL can't be guessed. */
 export interface UserAvatarDoc extends TenantOwned {
+  userId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
+/** A person's call background choice, synced to all of their devices. */
+export interface CallBackgroundPrefDoc extends TenantOwned {
+  userId: string;
+  choice: { kind: string; presetId?: string } | null;
+  /** Key of their own image in `call_background_images`, if they uploaded one. */
+  imageKey?: string | null;
+  updatedAt: Date;
+}
+
+/** A personal call background image. `_id` is a random key, so its public URL can't be guessed. */
+export interface CallBackgroundImageDoc extends TenantOwned {
   userId: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   data: Buffer;
@@ -658,6 +682,8 @@ export interface TenantCollections {
   bookmarks: BookmarkDoc;
   search_history: SearchHistoryDoc;
   user_avatars: UserAvatarDoc;
+  call_background_prefs: CallBackgroundPrefDoc;
+  call_background_images: CallBackgroundImageDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;

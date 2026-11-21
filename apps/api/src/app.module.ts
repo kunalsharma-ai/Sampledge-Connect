@@ -57,6 +57,7 @@ import { SearchController } from './search/search.controller.js';
 import { SearchService } from './search/search.service.js';
 import { FilesController, FilesService } from './files/files.controller.js';
 import { AnalyticsController, AnalyticsService } from './analytics/analytics.controller.js';
+import { ChatThemesController, ChatThemesService } from './chat-themes/chat-themes.controller.js';
 import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
@@ -67,6 +68,8 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
 import { BookingService } from './meetings/booking.service.js';
 import { CaptionsService } from './calls/captions.service.js';
+import { CallBackgroundsController } from './calls/call-backgrounds.controller.js';
+import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -134,9 +137,11 @@ export class AppModule {
         SearchController,
         FilesController,
         AnalyticsController,
+        ChatThemesController,
         StatusController,
         ScheduledMessagesController,
         CallsController,
+        CallBackgroundsController,
         MeetingsController,
         GuestsController,
         BookingPagesController,
@@ -171,12 +176,14 @@ export class AppModule {
         SearchService,
         FilesService,
         AnalyticsService,
+        ChatThemesService,
         ScheduledMessagesService,
         CallsService,
         MeetingsService,
         GuestsService,
         BookingService,
         CaptionsService,
+        CallBackgroundsService,
         MailerService,
         WorkStore,
         ModuleSettingsService,

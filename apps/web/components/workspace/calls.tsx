@@ -41,6 +41,7 @@ import { CallDeviceSettings } from './call-devices';
 import { CaptionsButton, CaptionsOverlay } from './call-captions';
 import { useLiveCaptions } from '@/lib/captions';
 import { MinutesButton } from './minutes';
+import { useMemberCallBackground } from '@/lib/call-backgrounds';
 
 const iconBtn =
   'rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40';
@@ -461,6 +462,7 @@ export function CallStage({
   }, [chatOpen, chatCount]);
   const chatUnread = Math.max(0, chatCount - chatSeen);
   const elapsed = useElapsed(cur?.call.startedAt ?? new Date().toISOString());
+  const backgrounds = useMemberCallBackground();
   const captions = useLiveCaptions(cur?.room ?? null, {
     enabled: !!calls.config?.captionsEnabled,
     myName: nameOf(me, directory),
@@ -726,7 +728,7 @@ export function CallStage({
           </ControlButton>
         ) : null}
         {calls.config?.captionsEnabled ? <CaptionsButton state={captions} /> : null}
-        <CallDeviceSettings room={cur.room} />
+        <CallDeviceSettings room={cur.room} backgrounds={backgrounds} />
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>

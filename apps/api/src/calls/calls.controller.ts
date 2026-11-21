@@ -14,7 +14,8 @@ import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { AppError } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { CallsService } from './calls.service.js';
-import { CaptionsService } from './captions.service.js';
+import { CAPTION_CLIP_MAX_BYTES, CaptionsService } from './captions.service.js';
+import { readRawBody } from '../common/raw-body.js';
 
 @Controller('v1')
 export class CallsController {
@@ -27,8 +28,9 @@ export class CallsController {
   @Post('calls/:callId/captions')
   @UseGuards(AuthGuard)
   @HttpCode(200)
-  caption(@Ctx() ctx: TenantContext, @Param('callId') callId: string, @Req() req: Request) {
-    return this.captions.member(ctx, callId, req.body, req.headers['content-type']);
+  async caption(@Ctx() ctx: TenantContext, @Param('callId') callId: string, @Req() req: Request) {
+    const audio = await readRawBody(req, CAPTION_CLIP_MAX_BYTES);
+    return this.captions.member(ctx, callId, audio, req.headers['content-type']);
   }
 
   /** Whether calls are available on this deployment. Clients hide call buttons when disabled. */
