@@ -5,6 +5,7 @@ import {
   type AuditQuery,
   type InviteMemberRequest,
   type UserSummary,
+  type UpdateProfileRequest,
   type BrandingInput,
   type BrandingView,
   type AiAskRequest,
@@ -146,6 +147,11 @@ export interface ApiTransport {
   /** Short-lived signed download URL, absolute. */
   attachmentUrl(attachmentId: string): Promise<AttachmentUrl>;
   listUsers(): Promise<DirectoryUser[]>;
+  /** Your own profile fields (PATCH /v1/me/profile); "" or null clears one. */
+  updateProfile(req: UpdateProfileRequest): Promise<DirectoryUser>;
+  /** A cropped, compressed square photo as a data URL (PUT /v1/me/avatar). */
+  setAvatar(image: string): Promise<DirectoryUser>;
+  removeAvatar(): Promise<DirectoryUser>;
   listNotifications(q?: ListNotificationsQuery): Promise<ListNotificationsResponse>;
   markNotificationsRead(req: MarkNotificationsReadRequest): Promise<MarkNotificationsReadResponse>;
   setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<Conversation>;
@@ -289,6 +295,13 @@ export interface DirectoryUser {
   title: string | null;
   status: string;
   presence?: string;
+  /** Profile photo as a full URL (resolved against the server address), or null for initials. */
+  avatarUrl?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  /** IANA time zone, e.g. "Asia/Kolkata". */
+  timeZone?: string | null;
 }
 
 export interface HttpTransportOptions {
@@ -395,7 +408,34 @@ export class HttpTransport implements ApiTransport {
 
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
   listUsers(): Promise<DirectoryUser[]> {
-    return this.request('GET', '/v1/users', undefined);
+    return this.request<DirectoryUser[]>('GET', '/v1/users', undefined).then((l) =>
+      l.map((u) => this.withAvatar(u)),
+    );
+  }
+
+  /** Photo paths come relative to the server; images need the full address. */
+  private withAvatar<T extends { avatarUrl?: string | null }>(u: T): T {
+    return u.avatarUrl
+      ? { ...u, avatarUrl: new URL(u.avatarUrl, this.opts.baseUrl).toString() }
+      : u;
+  }
+
+  updateProfile(req: UpdateProfileRequest): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('PATCH', '/v1/me/profile', req).then((u) =>
+      this.withAvatar(u),
+    );
+  }
+
+  setAvatar(image: string): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('PUT', '/v1/me/avatar', { image }).then((u) =>
+      this.withAvatar(u),
+    );
+  }
+
+  removeAvatar(): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('DELETE', '/v1/me/avatar', undefined).then((u) =>
+      this.withAvatar(u),
+    );
   }
 
   /** Mentions and replies addressed to you, newest first. */
@@ -951,6 +991,9 @@ export class NoServerTransport implements ApiTransport {
   uploadFile = async (): Promise<Attachment> => this.fail();
   attachmentUrl = async (): Promise<AttachmentUrl> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
+  updateProfile = async (): Promise<DirectoryUser> => this.fail();
+  setAvatar = async (): Promise<DirectoryUser> => this.fail();
+  removeAvatar = async (): Promise<DirectoryUser> => this.fail();
   listNotifications = async (): Promise<ListNotificationsResponse> => this.fail();
   markNotificationsRead = async (): Promise<MarkNotificationsReadResponse> => this.fail();
   setNotifyLevel = async (): Promise<Conversation> => this.fail();

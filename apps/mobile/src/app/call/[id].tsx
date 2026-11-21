@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CallVideo } from '../../calls/CallVideo';
 import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
-import { Avatar } from '../../components/Avatar';
+import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Text } from '../../components/Text';
 import type { LocalConversation } from '../../db/store';
 import { guestLabel } from '../../lib/guests';
@@ -224,7 +224,8 @@ export default function CallScreen() {
               <CallVideo video={t.video} mirror={t.isLocal} />
             ) : (
               <View style={styles.center}>
-                <Avatar
+                <PersonAvatar
+                  userId={t.isLocal ? selfId : t.userId}
                   name={t.isLocal ? nameOf(selfId, { asWritten: true }) : who(t.userId)}
                   size={cols === 1 ? 96 : 64}
                 />

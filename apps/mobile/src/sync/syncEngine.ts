@@ -1,5 +1,5 @@
 import type { LocalStore } from '../db/store';
-import type { ApiTransport } from './transport';
+import type { ApiTransport, DirectoryUser } from './transport';
 
 export interface SyncResult {
   rounds: number;
@@ -19,7 +19,12 @@ export class SyncEngine {
   constructor(
     private readonly store: LocalStore,
     private readonly api: ApiTransport,
-    private readonly opts: { limitPerConversation?: number; maxRounds?: number } = {},
+    private readonly opts: {
+      limitPerConversation?: number;
+      maxRounds?: number;
+      /** Lays changes made on this device over the server's directory (your own profile). */
+      overlay?: (users: DirectoryUser[]) => Promise<DirectoryUser[]>;
+    } = {},
   ) {}
 
   /** Single-flight: concurrent callers share one run. */
@@ -66,29 +71,69 @@ export class SyncEngine {
     return { rounds, changesApplied, evicted };
   }
 
-  /** Caches display names for the UI. Best effort: guests have no directory access. */
+  /**
+   * Caches the directory for the UI: names, the people picker and profile photos. Best effort:
+   * guests have no directory access. The server's copy is kept as is, and what the screens read
+   * is derived from it with your own unsent profile changes laid over (see `overlay`).
+   */
   async refreshDirectory(): Promise<void> {
     try {
       const users = await this.api.listUsers();
-      const people = Object.fromEntries(users.map((u) => [u.userId, u.displayName]));
-      await this.store.setSetting('people', JSON.stringify(people));
-      // Kept for the people picker (new conversations, adding members), so it works offline.
-      await this.store.setSetting(
-        'directory',
-        JSON.stringify(
-          users
-            .filter((u) => u.status === 'active')
-            .map(({ userId, displayName, email, role, title }) => ({
+      await this.store.setSetting('directory.server', JSON.stringify(users));
+      await this.deriveDirectory(users);
+    } catch {
+      // keep whatever names we had
+    }
+  }
+
+  /** Re-applies your queued profile changes to the cached directory (after an edit or a send). */
+  async rederiveDirectory(): Promise<void> {
+    const raw = await this.store.getSetting('directory.server');
+    if (raw) await this.deriveDirectory(JSON.parse(raw) as DirectoryUser[]);
+  }
+
+  private async deriveDirectory(server: DirectoryUser[]): Promise<void> {
+    const users = this.opts.overlay ? await this.opts.overlay(server) : server;
+    const people = Object.fromEntries(users.map((u) => [u.userId, u.displayName]));
+    await this.store.setSetting('people', JSON.stringify(people));
+    await this.store.setSetting(
+      'avatars',
+      JSON.stringify(
+        Object.fromEntries(users.filter((u) => u.avatarUrl).map((u) => [u.userId, u.avatarUrl])),
+      ),
+    );
+    // Kept for the people picker and profile cards, so they work offline.
+    await this.store.setSetting(
+      'directory',
+      JSON.stringify(
+        users
+          .filter((u) => u.status === 'active')
+          .map(
+            ({
               userId,
               displayName,
               email,
               role,
               title,
-            })),
-        ),
-      );
-    } catch {
-      // keep whatever names we had
-    }
+              avatarUrl,
+              department,
+              phone,
+              bio,
+              timeZone,
+            }) => ({
+              userId,
+              displayName,
+              email,
+              role,
+              title,
+              avatarUrl: avatarUrl ?? null,
+              department: department ?? null,
+              phone: phone ?? null,
+              bio: bio ?? null,
+              timeZone: timeZone ?? null,
+            }),
+          ),
+      ),
+    );
   }
 }

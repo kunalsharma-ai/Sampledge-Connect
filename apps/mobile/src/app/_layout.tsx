@@ -69,6 +69,8 @@ function RootStack() {
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="settings/profile" options={{ title: 'Profile' }} />
+          <Stack.Screen name="person/[id]" options={{ title: '' }} />
           <Stack.Screen
             name="new-conversation"
             options={{ title: 'New conversation', presentation: 'modal' }}

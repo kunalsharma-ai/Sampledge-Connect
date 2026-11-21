@@ -5,7 +5,7 @@ import type { LocalConversation } from '../db/store';
 import { conversationTitle } from '../state/hooks';
 import { space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
-import { Avatar } from './Avatar';
+import { Avatar, PersonAvatar } from './Avatar';
 import { Text } from './Text';
 import { UnreadBadge } from './UnreadBadge';
 
@@ -45,7 +45,11 @@ export function ConversationRow({
       accessibilityRole="button"
       accessibilityLabel={`${title}${c.unread ? `, ${c.unread} unread` : ''}${c.pending ? `, ${c.pending} queued` : ''}`}
     >
-      <Avatar name={title} channel={isChannel} />
+      {c.kind === 'dm' ? (
+        <PersonAvatar userId={c.memberIds.find((m) => m !== selfId) ?? selfId} name={title} />
+      ) : (
+        <Avatar name={title} channel={isChannel} />
+      )}
       <View style={styles.body}>
         <View style={styles.line}>
           <View style={styles.titleWrap}>

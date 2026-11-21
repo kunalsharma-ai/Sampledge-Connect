@@ -9,7 +9,7 @@ import { useWorkspace } from '../state/AppProvider';
 import { conversationTitle, usePeople } from '../state/hooks';
 import { radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
-import { Avatar } from './Avatar';
+import { PersonAvatar } from './Avatar';
 import { Text } from './Text';
 
 const SHOW_MS = 5_000;
@@ -72,7 +72,7 @@ export function NotificationBanner() {
           { backgroundColor: c.surfaceRaised, borderColor: c.border, shadowColor: '#000' },
         ]}
       >
-        <Avatar name={nameOf(n.actorId)} size={36} />
+        <PersonAvatar userId={n.actorId} name={nameOf(n.actorId)} size={36} />
         <View style={{ flex: 1, gap: 1 }}>
           <Text variant="label" numberOfLines={1}>
             {nameOf(n.actorId)}

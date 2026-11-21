@@ -1,5 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Image, StyleSheet, View } from 'react-native';
+import { useAvatarUri } from '../state/hooks';
 import { fonts, mix } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
@@ -12,17 +14,38 @@ function initials(name: string): string {
   );
 }
 
-/** Initials avatar; the hue is derived from the name so people are recognisable at a glance. */
+/**
+ * A person's photo when there is one, else initials on a gradient whose hue comes from the name,
+ * so people are recognisable at a glance. A photo that fails to load (offline, not cached yet)
+ * falls back to initials.
+ */
 export function Avatar({
   name,
   size = 44,
   channel = false,
+  uri,
 }: {
   name: string;
   size?: number;
   channel?: boolean;
+  uri?: string | null;
 }) {
   const { theme } = useTheme();
+  const [failed, setFailed] = useState<string | null>(null);
+  if (uri && !channel && failed !== uri)
+    return (
+      <Image
+        source={{ uri }}
+        onError={() => setFailed(uri)}
+        accessibilityIgnoresInvertColors
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: theme.colors.surfaceSunken,
+        }}
+      />
+    );
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
   const t = (h % 100) / 100;
@@ -60,3 +83,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 });
+
+/** Avatar for a member: their profile photo, kept current, or initials. */
+export function PersonAvatar({
+  userId,
+  name,
+  size,
+}: {
+  userId: string | null | undefined;
+  name: string;
+  size?: number;
+}) {
+  const uri = useAvatarUri(userId);
+  return <Avatar name={name} size={size} uri={uri} />;
+}

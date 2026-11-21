@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
-import { Avatar } from './Avatar';
+import { PersonAvatar } from './Avatar';
 import { Glass } from './Glass';
 import { Text } from './Text';
 
@@ -20,6 +20,7 @@ export function shortDate(iso: string): string {
  */
 export function SavedMessageCard({
   senderName,
+  senderId,
   context,
   text,
   createdAt,
@@ -28,6 +29,8 @@ export function SavedMessageCard({
   action,
 }: {
   senderName: string;
+  /** For the sender's profile photo. */
+  senderId?: string | null;
   /** A second line, such as the conversation or who pinned it. */
   context: string;
   text: string;
@@ -55,7 +58,7 @@ export function SavedMessageCard({
           pressed && { backgroundColor: alpha(c.accent, 0.06) },
         ]}
       >
-        <Avatar name={senderName} size={36} />
+        <PersonAvatar userId={senderId} name={senderName} size={36} />
         <View style={{ flex: 1, gap: 2 }}>
           <View style={styles.head}>
             <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
