@@ -31,7 +31,10 @@ export function NetworkHome({
   const { toast } = useToast();
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
-      <ScreenHeader title="Sampledge Network" subtitle="Your connections across every organization">
+      <ScreenHeader
+        title="SampConnect Network"
+        subtitle="Your connections across every organization"
+      >
         <Button size="sm" variant="secondary" onClick={() => onGo('people')}>
           <UserPlus /> Find people
         </Button>

@@ -117,8 +117,8 @@ export function AuthShell({
           <p className="mt-2 text-body text-text-muted">{subtitle}</p>
           <div className="mt-8">{children}</div>
           <div className="mt-8 text-label font-normal text-text-muted">{footer}</div>
-          {brand && !brand.hidePoweredBy && brand.displayName !== 'Sampledge Connect' ? (
-            <p className="mt-6 text-meta text-text-subtle">with Sampledge Connect</p>
+          {brand && !brand.hidePoweredBy && brand.displayName !== 'SampConnect' ? (
+            <p className="mt-6 text-meta text-text-subtle">with SampConnect</p>
           ) : null}
         </motion.div>
       </section>

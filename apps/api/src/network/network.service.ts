@@ -103,7 +103,7 @@ export class NetworkService {
   /** Only network sessions may call network-side endpoints. */
   async assertNetwork(ctx: TenantContext): Promise<ScopedDb> {
     if (!(await this.network.isNetwork(ctx.tenantId)))
-      throw forbidden('Open Sampledge Network to do this');
+      throw forbidden('Open SampConnect Network to do this');
     return this.net();
   }
 
@@ -204,7 +204,7 @@ export class NetworkService {
       reason: allowed
         ? null
         : ctx.role === 'guest'
-          ? 'Guests of an organization cannot use Sampledge Network'
+          ? 'Guests of an organization cannot use SampConnect Network'
           : 'Your organization turned off external connections',
       linked: !!linked,
       handle: linked?.handle ?? null,
@@ -216,7 +216,8 @@ export class NetworkService {
    * network identity on first use. The organization token itself never works in the network.
    */
   async link(ctx: TenantContext, input: unknown, meta: RequestMeta): Promise<Session> {
-    if (await this.network.isNetwork(ctx.tenantId)) throw forbidden('Already in Sampledge Network');
+    if (await this.network.isNetwork(ctx.tenantId))
+      throw forbidden('Already in SampConnect Network');
     const req = parse(LinkNetworkRequestSchema, input);
     const status = await this.linkStatus(ctx);
     if (!status.allowed) throw forbidden(status.reason ?? undefined);
@@ -313,7 +314,7 @@ export class NetworkService {
       tenant: {
         tenantId: netId,
         slug: (await this.db.tenants.findOne({ _id: netId }))!.slug,
-        name: 'Sampledge Network',
+        name: 'SampConnect Network',
       },
       workspaceId,
     };
@@ -402,7 +403,7 @@ export class NetworkService {
       tenant: {
         tenantId: netId,
         slug: (await this.db.tenants.findOne({ _id: netId }))!.slug,
-        name: 'Sampledge Network',
+        name: 'SampConnect Network',
       },
       workspaceId,
     };
@@ -1004,7 +1005,7 @@ export class NetworkService {
       url,
       smsUrl:
         i.channel === 'sms' && i.phone && token
-          ? `sms:${i.phone}?&body=${encodeURIComponent(`Join me on Sampledge Connect: ${url}`)}`
+          ? `sms:${i.phone}?&body=${encodeURIComponent(`Join me on SampConnect: ${url}`)}`
           : null,
       delivery: i.delivery,
       status: i.status === 'accepted' ? 'accepted' : i.expiresAt < now ? 'expired' : 'pending',
@@ -1087,9 +1088,9 @@ export class NetworkService {
       await t.sendMail({
         from: String(v.from),
         to: { name, address: email },
-        subject: `${inviter.displayName} invited you to connect on Sampledge Connect`,
-        text: `Hi${name ? ` ${name}` : ''},\n\n${who} would like to connect with you on Sampledge Connect.\n\nCreate your free account and you'll be connected right away:\n${url}\n\nThis link works for 30 days.`,
-        html: `<p>Hi${name ? ` ${esc(name)}` : ''},</p><p><strong>${esc(who)}</strong> would like to connect with you on Sampledge Connect.</p><p><a href="${esc(url)}">Create your free account</a> and you'll be connected right away.</p><p style="color:#64748b">This link works for 30 days.</p>`,
+        subject: `${inviter.displayName} invited you to connect on SampConnect`,
+        text: `Hi${name ? ` ${name}` : ''},\n\n${who} would like to connect with you on SampConnect.\n\nCreate your free account and you'll be connected right away:\n${url}\n\nThis link works for 30 days.`,
+        html: `<p>Hi${name ? ` ${esc(name)}` : ''},</p><p><strong>${esc(who)}</strong> would like to connect with you on SampConnect.</p><p><a href="${esc(url)}">Create your free account</a> and you'll be connected right away.</p><p style="color:#64748b">This link works for 30 days.</p>`,
       });
       return 'sent';
     } catch {

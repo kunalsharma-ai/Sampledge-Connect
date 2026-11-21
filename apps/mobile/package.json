@@ -60,7 +60,7 @@
     "screenshots": "node scripts/serve-web.mjs dist-web 8099 & sleep 1 && node scripts/screenshot-tour.cjs screenshots; kill %1"
   },
   "private": true,
-  "description": "Sampledge Connect native mobile app (iOS and Android)",
+  "description": "SampConnect native mobile app (iOS and Android)",
   "engines": {
     "node": ">=26.13.1 <27"
   }

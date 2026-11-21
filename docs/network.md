@@ -1,6 +1,6 @@
-# Sampledge Network
+# SampConnect Network
 
-Sampledge Network is the social layer that crosses organizations. Everyone gets a **Connect ID**
+SampConnect Network is the social layer that crosses organizations. Everyone gets a **Connect ID**
 (like a Teams ID, or a WhatsApp or Telegram contact). With it, people in different organizations,
 and people with a free personal account, can find each other, connect, chat, post status updates
 and build communities.
@@ -8,7 +8,7 @@ and build communities.
 ## How it is isolated
 
 - All network data lives in one reserved tenant, `sampledge-network` (`kind: 'network'`), created by
-  migration `030-network`. No organization's data is ever read from the network, and the network
+  migration `033-network`. No organization's data is ever read from the network, and the network
   never reads organization data.
 - A **work account** opens the network with `POST /v1/network/link`. This exchanges the work
   session for a network session for the same person, and the link is made once. The web app keeps
@@ -54,10 +54,10 @@ Every network action is idempotent and synced everywhere:
 
 ## Admin controls
 
-_Administration → Sampledge Network_ (`GET/PUT /v1/admin/network`, stored in
+_Administration → SampConnect Network_ (`GET/PUT /v1/admin/network`, stored in
 `tenant_settings.networkPolicy`):
 
-- **Allow Sampledge Network**: the off switch for the whole organization.
+- **Allow SampConnect Network**: the off switch for the whole organization.
 - **Only connect with these domains**: an allowlist of email domains for connections.
 - **Personal accounts**, **Communities** and **Status updates**: each can be switched off.
 

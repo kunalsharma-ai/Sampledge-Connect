@@ -601,7 +601,7 @@ export class BillingService implements OnModuleInit {
       currency: plan.currency,
       unit_amount: unitAmount,
       recurring: { interval },
-      product_data: { name: `Sampledge Connect ${plan.name}`, metadata: { planId: plan.planId } },
+      product_data: { name: `SampConnect ${plan.name}`, metadata: { planId: plan.planId } },
     };
   }
 

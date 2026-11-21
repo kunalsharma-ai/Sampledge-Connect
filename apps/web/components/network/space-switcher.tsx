@@ -22,7 +22,7 @@ export function SpaceSwitcher({ expanded }: { expanded: boolean }) {
       await auth.enterNetwork();
     } catch (e) {
       toast({
-        title: 'Couldn’t open Sampledge Network',
+        title: 'Couldn’t open SampConnect Network',
         description: (e as Error).message,
         tone: 'danger',
       });
@@ -54,7 +54,7 @@ export function SpaceSwitcher({ expanded }: { expanded: boolean }) {
             disabled={busy}
             onClick={() => void go(it.id)}
             aria-pressed={on}
-            aria-label={`Switch to ${it.id === 'work' ? it.label : 'Sampledge Network'}`}
+            aria-label={`Switch to ${it.id === 'work' ? it.label : 'SampConnect Network'}`}
             className={cn(
               'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-meta transition-colors',
               on ? 'bg-accent-soft text-text shadow-sm' : 'text-text-muted hover:text-text',
@@ -69,7 +69,7 @@ export function SpaceSwitcher({ expanded }: { expanded: boolean }) {
         return expanded ? (
           btn
         ) : (
-          <Tooltip key={it.id} content={it.id === 'work' ? it.label : 'Sampledge Network'}>
+          <Tooltip key={it.id} content={it.id === 'work' ? it.label : 'SampConnect Network'}>
             {btn}
           </Tooltip>
         );

@@ -3,7 +3,7 @@ import { ClientIdSchema, ServerIdSchema } from './ids.js';
 import { DeviceInfoSchema } from './auth.js';
 
 /**
- * Sampledge Network: the cross-organization layer (Connect IDs, connections, follows,
+ * SampConnect Network: the cross-organization layer (Connect IDs, connections, follows,
  * statuses, communities). It lives in one reserved tenant, so organization data and
  * network data never share a query. See docs/network.md.
  */
@@ -435,7 +435,7 @@ export interface PublicProfile {
 // ─── Organization admin policy ───────────────────────────────────────────────
 
 export const NetworkPolicySchema = z.object({
-  /** Members may use Sampledge Network at all. */
+  /** Members may use SampConnect Network at all. */
   enabled: z.boolean(),
   /** anyone: connect with everyone. allowlist: only people whose email domain is listed. */
   connectWith: z.enum(['anyone', 'allowlist']),

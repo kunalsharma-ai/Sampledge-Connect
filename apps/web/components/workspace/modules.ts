@@ -63,7 +63,7 @@ export interface ModuleDef {
 export const MODULES: ModuleDef[] = [
   { id: 'home', label: 'Home', icon: House, built: false, phase: 'Phase 1b' },
   { id: 'messages', label: 'Messages', icon: MessagesSquare, built: true },
-  { id: 'network', label: 'Sampledge Network', icon: Globe, built: true },
+  { id: 'network', label: 'SampConnect Network', icon: Globe, built: true },
   { id: 'channels', label: 'Teams & Channels', icon: Hash, built: true },
   { id: 'projects', label: 'Projects', icon: FolderKanban, built: true },
   { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: false, phase: 'Phase 3' },
@@ -89,7 +89,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'settings', label: 'Settings', icon: Settings, built: true },
 ];
 
-/** Sampledge Network space: no organization modules, only what crosses organizations. */
+/** SampConnect Network space: no organization modules, only what crosses organizations. */
 export const NETWORK_MODULES: ModuleDef[] = [
   { id: 'network-home', label: 'Home', icon: House, built: true },
   { id: 'messages', label: 'Messages', icon: MessagesSquare, built: true },

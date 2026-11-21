@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { NetworkInviteJoin } from '@/components/network/public-pages';
 
 export const metadata: Metadata = {
-  title: 'You’re invited · Sampledge Connect',
+  title: 'You’re invited · SampConnect',
   robots: { index: false, follow: false },
 };
 

@@ -12,6 +12,7 @@ import {
   MicOff,
   MonitorUp,
   PhoneOff,
+  Repeat,
   ScreenShareOff,
   ShieldCheck,
   Users,
@@ -313,7 +314,7 @@ function MeetingCard({
       </h1>
       {cancelled ? (
         <p className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-label font-normal text-danger">
-          This meeting was cancelled.
+          {v.recurrence ? 'This meeting series was cancelled.' : 'This meeting was cancelled.'}
         </p>
       ) : null}
       <dl className="mt-4 space-y-2 text-label font-normal text-text-muted">
@@ -330,6 +331,16 @@ function MeetingCard({
             </dd>
           </div>
         </div>
+        {v.recurrence ? (
+          <div className="flex items-center gap-2" data-testid="guest-recurrence">
+            <Repeat className="size-4 shrink-0 text-text-subtle" />
+            <dt className="sr-only">Repeats</dt>
+            <dd>
+              {v.recurrence}
+              {cancelled ? '' : ' · this link works for every meeting in the series'}
+            </dd>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <Users className="size-4 shrink-0 text-text-subtle" />
           <dt className="sr-only">Organizer</dt>

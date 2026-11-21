@@ -30,7 +30,7 @@ const kind = (k: string) => {
   return k;
 };
 
-/** Sampledge Network endpoints for network sessions (and the link endpoint for work sessions). */
+/** SampConnect Network endpoints for network sessions (and the link endpoint for work sessions). */
 @Controller('v1/network')
 @UseGuards(AuthGuard)
 export class NetworkController {
@@ -382,7 +382,7 @@ export class NetworkPublicController {
   }
 }
 
-/** Organization admins: allow or restrict Sampledge Network for their members. */
+/** Organization admins: allow or restrict SampConnect Network for their members. */
 @Controller('v1/admin/network')
 @UseGuards(AuthGuard)
 export class NetworkAdminController {

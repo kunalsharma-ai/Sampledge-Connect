@@ -8,7 +8,10 @@ import {
 import type { Db } from 'mongodb';
 import type { Redis } from 'ioredis';
 import {
+  CancelMeetingRequestSchema,
   CreateMeetingRequestSchema,
+  describeRecurrence,
+  SERIES_HORIZON_DAYS,
   DEFAULT_WORKING_HOURS,
   FindTimesRequestSchema,
   ListMeetingsQuerySchema,
@@ -19,14 +22,15 @@ import {
   type Meeting,
   type MeetingPushData,
   type MeetingSystemMetadata,
+  type Recurrence,
   type WorkingHours,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { MeetingDoc, MeetingGuestDoc } from '../database/documents.js';
+import type { MeetingDoc, MeetingGuestDoc, MeetingSeriesDoc } from '../database/documents.js';
 import { MONGO_DB } from '../database/database.module.js';
-import { TenantDb } from '../database/tenant-db.js';
+import { TenantDb, newId } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -34,9 +38,14 @@ import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS } from '../redis/redis.module.js';
 import { CallsService } from '../calls/calls.service.js';
 import { GuestsService } from './guests.service.js';
-import { hhmmToMinutes, localParts } from './time.js';
+import { expand, validateRule, type SeriesAnchor } from './recurrence.js';
+import { hhmmToMinutes, localParts, zonedToUtc } from './time.js';
 
 const REMINDER_SWEEP_MS = 30_000;
+const DAY_MS = 86_400_000;
+/** Series changes are pushed to clients for meetings in this window (calendars refetch the rest). */
+const BROADCAST_DAYS = 62;
+type Scope = 'occurrence' | 'series';
 
 export const toMeeting = (m: MeetingDoc): Meeting => ({
   meetingId: m._id,
@@ -66,6 +75,14 @@ export const toMeeting = (m: MeetingDoc): Meeting => ({
       error: g.invite.error,
     },
   })),
+  series: m.series
+    ? {
+        seriesId: m.series.seriesId,
+        recurrence: m.series.recurrence,
+        summary: m.series.summary,
+        detached: m.series.detached,
+      }
+    : null,
   createdAt: m.createdAt.toISOString(),
   updatedAt: m.updatedAt.toISOString(),
 });
@@ -97,10 +114,10 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
 
   onModuleInit() {
     if (this.cfg.NODE_ENV === 'test') return; // tests call sendDueReminders() directly
-    this.timer = setInterval(
-      () => void this.sendDueReminders().catch(() => undefined),
-      REMINDER_SWEEP_MS,
-    );
+    this.timer = setInterval(() => {
+      void this.sendDueReminders().catch(() => undefined);
+      void this.extendSeries().catch((e) => this.log.warn(`series sweep failed: ${String(e)}`));
+    }, REMINDER_SWEEP_MS);
     this.timer.unref();
   }
   onApplicationShutdown() {
@@ -139,6 +156,16 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       attendeeIds = [ctx.userId, ...invited];
     }
 
+    const attendees = [ctx.userId, ...attendeeIds.filter((id) => id !== ctx.userId)].map(
+      (userId) => ({
+        userId,
+        response: userId === ctx.userId ? ('accepted' as const) : ('pending' as const),
+        optional: optional.has(userId),
+      }),
+    );
+    if (req.recurrence)
+      return this.createSeries(ctx, req, req.recurrence, conversationId, attendees, guests);
+
     const now = new Date();
     const t = this.db.for(ctx.tenantId);
     const doc = await t.meetings.insertOne({
@@ -149,11 +176,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       endsAt,
       timeZone: req.timeZone,
       organizerId: ctx.userId,
-      attendees: [ctx.userId, ...attendeeIds.filter((id) => id !== ctx.userId)].map((userId) => ({
-        userId,
-        response: userId === ctx.userId ? ('accepted' as const) : ('pending' as const),
-        optional: optional.has(userId),
-      })),
+      attendees,
       media: req.media,
       remindMinutes: [...new Set(req.remindMinutes)].sort((a, b) => b - a),
       remindersSent: [],
@@ -213,7 +236,17 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     const req = parse(UpdateMeetingRequestSchema, input);
     const m = await this.load(ctx, meetingId);
     if (m.organizerId !== ctx.userId) throw forbidden('Only the organizer can change this meeting');
+    if (m.series && req.scope === 'series') return this.updateSeries(ctx, m, req);
     if (m.status === 'cancelled') throw new AppError('CONFLICT', 'This meeting was cancelled');
+    if (req.recurrence)
+      throw new AppError(
+        'VALIDATION_FAILED',
+        m.series
+          ? 'Change the repeat rule for the whole series'
+          : "A one-off meeting can't be made recurring. Schedule a new recurring meeting instead.",
+      );
+    if (m.series && (req.addGuests.length || req.removeGuestIds.length))
+      throw new AppError('VALIDATION_FAILED', 'Change guests for the whole series');
     const startsAt = req.startsAt ? new Date(req.startsAt) : m.startsAt;
     const endsAt = req.endsAt ? new Date(req.endsAt) : m.endsAt;
     if (endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 12 * 3_600_000)
@@ -272,12 +305,14 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
           attendees,
           guests,
           sequence,
+          ...(m.series && changed ? { 'series.detached': true } : {}),
           updatedAt: new Date(),
         },
       },
       { returnDocument: 'after' },
     );
     if (!updated) throw new AppError('CONFLICT', 'This meeting was cancelled');
+    const scope: Scope = updated.series ? 'occurrence' : 'series';
     await this.refreshCard(ctx.tenantId, updated, 'updated');
     this.broadcast(ctx.tenantId, updated);
     const others = updated.attendees.map((a) => a.userId).filter((id) => id !== ctx.userId);
@@ -294,6 +329,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
         updated,
         (updated.guests ?? []).filter((g) => !newGuests.some((n) => n.guestId === g.guestId)),
         'updated',
+        scope,
       );
     this.emailGuests(ctx.tenantId, updated, newGuests, 'invite');
     if (removed.length) {
@@ -306,9 +342,11 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     return toMeeting(updated);
   }
 
-  async cancel(ctx: TenantContext, meetingId: string): Promise<Meeting> {
+  async cancel(ctx: TenantContext, meetingId: string, input?: unknown): Promise<Meeting> {
+    const { scope } = parse(CancelMeetingRequestSchema, input ?? undefined);
     const m = await this.load(ctx, meetingId);
     if (m.organizerId !== ctx.userId) throw forbidden('Only the organizer can cancel this meeting');
+    if (m.series && scope === 'series') return this.cancelSeries(ctx, m);
     if (m.status === 'cancelled') return toMeeting(m);
     const updated = await this.db.for(ctx.tenantId).meetings.findOneAndUpdate(
       { _id: m._id },
@@ -326,8 +364,20 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       'cancelled',
       updated!.attendees.map((a) => a.userId).filter((id) => id !== ctx.userId),
     );
-    this.emailGuests(ctx.tenantId, updated!, updated!.guests ?? [], 'cancelled');
+    this.emailGuests(
+      ctx.tenantId,
+      updated!,
+      updated!.guests ?? [],
+      'cancelled',
+      updated!.series ? 'occurrence' : 'series',
+    );
     return toMeeting(updated!);
+  }
+
+  /** Tells the organizer (on every device) that someone booked time with them. */
+  async notifyBooked(tenantId: string, meetingId: string, organizerId: string) {
+    const m = await this.db.for(tenantId).meetings.findOne({ _id: meetingId });
+    if (m) this.push(tenantId, m, 'invite', [organizerId]);
   }
 
   // ---------- external guests ----------
@@ -376,24 +426,49 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     m: MeetingDoc,
     guests: MeetingGuestDoc[],
     kind: Parameters<GuestsService['email']>[3],
+    scope: Scope = 'series',
   ) {
     if (!guests.length) return;
-    this.guests.email(tenantId, m, guests, kind, () => {
-      // Show the delivery outcome (sent / failed) in everyone's meeting details.
-      void this.db
-        .for(tenantId)
-        .meetings.findOne({ _id: m._id })
-        .then((fresh) => fresh && this.broadcast(tenantId, fresh))
-        .catch(() => undefined);
-    });
+    this.guests.email(
+      tenantId,
+      m,
+      guests,
+      kind,
+      () => {
+        // Show the delivery outcome (sent / failed) in everyone's meeting details.
+        void this.db
+          .for(tenantId)
+          .meetings.findOne({ _id: m._id })
+          .then((fresh) => fresh && this.broadcast(tenantId, fresh))
+          .catch(() => undefined);
+      },
+      scope,
+    );
   }
 
   async rsvp(ctx: TenantContext, meetingId: string, input: unknown): Promise<Meeting> {
-    const { response } = parse(RsvpRequestSchema, input);
+    const { response, scope } = parse(RsvpRequestSchema, input);
     const m = await this.load(ctx, meetingId);
     if (!m.attendees.some((a) => a.userId === ctx.userId))
       throw forbidden('You are not invited to this meeting');
     if (m.status === 'cancelled') throw new AppError('CONFLICT', 'This meeting was cancelled');
+    if (m.series && scope === 'series') {
+      const t = this.db.for(ctx.tenantId);
+      const set = { $set: { 'attendees.$.response': response, updatedAt: new Date() } };
+      const filter = {
+        'series.seriesId': m.series.seriesId,
+        'attendees.userId': ctx.userId,
+        status: 'scheduled' as const,
+        endsAt: { $gt: new Date() },
+      };
+      await t.meetings.updateMany(filter, set);
+      await t.meeting_series.updateOne(
+        { _id: m.series.seriesId, 'attendees.userId': ctx.userId },
+        { $set: { 'attendees.$.response': response } },
+      );
+      await this.broadcastSeries(ctx.tenantId, m.series.seriesId);
+      return toMeeting((await t.meetings.findOne({ _id: m._id }))!);
+    }
     const updated = await this.db
       .for(ctx.tenantId)
       .meetings.findOneAndUpdate(
@@ -431,12 +506,57 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
    */
   async findTimes(ctx: TenantContext, input: unknown): Promise<FindTimesResponse> {
     const req = parse(FindTimesRequestSchema, input);
-    const t = this.db.for(ctx.tenantId);
     const people = [...new Set([ctx.userId, ...req.attendeeIds])];
+    const { slots, busy } = await this.freeSlots(ctx.tenantId, people, {
+      durationMinutes: req.durationMinutes,
+      from: new Date(req.from),
+      to: new Date(req.to),
+      stepMinutes: req.stepMinutes,
+      limit: req.limit,
+      mode: 'all',
+      ignoreMeetingId: req.ignoreMeetingId,
+    });
+    return {
+      slots: slots.map((x) => ({ startsAt: x.startsAt, endsAt: x.endsAt })),
+      busy: Object.fromEntries(
+        [...busy].map(([who, list]) => [
+          who,
+          list
+            .sort((x, y) => x.s - y.s)
+            .map((b) => ({
+              startsAt: new Date(b.s).toISOString(),
+              endsAt: new Date(b.e).toISOString(),
+            })),
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * Slots inside each person's working hours (in their own time zone) where they aren't in
+   * another meeting they haven't declined. `all`: everyone must be free; `any`: at least one
+   * (`free` lists who). `bufferMinutes` keeps that much time clear around other meetings.
+   */
+  async freeSlots(
+    tenantId: string,
+    people: string[],
+    o: {
+      durationMinutes: number;
+      from: Date;
+      to: Date;
+      stepMinutes: number;
+      limit: number;
+      mode: 'all' | 'any';
+      bufferMinutes?: number;
+      ignoreMeetingId?: string;
+    },
+  ) {
+    const t = this.db.for(tenantId);
     const found = await t.users.countDocuments({ _id: { $in: people }, status: 'active' });
     if (found !== people.length) throw new AppError('VALIDATION_FAILED', 'Unknown attendee');
-    const from = Date.parse(req.from);
-    const to = Date.parse(req.to);
+    const from = o.from.getTime();
+    const to = o.to.getTime();
+    const pad = (o.bufferMinutes ?? 0) * 60_000;
 
     const [settings, meetings] = await Promise.all([
       t.user_settings.find({ userId: { $in: people } }).toArray(),
@@ -444,9 +564,9 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
         .find({
           status: 'scheduled',
           'attendees.userId': { $in: people },
-          startsAt: { $lt: new Date(to) },
-          endsAt: { $gt: new Date(from) },
-          ...(req.ignoreMeetingId ? { _id: { $ne: req.ignoreMeetingId } } : {}),
+          startsAt: { $lt: new Date(to + pad) },
+          endsAt: { $gt: new Date(from - pad) },
+          ...(o.ignoreMeetingId ? { _id: { $ne: o.ignoreMeetingId } } : {}),
         })
         .toArray(),
     ]);
@@ -471,35 +591,26 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
           endMin <= hhmmToMinutes(d.end),
       );
     };
+    const freeAt = (p: string, s: number, e: number) =>
+      inHours(p, s, e) && !busy.get(p)!.some((b) => b.s < e + pad && b.e > s - pad);
 
-    const step = req.stepMinutes * 60_000;
-    const dur = req.durationMinutes * 60_000;
+    const step = o.stepMinutes * 60_000;
+    const dur = o.durationMinutes * 60_000;
     const earliest = Math.max(from, Date.now());
-    const slots: { startsAt: string; endsAt: string }[] = [];
+    const slots: { startsAt: string; endsAt: string; free: string[] }[] = [];
     for (let s = Math.ceil(earliest / step) * step; s + dur <= to; s += step) {
       const e = s + dur;
-      const ok = people.every(
-        (p) => inHours(p, s, e) && !busy.get(p)!.some((b) => b.s < e && b.e > s),
-      );
-      if (ok) {
-        slots.push({ startsAt: new Date(s).toISOString(), endsAt: new Date(e).toISOString() });
-        if (slots.length >= req.limit) break;
+      const free = people.filter((p) => freeAt(p, s, e));
+      if (o.mode === 'all' ? free.length === people.length : free.length > 0) {
+        slots.push({
+          startsAt: new Date(s).toISOString(),
+          endsAt: new Date(e).toISOString(),
+          free,
+        });
+        if (slots.length >= o.limit) break;
       }
     }
-    return {
-      slots,
-      busy: Object.fromEntries(
-        [...busy].map(([who, list]) => [
-          who,
-          list
-            .sort((x, y) => x.s - y.s)
-            .map((b) => ({
-              startsAt: new Date(b.s).toISOString(),
-              endsAt: new Date(b.e).toISOString(),
-            })),
-        ]),
-      ),
-    };
+    return { slots, busy };
   }
 
   // ---------- reminders ----------
@@ -557,6 +668,448 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     return sent;
   }
 
+  // ---------- recurring meetings ----------
+
+  private horizon(from = Date.now()) {
+    return new Date(Math.max(from, Date.now()) + SERIES_HORIZON_DAYS * DAY_MS);
+  }
+
+  private occurrenceDoc(
+    s: MeetingSeriesDoc,
+    startsAt: Date,
+    now = new Date(),
+  ): Omit<MeetingDoc, '_id' | 'tenantId'> {
+    return {
+      conversationId: s.conversationId,
+      title: s.title,
+      agenda: s.agenda,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + s.durationMinutes * 60_000),
+      timeZone: s.timeZone,
+      organizerId: s.organizerId,
+      attendees: s.attendees.map((a) => ({ ...a })),
+      media: s.media,
+      remindMinutes: s.remindMinutes,
+      remindersSent: [],
+      status: 'scheduled',
+      messageId: null,
+      guests: s.guests.map((g) => ({ ...g, invite: { ...g.invite } })),
+      sequence: s.sequence,
+      series: {
+        seriesId: s._id,
+        originalStartsAt: startsAt,
+        detached: false,
+        recurrence: s.recurrence,
+        summary: this.summary(s),
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private summary(s: Pick<MeetingSeriesDoc, 'recurrence' | 'anchorStartsAt' | 'timeZone'>) {
+    return describeRecurrence(s.recurrence, s.anchorStartsAt.toISOString(), s.timeZone);
+  }
+
+  /** Expands a rule from an anchor, or explains why it has no meetings. */
+  private plan(rule: Recurrence, anchor: SeriesAnchor, after: Date | null = null) {
+    const bad = validateRule(rule, anchor);
+    if (bad) throw new AppError('VALIDATION_FAILED', bad);
+    const out = expand(rule, anchor, this.horizon(anchor.startsAt.getTime()), after);
+    if (!out.starts.length)
+      throw new AppError('VALIDATION_FAILED', 'This repeat rule has no upcoming meetings');
+    return out;
+  }
+
+  private async createSeries(
+    ctx: TenantContext,
+    req: {
+      title: string;
+      agenda: string;
+      startsAt: string;
+      endsAt: string;
+      timeZone: string;
+      media: 'audio' | 'video';
+      remindMinutes: number[];
+    },
+    rule: Recurrence,
+    conversationId: string,
+    attendees: MeetingDoc['attendees'],
+    guests: MeetingGuestDoc[],
+  ): Promise<Meeting> {
+    const requested = new Date(req.startsAt);
+    const durationMinutes = (Date.parse(req.endsAt) - requested.getTime()) / 60_000;
+    const { starts, complete } = this.plan(rule, { startsAt: requested, timeZone: req.timeZone });
+    const now = new Date();
+    const t = this.db.for(ctx.tenantId);
+    const series = await t.meeting_series.insertOne({
+      _id: newId(),
+      conversationId,
+      organizerId: ctx.userId,
+      title: req.title,
+      agenda: req.agenda,
+      timeZone: req.timeZone,
+      media: req.media,
+      remindMinutes: [...new Set(req.remindMinutes)].sort((a, b) => b - a),
+      recurrence: rule,
+      anchorStartsAt: starts[0]!,
+      durationMinutes,
+      attendees,
+      guests,
+      status: 'active',
+      lastStartsAt: starts.at(-1)!,
+      complete,
+      messageId: null,
+      sequence: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const docs = await t.meetings.insertMany(
+      starts.map((st) => this.occurrenceDoc(series, st, now)),
+    );
+    const first = docs[0]!;
+    try {
+      const msg = await this.messages.postSystem(
+        ctx.tenantId,
+        conversationId,
+        ctx.userId,
+        `Scheduled a recurring meeting: ${req.title} (${this.summary(series)})`,
+        { meeting: this.cardMetadata(first, 'scheduled', series) },
+      );
+      await t.meeting_series.updateOne({ _id: series._id }, { $set: { messageId: msg.messageId } });
+    } catch (e) {
+      this.log.warn(`series card for ${series._id} not posted: ${String(e)}`);
+    }
+    await this.broadcastSeries(ctx.tenantId, series._id);
+    this.push(
+      ctx.tenantId,
+      first,
+      'invite',
+      attendees.map((a) => a.userId).filter((id) => id !== ctx.userId),
+    );
+    this.emailGuests(ctx.tenantId, first, guests, 'invite', 'series');
+    return toMeeting(first);
+  }
+
+  private async loadSeries(tenantId: string, seriesId: string) {
+    const s = await this.db.for(tenantId).meeting_series.findOne({ _id: seriesId });
+    if (!s) throw notFound('Meeting series');
+    return s;
+  }
+
+  /** Upcoming meetings of a series (not started yet). */
+  private upcoming(tenantId: string, seriesId: string, now = new Date()) {
+    return this.db
+      .for(tenantId)
+      .meetings.find(
+        { 'series.seriesId': seriesId, startsAt: { $gt: now } },
+        { sort: { startsAt: 1 } },
+      )
+      .toArray();
+  }
+
+  /**
+   * Changes every meeting of the series that hasn't started. Moving the time (or changing the
+   * rule) recreates the upcoming meetings from the new rule, so their answers reset and
+   * one-off changes to them are replaced. Other changes keep each meeting's answers.
+   */
+  private async updateSeries(
+    ctx: TenantContext,
+    m: MeetingDoc,
+    req: ReturnType<typeof UpdateMeetingRequestSchema.parse>,
+  ): Promise<Meeting> {
+    const t = this.db.for(ctx.tenantId);
+    const s = await this.loadSeries(ctx.tenantId, m.series!.seriesId);
+    if (s.status === 'cancelled')
+      throw new AppError('CONFLICT', 'This meeting series was cancelled');
+    const now = new Date();
+    const newStart = req.startsAt ? new Date(req.startsAt) : m.startsAt;
+    const newEnd = req.endsAt ? new Date(req.endsAt) : m.endsAt;
+    if (newEnd <= newStart || newEnd.getTime() - newStart.getTime() > 12 * 3_600_000)
+      throw new AppError('VALIDATION_FAILED', 'endsAt must be after startsAt (max 12 hours)');
+    const timeZone = req.timeZone ?? s.timeZone;
+    const durationMinutes = (newEnd.getTime() - newStart.getTime()) / 60_000;
+    const retime =
+      newStart.getTime() !== m.startsAt.getTime() ||
+      durationMinutes !== s.durationMinutes ||
+      !!req.recurrence ||
+      timeZone !== s.timeZone;
+
+    const removeIds = new Set(req.removeGuestIds);
+    const removed = s.guests.filter((g) => removeIds.has(g.guestId));
+    const kept = s.guests.filter((g) => !removeIds.has(g.guestId));
+    const newGuests = await this.guests.prepare(ctx, req.addGuests, kept);
+    const contentChanged =
+      retime ||
+      (req.title !== undefined && req.title !== s.title) ||
+      (req.agenda !== undefined && req.agenda !== s.agenda);
+
+    const add = req.addAttendeeIds.filter(
+      (id) => id !== ctx.userId && !s.attendees.some((a) => a.userId === id),
+    );
+    if (add.length) {
+      const members = await this.conversations.memberIds(ctx.tenantId, s.conversationId);
+      const missing = add.filter((id) => !members.includes(id));
+      if (missing.length)
+        await this.conversations.addMembers(ctx, s.conversationId, { userIds: missing });
+    }
+    const reset = <T extends { response: string }>(x: T, keep: boolean) =>
+      retime && !keep ? { ...x, response: 'pending' as const } : x;
+    const attendees = [
+      ...s.attendees.map((a) => reset(a, a.userId === s.organizerId)),
+      ...add.map((userId) => ({ userId, response: 'pending' as const, optional: false })),
+    ];
+    const invite = (g: MeetingGuestDoc): MeetingGuestDoc =>
+      contentChanged
+        ? {
+            ...g,
+            invite: {
+              ...g.invite,
+              status: this.guests.emailEnabled ? 'sending' : 'not_configured',
+            },
+          }
+        : g;
+    const guests = [...kept.map((g) => invite(reset(g, false))), ...newGuests];
+
+    let template: Partial<MeetingSeriesDoc> = {
+      title: req.title ?? s.title,
+      agenda: req.agenda ?? s.agenda,
+      media: req.media ?? s.media,
+      remindMinutes: req.remindMinutes
+        ? [...new Set(req.remindMinutes)].sort((a, b) => b - a)
+        : s.remindMinutes,
+      attendees,
+      guests,
+      sequence: s.sequence + (contentChanged || removed.length ? 1 : 0),
+      updatedAt: now,
+    };
+    const before = await this.upcoming(ctx.tenantId, s._id, now);
+    let result: MeetingDoc | null = null;
+
+    if (retime) {
+      // Same shift on the local calendar: days moved, and the new local start time.
+      const dayOf = (d: Date, tz: string) => {
+        const p = localParts(d.getTime(), tz);
+        return Date.UTC(p.year, p.month - 1, p.day) / DAY_MS;
+      };
+      const dayDelta = dayOf(newStart, timeZone) - dayOf(m.startsAt, s.timeZone);
+      const minutes = localParts(newStart.getTime(), timeZone).minutes;
+      let rule = req.recurrence ?? s.recurrence;
+      if (
+        !req.recurrence &&
+        rule.frequency === 'weekly' &&
+        dayDelta % 7 !== 0 &&
+        rule.weekdays?.length
+      )
+        rule = { ...rule, weekdays: rule.weekdays.map((d) => (((d + dayDelta) % 7) + 7) % 7) };
+      // A new rule starts from the next meeting; the same rule keeps its first meeting.
+      const base = req.recurrence ? (before[0]?.startsAt ?? m.startsAt) : s.anchorStartsAt;
+      const day = new Date((dayOf(base, s.timeZone) + dayDelta) * DAY_MS);
+      const anchorGuess = new Date(
+        zonedToUtc(
+          day.getUTCFullYear(),
+          day.getUTCMonth() + 1,
+          day.getUTCDate(),
+          minutes,
+          timeZone,
+        ),
+      );
+      const all = this.plan(rule, { startsAt: anchorGuess, timeZone });
+      const future = all.starts.filter((d) => d.getTime() > now.getTime());
+      if (!future.length)
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'This change leaves the series with no upcoming meetings',
+        );
+      template = {
+        ...template,
+        recurrence: rule,
+        timeZone,
+        durationMinutes,
+        anchorStartsAt: all.starts[0]!,
+        lastStartsAt: all.starts.at(-1)!,
+        complete: all.complete,
+      };
+      const next = { ...s, ...template } as MeetingSeriesDoc;
+      await t.meeting_series.updateOne({ _id: s._id }, { $set: template });
+      await t.meetings.deleteMany({ 'series.seriesId': s._id, startsAt: { $gt: now } });
+      for (const old of before)
+        this.broadcastDto(ctx.tenantId, old, { ...toMeeting(old), status: 'cancelled' });
+      const docs = await t.meetings.insertMany(future.map((d) => this.occurrenceDoc(next, d, now)));
+      // Hand back the meeting that took the edited one's place (same position in the series).
+      const pos = before.findIndex((o) => o._id === m._id);
+      result = docs[Math.max(0, Math.min(pos, docs.length - 1))]!;
+    } else {
+      await t.meeting_series.updateOne({ _id: s._id }, { $set: template });
+      for (const o of before) {
+        const answers = new Map(o.attendees.map((a) => [a.userId, a.response]));
+        const guestAnswers = new Map((o.guests ?? []).map((g) => [g.guestId, g.response]));
+        await t.meetings.updateOne(
+          { _id: o._id },
+          {
+            $set: {
+              title: template.title!,
+              agenda: template.agenda!,
+              media: template.media!,
+              remindMinutes: template.remindMinutes!,
+              attendees: attendees.map((a) => ({
+                ...a,
+                response: answers.get(a.userId) ?? a.response,
+              })),
+              guests: guests.map((g) => ({
+                ...g,
+                response: guestAnswers.get(g.guestId) ?? g.response,
+              })),
+              sequence: template.sequence!,
+              updatedAt: now,
+            },
+          },
+        );
+      }
+      result = await t.meetings.findOne({ _id: m._id });
+    }
+
+    const fresh = { ...s, ...template } as MeetingSeriesDoc;
+    const first = (await this.upcoming(ctx.tenantId, s._id, now))[0] ?? result!;
+    await this.refreshSeriesCard(ctx.tenantId, fresh, first, 'updated');
+    await this.broadcastSeries(ctx.tenantId, s._id);
+    const others = attendees.map((a) => a.userId).filter((id) => id !== ctx.userId);
+    this.push(
+      ctx.tenantId,
+      first,
+      'updated',
+      others.filter((id) => !add.includes(id)),
+    );
+    this.push(ctx.tenantId, first, 'invite', add);
+    if (contentChanged)
+      this.emailGuests(
+        ctx.tenantId,
+        first,
+        guests.filter((g) => !newGuests.includes(g)),
+        'updated',
+      );
+    this.emailGuests(ctx.tenantId, first, newGuests, 'invite');
+    if (removed.length) {
+      this.emailGuests(ctx.tenantId, first, removed, 'cancelled-for-you');
+      for (const g of removed)
+        await this.calls
+          .removeGuest(ctx.tenantId, s.conversationId, g.guestId)
+          .catch(() => undefined);
+    }
+    return toMeeting(result!);
+  }
+
+  /** Cancels every meeting of the series that hasn't started (past ones stay as history). */
+  private async cancelSeries(ctx: TenantContext, m: MeetingDoc): Promise<Meeting> {
+    const t = this.db.for(ctx.tenantId);
+    const s = await this.loadSeries(ctx.tenantId, m.series!.seriesId);
+    if (s.status === 'cancelled') return toMeeting(m);
+    const now = new Date();
+    await t.meeting_series.updateOne(
+      { _id: s._id },
+      { $set: { status: 'cancelled', updatedAt: now }, $inc: { sequence: 1 } },
+    );
+    await t.meetings.updateMany(
+      { 'series.seriesId': s._id, startsAt: { $gt: now }, status: 'scheduled' },
+      { $set: { status: 'cancelled', updatedAt: now }, $inc: { sequence: 1 } },
+    );
+    const fresh = (await t.meeting_series.findOne({ _id: s._id }))!;
+    const self = (await t.meetings.findOne({ _id: m._id }))!;
+    await this.refreshSeriesCard(ctx.tenantId, fresh, self, 'cancelled');
+    await this.broadcastSeries(ctx.tenantId, s._id, true);
+    this.push(
+      ctx.tenantId,
+      self,
+      'cancelled',
+      s.attendees.map((a) => a.userId).filter((id) => id !== ctx.userId),
+    );
+    this.emailGuests(ctx.tenantId, self, fresh.guests, 'cancelled', 'series');
+    return toMeeting(self);
+  }
+
+  /**
+   * Creates more meetings for open-ended series as time passes, so there are always about
+   * SERIES_HORIZON_DAYS of them ahead. Runs with the reminder sweep; one replica at a time.
+   */
+  async extendSeries(now = new Date()): Promise<number> {
+    if (this.cfg.NODE_ENV !== 'test') {
+      const ok = await this.redis.set('lock:meetings:series', '1', 'PX', 5 * 60_000, 'NX');
+      if (ok !== 'OK') return 0;
+    }
+    const col = this.rawDb.collection<MeetingSeriesDoc>('meeting_series');
+    const due = await col
+      .find({
+        status: 'active',
+        complete: false,
+        lastStartsAt: { $lt: new Date(now.getTime() + (SERIES_HORIZON_DAYS - 1) * DAY_MS) },
+      })
+      .limit(100)
+      .toArray();
+    let created = 0;
+    for (const s of due) {
+      const out = expand(
+        s.recurrence,
+        { startsAt: s.anchorStartsAt, timeZone: s.timeZone },
+        new Date(now.getTime() + SERIES_HORIZON_DAYS * DAY_MS),
+        s.lastStartsAt,
+      );
+      const claimed = await col.updateOne(
+        { _id: s._id, lastStartsAt: s.lastStartsAt },
+        {
+          $set: {
+            lastStartsAt: out.starts.at(-1) ?? s.lastStartsAt,
+            complete: out.complete,
+          },
+        },
+      );
+      if (!claimed.modifiedCount || !out.starts.length) continue;
+      await this.db
+        .for(s.tenantId)
+        .meetings.insertMany(out.starts.map((d) => this.occurrenceDoc(s, d, now)));
+      created += out.starts.length;
+    }
+    if (this.cfg.NODE_ENV !== 'test') await this.redis.del('lock:meetings:series');
+    return created;
+  }
+
+  /** Sends the series' meetings in the next BROADCAST_DAYS to everyone invited. */
+  private async broadcastSeries(tenantId: string, seriesId: string, includeCancelled = false) {
+    const now = Date.now();
+    const docs = await this.db
+      .for(tenantId)
+      .meetings.find(
+        {
+          'series.seriesId': seriesId,
+          endsAt: { $gt: new Date(now - DAY_MS) },
+          startsAt: { $lt: new Date(now + BROADCAST_DAYS * DAY_MS) },
+          ...(includeCancelled ? {} : { status: 'scheduled' as const }),
+        },
+        { sort: { startsAt: 1 }, limit: 100 },
+      )
+      .toArray();
+    for (const d of docs) this.broadcast(tenantId, d);
+  }
+
+  private broadcastDto(tenantId: string, m: MeetingDoc, dto: Meeting) {
+    for (const a of m.attendees) this.realtime.toUser(tenantId, a.userId, 'meeting:upsert', dto);
+  }
+
+  private async refreshSeriesCard(
+    tenantId: string,
+    s: MeetingSeriesDoc,
+    next: MeetingDoc,
+    status: MeetingSystemMetadata['status'],
+  ) {
+    if (!s.messageId) return;
+    const text =
+      status === 'cancelled'
+        ? `Cancelled the recurring meeting: ${s.title}`
+        : `Updated the recurring meeting: ${s.title} (${this.summary(s)})`;
+    await this.messages
+      .updateSystem(tenantId, s.messageId, text, { meeting: this.cardMetadata(next, status, s) })
+      .catch((e) => this.log.warn(`series card update failed: ${String(e)}`));
+  }
+
   // ---------- internals ----------
 
   private async load(ctx: TenantContext, meetingId: string): Promise<MeetingDoc> {
@@ -578,6 +1131,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
   private cardMetadata(
     m: MeetingDoc,
     status: MeetingSystemMetadata['status'],
+    series?: MeetingSeriesDoc,
   ): MeetingSystemMetadata {
     return {
       meetingId: m._id,
@@ -586,6 +1140,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       endsAt: m.endsAt.toISOString(),
       organizerId: m.organizerId,
       status,
+      ...(series ? { seriesId: series._id, recurrence: this.summary(series) } : {}),
     };
   }
 
@@ -594,6 +1149,30 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     m: MeetingDoc,
     status: MeetingSystemMetadata['status'],
   ) {
+    if (!m.messageId && m.series) {
+      // One meeting of a series changed on its own: say so in the chat, with its own card.
+      const when = m.startsAt.toLocaleString('en-GB', {
+        timeZone: m.timeZone,
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      });
+      try {
+        const msg = await this.messages.postSystem(
+          tenantId,
+          m.conversationId,
+          m.organizerId,
+          `${status === 'cancelled' ? 'Cancelled' : 'Changed'} one meeting of ${m.title}: ${when}`,
+          { meeting: this.cardMetadata(m, status) },
+        );
+        await this.db
+          .for(tenantId)
+          .meetings.updateOne({ _id: m._id }, { $set: { messageId: msg.messageId } });
+      } catch (e) {
+        this.log.warn(`occurrence card for ${m._id} not posted: ${String(e)}`);
+      }
+      return;
+    }
     if (!m.messageId) return;
     const text =
       status === 'cancelled'

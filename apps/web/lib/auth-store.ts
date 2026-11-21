@@ -5,7 +5,7 @@ import { uuidv7, type Session } from '@sampledge/contracts';
 export type SessionSlot = 'current' | 'network';
 
 export interface StoredSession {
-  /** 'current' is the account you signed in with; 'network' is the linked Sampledge Network session. */
+  /** 'current' is the account you signed in with; 'network' is the linked SampConnect Network session. */
   id: SessionSlot;
   refreshToken: string;
   user: Session['user'];

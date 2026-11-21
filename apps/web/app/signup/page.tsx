@@ -3,12 +3,12 @@ import Link from 'next/link';
 import { AuthShell } from '@/components/auth-shell';
 import { PersonalSignupForm } from '@/components/network/public-pages';
 
-/** Free personal Sampledge Network account (not tied to an organization). */
+/** Free personal SampConnect Network account (not tied to an organization). */
 export default function SignupPage() {
   return (
     <AuthShell
       title="Create your free account"
-      subtitle="Connect, message and call people in any organization on Sampledge Connect. Join communities and share status updates."
+      subtitle="Connect, message and call people in any organization on SampConnect. Join communities and share status updates."
       footer={
         <>
           Setting up your company?{' '}

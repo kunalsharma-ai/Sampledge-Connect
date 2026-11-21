@@ -13,7 +13,7 @@ import { Switch } from './profile';
 import { errorText } from './ui';
 
 /**
- * Administration → Sampledge Network. The organization decides whether its members may connect
+ * Administration → SampConnect Network. The organization decides whether its members may connect
  * with people outside it, and with whom. Changes apply on every member's next request (cached 15s).
  */
 export function NetworkPolicyTab() {
@@ -106,7 +106,7 @@ export function NetworkPolicyTab() {
     <div className="flex flex-col gap-5" data-testid="admin-network">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="text-meta text-text-subtle">Members using Sampledge Network</p>
+          <p className="text-meta text-text-subtle">Members using SampConnect Network</p>
           <p className="mt-2 font-display text-h2 tabular-nums text-text">{view.linkedMembers}</p>
         </div>
         <div className="rounded-xl border border-border bg-surface p-4">
@@ -125,11 +125,11 @@ export function NetworkPolicyTab() {
           </Badge>
         </header>
         <Row
-          title="Allow Sampledge Network"
+          title="Allow SampConnect Network"
           detail="Members can find, connect and chat with people in other organizations and with personal accounts. Turning this off signs members out of the network on their next request; their organization workspace is not affected."
         >
           <Switch
-            label="Allow Sampledge Network"
+            label="Allow SampConnect Network"
             checked={draft.enabled}
             onChange={(v) => set('enabled', v)}
           />

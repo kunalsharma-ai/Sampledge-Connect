@@ -56,7 +56,7 @@ export interface RealtimeHandlers {
   onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
-  /** Sampledge Network changes (requests, follows, statuses, communities) for the signed-in user. */
+  /** SampConnect Network changes (requests, follows, statuses, communities) for the signed-in user. */
   onNetwork?(e: NetworkChangedEvent): void;
 }
 

@@ -96,7 +96,7 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     { id: 'members', label: 'Members' },
     { id: 'devices', label: 'Devices' },
     { id: 'audit', label: 'Audit log' },
-    { id: 'network', label: 'Sampledge Network' },
+    { id: 'network', label: 'SampConnect Network' },
   ];
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="admin-screen">

@@ -146,7 +146,7 @@ export class SyncEngine {
     this.workListeners.add(fn);
     return () => this.workListeners.delete(fn);
   }
-  /** Live Sampledge Network changes; the app refetches the named scope. */
+  /** Live SampConnect Network changes; the app refetches the named scope. */
   onNetwork(fn: (e: NetworkChangedEvent) => void): () => void {
     this.networkListeners.add(fn);
     return () => this.networkListeners.delete(fn);

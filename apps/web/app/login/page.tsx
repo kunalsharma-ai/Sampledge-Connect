@@ -31,7 +31,7 @@ export default function LoginPage() {
   const [brand, setBrand] = React.useState<PublicBranding | null>(null);
   const [showPassword, setShowPassword] = React.useState(false);
   const [redirecting, setRedirecting] = React.useState(false);
-  // Personal Sampledge Network account (no organization): signs in to the network space.
+  // Personal SampConnect Network account (no organization): signs in to the network space.
   const [personal, setPersonal] = React.useState(false);
 
   React.useEffect(() => {
@@ -148,7 +148,7 @@ export default function LoginPage() {
         subtitle={
           useRecovery
             ? 'Enter one of the recovery codes you saved when you set this up. Each works once.'
-            : 'Open your authenticator app and enter the 6-digit code for Sampledge Connect.'
+            : 'Open your authenticator app and enter the 6-digit code for SampConnect.'
         }
         footer={
           <button
@@ -212,7 +212,7 @@ export default function LoginPage() {
       title="Welcome back"
       subtitle={
         personal
-          ? 'Sign in to your personal Sampledge Network account.'
+          ? 'Sign in to your personal SampConnect Network account.'
           : brand
             ? `Sign in to ${brand.organizationName}.`
             : 'Sign in to your organization’s workspace.'
@@ -227,7 +227,7 @@ export default function LoginPage() {
           </>
         ) : (
           <>
-            New to Sampledge Connect?{' '}
+            New to SampConnect?{' '}
             <Link href="/register" className="font-semibold text-accent hover:underline">
               Create an organization
             </Link>

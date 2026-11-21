@@ -48,7 +48,7 @@ export class NetworkGate {
         (p === a.prefix || p.startsWith(`${a.prefix}/`)) &&
         (!a.methods || a.methods.includes(method.toUpperCase())),
     );
-    if (!ok) throw forbidden('This is not available in Sampledge Network');
+    if (!ok) throw forbidden('This is not available in SampConnect Network');
     // Conversations: only the endpoints the network supports. Creating groups or channels
     // directly is refused by the permission model (network members are 'guest').
     await this.assertAccess(ctx);

@@ -234,7 +234,7 @@ export default function SignIn() {
                   <Text tone="muted">
                     {useRecovery
                       ? 'Enter one of the recovery codes you saved when you set this up. Each works once.'
-                      : 'Open your authenticator app and enter the 6-digit code for Sampledge Connect.'}
+                      : 'Open your authenticator app and enter the 6-digit code for SampConnect.'}
                   </Text>
                 </View>
                 <View style={{ gap: 6 }}>

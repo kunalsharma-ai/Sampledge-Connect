@@ -216,7 +216,7 @@ export function ProfileCard() {
           <ChoiceCard
             active={me.privacy.profileVisibility === 'network'}
             title="Signed-in people only"
-            body="Only people on Sampledge Connect can see your profile."
+            body="Only people on SampConnect can see your profile."
             onClick={() => setPrivacy({ profileVisibility: 'network' })}
           />
         </div>

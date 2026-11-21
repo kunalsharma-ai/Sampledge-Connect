@@ -7,7 +7,7 @@ const bool = { bsonType: 'bool' };
 const int = { bsonType: ['int', 'long'] };
 
 /**
- * Creates the reserved Sampledge Network tenant (idempotent) and returns its id.
+ * Creates the reserved SampConnect Network tenant (idempotent) and returns its id.
  * Also called at boot, so a database restored without it still works.
  */
 export async function ensureNetworkTenant(
@@ -20,7 +20,7 @@ export async function ensureNetworkTenant(
       $setOnInsert: {
         _id: new ObjectId().toHexString(),
         slug: NETWORK_TENANT_SLUG,
-        name: 'Sampledge Network',
+        name: 'SampConnect Network',
         status: 'active',
         plan: 'enterprise',
         branding: null,
@@ -39,7 +39,7 @@ export async function ensureNetworkTenant(
       $setOnInsert: {
         _id: new ObjectId().toHexString(),
         tenantId: tenant._id,
-        name: 'Sampledge Network',
+        name: 'SampConnect Network',
         slug: 'main',
         isDefault: true,
         createdAt: new Date(),
@@ -51,9 +51,9 @@ export async function ensureNetworkTenant(
   return { tenantId: tenant._id, workspaceId: ws._id };
 }
 
-/** Sampledge Network: identities, connections, follows, statuses and communities. */
+/** SampConnect Network: identities, connections, follows, statuses and communities. */
 export const networkMigration: Migration = {
-  id: '030-network',
+  id: '033-network',
   async up(db) {
     await ensureNetworkTenant(db);
 

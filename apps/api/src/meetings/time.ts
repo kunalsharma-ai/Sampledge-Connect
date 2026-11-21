@@ -45,7 +45,7 @@ export function localParts(ts: number, tz: string): LocalParts {
 }
 
 /** Offset (ms) of `tz` from UTC at instant `ts`. */
-function offsetAt(ts: number, tz: string): number {
+export function offsetAt(ts: number, tz: string): number {
   const p: Record<string, string> = {};
   for (const x of fmt(tz).formatToParts(new Date(ts))) p[x.type] = x.value;
   const asUtc = Date.UTC(

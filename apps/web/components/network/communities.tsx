@@ -373,8 +373,8 @@ function CommunityPage({
               ) : (
                 <Lock className="size-3" />
               )}
-              {c.visibility === 'public' ? 'Public' : 'Private'} · {plural(c.memberCount, 'member')} ·{' '}
-              {plural(c.followerCount, 'follower')}
+              {c.visibility === 'public' ? 'Public' : 'Private'} · {plural(c.memberCount, 'member')}{' '}
+              · {plural(c.followerCount, 'follower')}
               <QueuedBadge match={(p) => p.includes(c.communityId)} />
             </p>
             {c.description ? (
@@ -412,18 +412,18 @@ function CommunityPage({
               </Button>
             )}
             {c.myStatus === 'member' ? null : (
-            <Button
-              variant="secondary"
-              onClick={() =>
-                void run(
-                  c.following ? 'Unfollow' : 'Follow',
-                  c.following ? 'DELETE' : 'PUT',
-                  `/v1/network/follows/community/${c.communityId}`,
-                )
-              }
-            >
-              {c.following ? 'Following' : 'Follow'}
-            </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void run(
+                    c.following ? 'Unfollow' : 'Follow',
+                    c.following ? 'DELETE' : 'PUT',
+                    `/v1/network/follows/community/${c.communityId}`,
+                  )
+                }
+              >
+                {c.following ? 'Following' : 'Follow'}
+              </Button>
             )}
             {c.publicUrl ? (
               <Button

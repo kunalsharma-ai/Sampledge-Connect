@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IncomingCall } from '../calls/IncomingCall';
+import { ActionRefusedBanner } from '../components/ActionRefusedBanner';
 import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
@@ -83,6 +84,14 @@ function RootStack() {
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
+          <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />
+          <Stack.Screen name="admin/members" options={{ title: 'Members' }} />
+          <Stack.Screen
+            name="admin/add-member"
+            options={{ title: 'Add member', presentation: 'modal' }}
+          />
+          <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
+          <Stack.Screen name="admin/devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
@@ -117,6 +126,7 @@ function RootStack() {
         <>
           <NotificationBanner />
           <MeetingReminderBanner />
+          <ActionRefusedBanner />
           <PushOpenHandler />
           <IncomingCall />
         </>

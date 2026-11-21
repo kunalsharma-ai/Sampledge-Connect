@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { PublicProfilePage } from '@/components/network/public-pages';
 
-export const metadata: Metadata = { title: 'Profile · Sampledge Connect' };
+export const metadata: Metadata = { title: 'Profile · SampConnect' };
 
 export default async function Page({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;

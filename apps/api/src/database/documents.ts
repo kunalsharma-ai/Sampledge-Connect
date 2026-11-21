@@ -4,6 +4,7 @@ import type {
   MessageContent,
   MessageType,
   RecordingKind,
+  Recurrence,
   TenantRole,
 } from '@sampledge/contracts';
 
@@ -27,7 +28,7 @@ export interface TenantDoc {
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
-  /** 'network' marks the one reserved Sampledge Network tenant (docs/network.md). */
+  /** 'network' marks the one reserved SampConnect Network tenant (docs/network.md). */
   kind?: 'organization' | 'network';
 }
 
@@ -82,9 +83,9 @@ export interface ConversationDoc extends TenantOwned {
   lastMessageAt: Date | null;
   /** Channels only; absent = everyone may post. */
   postingPolicy?: 'everyone' | 'moderators';
-  /** Sampledge Network: the community this group belongs to. */
+  /** SampConnect Network: the community this group belongs to. */
   communityId?: string | null;
-  /** Sampledge Network: the community's built-in announcements channel. */
+  /** SampConnect Network: the community's built-in announcements channel. */
   communityRole?: 'announcements' | 'group';
 }
 
@@ -304,7 +305,7 @@ export interface TenantSettingsDoc extends TenantOwned {
   callRecordingEnabled: boolean;
   /** Private AI assistant on/off for the organization. Absent means on. */
   aiEnabled?: boolean;
-  /** Sampledge Network policy for this organization's members (absent = defaults). */
+  /** SampConnect Network policy for this organization's members (absent = defaults). */
   networkPolicy?: import('@sampledge/contracts').NetworkPolicy;
   updatedAt: Date;
   updatedBy: string | null;
@@ -334,6 +335,49 @@ export interface MeetingDoc extends TenantOwned {
   guests?: MeetingGuestDoc[];
   /** iCalendar SEQUENCE: bumped whenever invite emails carry a change. */
   sequence?: number;
+  /** Occurrence of a recurring meeting. */
+  series?: {
+    seriesId: string;
+    /** Start the rule gave this occurrence (its iCalendar RECURRENCE-ID). */
+    originalStartsAt: Date;
+    /** Changed on its own (time, title or agenda). */
+    detached: boolean;
+    /** The series rule and its summary when this occurrence was created. */
+    recurrence: Recurrence;
+    summary: string;
+  } | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * A recurring meeting's rule and template. Occurrences are ordinary meetings with
+ * `series.seriesId`; they are created up to SERIES_HORIZON_DAYS ahead and extended by the
+ * sweeper while the rule goes on.
+ */
+export interface MeetingSeriesDoc extends TenantOwned {
+  conversationId: string;
+  organizerId: string;
+  title: string;
+  agenda: string;
+  timeZone: string;
+  media: 'audio' | 'video';
+  remindMinutes: number[];
+  recurrence: Recurrence;
+  /** First meeting of the current rule (DTSTART in guests' invites). */
+  anchorStartsAt: Date;
+  durationMinutes: number;
+  /** Series-wide answers, copied to newly created occurrences. */
+  attendees: MeetingDoc['attendees'];
+  guests: MeetingGuestDoc[];
+  status: 'active' | 'cancelled';
+  /** Start of the last occurrence created so far. */
+  lastStartsAt: Date;
+  /** The rule has no meetings beyond those already created. */
+  complete: boolean;
+  /** The series card in the meeting chat. */
+  messageId: string | null;
+  sequence: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -447,6 +491,24 @@ export interface AiTranscriptDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+/** A public booking page (`/book/<slug>`); slugs are unique across all tenants. */
+export interface BookingPageDoc extends TenantOwned {
+  slug: string;
+  title: string;
+  description: string;
+  durationMinutes: number;
+  hostIds: string[];
+  mode: 'all' | 'any';
+  bufferMinutes: number;
+  minNoticeMinutes: number;
+  horizonDays: number;
+  media: 'audio' | 'video';
+  enabled: boolean;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -462,6 +524,8 @@ export interface TenantCollections {
   notifications: NotificationDoc;
   calls: CallDoc;
   meetings: MeetingDoc;
+  meeting_series: MeetingSeriesDoc;
+  booking_pages: BookingPageDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;
@@ -488,7 +552,7 @@ export interface TenantCollections {
   community_links: CommunityLinkDoc;
 }
 
-// ─── Sampledge Network (only ever stored in the network tenant) ──────────────
+// ─── SampConnect Network (only ever stored in the network tenant) ──────────────
 
 export interface NetworkProfileDoc extends TenantOwned {
   /** Same as the network user's id. */

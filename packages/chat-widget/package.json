@@ -2,7 +2,7 @@
   "name": "@sampledge/chat-widget",
   "version": "0.1.0",
   "private": true,
-  "description": "Reusable React chat widget: embed a Sampledge Connect record conversation in any Sampledge module",
+  "description": "Reusable React chat widget: embed a SampConnect record conversation in any Sampledge module",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

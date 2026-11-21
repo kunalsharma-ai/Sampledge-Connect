@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Sampledge Connect',
-    short_name: 'Connect',
+    name: 'SampConnect',
+    short_name: 'SampConnect',
     description: 'One Workspace. Every Conversation. Connected.',
     start_url: '/app',
     scope: '/',

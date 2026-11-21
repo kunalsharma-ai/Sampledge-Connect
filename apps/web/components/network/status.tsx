@@ -178,8 +178,7 @@ export function StatusViewer({
       // Arrow keys move between statuses unless you are typing a reply.
       const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT';
       if (e.key === 'Escape') onClose();
-      else if (!typing && e.key === 'ArrowRight')
-        setI((n) => (n < list.length - 1 ? n + 1 : n));
+      else if (!typing && e.key === 'ArrowRight') setI((n) => (n < list.length - 1 ? n + 1 : n));
       else if (!typing && e.key === 'ArrowLeft') setI((n) => Math.max(0, n - 1));
     };
     window.addEventListener('keydown', onKey);

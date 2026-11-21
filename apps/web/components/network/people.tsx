@@ -68,7 +68,7 @@ export function PeopleScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
       <ScreenHeader
         title="People"
-        subtitle="Connect with anyone on Sampledge Connect, in any organization"
+        subtitle="Connect with anyone on SampConnect, in any organization"
       >
         <Tabs
           value={tab}
@@ -165,7 +165,7 @@ function FindPeople({ onMessage }: { onMessage: (userId: string) => void }) {
         <StateView
           state="empty"
           title="No one found"
-          description="Check the Connect ID, or invite them to Sampledge Connect from the Invite tab."
+          description="Check the Connect ID, or invite them to SampConnect from the Invite tab."
         />
       ) : null}
       {results?.length ? (

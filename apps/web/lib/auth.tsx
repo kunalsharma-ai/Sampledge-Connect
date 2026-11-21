@@ -28,18 +28,18 @@ const LS_SPACE = 'sampledge.space';
 
 interface AuthContextValue {
   status: Status;
-  /** The session the app is showing: your organization, or Sampledge Network. */
+  /** The session the app is showing: your organization, or SampConnect Network. */
   session: StoredSession | null;
   /** The account you signed in with (an organization, or a personal network account). */
   primary: StoredSession | null;
   space: Space;
-  /** True when this account is a personal Sampledge Network account (no organization). */
+  /** True when this account is a personal SampConnect Network account (no organization). */
   personal: boolean;
   /** Returns a valid access token, refreshing when needed. Throws on network failure, null when signed out. */
   getAccessToken(): Promise<string | null>;
   /** Token for a specific slot (the organization while you are in the network, and back). */
   tokenFor(slot: SessionSlot): Promise<string | null>;
-  /** Opens Sampledge Network: links this work account on first use (online), then switches. */
+  /** Opens SampConnect Network: links this work account on first use (online), then switches. */
   enterNetwork(): Promise<void>;
   enterWork(): void;
   /** Resolves with a challenge when the account has two-step verification on. */
@@ -48,7 +48,7 @@ interface AuthContextValue {
   /** Finishes single sign-on with the one-time code from `#sso=`. */
   completeSso(code: string): Promise<void>;
   register(input: Omit<RegisterTenantRequest, 'device'>): Promise<void>;
-  /** Free personal Sampledge Network account. */
+  /** Free personal SampConnect Network account. */
   signupPersonal(input: Omit<NetworkSignupRequest, 'device'>): Promise<void>;
   logout(): Promise<void>;
   /** Set when a refresh failed for auth reasons; the UI asks the user to sign in again. */
@@ -166,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isNetworkSession(slots.current.get('current'))) return setSpace('network');
     if (!slots.current.has('network')) {
       const token = await tokenFor('current');
-      if (!token) throw new Error('Sign in again to open Sampledge Network');
+      if (!token) throw new Error('Sign in again to open SampConnect Network');
       const s = await apiRequest<Session>('POST', '/v1/network/link', {
         token,
         body: { device: deviceInfo() },

@@ -117,7 +117,7 @@ export function EngineProvider({
 
       const signOut = async () => {
         engine.stop();
-        // Both spaces (organization and Sampledge Network) live on this device: wipe them all.
+        // Both spaces (organization and SampConnect Network) live on this device: wipe them all.
         const others = (await Promise.all([loadSession('current'), loadSession('network')]))
           .filter((s) => !!s)
           .flatMap((s) => [

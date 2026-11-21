@@ -2,10 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Db } from 'mongodb';
 import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, type ScopedDb } from '../database/tenant-db.js';
-import { ensureNetworkTenant } from '../database/migrations/030-network.js';
+import { ensureNetworkTenant } from '../database/migrations/033-network.js';
 
 /**
- * The one reserved tenant that holds Sampledge Network data. Organization tenants never
+ * The one reserved tenant that holds SampConnect Network data. Organization tenants never
  * read it and it never reads them: identities are linked by id only (docs/network.md).
  */
 @Injectable()

@@ -13,7 +13,7 @@ import { NetworkTenant } from './network-tenant.js';
 
 const TTL_MS = 15_000;
 
-/** What an organization's admins allow their members to do on Sampledge Network. */
+/** What an organization's admins allow their members to do on SampConnect Network. */
 @Injectable()
 export class NetworkPolicyService {
   private cache = new Map<string, { at: number; policy: NetworkPolicy }>();

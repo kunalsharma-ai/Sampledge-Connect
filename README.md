@@ -1,8 +1,8 @@
-# Sampledge Connect
+# SampConnect
 
 **One Workspace. Every Conversation. Connected.**
 
-Sampledge Connect is a premium, offline-first, multi-tenant communication platform for the Sampledge ecosystem: internal chat that keeps working through network drops, connected to the business records your teams work on.
+SampConnect is a premium, offline-first, multi-tenant communication platform for the Sampledge ecosystem: internal chat that keeps working through network drops, connected to the business records your teams work on.
 
 ## Status
 
@@ -34,6 +34,9 @@ pnpm test:integration   # API against real MongoDB + Redis
 | [Data model](docs/data-model.md)                       | MongoDB collections and indexes                                               |
 | [Offline sync protocol](docs/offline-sync-protocol.md) | IndexedDB schema, outbox state machine, cursor sync, conflicts                |
 | [Threat model](docs/threat-model.md)                   | STRIDE analysis, including cross-tenant leakage and offline device compromise |
+| [Deploy](docs/deploy.md)                               | Server setup, secrets, HTTPS, upgrades, backups, scaling                      |
+| [Monitoring](docs/monitoring.md)                       | Health checks, Prometheus metrics, alerts, logs                               |
+| [Launch readiness](docs/launch-readiness.md)           | Security, performance and accessibility checks with measured results          |
 
 ## Repository layout
 

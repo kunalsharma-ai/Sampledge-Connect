@@ -8,7 +8,7 @@ import { useAuth } from './auth';
 import { useEngine } from './engine';
 
 /**
- * Sampledge Network data on the web: every list is cached in IndexedDB (shown offline),
+ * SampConnect Network data on the web: every list is cached in IndexedDB (shown offline),
  * refreshed when the server says its scope changed (`network:changed`, sent to all your
  * devices) and on reconnect. Every action goes through a durable outbox: it is written to
  * IndexedDB first, sent when online, and replayed after a reconnect. Actions carry an

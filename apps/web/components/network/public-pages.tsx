@@ -137,7 +137,7 @@ export function PersonalSignupForm({
         {cta}
       </Button>
       <p className="text-center text-meta text-text-subtle">
-        Free forever for personal use. Your company uses Sampledge Connect?{' '}
+        Free forever for personal use. Your company uses SampConnect?{' '}
         <Link href="/login" className="text-accent hover:underline">
           Sign in with your work account
         </Link>

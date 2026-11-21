@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { CommunityLinkJoin } from '@/components/network/public-pages';
 
 export const metadata: Metadata = {
-  title: 'Join community · Sampledge Connect',
+  title: 'Join community · SampConnect',
   robots: { index: false, follow: false },
 };
 

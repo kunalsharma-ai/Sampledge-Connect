@@ -23,7 +23,7 @@ export default function Pinned() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canPin = !!conv && conv.myRole !== null && !conv.archivedAt;
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
 
   const unpin = async (messageId: string) => {
     setBusy(messageId);

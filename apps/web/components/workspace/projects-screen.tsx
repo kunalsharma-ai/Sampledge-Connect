@@ -94,7 +94,12 @@ export function ProjectsScreen({
           Samptrek projects and projects made here, each with its own channel.
         </span>
         <div className="flex-1" />
-        <Button size="sm" onClick={() => setCreating(true)} disabled={!online}>
+        <Button
+          size="sm"
+          onClick={() => setCreating(true)}
+          disabled={!online}
+          aria-label="New project"
+        >
           <Plus /> <span className="hidden sm:inline">New project</span>
         </Button>
       </header>

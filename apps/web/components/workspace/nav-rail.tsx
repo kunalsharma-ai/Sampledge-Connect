@@ -33,7 +33,7 @@ export function NavRail({
   unreadTotal: number;
   notificationCount?: number;
   onSignOut: () => void;
-  /** Sampledge Network shows its own module list. */
+  /** SampConnect Network shows its own module list. */
   modules?: ModuleDef[];
   /** Work ⇄ Network switcher under the header. */
   spaceSwitcher?: React.ReactNode;
