@@ -3,9 +3,12 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeJwt, jwtVerify } from 'jose';
 import { SMTPServer } from 'smtp-server';
+import { uuidv7 } from '@sampledge/contracts';
 import type {
   Call,
   CallJoinResponse,
+  GuestChatResponse,
+  Message,
   GuestJoinState,
   GuestLinkResponse,
   GuestMeetingView,
@@ -343,6 +346,10 @@ describe('the lobby', () => {
         },
       })
     ).body;
+    await api(h, 'POST', `/v1/conversations/${meeting.conversationId}/messages`, {
+      token: owner.accessToken,
+      body: { clientMessageId: uuidv7(), content: { text: 'Internal: their budget is tight' } },
+    });
     await flush();
     tokens = {
       dana: tokenFrom(mailTo('dana@client.example')[0]!.raw),
@@ -406,6 +413,38 @@ describe('the lobby', () => {
       state: 'denied',
       join: null,
     });
+
+    // Meeting chat: Dana sees only messages from this call, and can write; Eli can't.
+    const say = (text: string) =>
+      api(h, 'POST', `/v1/conversations/${meeting.conversationId}/messages`, {
+        token: owner.accessToken,
+        body: { clientMessageId: uuidv7(), content: { text } },
+      });
+    await say('Welcome Dana, slides are in the chat');
+    let chat = await guestGet<GuestChatResponse>(tokens.dana!, '/chat');
+    expect(chat.status).toBe(200);
+    expect(chat.body.messages.map((m) => [m.senderName, m.text, m.fromGuest, m.mine])).toEqual([
+      ['Priya Owner', 'Welcome Dana, slides are in the chat', false, false],
+    ]);
+    const sent = await guestPost<GuestChatResponse>(tokens.dana!, '/chat', {
+      text: 'Thanks, I can see you',
+    });
+    expect(sent.body.messages.at(-1)).toMatchObject({
+      senderName: 'Dana K',
+      fromGuest: true,
+      mine: true,
+    });
+    const history = (
+      await api<Message[]>(h, 'GET', `/v1/conversations/${meeting.conversationId}/messages`, {
+        token: ravi.accessToken,
+      })
+    ).body;
+    const fromDana = history.find((m) => m.content.text === 'Thanks, I can see you')!;
+    expect(fromDana.senderId).toBe(`guest:${danaId}`);
+    expect(fromDana.metadata).toMatchObject({ guest: { guestId: danaId, name: 'Dana K' } });
+    expect((await guestGet(tokens.eli!, '/chat')).status).toBe(403);
+    expect((await guestPost(tokens.eli!, '/chat', { text: 'let me in' })).status).toBe(403);
+    expect((await guestPost(tokens.dana!, '/chat', { text: '' })).status).toBe(400);
 
     // The SFU reports Dana connecting: she shows as joined, and keeps the call alive.
     const calls = h.app.get(CallsService);
