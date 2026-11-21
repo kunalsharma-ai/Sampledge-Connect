@@ -313,8 +313,8 @@ export function HomeScreen(p: HomeScreenProps) {
                             <span className="text-label text-text">
                               {nameOf(n.actorId, p.directory)}
                             </span>
-                            {VERB[n.kind] ?? 'notified you'} in{' '}
-                            {where(n.conversationId)} · {relativeShort(n.createdAt)}
+                            {VERB[n.kind] ?? 'notified you'} in {where(n.conversationId)} ·{' '}
+                            {relativeShort(n.createdAt)}
                           </span>
                           <span className="mt-0.5 line-clamp-2 block text-label font-normal text-text-muted">
                             {n.preview}
