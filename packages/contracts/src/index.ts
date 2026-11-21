@@ -12,6 +12,7 @@ export * from './attachments.js';
 export * from './notifications.js';
 export * from './scheduled-messages.js';
 export * from './calls.js';
+export * from './call-backgrounds.js';
 export * from './meetings.js';
 export * from './recordings.js';
 export * from './guests.js';

@@ -122,10 +122,10 @@ export interface ServerToClientEvents {
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
 
-export const MEETINGS_AREAS = ['working_hours', 'booking_pages'] as const;
+export const MEETINGS_AREAS = ['working_hours', 'booking_pages', 'call_background'] as const;
 export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
 
-export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
+export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings', 'calls'] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
 /** Typing state expires server-side if not refreshed. */

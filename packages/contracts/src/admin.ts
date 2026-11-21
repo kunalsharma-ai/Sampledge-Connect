@@ -141,6 +141,7 @@ const LABELS: Record<string, string> = {
   'recording.delete': 'Deleted a recording',
   'recordings.export': 'Exported recordings',
   'recordings.settings.update': 'Changed recording settings',
+  'calls.backgrounds.update': 'Changed call background settings',
   'conversation.created': 'Created a conversation',
   'conversation.posting_policy': 'Changed who can post',
   'integration.key_issued': 'Issued a module key',
