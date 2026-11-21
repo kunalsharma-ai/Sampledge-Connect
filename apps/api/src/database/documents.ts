@@ -186,6 +186,31 @@ export interface NotificationDoc extends TenantOwned {
   readAt: Date | null;
 }
 
+export interface CallParticipantDoc {
+  userId: string;
+  state: 'ringing' | 'joined' | 'left' | 'declined' | 'missed';
+  joinedAt: Date | null;
+  leftAt: Date | null;
+  /** When a `ringing` invite turns into `missed`. */
+  ringUntil: Date | null;
+}
+
+export interface CallDoc extends TenantOwned {
+  conversationId: string;
+  media: 'audio' | 'video';
+  status: 'live' | 'ended';
+  startedBy: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  /** SFU room name. Embeds the tenant and call ids, so tokens can never cross tenants. */
+  room: string;
+  participants: CallParticipantDoc[];
+  /** The system message (call card) this call posted in its conversation. */
+  messageId: string | null;
+  /** Last join/leave/heartbeat. A live call with nobody joined for a while is closed. */
+  lastActivityAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -199,4 +224,5 @@ export interface TenantCollections {
   audit_logs: AuditLogDoc;
   attachments: AttachmentDoc;
   notifications: NotificationDoc;
+  calls: CallDoc;
 }

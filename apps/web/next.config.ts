@@ -2,6 +2,9 @@ import type { NextConfig } from 'next';
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const apiWs = api.replace(/^http/, 'ws');
+/** Self-hosted SFU for calls (must match the API's LIVEKIT_PUBLIC_URL). */
+const rtc = process.env.NEXT_PUBLIC_RTC_URL ?? 'ws://localhost:7880';
+const rtcHttp = rtc.replace(/^ws/, 'http');
 
 /** Security headers. Messages are rendered as text, never HTML. */
 const csp = [
@@ -11,7 +14,8 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   `img-src 'self' data: blob: ${api}`,
-  `connect-src 'self' ${api} ${apiWs}`,
+  `connect-src 'self' ${api} ${apiWs} ${rtc} ${rtcHttp}`,
+  "media-src 'self' blob: mediastream:",
   "worker-src 'self'",
   "manifest-src 'self'",
   "frame-ancestors 'none'",
@@ -30,7 +34,10 @@ const config: NextConfig = {
           { key: 'Content-Security-Policy', value: csp },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
+          },
         ],
       },
       {

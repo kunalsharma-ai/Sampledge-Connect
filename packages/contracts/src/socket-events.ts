@@ -1,3 +1,4 @@
+import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
 import type { Conversation } from './conversations.js';
 import type {
@@ -48,6 +49,12 @@ export interface ServerToClientEvents {
   'notification:new': (notification: Notification) => void;
   /** Notifications were marked read on another device; refetch the unread count. */
   'notification:read': (e: { unreadCount: number }) => void;
+  /** You are invited to a call (sent to each invitee's devices). Stop ringing at expiresAt. */
+  'call:ringing': (e: CallRingingEvent) => void;
+  /** A call in one of your conversations changed (someone joined, left, declined). */
+  'call:updated': (call: Call) => void;
+  /** A call ended; leave the room and stop ringing. */
+  'call:ended': (call: Call) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

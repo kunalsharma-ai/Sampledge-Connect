@@ -2,6 +2,7 @@ import type { Db } from 'mongodb';
 import { initialMigration } from './001-initial.js';
 import { attachmentsMigration } from './002-attachments.js';
 import { notificationsMigration } from './003-notifications.js';
+import { callsMigration } from './004-calls.js';
 
 export interface Migration {
   id: string;
@@ -13,6 +14,7 @@ export const MIGRATIONS: Migration[] = [
   initialMigration,
   attachmentsMigration,
   notificationsMigration,
+  callsMigration,
 ];
 
 /**

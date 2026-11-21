@@ -6,13 +6,19 @@ import {
   NOTIFICATION_PREVIEW_LENGTH,
   type Notification,
   type NotificationPage,
+  type CallPushData,
   type PushData,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { PUSH_PROVIDER, type PushMessage, type PushProvider } from '../push/push-provider.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { ConversationDoc, MessageDoc, NotificationDoc } from '../database/documents.js';
+import type {
+  CallDoc,
+  ConversationDoc,
+  MessageDoc,
+  NotificationDoc,
+} from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
@@ -194,6 +200,72 @@ export class NotificationsService {
       });
     }
     if (messages.length === 0) return;
+    const { invalidTokens } = await this.provider.send(messages);
+    if (invalidTokens.length)
+      await t.devices.updateMany(
+        { 'push.token': { $in: invalidTokens } },
+        { $set: { push: null } },
+      );
+  }
+
+  /**
+   * Incoming-call push for invitees whose phone isn't connected right now (a connected app
+   * already got `call:ringing`). Members who set the conversation to 'none' are not rung by push.
+   */
+  async pushCallRinging(
+    tenantId: string,
+    call: CallDoc,
+    conversation: ConversationDoc,
+    inviteeIds: string[],
+    expiresAt: Date,
+  ): Promise<void> {
+    if (this.provider.name === null || inviteeIds.length === 0) return;
+    const t = this.db.for(tenantId);
+    const muted = new Set(
+      (
+        await t.conversation_members
+          .find(
+            { conversationId: conversation._id, userId: { $in: inviteeIds }, notifyLevel: 'none' },
+            { projection: { userId: 1 } },
+          )
+          .toArray()
+      ).map((m) => m.userId),
+    );
+    const targets = inviteeIds.filter((id) => !muted.has(id));
+    if (!targets.length) return;
+    const devices = (
+      await t.devices
+        .find({ userId: { $in: targets }, revokedAt: null, 'push.token': { $exists: true } })
+        .toArray()
+    ).filter((d) => d.push && this.provider.accepts(d.push.provider));
+    if (!devices.length) return;
+    const caller = await t.users.findOne(
+      { _id: call.startedBy },
+      { projection: { displayName: 1 } },
+    );
+    const callerName = caller?.displayName ?? 'Someone';
+    const what = call.media === 'video' ? 'video call' : 'voice call';
+    const body =
+      conversation.kind === 'dm'
+        ? `Incoming ${what}`
+        : `${what[0]!.toUpperCase()}${what.slice(1)} in ${conversation.kind === 'group' ? (conversation.name ?? 'a group') : `#${conversation.name ?? 'channel'}`}`;
+    const live = new Map<string, Set<string>>();
+    const messages: PushMessage[] = [];
+    for (const d of devices) {
+      if (!live.has(d.userId))
+        live.set(d.userId, await this.realtime.liveSessions(tenantId, d.userId));
+      if (live.get(d.userId)!.has(d._id)) continue;
+      const data: CallPushData = {
+        type: 'call',
+        callId: call._id,
+        conversationId: conversation._id,
+        media: call.media,
+        callerId: call.startedBy,
+        expiresAt: expiresAt.toISOString(),
+      };
+      messages.push({ token: d.push!.token, title: callerName, body, data: { ...data } });
+    }
+    if (!messages.length) return;
     const { invalidTokens } = await this.provider.send(messages);
     if (invalidTokens.length)
       await t.devices.updateMany(

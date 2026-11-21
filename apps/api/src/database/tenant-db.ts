@@ -137,6 +137,7 @@ export class TenantDb {
       audit_logs: c('audit_logs'),
       attachments: c('attachments'),
       notifications: c('notifications'),
+      calls: c('calls'),
     };
   }
 }
