@@ -37,6 +37,7 @@ import { cameraTrackOf, handRaisedAt, screenTrackOf, useCalls } from '@/lib/call
 import type { DirectoryEntry } from '@/lib/engine';
 import { conversationTitle, formatTime, nameOf } from './helpers';
 import { MemberCallChat, useCallChatCount } from './call-chat';
+import { CallDeviceSettings } from './call-devices';
 
 const iconBtn =
   'rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40';
@@ -342,7 +343,7 @@ export function Tile({
   return (
     <div
       className={cn(
-        'relative flex min-h-0 items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
+        'relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
         speaking ? 'border-success shadow-[0_0_0_2px_var(--color-success)]' : 'border-border',
       )}
       data-testid="call-tile"
@@ -710,6 +711,7 @@ export function CallStage({
             )}
           </ControlButton>
         ) : null}
+        <CallDeviceSettings room={cur.room} />
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>

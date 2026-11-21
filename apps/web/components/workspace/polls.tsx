@@ -14,8 +14,9 @@ import {
   cn,
   useToast,
 } from '@sampledge/ui';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '@/lib/auth';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { pollsApi, scheduledApi } from '@/lib/polls';
 import { nameOf } from './helpers';
 
@@ -27,7 +28,10 @@ const when = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
-/** A poll inside the timeline. Voting needs a connection; results update live for everyone. */
+/**
+ * A poll inside the timeline. Votes go through the device's action queue, so they count
+ * offline too and are sent on reconnect; results update live for everyone.
+ */
 export function PollCard({
   message,
   poll,
@@ -46,11 +50,16 @@ export function PollCard({
   canModerate: boolean;
 }) {
   const { getAccessToken } = useAuth();
+  const { db, engine } = useEngine();
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
   const [anonMine, setAnonMine] = React.useState<string[] | null>(null);
   const closed = !!poll.closedAt;
   const id = message.messageId!;
+  /** A vote made on this device that the server hasn't confirmed yet. */
+  const queuedVote = useLiveQuery(() => db.actions.get(`vote|${id}`), [db, id]);
+  const pendingVote =
+    queuedVote?.state === 'queued' ? (queuedVote.body as { optionIds: string[] }).optionIds : null;
 
   React.useEffect(() => {
     if (!poll.anonymous || offline) return;
@@ -64,15 +73,21 @@ export function PollCard({
     };
   }, [poll.anonymous, id, offline, getAccessToken, poll.totalVoters]);
 
-  const mine = poll.anonymous
-    ? (anonMine ?? [])
-    : poll.options.filter((o) => o.voterIds.includes(me)).map((o) => o.optionId);
+  // My vote changed on another device (the only live source of it in anonymous polls).
+  useEngineChange(['pollVote'], (e) => {
+    if (e.type === 'pollVote' && e.messageId === id) setAnonMine(e.optionIds);
+  });
+  const mine =
+    pendingVote ??
+    (poll.anonymous
+      ? (anonMine ?? [])
+      : poll.options.filter((o) => o.voterIds.includes(me)).map((o) => o.optionId));
   const voted = mine.length > 0;
   const showResults = voted || closed;
   const max = Math.max(1, ...poll.options.map((o) => o.count));
 
-  const choose = async (optionId: string) => {
-    if (closed || offline || busy) return;
+  const choose = (optionId: string) => {
+    if (closed) return;
     const next = poll.multiple
       ? mine.includes(optionId)
         ? mine.filter((x) => x !== optionId)
@@ -80,15 +95,16 @@ export function PollCard({
       : mine.includes(optionId)
         ? []
         : [optionId];
-    setBusy(true);
-    try {
-      await pollsApi.vote(getAccessToken, id, next);
-      if (poll.anonymous) setAnonMine(next);
-    } catch (e) {
-      toast({ title: 'Vote not counted', description: (e as Error).message, tone: 'danger' });
-    } finally {
-      setBusy(false);
-    }
+    if (poll.anonymous) setAnonMine(next);
+    void engine.queueAction({
+      key: `vote|${id}`,
+      method: 'PUT',
+      path: `/v1/messages/${id}/poll/vote`,
+      body: { optionIds: next },
+      label: 'Vote in poll',
+      conversationId: message.conversationId,
+      messageId: id,
+    });
   };
 
   const close = async () => {
@@ -147,7 +163,7 @@ export function PollCard({
                 type="button"
                 role={poll.multiple ? 'checkbox' : 'radio'}
                 aria-checked={picked}
-                disabled={closed || offline || busy}
+                disabled={closed}
                 onClick={() => void choose(o.optionId)}
                 className={cn(
                   'relative flex w-full items-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-left text-label transition-colors disabled:cursor-default',
@@ -202,7 +218,7 @@ export function PollCard({
         <span>
           {poll.totalVoters} {poll.totalVoters === 1 ? 'vote' : 'votes'}
           {!showResults && !closed ? ' · vote to see results' : ''}
-          {offline && !closed ? ' · voting needs a connection' : ''}
+          {pendingVote ? ' · your vote is waiting to sync' : ''}
         </span>
         {!closed && (message.senderId === me || canModerate) ? (
           <button

@@ -241,6 +241,7 @@ export function SyncCenterDialog({
 }) {
   const { db, engine, state } = useEngine();
   const outbox = useLiveQuery(() => db.outbox.orderBy('createdAt').toArray(), [db]);
+  const actions = useLiveQuery(() => db.actions.orderBy('createdAt').toArray(), [db]);
   const conversations = useLiveQuery(() => db.conversations.toArray(), [db]);
   const names = new Map(
     (conversations ?? []).map((c) => [c.conversationId, c.name ?? 'Direct message']),
@@ -252,7 +253,10 @@ export function SyncCenterDialog({
         description="Everything saved on this device that hasn’t reached the server yet."
       >
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-sunken px-4 py-3">
-          <ConnectivityIndicator state={state.connectivity} queued={state.queued} />
+          <ConnectivityIndicator
+            state={state.connectivity}
+            queued={state.queued + state.pendingActions}
+          />
           <span className="text-meta text-text-subtle">
             Last sync{' '}
             {state.lastSyncAt
@@ -264,11 +268,12 @@ export function SyncCenterDialog({
           </span>
         </div>
         <div className="mt-4 max-h-72 overflow-y-auto">
-          {outbox === undefined ? null : outbox.length === 0 ? (
+          {outbox === undefined || actions === undefined ? null : outbox.length === 0 &&
+            actions.length === 0 ? (
             <StateView
               state="success"
               title="All caught up"
-              description="Every message on this device has reached the server."
+              description="Every message and change on this device has reached the server."
             />
           ) : (
             <ul className="space-y-2">
@@ -329,6 +334,55 @@ export function SyncCenterDialog({
                   ) : o.attempts > 0 ? (
                     <p className="mt-1 text-meta text-text-subtle">
                       Attempt {o.attempts}. Retrying automatically.
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+              {actions.map((a) => (
+                <li
+                  key={a.key}
+                  className={cn(
+                    'rounded-lg border p-3',
+                    a.state === 'failed' ? 'border-danger/50' : 'border-border',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-label font-normal text-text">{a.label}</span>
+                    <Badge tone={a.state === 'failed' ? 'danger' : 'warning'}>
+                      {a.state === 'failed' ? 'Failed' : 'Queued'}
+                    </Badge>
+                  </div>
+                  {a.conversationId ? (
+                    <p className="mt-1 truncate text-meta text-text-subtle">
+                      {names.get(a.conversationId) ?? 'Conversation'}
+                    </p>
+                  ) : null}
+                  {a.state === 'failed' ? (
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-meta text-danger">
+                        {a.lastError?.message ?? 'Not saved'}
+                      </span>
+                      <span className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void engine.retryAction(a.key)}
+                        >
+                          <RotateCcw /> Retry
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Discard: ${a.label}`}
+                          onClick={() => void engine.discardAction(a.key)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </span>
+                    </div>
+                  ) : a.attempts > 0 ? (
+                    <p className="mt-1 text-meta text-text-subtle">
+                      Attempt {a.attempts}. Retrying automatically.
                     </p>
                   ) : null}
                 </li>

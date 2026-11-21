@@ -26,7 +26,7 @@ import { MessagesService } from '../messages/messages.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RealtimePublisher } from './realtime.publisher.js';
-import { conversationRoom, userRoom } from './rooms.js';
+import { conversationRoom, tenantRoom, userRoom } from './rooms.js';
 import { NetworkGate } from '../network/network-gate.js';
 import { NetworkTenant } from '../network/network-tenant.js';
 
@@ -42,7 +42,6 @@ type AppSocket = Socket<
   SocketData
 >;
 
-const tenantRoom = (tenantId: string) => `t:${tenantId}:all`;
 const PRESENCE_TTL_S = 90;
 const RECHECK_MS = 60_000;
 

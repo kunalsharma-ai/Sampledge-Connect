@@ -22,6 +22,8 @@ export class FakeServer {
   conversations = new Map<string, Conversation>();
   sendCalls = 0;
   reactCalls = 0;
+  /** Every generic request the engine made, in order: `METHOD path`. */
+  requests: string[] = [];
   private failures: (ApiError | 'network' | 'drop-ack')[] = [];
 
   addConversation(id: string, memberIds: string[]) {
@@ -155,6 +157,35 @@ export class FakeServer {
         };
         this.messages[i] = updated;
         return updated;
+      },
+      // Generic REST used by the action queue. Message edit/delete/pin change the message;
+      // any other path is recorded and answers {ok:true}.
+      request: async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+        if (!this.online) throw new NetworkError('offline');
+        const f = this.failures.shift();
+        if (f === 'network') throw new NetworkError('flaky');
+        if (f && f !== 'drop-ack') throw new ServerError(f);
+        this.requests.push(`${method} ${path}`);
+        const m = /^\/v1\/messages\/([^/]+)(\/pin)?$/.exec(path);
+        if (!m) return { ok: true } as T;
+        const i = this.messages.findIndex((x) => x.messageId === m[1]);
+        const cur = this.messages[i];
+        if (!cur) throw new ServerError({ code: 'NOT_FOUND', message: 'Message not found' });
+        const n = (this.seq.get(cur.conversationId) ?? 0) + 1;
+        this.seq.set(cur.conversationId, n);
+        const now = new Date().toISOString();
+        const next: Message = m[2]
+          ? { ...cur, pinned: method === 'PUT' ? { pinnedBy: userId, pinnedAt: now } : null }
+          : method === 'DELETE'
+            ? { ...cur, deletedAt: now, content: { text: '', mentions: [] } }
+            : {
+                ...cur,
+                editedAt: now,
+                content: { ...cur.content, text: (body as { text: string }).text },
+              };
+        next.changeSequence = n;
+        this.messages[i] = next;
+        return next as T;
       },
       ackReceipt: async (r): Promise<Receipt> => ({
         conversationId: r.conversationId,

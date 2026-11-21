@@ -22,6 +22,7 @@ import { MONGO_DB } from '../database/database.module.js';
 import { REDIS } from '../redis/redis.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { createCipher, initSharedCipher, type SecretCipher } from './cipher.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 export interface IntegrationSettingsDoc {
   _id?: unknown;
@@ -81,6 +82,7 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimePublisher,
   ) {
     if (!cfg.SETTINGS_ENCRYPTION_KEY && cfg.NODE_ENV !== 'test') {
       this.log.warn(
@@ -219,6 +221,8 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
 
   private async changed(scope: Scope, providerId: string) {
     this.invalidate(scope.tenantId, providerId);
+    if (scope.tenantId)
+      this.realtime.toTenant(scope.tenantId, 'tenant:updated', { area: 'integrations' });
     await this.redis
       .publish(CHANNEL, JSON.stringify({ tenantId: scope.tenantId, providerId }))
       .catch(() => undefined);

@@ -7,10 +7,12 @@ import {
   CornerUpLeft,
   Languages,
   MessagesSquare,
+  Pencil,
   Pin,
   PinOff,
   SmilePlus,
   Stamp,
+  Trash2,
 } from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
@@ -157,6 +159,9 @@ export interface ExtraActions {
   onPin?: (pin: boolean) => void;
   saved?: boolean;
   onSave?: (save: boolean) => void;
+  /** Your own messages: change the text or delete for everyone. */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 const ACTION_BTN =
@@ -171,6 +176,8 @@ export function MessageActions({
   onPin,
   saved,
   onSave,
+  onEdit,
+  onDelete,
   onCreateTask,
   onRequestApproval,
   onTranslate,
@@ -239,6 +246,20 @@ export function MessageActions({
               className={cn(ACTION_BTN, saved && 'text-accent')}
             >
               {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+            </button>
+          ) : null}
+          {onEdit ? (
+            <button onClick={onEdit} aria-label="Edit message" className={ACTION_BTN}>
+              <Pencil className="size-4" />
+            </button>
+          ) : null}
+          {onDelete ? (
+            <button
+              onClick={onDelete}
+              aria-label="Delete message"
+              className={cn(ACTION_BTN, 'hover:text-danger')}
+            >
+              <Trash2 className="size-4" />
             </button>
           ) : null}
           {onCreateTask ? (

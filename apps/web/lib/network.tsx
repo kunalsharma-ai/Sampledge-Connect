@@ -167,6 +167,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (!online) return;
     void flush().then(() => emit(Object.keys(SCOPE_PATHS) as Scope[]));
   }, [online, flush, emit]);
+  // Socket reconnected (live events may have been missed): replay and refetch the same way.
+  React.useEffect(
+    () =>
+      engine.onChange((e) => {
+        if (e.type === 'reconnected')
+          void flush().then(() => emit(Object.keys(SCOPE_PATHS) as Scope[]));
+      }),
+    [engine, flush, emit],
+  );
 
   const act = React.useCallback<NetworkContextValue['act']>(
     async (input) => {
