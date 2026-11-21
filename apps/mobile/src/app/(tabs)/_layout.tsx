@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router/tabs';
 import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
-import { useConversations } from '../../state/hooks';
+import { useConversations, useNotifications } from '../../state/hooks';
 import { alpha, fonts } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -18,6 +18,8 @@ export default function TabsLayout() {
   const { theme } = useTheme();
   const { conversations } = useConversations();
   const unread = conversations.reduce((n, c) => n + c.unread, 0);
+  const { unread: activity } = useNotifications();
+  const badge = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
   return (
     <Tabs
       screenOptions={{
@@ -69,7 +71,7 @@ export default function TabsLayout() {
         options={{
           title: 'Messages',
           tabBarIcon: icon('chatbubbles', 'chatbubbles-outline'),
-          tabBarBadge: unread > 0 ? (unread > 99 ? '99+' : unread) : undefined,
+          tabBarBadge: badge(unread),
         }}
       />
       <Tabs.Screen
@@ -78,7 +80,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="activity"
-        options={{ title: 'Activity', tabBarIcon: icon('notifications', 'notifications-outline') }}
+        options={{
+          title: 'Activity',
+          tabBarIcon: icon('notifications', 'notifications-outline'),
+          tabBarBadge: badge(activity),
+        }}
       />
       <Tabs.Screen
         name="more"

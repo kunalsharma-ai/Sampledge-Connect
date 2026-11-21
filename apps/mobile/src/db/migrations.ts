@@ -124,6 +124,27 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       );
     `);
   },
+  // v5: notification feed cache (last page from the server) and read marks waiting to send
+  async (tx) => {
+    await tx.exec(`
+      CREATE TABLE notifications (
+        notification_id   TEXT PRIMARY KEY,
+        kind              TEXT NOT NULL,
+        conversation_id   TEXT NOT NULL,
+        message_id        TEXT NOT NULL,
+        actor_id          TEXT NOT NULL,
+        preview           TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        read_at           TEXT
+      );
+      CREATE INDEX notifications_created ON notifications(created_at DESC);
+      CREATE TABLE notification_reads (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        body              TEXT NOT NULL,
+        attempts          INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

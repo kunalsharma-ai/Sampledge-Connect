@@ -94,7 +94,12 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     ],
     ['demo-aisha', 'demo-aisha', 'Do you have five minutes before the client call?'],
     ['demo-aisha', DEMO_SELF, 'Yes, calling you now.'],
-    ['demo-aisha', 'demo-aisha', 'Thanks. Sending the revised proposal deck after lunch.'],
+    [
+      'demo-aisha',
+      'demo-aisha',
+      'Thanks. Sending the revised proposal deck after lunch.',
+      { replyToSeq: 2 },
+    ],
     [
       'demo-qa',
       'demo-lena',
@@ -107,6 +112,12 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       { mentions: ['demo-lena'], replyToSeq: 1 },
     ],
     ['demo-launch', 'demo-marco', 'Soft launch is live. Watching the first 50 completes.'],
+    [
+      'demo-fieldwork',
+      'demo-lena',
+      'Boost sample is open for DE 35-44. Incidence kept at 18% as last wave.',
+      { replyToSeq: 3 },
+    ],
   ];
   const seqByConv = new Map<string, number>();
   const messages: Message[] = script.map(([conversationId, senderId, text, extra], i) => {
@@ -152,6 +163,33 @@ export async function seedDemo(store: LocalStore): Promise<void> {
     ),
   );
   await store.markReadLocally('demo-fieldwork', 3);
+  // Activity: what the server feed would hold for these messages (replies to you, mentions of you).
+  const byId = new Map(messages.map((m) => [m.messageId, m]));
+  const items = messages
+    .filter((m) => m.senderId !== DEMO_SELF)
+    .flatMap((m) => {
+      const kind = m.content.mentions?.includes(DEMO_SELF)
+        ? ('mention' as const)
+        : m.replyToMessageId && byId.get(m.replyToMessageId)?.senderId === DEMO_SELF
+          ? ('reply' as const)
+          : null;
+      return kind
+        ? [
+            {
+              notificationId: `demo-n-${m.messageId}`,
+              kind,
+              conversationId: m.conversationId,
+              messageId: m.messageId,
+              actorId: m.senderId,
+              preview: m.content.text.slice(0, 140),
+              createdAt: m.createdAt,
+              readAt: null,
+            },
+          ]
+        : [];
+    })
+    .reverse();
+  await store.replaceNotifications({ items, unreadCount: items.length, nextBefore: null });
   await store.setSetting('people', JSON.stringify(DEMO_PEOPLE));
   await store.setSetting('demo.seeded', '1');
 }

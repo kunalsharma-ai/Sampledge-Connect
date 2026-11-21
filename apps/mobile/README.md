@@ -86,17 +86,24 @@ Built: sign-in against the API contract, local demo workspace, conversation list
 filters and unread counts, conversations with optimistic sending, every message status,
 retry and discard of unsent messages, draft autosave, typing indicators (when online), read
 receipts, replies (quoted, tap to jump to the original), @mentions with a member picker and
-a Mentions list in Activity, offline edits and deletes of your own messages (queued like sends,
+offline edits and deletes of your own messages (queued like sends,
 rolled back with the reason if the server refuses), reactions (chips under messages and a
 quick row in the long-press sheet; offline toggles collapse into the last intent), photo and
 file attachments (copied into app storage when picked, uploaded with the message when online,
-opened through short-lived signed links), on-device search, themes, offline and storage settings, sign-out with a warning
+opened through short-lived signed links), in-app notifications (Activity lists mentions of you
+and replies to you from `GET /v1/notifications`, cached for offline use, with a tab badge, a live
+banner when one arrives while you are elsewhere, and read marks that work offline and match your
+other devices; opening a conversation clears its items), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
 Inbox, Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
-push notifications, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
+push notifications (Settings, Notifications shows what is missing: an EAS project ID, APNs and
+FCM credentials, and server push), per-conversation mute, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
-Not yet verified on a device or simulator. The app is checked with type checks, unit tests,
+Not yet verified on a device or simulator. This cloud environment has no KVM (so no Android
+emulator) and no macOS (so no iOS simulator). A device build needs either a local machine with
+Android Studio or Xcode, or EAS Build with an Expo account (plus an Apple Developer account for
+iOS and a Firebase project for Android push). The app is checked with type checks, unit tests,
 and the end-to-end run above against a real API through the web preview.

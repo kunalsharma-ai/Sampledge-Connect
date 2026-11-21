@@ -44,6 +44,13 @@ export default function ConversationScreen() {
     if (newestSeq > 0) void engine.markRead(id, newestSeq);
   }, [engine, id, newestSeq]);
 
+  // Opening a conversation clears its mentions and replies, here and on your other devices.
+  useEffect(() => {
+    const clear = () => void engine.markNotificationsRead({ conversationId: id });
+    clear();
+    return store.events.on('notifications', clear);
+  }, [engine, store, id]);
+
   useEffect(
     () =>
       engine.onTyping((e) => {
