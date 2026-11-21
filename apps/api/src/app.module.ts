@@ -33,6 +33,7 @@ import { SyncController } from './sync/sync.controller.js';
 import { RealtimePublisher } from './realtime/realtime.publisher.js';
 import { RealtimeGateway } from './realtime/realtime.gateway.js';
 import { HealthController } from './health/health.controller.js';
+import { Metrics } from './health/metrics.js';
 import { AttachmentsController } from './attachments/attachments.controller.js';
 import { AttachmentsService } from './attachments/attachments.service.js';
 import { FILE_STORAGE, GridFsStorage } from './attachments/file-storage.js';
@@ -122,6 +123,7 @@ export class AppModule {
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
+        { provide: Metrics, useValue: new Metrics() },
         AuditService,
         RecordingsService,
         TokenService,

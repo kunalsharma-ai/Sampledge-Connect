@@ -50,7 +50,7 @@ describe('white-label branding', () => {
     expect((await put(owner, { logo: svg('<script>alert(1)</script>') })).status).toBe(400);
     expect((await put(owner, { logo: svg('<rect onload="x()"/>') })).status).toBe(400);
     const big = `data:image/png;base64,${Buffer.alloc(300 * 1024, 1).toString('base64')}`;
-    expect((await put(owner, { logo: big })).status).toBe(400);
+    expect((await put(owner, { logo: big })).status).toBe(413); // over the 256 KB body limit;
   });
 
   it('saves the brand and everyone in the organization gets it', async () => {

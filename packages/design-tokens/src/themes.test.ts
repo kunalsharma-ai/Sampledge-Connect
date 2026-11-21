@@ -40,7 +40,10 @@ describe('built-in themes', () => {
       expect(contrastRatio(c.text, c.bg)).toBeGreaterThanOrEqual(7);
       expect(contrastRatio(c.text, c.surface)).toBeGreaterThanOrEqual(7);
       expect(contrastRatio(c.textMuted, c.surface)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(c.textSubtle, c.surface)).toBeGreaterThanOrEqual(3);
+      // Subtle text is used for 12px timestamps and hints, so it needs full AA too.
+      for (const b of [c.surface, c.bg, c.surfaceRaised, c.surfaceSunken])
+        expect(contrastRatio(c.textSubtle, b)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c.textMuted, c.bg)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(c.accentFg, c.accent)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(c.bubbleOwnFg, c.bubbleOwn)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(c.text, c.bubbleOther)).toBeGreaterThanOrEqual(7);
