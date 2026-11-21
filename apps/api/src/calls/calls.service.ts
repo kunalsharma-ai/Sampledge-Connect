@@ -36,10 +36,11 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RecordingsService } from '../recordings/recordings.service.js';
+import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 import {
   LiveKitClient,
   egressFinished,
-  liveKitSettings,
+  liveKitFromValues,
   normalizeEgress,
   type EgressInfo,
   type LiveKitWebhookEvent,
@@ -105,7 +106,9 @@ const RECORDING_RECHECK_MS = 60_000;
 @Injectable()
 export class CallsService implements OnModuleInit, OnApplicationShutdown {
   private readonly log = new Logger(CallsService.name);
-  readonly lk: LiveKitClient | null;
+  /** Clients by settings fingerprint (organizations on the same server share one). */
+  private readonly clients = new Map<string, LiveKitClient>();
+  private readonly stopListening: () => void;
   private sweepTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -118,9 +121,31 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly recordings: RecordingsService,
+    private readonly settings: IntegrationSettingsService,
   ) {
-    const s = liveKitSettings(cfg);
-    this.lk = s ? new LiveKitClient(s) : null;
+    // Hot reload: a saved change (on any API node) drops the old clients.
+    this.stopListening = settings.onChange('livekit', () => this.clients.clear());
+  }
+
+  /**
+   * The media server for an organization: its own (Integrations → Calls), else the platform
+   * default, else legacy env. null when calls aren't set up.
+   */
+  async sfu(tenantId: string): Promise<{ client: LiveKitClient; shared: boolean } | null> {
+    const r = await this.settings.get(tenantId, 'livekit');
+    const s = r?.enabled ? liveKitFromValues(r.values) : null;
+    if (!s) return null;
+    const key = JSON.stringify(s);
+    let client = this.clients.get(key);
+    if (!client) {
+      client = new LiveKitClient(s);
+      this.clients.set(key, client);
+    }
+    return { client, shared: r!.source !== 'tenant' };
+  }
+
+  private async lk(tenantId: string): Promise<LiveKitClient | null> {
+    return (await this.sfu(tenantId))?.client ?? null;
   }
 
   onModuleInit() {
@@ -129,20 +154,27 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     this.sweepTimer.unref();
   }
   onApplicationShutdown() {
+    this.stopListening();
     if (this.sweepTimer) clearInterval(this.sweepTimer);
   }
 
   async config(ctx: TenantContext): Promise<CallsConfig> {
+    const sfu = await this.sfu(ctx.tenantId);
     return {
-      enabled: !!this.lk,
-      provider: this.lk ? 'livekit' : null,
+      enabled: !!sfu,
+      provider: sfu ? 'livekit' : null,
       ringTimeoutSeconds: this.cfg.CALL_RING_TIMEOUT_SECONDS,
       recordingEnabled: await this.recordingAllowed(ctx.tenantId),
     };
   }
 
+  /**
+   * Recording needs the media server's Egress to write into this API's spool directory, which
+   * only the deployment's own server (platform settings or env) is set up to do.
+   */
   private async recordingAllowed(tenantId: string) {
-    if (!this.lk || !this.cfg.RECORDINGS_SPOOL_DIR) return false;
+    const sfu = await this.sfu(tenantId);
+    if (!sfu?.shared || !this.cfg.RECORDINGS_SPOOL_DIR) return false;
     return (await this.recordings.settings(tenantId)).callRecordingEnabled;
   }
 
@@ -153,7 +185,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
    * egress service. Anyone in the call may start it; everyone sees the indicator at once.
    */
   async startRecording(ctx: TenantContext, callId: string): Promise<Call> {
-    const lk = this.requireSfu();
+    const lk = await this.requireSfu(ctx.tenantId);
     const call = await this.load(ctx, callId);
     if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
     if (!(await this.recordingAllowed(ctx.tenantId)))
@@ -243,9 +275,10 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     if (!stopping) return call;
     this.broadcast(tenantId, stopping);
     const egressId = stopping.recording?.egressId;
-    if (egressId && this.lk) {
+    const lk = egressId ? await this.lk(tenantId) : null;
+    if (egressId && lk) {
       try {
-        const info = await this.lk.stopEgress(egressId);
+        const info = await lk.stopEgress(egressId);
         if (info && egressFinished(info.status)) await this.applyEgress(info);
       } catch (e) {
         // The sweeper re-checks it; egress also stops by itself when the room closes.
@@ -299,7 +332,6 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
 
   /** Stops over-long recordings and re-checks ones egress hasn't reported on. */
   private async sweepRecordings(now: Date) {
-    if (!this.lk) return;
     const calls = await this.rawDb
       .collection<CallDoc>('calls')
       .find({ recording: { $type: 'object' } })
@@ -330,7 +362,9 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
           if (u) this.broadcast(call.tenantId, u);
           continue;
         }
-        const info = await this.lk.getEgress(rec.egressId);
+        const lk = await this.lk(call.tenantId);
+        if (!lk) continue;
+        const info = await lk.getEgress(rec.egressId);
         if (info) await this.applyEgress(info);
       } catch (e) {
         this.log.warn(`recording sweep for ${call._id} failed: ${String(e)}`);
@@ -338,13 +372,14 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private requireSfu(): LiveKitClient {
-    if (!this.lk)
+  private async requireSfu(tenantId: string): Promise<LiveKitClient> {
+    const lk = await this.lk(tenantId);
+    if (!lk)
       throw new AppError(
         'UNAVAILABLE',
-        'Calls are not set up on this server yet. An administrator needs to configure the media server (LIVEKIT_*).',
+        'Calls are not set up yet. An administrator needs to add the media server in Integrations → Calls.',
       );
-    return this.lk;
+    return lk;
   }
 
   // ---------- client actions ----------
@@ -355,7 +390,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     conversationId: string,
     input: unknown,
   ): Promise<CallJoinResponse> {
-    const lk = this.requireSfu();
+    const lk = await this.requireSfu(ctx.tenantId);
     const req = parse(StartCallRequestSchema, input ?? {});
     const { conversation } = await this.conversations.authorize(
       ctx,
@@ -442,7 +477,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async join(ctx: TenantContext, callId: string): Promise<CallJoinResponse> {
-    this.requireSfu();
+    await this.requireSfu(ctx.tenantId);
     const call = await this.load(ctx, callId);
     if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
     const updated = await this.setState(ctx.tenantId, call, ctx.userId, 'joined');
@@ -515,8 +550,26 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
 
   // ---------- SFU events ----------
 
+  /**
+   * Room names carry the organization (`sc_<tenantId>_<callId>`), so the event is checked
+   * against that organization's media server secret. Anything else is rejected.
+   */
   async handleWebhook(rawBody: Buffer, authorization: string | undefined): Promise<void> {
-    const lk = this.requireSfu();
+    let tenantId: string | null = null;
+    try {
+      const body = JSON.parse(rawBody.toString('utf8')) as {
+        room?: { name?: string };
+        egressInfo?: { roomName?: string; room_name?: string };
+        egress_info?: { roomName?: string; room_name?: string };
+      };
+      const eg = body.egressInfo ?? body.egress_info;
+      const room = body.room?.name ?? eg?.roomName ?? eg?.room_name ?? '';
+      tenantId = /^sc_([^_]+)_/.exec(room)?.[1] ?? null;
+    } catch {
+      tenantId = null;
+    }
+    const lk = tenantId ? await this.lk(tenantId) : null;
+    if (!lk) throw new AppError('UNAUTHENTICATED', 'Invalid webhook signature');
     const event = await lk.verifyWebhook(rawBody, authorization);
     if (!event) throw new AppError('UNAUTHENTICATED', 'Invalid webhook signature');
     await this.applySfuEvent(event);
@@ -587,10 +640,11 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       }
     }
     let presentIds: Set<string> | null = null;
-    if (this.lk) {
+    const lk = await this.lk(call.tenantId).catch(() => null);
+    if (lk) {
       let present: Set<string> | null = null;
       try {
-        present = new Set(await this.lk.listParticipants(call.room));
+        present = new Set(await lk.listParticipants(call.room));
       } catch {
         present = null; // SFU unreachable: don't guess.
       }
@@ -757,7 +811,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
 
   /** SFU token for an admitted guest. Identity `guest:<id>` keeps them apart from members. */
   async guestJoinToken(call: CallDoc, guest: { guestId: string; name: string }) {
-    const lk = this.requireSfu();
+    const lk = await this.requireSfu(call.tenantId);
     const { token, expiresAt } = await lk.token({
       identity: guestIdentity(guest.guestId),
       name: `${guest.name} (guest)`,
@@ -795,8 +849,8 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       },
       { returnDocument: 'after' },
     );
-    if (this.lk)
-      await this.lk.removeParticipant(call.room, guestIdentity(guestId)).catch(() => undefined);
+    const lk = await this.lk(tenantId);
+    if (lk) await lk.removeParticipant(call.room, guestIdentity(guestId)).catch(() => undefined);
     if (updated) this.broadcast(tenantId, updated);
   }
 
@@ -958,7 +1012,8 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       // Stop before closing the room so egress finalizes the file cleanly.
       await this.requestStop(tenantId, ended).catch(() => undefined);
     }
-    if (this.lk) void this.lk.deleteRoom(ended.room).catch(() => undefined);
+    const lk = await this.lk(tenantId).catch(() => null);
+    if (lk) void lk.deleteRoom(ended.room).catch(() => undefined);
     return ended;
   }
 
@@ -987,7 +1042,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async joinToken(ctx: TenantContext, call: CallDoc) {
-    const lk = this.requireSfu();
+    const lk = await this.requireSfu(ctx.tenantId);
     const user = await this.db
       .for(ctx.tenantId)
       .users.findOne({ _id: ctx.userId }, { projection: { displayName: 1 } });

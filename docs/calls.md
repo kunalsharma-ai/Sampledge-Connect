@@ -43,6 +43,13 @@ is updated in place when the call ends, so it syncs like any edit.
 
 ## Configuration you must provide
 
+Connect the API to the media server in **Integrations → Calls (LiveKit)**: public URL, API URL,
+API key and secret (stored encrypted), with **Test connection**. Platform operators set the
+default for everyone; an organization can bring its own server (calls and meetings work;
+recording needs the platform server, see `integrations.md`). Saving takes effect at once on
+every API node. The env variables below still work as a fallback and are what the bundled
+LiveKit container reads.
+
 | Variable              | Where                            | Example                                                                                                                |
 | --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                                                                  |
@@ -58,8 +65,8 @@ Browsers only allow camera and microphone on `https://` (or `localhost`), so pro
 the web app and the SFU URL. For networks that block UDP entirely, enable LiveKit's TURN/TLS on 443 with your
 certificate (`turn.tls_port`, `turn.domain`, `turn.cert_file`, `turn.key_file`).
 
-Without the `LIVEKIT_*` variables the API runs normally, `GET /v1/calls/config` reports `enabled: false`,
-and the call buttons are disabled with an explanation.
+Without a media server (Integrations or `LIVEKIT_*`) the API runs normally, `GET /v1/calls/config`
+reports `enabled: false`, and the call buttons are disabled with an explanation.
 
 ## Built now and planned
 

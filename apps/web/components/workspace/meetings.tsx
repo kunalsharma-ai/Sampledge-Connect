@@ -52,7 +52,7 @@ import {
 import { ApiFailure } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useCalls } from '@/lib/calls';
-import { useEngine, type DirectoryEntry } from '@/lib/engine';
+import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import {
   addDays,
   fmtDay,
@@ -1494,6 +1494,12 @@ function WorkingHoursDialog({
   const [tz, setTz] = React.useState(LOCAL_TZ);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Saved on another device: show the new hours here too.
+  const [version, setVersion] = React.useState(0);
+  useEngineChange(['meetings'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'meetings' && e.area === 'working_hours'))
+      setVersion((v) => v + 1);
+  });
 
   React.useEffect(() => {
     if (!open) return;
@@ -1510,7 +1516,7 @@ function WorkingHoursDialog({
       },
       (e) => setError(errorText(e)),
     );
-  }, [open, api]);
+  }, [open, api, version]);
 
   async function save() {
     setSaving(true);

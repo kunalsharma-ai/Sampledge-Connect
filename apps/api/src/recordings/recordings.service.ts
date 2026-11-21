@@ -249,6 +249,11 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
 
   private async eraseOne(tenantId: string, d: AttachmentDoc, by: string | null) {
     if (!(await this.attachments.erase(tenantId, d, by))) return;
+    this.realtime.toConversation(tenantId, d.conversationId, 'recording:changed', {
+      recordingId: d._id,
+      conversationId: d.conversationId,
+      deleted: true,
+    });
     if (d.messageId)
       await this.messages
         .markAttachmentDeleted(tenantId, d.messageId, d._id, new Date())
@@ -493,6 +498,11 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
       .attachments.updateOne({ _id: doc._id }, { $set: { messageId: msg.messageId } });
     await unlink(path).catch(() => undefined);
     await this.removeManifest(rec);
+    this.realtime.toConversation(call.tenantId, call.conversationId, 'recording:changed', {
+      recordingId: doc._id,
+      conversationId: call.conversationId,
+      deleted: false,
+    });
     return { ...doc, messageId: msg.messageId };
   }
 

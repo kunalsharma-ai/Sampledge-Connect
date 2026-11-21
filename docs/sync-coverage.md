@@ -43,6 +43,10 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Module record linked or updated (module event) | `record:changed` to the conversation                    | Details panel refetches on reconnect   |
 | Run a record action (e.g. Log to SampForce)    | `record:changed` `action`, action card as `message:new` | Needs a connection                     |
 | Meeting create / change / RSVP                 | `meeting:upsert`                                        | RSVP queued; create needs a connection |
+| Working hours                                  | `meetings:changed` `working_hours` (own devices)        | Needs a connection                     |
+| Booking page create / change / delete          | `meetings:changed` `booking_pages` (every host)         | Needs a connection                     |
+| Book a slot (public page)                      | `meeting:upsert` to the hosts                           | Needs a connection by nature           |
+| Call recording added, any recording deleted    | `recording:changed` (conversation members)              | Delete needs a connection              |
 | Calls                                          | `call:ringing`, `call:updated`, `call:ended`            | Needs a connection by nature           |
 | Invite / change member, edit profile           | `directory:updated`                                     | Needs a connection (admin)             |
 | Branding                                       | `tenant:updated` `branding`                             | Needs a connection (admin)             |
@@ -56,6 +60,9 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.
 Creating things that get a server id (polls, tasks, projects, meetings) is planned for the queue
 with client-generated ids.
+
+Call device choices and background blur are saved per device on purpose (each device has its own
+camera and microphone), so they are not synced.
 
 ## Mobile
 
