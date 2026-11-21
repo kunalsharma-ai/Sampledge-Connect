@@ -374,6 +374,12 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     return toMeeting(updated!);
   }
 
+  /** Tells the organizer (on every device) that someone booked time with them. */
+  async notifyBooked(tenantId: string, meetingId: string, organizerId: string) {
+    const m = await this.db.for(tenantId).meetings.findOne({ _id: meetingId });
+    if (m) this.push(tenantId, m, 'invite', [organizerId]);
+  }
+
   // ---------- external guests ----------
 
   /** The organizer's copy of a guest's personal join link. */
@@ -500,12 +506,57 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
    */
   async findTimes(ctx: TenantContext, input: unknown): Promise<FindTimesResponse> {
     const req = parse(FindTimesRequestSchema, input);
-    const t = this.db.for(ctx.tenantId);
     const people = [...new Set([ctx.userId, ...req.attendeeIds])];
+    const { slots, busy } = await this.freeSlots(ctx.tenantId, people, {
+      durationMinutes: req.durationMinutes,
+      from: new Date(req.from),
+      to: new Date(req.to),
+      stepMinutes: req.stepMinutes,
+      limit: req.limit,
+      mode: 'all',
+      ignoreMeetingId: req.ignoreMeetingId,
+    });
+    return {
+      slots: slots.map((x) => ({ startsAt: x.startsAt, endsAt: x.endsAt })),
+      busy: Object.fromEntries(
+        [...busy].map(([who, list]) => [
+          who,
+          list
+            .sort((x, y) => x.s - y.s)
+            .map((b) => ({
+              startsAt: new Date(b.s).toISOString(),
+              endsAt: new Date(b.e).toISOString(),
+            })),
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * Slots inside each person's working hours (in their own time zone) where they aren't in
+   * another meeting they haven't declined. `all`: everyone must be free; `any`: at least one
+   * (`free` lists who). `bufferMinutes` keeps that much time clear around other meetings.
+   */
+  async freeSlots(
+    tenantId: string,
+    people: string[],
+    o: {
+      durationMinutes: number;
+      from: Date;
+      to: Date;
+      stepMinutes: number;
+      limit: number;
+      mode: 'all' | 'any';
+      bufferMinutes?: number;
+      ignoreMeetingId?: string;
+    },
+  ) {
+    const t = this.db.for(tenantId);
     const found = await t.users.countDocuments({ _id: { $in: people }, status: 'active' });
     if (found !== people.length) throw new AppError('VALIDATION_FAILED', 'Unknown attendee');
-    const from = Date.parse(req.from);
-    const to = Date.parse(req.to);
+    const from = o.from.getTime();
+    const to = o.to.getTime();
+    const pad = (o.bufferMinutes ?? 0) * 60_000;
 
     const [settings, meetings] = await Promise.all([
       t.user_settings.find({ userId: { $in: people } }).toArray(),
@@ -513,9 +564,9 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
         .find({
           status: 'scheduled',
           'attendees.userId': { $in: people },
-          startsAt: { $lt: new Date(to) },
-          endsAt: { $gt: new Date(from) },
-          ...(req.ignoreMeetingId ? { _id: { $ne: req.ignoreMeetingId } } : {}),
+          startsAt: { $lt: new Date(to + pad) },
+          endsAt: { $gt: new Date(from - pad) },
+          ...(o.ignoreMeetingId ? { _id: { $ne: o.ignoreMeetingId } } : {}),
         })
         .toArray(),
     ]);
@@ -540,35 +591,26 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
           endMin <= hhmmToMinutes(d.end),
       );
     };
+    const freeAt = (p: string, s: number, e: number) =>
+      inHours(p, s, e) && !busy.get(p)!.some((b) => b.s < e + pad && b.e > s - pad);
 
-    const step = req.stepMinutes * 60_000;
-    const dur = req.durationMinutes * 60_000;
+    const step = o.stepMinutes * 60_000;
+    const dur = o.durationMinutes * 60_000;
     const earliest = Math.max(from, Date.now());
-    const slots: { startsAt: string; endsAt: string }[] = [];
+    const slots: { startsAt: string; endsAt: string; free: string[] }[] = [];
     for (let s = Math.ceil(earliest / step) * step; s + dur <= to; s += step) {
       const e = s + dur;
-      const ok = people.every(
-        (p) => inHours(p, s, e) && !busy.get(p)!.some((b) => b.s < e && b.e > s),
-      );
-      if (ok) {
-        slots.push({ startsAt: new Date(s).toISOString(), endsAt: new Date(e).toISOString() });
-        if (slots.length >= req.limit) break;
+      const free = people.filter((p) => freeAt(p, s, e));
+      if (o.mode === 'all' ? free.length === people.length : free.length > 0) {
+        slots.push({
+          startsAt: new Date(s).toISOString(),
+          endsAt: new Date(e).toISOString(),
+          free,
+        });
+        if (slots.length >= o.limit) break;
       }
     }
-    return {
-      slots,
-      busy: Object.fromEntries(
-        [...busy].map(([who, list]) => [
-          who,
-          list
-            .sort((x, y) => x.s - y.s)
-            .map((b) => ({
-              startsAt: new Date(b.s).toISOString(),
-              endsAt: new Date(b.e).toISOString(),
-            })),
-        ]),
-      ),
-    };
+    return { slots, busy };
   }
 
   // ---------- reminders ----------

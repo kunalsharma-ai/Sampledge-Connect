@@ -1,6 +1,9 @@
 'use client';
 import * as React from 'react';
 import type {
+  BookingPage,
+  CreateBookingPageRequest,
+  UpdateBookingPageRequest,
   CreateMeetingRequest,
   FindTimesRequest,
   FindTimesResponse,
@@ -57,6 +60,13 @@ export function useMeetingsApi() {
       findTimes: (body: FindTimesRequest) =>
         req<FindTimesResponse>('POST', '/v1/meetings/find-times', body),
       getWorkingHours: () => req<WorkingHours>('GET', '/v1/me/working-hours'),
+      bookingPages: () => req<BookingPage[]>('GET', '/v1/booking-pages'),
+      createBookingPage: (body: CreateBookingPageRequest) =>
+        req<BookingPage>('POST', '/v1/booking-pages', body),
+      updateBookingPage: (id: string, body: UpdateBookingPageRequest) =>
+        req<BookingPage>('PATCH', `/v1/booking-pages/${id}`, body),
+      removeBookingPage: (id: string) =>
+        req<{ deleted: true }>('DELETE', `/v1/booking-pages/${id}`),
       setWorkingHours: (wh: WorkingHours) => req<WorkingHours>('PUT', '/v1/me/working-hours', wh),
     };
   }, [getAccessToken]);
