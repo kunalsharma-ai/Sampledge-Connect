@@ -72,6 +72,15 @@ export interface ServerToClientEvents {
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
   /**
+   * A module record in this conversation was linked or updated, or someone ran a record action.
+   * Sent to the conversation room; clients refetch GET /v1/integrations/records (also on reconnect).
+   */
+  'record:changed': (e: {
+    conversationId: string;
+    linkId: string;
+    reason: 'linked' | 'updated' | 'action';
+  }) => void;
+  /**
    * You saved or unsaved a message (sent to all of your devices; nobody else sees bookmarks).
    * Saved lists refetch GET /v1/bookmarks after a reconnect, so a missed event is recovered.
    */

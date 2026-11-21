@@ -24,6 +24,7 @@ import { ARGON2_OPTIONS } from '../auth/auth.service.js';
 import { WorkStore } from './collections.js';
 import type { IdentityLinkDoc, LinkedRecordDoc } from './docs.js';
 import { ModuleSettingsService } from './module-settings.service.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 export const BOT_EMAIL_DOMAIN = 'modules.sampledge.invalid';
 
@@ -73,7 +74,23 @@ export class RecordsService {
     private readonly messages: MessagesService,
     private readonly settings: ModuleSettingsService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly realtime: RealtimePublisher,
   ) {}
+
+  /** Tell everyone in the conversation that its linked records changed (live Details panel). */
+  notifyChanged(
+    tenantId: string,
+    conversationId: string | null,
+    linkId: string,
+    reason: 'linked' | 'updated' | 'action',
+  ) {
+    if (conversationId)
+      this.realtime.toConversation(tenantId, conversationId, 'record:changed', {
+        conversationId,
+        linkId,
+        reason,
+      });
+  }
 
   /* ---------- bot users ---------- */
 
@@ -323,10 +340,18 @@ export class RecordsService {
     if (ownerDoc.conversationId && !created && opts.memberIds.length)
       await this.addMembers(tenantId, m, ownerDoc.conversationId, opts.memberIds);
 
-    if (owner.type === record.type && owner.id === record.id) return { record: ownerDoc, created };
+    if (owner.type === record.type && owner.id === record.id) {
+      if (created) this.notifyChanged(tenantId, ownerDoc.conversationId, ownerDoc._id, 'linked');
+      return { record: ownerDoc, created };
+    }
 
     // The event's own record (a milestone, a shared-channel announcement) points at the owner's chat.
     const now = new Date();
+    const before = await w.linked_records.findOne({
+      module: m,
+      recordType: record.type,
+      externalId: record.id,
+    });
     const own = await w.linked_records.findOneAndUpdate(
       { module: m, recordType: record.type, externalId: record.id },
       {
@@ -353,6 +378,8 @@ export class RecordsService {
       },
       { upsert: true, returnDocument: 'after' },
     );
+    if (own && (created || before?.conversationId !== own.conversationId))
+      this.notifyChanged(tenantId, own.conversationId, own._id, 'linked');
     return { record: own!, created };
   }
 
@@ -399,7 +426,14 @@ export class RecordsService {
   ) {
     const set: Record<string, unknown> = { lastEventType: eventType, updatedAt: new Date() };
     for (const [k, v] of Object.entries(fields)) set[`fields.${k}`] = v;
-    await this.store.for(tenantId).linked_records.updateOne({ _id: recordId }, { $set: set });
+    const doc = await this.store
+      .for(tenantId)
+      .linked_records.findOneAndUpdate(
+        { _id: recordId },
+        { $set: set },
+        { returnDocument: 'after' },
+      );
+    if (doc) this.notifyChanged(tenantId, doc.conversationId, doc._id, 'updated');
   }
 
   /** Posts a module card as the module's bot and returns the stored message. */

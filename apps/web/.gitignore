@@ -1,0 +1,3 @@
+# Background blur runtime, copied from node_modules at build time (scripts/copy-vision-assets.mjs)
+public/vision/*.wasm
+public/vision/*.js

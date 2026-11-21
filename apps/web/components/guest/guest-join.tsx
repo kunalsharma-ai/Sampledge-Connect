@@ -34,6 +34,8 @@ import { Button, Input, StateView, cn } from '@sampledge/ui';
 import { Wordmark } from '@/components/brand';
 import { ControlButton, RemoteAudio, Tile, TrackVideo } from '@/components/workspace/calls';
 import { CallChatView, type ChatLine } from '@/components/workspace/call-chat';
+import { CallDeviceSettings } from '@/components/workspace/call-devices';
+import { deviceOptions } from '@/lib/call-devices';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { screenTrackOf } from '@/lib/calls';
@@ -157,11 +159,13 @@ export function GuestJoin({ token }: { token: string }) {
   }, [phase.kind, api]);
 
   async function connect(join: NonNullable<GuestJoinState['join']>) {
+    const dev = deviceOptions();
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
-      audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+      videoCaptureDefaults: { resolution: VideoPresets.h720.resolution, ...dev.video },
+      audioCaptureDefaults: { ...dev.audio, echoCancellation: true, noiseSuppression: true },
+      ...(dev.audioOutput ? { audioOutput: dev.audioOutput } : {}),
     });
     try {
       await room.connect(join.url, join.token);
@@ -408,7 +412,10 @@ function CameraPreview({ on }: { on: boolean }) {
     if (!on) return;
     let t: LocalTrack | null = null;
     let live = true;
-    createLocalTracks({ video: { resolution: VideoPresets.h540.resolution }, audio: false })
+    createLocalTracks({
+      video: { resolution: VideoPresets.h540.resolution, ...deviceOptions().video },
+      audio: false,
+    })
       .then(([v]) => {
         if (!live) return v?.stop();
         t = v ?? null;
@@ -800,6 +807,7 @@ function GuestCall({
               </span>
             ) : null}
           </span>
+          <CallDeviceSettings room={room} />
           <ControlButton tone="danger" label="Leave meeting" onClick={onLeave}>
             <PhoneOff />
           </ControlButton>
