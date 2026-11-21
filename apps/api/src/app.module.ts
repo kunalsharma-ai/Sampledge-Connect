@@ -38,6 +38,8 @@ import {
 } from './integration-settings/integration-settings.controller.js';
 import { BookmarksController } from './bookmarks/bookmarks.controller.js';
 import { BookmarksService } from './bookmarks/bookmarks.service.js';
+import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
+import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
@@ -73,6 +75,7 @@ export class AppModule {
         NotificationsController,
         PushController,
         BookmarksController,
+        ScheduledMessagesController,
         CallsController,
         MeetingsController,
         GuestsController,
@@ -92,6 +95,7 @@ export class AppModule {
         AttachmentsService,
         NotificationsService,
         BookmarksService,
+        ScheduledMessagesService,
         CallsService,
         MeetingsService,
         GuestsService,

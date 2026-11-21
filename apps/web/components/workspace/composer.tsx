@@ -3,7 +3,9 @@ import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AtSign,
+  BarChart3,
   Bold,
+  Clock,
   CornerUpLeft,
   Italic,
   Mic,
@@ -20,6 +22,7 @@ import {
   type Attachment,
 } from '@sampledge/contracts';
 import { Avatar, Kbd, Tooltip, cn } from '@sampledge/ui';
+import { schedulePresets } from '@/lib/polls';
 import { useAuth } from '@/lib/auth';
 import { rejectReason, uploadFile } from '@/lib/uploads';
 import { canRecord, type ClipKind, type RecordedClip } from '@/lib/recorder';
@@ -66,6 +69,8 @@ export function Composer({
   replyTo,
   onCancelReply,
   conversationId,
+  onSchedule,
+  onCreatePoll,
 }: {
   placeholder: string;
   disabled?: boolean;
@@ -77,7 +82,12 @@ export function Composer({
   replyTo?: { name: string; text: string } | null;
   onCancelReply?: () => void;
   conversationId: string;
+  /** Offers "Schedule send" for text-only messages. Needs a connection. */
+  onSchedule?: (text: string, mentions: string[], sendAt: Date) => Promise<void>;
+  /** Offers the poll button. */
+  onCreatePoll?: () => void;
 }) {
+  const [scheduleOpen, setScheduleOpen] = React.useState(false);
   const { getAccessToken } = useAuth();
   const [drafts, setDrafts] = React.useState<DraftAttachment[]>([]);
   const [dragging, setDragging] = React.useState(false);
@@ -255,6 +265,20 @@ export function Composer({
     stopTyping();
     await onSend(trimmed, ids, files);
     ref.current?.focus();
+  };
+
+  const schedule = async (sendAt: Date) => {
+    if (!onSchedule || !trimmed || drafts.length || tooLong) return;
+    const ids = mentioned.filter((m) => trimmed.includes(`@${m.displayName}`)).map((m) => m.userId);
+    setScheduleOpen(false);
+    try {
+      await onSchedule(trimmed, ids, sendAt);
+      setText('');
+      setMentioned([]);
+      stopTyping();
+    } catch {
+      /* the caller shows the error; keep the text so nothing is lost */
+    }
   };
 
   if (disabled) {
@@ -498,6 +522,21 @@ export function Composer({
                 </Tooltip>
               );
             })}
+            {onCreatePoll ? (
+              <Tooltip content={offline ? 'Polls need a connection' : 'Create a poll'} side="top">
+                <span>
+                  <button
+                    type="button"
+                    aria-label="Create a poll"
+                    disabled={offline}
+                    onClick={onCreatePoll}
+                    className="flex size-8 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <BarChart3 className="size-4" />
+                  </button>
+                </span>
+              </Tooltip>
+            ) : null}
             {PLANNED_TOOLS.map((t) => (
               <Tooltip key={t.label} content={t.label} side="top">
                 <span>
@@ -532,6 +571,39 @@ export function Composer({
                 </>
               )}
             </span>
+            {onSchedule ? (
+              <div className="relative">
+                <Tooltip
+                  content={
+                    offline
+                      ? 'Scheduling needs a connection'
+                      : drafts.length
+                        ? 'Attachments can’t be scheduled yet'
+                        : 'Schedule send'
+                  }
+                  side="top"
+                >
+                  <span>
+                    <button
+                      type="button"
+                      aria-label="Schedule send"
+                      aria-expanded={scheduleOpen}
+                      disabled={offline || !trimmed || drafts.length > 0 || tooLong}
+                      onClick={() => setScheduleOpen((o) => !o)}
+                      className="flex size-9 items-center justify-center rounded-md border border-border text-text-muted hover:bg-surface hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                      <Clock className="size-4" />
+                    </button>
+                  </span>
+                </Tooltip>
+                {scheduleOpen ? (
+                  <SchedulePopover
+                    onPick={(d) => void schedule(d)}
+                    onClose={() => setScheduleOpen(false)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => void submit()}
@@ -545,6 +617,80 @@ export function Composer({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SchedulePopover({ onPick, onClose }: { onPick: (d: Date) => void; onClose: () => void }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [custom, setCustom] = React.useState('');
+  const presets = React.useMemo(() => schedulePresets(), []);
+  const fmt = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  React.useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [onClose]);
+  const customDate = custom ? new Date(custom) : null;
+  const customOk = !!customDate && customDate.getTime() > Date.now() + 60_000;
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Schedule send"
+      className="absolute bottom-full right-0 z-30 mb-2 w-72 rounded-xl border border-border bg-surface p-2 shadow-xl"
+    >
+      <p className="px-2 pb-1.5 pt-1 text-meta font-medium uppercase tracking-wide text-text-subtle">
+        Schedule send
+      </p>
+      {presets.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          onClick={() => onPick(p.at)}
+          className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-label text-text hover:bg-surface-raised"
+        >
+          {p.label}
+          <span className="text-meta text-text-subtle">{fmt.format(p.at)}</span>
+        </button>
+      ))}
+      <form
+        className="mt-1 flex items-end gap-2 border-t border-border px-2 pt-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (customOk) onPick(customDate!);
+        }}
+      >
+        <label className="flex-1 text-meta text-text-subtle">
+          Custom time
+          <input
+            type="datetime-local"
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-sunken px-2 text-label text-text"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={!customOk}
+          className="h-9 rounded-md bg-accent px-3 text-label text-accent-fg disabled:opacity-40"
+        >
+          Set
+        </button>
+      </form>
     </div>
   );
 }

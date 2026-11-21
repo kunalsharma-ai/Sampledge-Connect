@@ -23,6 +23,7 @@ import {
 import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
+import { PollCard } from './polls';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -46,6 +47,7 @@ export function Timeline({
   threadRootId,
   highlightId,
   emptyState,
+  canModerate = false,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -69,6 +71,8 @@ export function Timeline({
   /** Briefly highlights a message (jump from pins or saved items). */
   highlightId?: string | null;
   emptyState?: React.ReactNode;
+  /** Conversation owner/moderator or tenant admin: may close anyone's poll. */
+  canModerate?: boolean;
 }) {
   const reduce = useReducedMotion();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -253,7 +257,17 @@ export function Timeline({
                           {...actions?.(m)}
                         />
                       ) : null}
-                      {m.deletedAt || m.content.text ? (
+                      {m.poll && !m.deletedAt && m.messageId ? (
+                        <PollCard
+                          message={m}
+                          poll={m.poll}
+                          me={me}
+                          directory={directory}
+                          own={own}
+                          offline={offline}
+                          canModerate={canModerate}
+                        />
+                      ) : m.deletedAt || m.content.text ? (
                         <div
                           className={cn(
                             'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',

@@ -1,6 +1,16 @@
 'use client';
 import { motion } from 'motion/react';
-import { Bot, Briefcase, CheckSquare, FileText, Hash, Lock, Users, X } from 'lucide-react';
+import {
+  Bot,
+  Briefcase,
+  CheckSquare,
+  FileText,
+  Hash,
+  Lock,
+  Megaphone,
+  Users,
+  X,
+} from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -43,6 +53,8 @@ export function ContextPanel({
   presence,
   onClose,
   className,
+  canManage = false,
+  onSetPostingPolicy,
 }: {
   conversation: Conversation;
   me: string;
@@ -50,7 +62,13 @@ export function ContextPanel({
   presence: Map<string, string>;
   onClose: () => void;
   className?: string;
+  /** Channel owner/moderator or tenant admin, while online. */
+  canManage?: boolean;
+  onSetPostingPolicy?: (policy: 'everyone' | 'moderators') => void;
 }) {
+  const isChannel =
+    conversation.kind === 'channel_public' || conversation.kind === 'channel_private';
+  const announcement = conversation.postingPolicy === 'moderators';
   const title = conversationTitle(conversation, me, directory);
   const members = [...conversation.memberIds].sort((a, b) => {
     const pa = presence.get(a) === 'online' || a === me ? 0 : 1;
@@ -117,6 +135,46 @@ export function ContextPanel({
             </div>
           </dl>
         </div>
+
+        {isChannel ? (
+          <section className="rounded-xl border border-border p-4">
+            <div className="flex items-start gap-3">
+              <Megaphone className="mt-0.5 size-4 text-accent" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-label text-text">Announcement channel</p>
+                <p className="mt-0.5 text-meta text-text-subtle">
+                  {announcement
+                    ? 'Only channel moderators and admins can post. Everyone can read and react.'
+                    : 'Everyone in the channel can post.'}
+                </p>
+              </div>
+              {canManage && onSetPostingPolicy ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={announcement}
+                  aria-label="Announcement channel"
+                  onClick={() => onSetPostingPolicy(announcement ? 'everyone' : 'moderators')}
+                  className={cn(
+                    'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
+                    announcement
+                      ? 'border-accent bg-accent'
+                      : 'border-border-strong bg-surface-raised',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block size-4 rounded-full shadow transition-transform motion-reduce:transition-none',
+                      announcement ? 'translate-x-6 bg-accent-fg' : 'translate-x-1 bg-text',
+                    )}
+                  />
+                </button>
+              ) : announcement ? (
+                <Badge tone="accent">On</Badge>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section>
           <p className="mb-2 text-overline uppercase text-text-subtle">Members</p>

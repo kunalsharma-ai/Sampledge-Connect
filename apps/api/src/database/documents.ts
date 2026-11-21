@@ -68,6 +68,8 @@ export interface ConversationDoc extends TenantOwned {
   archivedAt: Date | null;
   lastChangeSequence: number;
   lastMessageAt: Date | null;
+  /** Channels only; absent = everyone may post. */
+  postingPolicy?: 'everyone' | 'moderators';
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -112,6 +114,20 @@ export interface MessageDoc extends TenantOwned {
   /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
   reactions?: { emoji: string; userIds: string[] }[];
   pinned?: { pinnedBy: string; pinnedAt: Date } | null;
+  /** Poll messages only. Votes live inline so tallies change atomically under the conversation lock. */
+  poll?: PollDoc;
+}
+
+export interface PollDoc {
+  question: string;
+  options: { optionId: string; text: string }[];
+  multiple: boolean;
+  anonymous: boolean;
+  closesAt: Date | null;
+  closedAt: Date | null;
+  closedBy: string | null;
+  /** One row per voter, in first-vote order. */
+  votes: { userId: string; optionIds: string[]; at: Date }[];
 }
 
 export interface ReceiptDoc extends TenantOwned {
@@ -326,6 +342,22 @@ export interface BookmarkDoc extends TenantOwned {
   createdAt: Date;
 }
 
+export interface ScheduledMessageDoc extends TenantOwned {
+  conversationId: string;
+  userId: string;
+  clientMessageId: string;
+  content: { text: string; mentions: string[] };
+  replyToMessageId: string | null;
+  sendAt: Date;
+  /** 'sending' is a short-lived claim held by the sweeper. */
+  status: 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled';
+  messageId: string | null;
+  error: string | null;
+  attempts: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -344,4 +376,5 @@ export interface TenantCollections {
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;
+  scheduled_messages: ScheduledMessageDoc;
 }

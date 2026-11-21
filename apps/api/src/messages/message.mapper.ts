@@ -1,5 +1,10 @@
-import { REACTION_USER_IDS_LIMIT, type Message, type Receipt } from '@sampledge/contracts';
-import type { MessageDoc, ReceiptDoc } from '../database/documents.js';
+import {
+  REACTION_USER_IDS_LIMIT,
+  type Message,
+  type Poll,
+  type Receipt,
+} from '@sampledge/contracts';
+import type { MessageDoc, PollDoc, ReceiptDoc } from '../database/documents.js';
 
 export function toMessage(m: MessageDoc): Message {
   return {
@@ -43,6 +48,35 @@ export function toMessage(m: MessageDoc): Message {
     pinned: m.pinned
       ? { pinnedBy: m.pinned.pinnedBy, pinnedAt: m.pinned.pinnedAt.toISOString() }
       : null,
+    ...(m.poll && !m.deletedAt ? { poll: toPoll(m.poll) } : {}),
+  };
+}
+
+/** A poll past its closesAt counts as closed even before anyone touches it. */
+export function pollClosedAt(p: PollDoc, now = new Date()): Date | null {
+  if (p.closedAt) return p.closedAt;
+  return p.closesAt && p.closesAt <= now ? p.closesAt : null;
+}
+
+export function toPoll(p: PollDoc): Poll {
+  const closedAt = pollClosedAt(p);
+  return {
+    question: p.question,
+    options: p.options.map((o) => {
+      const voters = p.votes.filter((v) => v.optionIds.includes(o.optionId)).map((v) => v.userId);
+      return {
+        optionId: o.optionId,
+        text: o.text,
+        count: voters.length,
+        voterIds: p.anonymous ? [] : voters,
+      };
+    }),
+    multiple: p.multiple,
+    anonymous: p.anonymous,
+    totalVoters: p.votes.length,
+    closesAt: p.closesAt?.toISOString() ?? null,
+    closedAt: closedAt?.toISOString() ?? null,
+    closedBy: p.closedAt ? p.closedBy : null,
   };
 }
 

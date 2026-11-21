@@ -50,6 +50,8 @@ import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { PinsMenu, SavedScreen, ThreadPanel } from './threads';
+import { CreatePollDialog, ScheduledBar } from './polls';
+import { pollsApi, scheduledApi, useScheduled } from '@/lib/polls';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
 import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
@@ -122,6 +124,8 @@ export function Workspace() {
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
+  const [pollOpen, setPollOpen] = React.useState(false);
+  const scheduled = useScheduled(activeId);
   const [threadRootId, setThreadRootId] = React.useState<string | null>(null);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -228,7 +232,16 @@ export function Workspace() {
         .map((id) => nameOf(id, directory).split(' ')[0]!)
     : [];
   const offline = state.connectivity === 'offline';
-  const readOnly = active ? active.myRole === null || !!active.archivedAt : false;
+  const canModerate =
+    !!active &&
+    (active.myRole === 'owner' ||
+      active.myRole === 'moderator' ||
+      session!.user.role === 'owner' ||
+      session!.user.role === 'admin');
+  const announcementOnly = !!active && active.postingPolicy === 'moderators' && !canModerate;
+  const readOnly = active
+    ? active.myRole === null || !!active.archivedAt || announcementOnly
+    : false;
   const messageActions = (m: LocalMessage) => ({
     onThread: () => setThreadRootId(m.messageId),
     pinned: !!m.pinned,
@@ -447,11 +460,18 @@ export function Workspace() {
                   replyCounts={replyCounts}
                   onOpenThread={(m) => setThreadRootId(m.messageId)}
                   highlightId={highlightId}
+                  canModerate={canModerate}
                   offline={offline}
                   onOpenMeeting={(meta: MeetingSystemMetadata) => {
                     setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
                     setModule('meetings');
                   }}
+                />
+                <ScheduledBar items={scheduled.items} offline={offline} />
+                <CreatePollDialog
+                  open={pollOpen}
+                  onOpenChange={setPollOpen}
+                  conversationId={active.conversationId}
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -459,8 +479,42 @@ export function Workspace() {
                   disabledReason={
                     active.archivedAt
                       ? 'This conversation is archived.'
-                      : 'Join this channel to send messages.'
+                      : announcementOnly
+                        ? 'This is an announcement channel. Only moderators can post here.'
+                        : 'Join this channel to send messages.'
                   }
+                  onCreatePoll={() => setPollOpen(true)}
+                  onSchedule={async (text, mentions, sendAt) => {
+                    const reply = replyTo?.messageId ?? null;
+                    try {
+                      await scheduledApi.create(
+                        getAccessToken,
+                        active.conversationId,
+                        text,
+                        mentions,
+                        sendAt,
+                        reply,
+                      );
+                      setReplyTo(null);
+                      void scheduled.refresh();
+                      toast({
+                        title: 'Message scheduled',
+                        description: sendAt.toLocaleString(undefined, {
+                          weekday: 'short',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        }),
+                        tone: 'success',
+                      });
+                    } catch (e) {
+                      toast({
+                        title: 'Couldn’t schedule',
+                        description: (e as Error).message,
+                        tone: 'danger',
+                      });
+                      throw e;
+                    }
+                  }}
                   offline={offline}
                   conversationId={active.conversationId}
                   onSend={async (text, mentions, attachments) => {
@@ -549,6 +603,27 @@ export function Workspace() {
                   directory={directory}
                   presence={engine.presence}
                   onClose={() => setPanelOpen(false)}
+                  canManage={canModerate && !offline && !active.archivedAt}
+                  onSetPostingPolicy={(policy) =>
+                    void pollsApi
+                      .setPostingPolicy(getAccessToken, active.conversationId, policy)
+                      .then(() =>
+                        toast({
+                          title:
+                            policy === 'moderators'
+                              ? 'Only moderators can post now'
+                              : 'Everyone can post now',
+                          tone: 'success',
+                        }),
+                      )
+                      .catch((e: Error) =>
+                        toast({
+                          title: 'Couldn’t change that',
+                          description: e.message,
+                          tone: 'danger',
+                        }),
+                      )
+                  }
                 />
               </div>
             ) : null}

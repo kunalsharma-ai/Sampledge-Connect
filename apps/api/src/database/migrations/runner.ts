@@ -8,6 +8,7 @@ import { recordingsMigration } from './006-recordings.js';
 import { guestsMigration } from './007-guests.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
 import { bookmarksMigration } from './008-bookmarks.js';
+import { scheduledMessagesMigration } from './020-scheduled-messages.js';
 
 export interface Migration {
   id: string;
@@ -25,6 +26,7 @@ export const MIGRATIONS: Migration[] = [
   guestsMigration,
   integrationSettingsMigration,
   bookmarksMigration,
+  scheduledMessagesMigration,
 ];
 
 /**
