@@ -11,16 +11,18 @@ export type MessageAction = 'reply' | 'edit' | 'delete' | 'retry' | 'discard';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
-/** Bottom sheet of actions for one message. Reactions are shown but marked planned. */
+/** Bottom sheet of actions for one message, with quick reactions on top. */
 export function MessageActions({
   message,
   own,
   onAction,
+  onReact,
   onClose,
 }: {
   message: LocalMessage | null;
   own: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
+  onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
 }) {
   const { theme, motion } = useTheme();
@@ -80,20 +82,32 @@ export function MessageActions({
             {!unsent && !deleted ? (
               <View>
                 <View style={styles.reactions}>
-                  {QUICK_REACTIONS.map((e) => (
-                    <View
-                      key={e}
-                      style={[styles.reaction, { backgroundColor: c.surfaceSunken, opacity: 0.55 }]}
-                      accessibilityLabel={`${e} reaction, planned`}
-                      accessibilityState={{ disabled: true }}
-                    >
-                      <Text style={{ fontSize: 22 }}>{e}</Text>
-                    </View>
-                  ))}
+                  {QUICK_REACTIONS.map((e) => {
+                    const mine = message.reactions.some((r) => r.emoji === e && r.mine);
+                    return (
+                      <Pressable
+                        key={e}
+                        onPress={() => {
+                          onClose();
+                          onReact(message, e);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${mine ? 'Remove' : 'React with'} ${e}`}
+                        accessibilityState={{ selected: mine }}
+                        style={({ pressed }) => [
+                          styles.reaction,
+                          {
+                            backgroundColor: mine ? alpha(c.accent, 0.22) : c.surfaceSunken,
+                            borderColor: mine ? c.accent : 'transparent',
+                            transform: [{ scale: pressed ? 0.9 : 1 }],
+                          },
+                        ]}
+                      >
+                        <Text style={{ fontSize: 22 }}>{e}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-                <Text variant="meta" tone="subtle" style={{ textAlign: 'center' }}>
-                  Reactions are planned and arrive with the next server update.
-                </Text>
               </View>
             ) : null}
             <View style={[styles.list, { borderColor: c.border }]}>

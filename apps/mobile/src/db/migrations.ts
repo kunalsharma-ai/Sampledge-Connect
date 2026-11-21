@@ -88,6 +88,24 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       CREATE INDEX message_ops_due ON message_ops (next_attempt_at, enqueued_at);
     `);
   },
+  // v3: reactions, and the queue of your reaction changes not yet confirmed
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT '[]';
+      CREATE TABLE reaction_ops (
+        message_id        TEXT NOT NULL,
+        emoji             TEXT NOT NULL,
+        op                TEXT NOT NULL,
+        conversation_id   TEXT NOT NULL,
+        attempts          INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at   INTEGER NOT NULL DEFAULT 0,
+        last_error        TEXT,
+        enqueued_at       INTEGER NOT NULL,
+        PRIMARY KEY (message_id, emoji)
+      );
+      CREATE INDEX reaction_ops_due ON reaction_ops (next_attempt_at, enqueued_at);
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -14,7 +14,7 @@ async function api(method, path, body, token) {
   const r = await fetch(API + path, {
     method,
     headers: {
-      'content-type': 'application/json',
+      ...(body ? { 'content-type': 'application/json' } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -188,6 +188,60 @@ async function api(method, path, body, token) {
   all = await serverMsgs();
   const gone = all.find((m) => m.clientMessageId && m.deletedAt);
   check('delete saved on the server', !!gone);
+
+  // ---- Reactions: add from the sheet, live reaction from Marco, toggle off from the chip, offline add
+  const reactionsOn = async (text) =>
+    (await serverMsgs()).find((m) => m.content.text === text)?.reactions ?? [];
+  const marcoText = 'Got it, thanks Sam. Launching at 2pm.';
+  await longPress(marcoText);
+  await p.getByRole('button', { name: 'React with 👍' }).click();
+  await p.waitForTimeout(2000);
+  check(
+    'reaction saved on the server',
+    (await reactionsOn(marcoText)).some(
+      (r) => r.emoji === '👍' && r.userIds.includes(idOf('Sam Okafor')),
+    ),
+  );
+  await api(
+    'PUT',
+    `/v1/messages/${marcoMsg.messageId}/reactions/${encodeURIComponent('👍')}`,
+    undefined,
+    marco,
+  );
+  await api(
+    'PUT',
+    `/v1/messages/${marcoMsg.messageId}/reactions/${encodeURIComponent('🎉')}`,
+    undefined,
+    marco,
+  );
+  await p.waitForTimeout(2000);
+  await shot('16-reactions-live');
+  check('live reactions shown with counts', (await p.innerText('body')).includes('🎉'));
+  await p.locator('[aria-label^="👍 2"]').first().click();
+  await p.waitForTimeout(2000);
+  check(
+    'tapping your chip removes your reaction',
+    !(await reactionsOn(marcoText))
+      .find((r) => r.emoji === '👍')
+      ?.userIds.includes(idOf('Sam Okafor')),
+  );
+  await ctx.setOffline(true);
+  await p.waitForTimeout(800);
+  await longPress(marcoText);
+  await p.getByRole('button', { name: 'React with ❤️' }).click();
+  await p.waitForTimeout(800);
+  await shot('17-reaction-queued-offline');
+  check(
+    'offline reaction not on the server yet',
+    !(await reactionsOn(marcoText)).some((r) => r.emoji === '❤️'),
+  );
+  await ctx.setOffline(false);
+  await p.waitForTimeout(6000);
+  check(
+    'offline reaction delivered after reconnect',
+    (await reactionsOn(marcoText)).some((r) => r.emoji === '❤️'),
+  );
+  await shot('18-reactions-synced');
 
   const priya = (
     await api('POST', '/v1/auth/login', {

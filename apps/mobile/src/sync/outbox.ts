@@ -3,6 +3,7 @@ import {
   type Message,
   type SendMessageAck,
   type SendMessageRequest,
+  type SetReactionRequest,
 } from '@sampledge/contracts';
 import type { LocalStore, MessageOp } from '../db/store';
 import { TransportError } from './transport';
@@ -15,6 +16,8 @@ export interface OutboxOptions {
   edit?: (messageId: string, text: string, mentions: string[]) => Promise<Message>;
   /** Deletes a sent message for everyone (DELETE /v1/messages/:id). */
   remove?: (messageId: string) => Promise<Message>;
+  /** Adds or removes your reaction (socket `reaction:set`, REST PUT/DELETE as fallback). */
+  react?: (req: SetReactionRequest) => Promise<Message>;
   /** Whether it is worth trying right now (network up, signed in, not paused). */
   canSend: () => boolean;
   /** Called when the server says the session is no longer valid. Sending pauses until resumed. */
@@ -123,6 +126,7 @@ export class OutboxProcessor {
       }
     }
     await this.drainOps();
+    await this.drainReactions();
     await this.scheduleNext();
   }
 
@@ -162,6 +166,47 @@ export class OutboxProcessor {
           continue;
         }
         await store.failOp(op, err.message);
+      }
+    }
+  }
+
+  /**
+   * Reactions go last. Only the latest intent per message and emoji is queued, and both
+   * operations are idempotent on the server, so retrying is always safe. A refused intent
+   * (message deleted, access lost) is dropped and the server's state wins.
+   */
+  private async drainReactions(): Promise<void> {
+    const { store, react } = this.opts;
+    if (!react) return;
+    while (this.opts.canSend()) {
+      const op = await store.nextDueReaction();
+      if (!op) break;
+      try {
+        const server = await react({ messageId: op.messageId, emoji: op.emoji, op: op.op });
+        await store.settleReaction(op, server);
+      } catch (raw) {
+        const err =
+          raw instanceof TransportError ? raw : new TransportError(String(raw), 'network');
+        const attempts = op.attempts + 1;
+        if (err.isAuth) {
+          await store.markReactionRetry(op, this.now(), 'Waiting for sign-in');
+          this.opts.onAuthError(err);
+          break;
+        }
+        if (err.kind === 'network' || err.kind === 'not_configured') {
+          await store.markReactionRetry(
+            op,
+            this.now() + backoffDelay(attempts, { random: this.opts.random }),
+            err.message,
+          );
+          break;
+        }
+        if (err.retryable && attempts < (this.opts.maxServerAttempts ?? 8)) {
+          const delay = err.retryAfterMs ?? backoffDelay(attempts, { random: this.opts.random });
+          await store.markReactionRetry(op, this.now() + delay, err.message);
+          continue;
+        }
+        await store.settleReaction(op);
       }
     }
   }

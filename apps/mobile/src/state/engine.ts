@@ -1,4 +1,10 @@
-import { backoffDelay, type SendMessageAck, type SendMessageRequest } from '@sampledge/contracts';
+import {
+  backoffDelay,
+  type Message,
+  type SendMessageAck,
+  type SendMessageRequest,
+  type SetReactionRequest,
+} from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -58,6 +64,7 @@ export class ConnectEngine {
       send: (req) => this.sendOne(req),
       edit: (id, text, mentions) => api.editMessage(id, { content: { text, mentions } }),
       remove: (id) => api.deleteMessage(id),
+      react: (req) => this.reactOne(req),
       canSend: () => this._state.networkUp && session.state === 'active',
       onAuthError: (err) => void this.handleAuthError(err),
     });
@@ -172,6 +179,23 @@ export class ConnectEngine {
     listener: (e: { conversationId: string; userId: string; typing: boolean }) => void,
   ): () => void {
     return this.realtime?.events.on('typing', listener) ?? (() => undefined);
+  }
+
+  /** Toggles your reaction; queued like a send, so it works offline. */
+  async toggleReaction(clientId: string, emoji: string): Promise<void> {
+    await this.store.toggleReaction(clientId, emoji);
+    void this.outbox.kick();
+  }
+
+  private async reactOne(req: SetReactionRequest): Promise<Message> {
+    if (this.realtime?.state === 'connected') {
+      try {
+        return await this.realtime.setReaction(req);
+      } catch (err) {
+        if (!(err instanceof TransportError) || err.kind !== 'network') throw err;
+      }
+    }
+    return this.api.setReaction(req);
   }
 
   private async sendOne(req: SendMessageRequest): Promise<SendMessageAck> {
