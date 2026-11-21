@@ -59,6 +59,8 @@ type RealtimeEvents = {
   project: { projectId: string };
   /** A booking page you host was created, changed or deleted (page is null when deleted). */
   booking: { bookingPageId: string; page: BookingPage | null };
+  /** Your recent searches changed on one of your devices. */
+  searchRecent: { recent: string[] };
 };
 
 /**
@@ -137,6 +139,7 @@ export class RealtimeClient {
     socket.on('tenant:updated', (e) => this.events.emit('tenant', e));
     socket.on('project:changed', (e) => this.events.emit('project', e));
     socket.on('booking:changed', (e) => this.events.emit('booking', e));
+    socket.on('search:recent', (e) => this.events.emit('searchRecent', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

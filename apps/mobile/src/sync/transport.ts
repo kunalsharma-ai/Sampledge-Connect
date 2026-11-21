@@ -62,6 +62,9 @@ import {
   type Meeting,
   type RsvpResponse,
   type SeriesScope,
+  type RecentSearches,
+  type SearchResponse,
+  type SearchType,
   type UpdateMeetingRequest,
   type WorkingHours,
   type NotifyLevel,
@@ -129,6 +132,19 @@ export class TransportError extends Error {
   get isAuth(): boolean {
     return this.code === 'SESSION_EXPIRED' || this.code === 'UNAUTHENTICATED';
   }
+}
+
+/** GET /v1/search parameters (operators typed in the box are resolved before this). */
+export interface SearchParams {
+  q?: string;
+  types?: SearchType[];
+  from?: string;
+  in?: string;
+  hasFile?: boolean;
+  after?: string;
+  before?: string;
+  limit?: number;
+  offset?: number;
 }
 
 /** The REST surface the mobile app uses. */
@@ -228,6 +244,10 @@ export interface ApiTransport {
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
   listBookingPages(): Promise<BookingPage[]>;
+  /** Universal Search: only what you may open (docs/search.md). */
+  search(q: SearchParams): Promise<SearchResponse>;
+  getRecentSearches(): Promise<string[]>;
+  setRecentSearches(recent: readonly string[]): Promise<string[]>;
   createBookingPage(req: CreateBookingPageRequest): Promise<BookingPage>;
   updateBookingPage(id: string, req: UpdateBookingPageRequest): Promise<BookingPage>;
   deleteBookingPage(id: string): Promise<{ deleted: true }>;
@@ -705,6 +725,22 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', `/v1/approvals?${workQuery(q)}`, undefined);
   }
 
+  search(q: SearchParams): Promise<SearchResponse> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q))
+      if (v !== undefined && v !== null && v !== '')
+        p.set(k, Array.isArray(v) ? v.join(',') : String(v));
+    return this.request('GET', `/v1/search?${p.toString()}`, undefined);
+  }
+
+  async getRecentSearches(): Promise<string[]> {
+    return (await this.request<RecentSearches>('GET', '/v1/search/recent', undefined)).recent;
+  }
+
+  async setRecentSearches(recent: readonly string[]): Promise<string[]> {
+    return (await this.request<RecentSearches>('PUT', '/v1/search/recent', { recent })).recent;
+  }
+
   listBookingPages(): Promise<BookingPage[]> {
     return this.request('GET', '/v1/booking-pages', undefined);
   }
@@ -1069,6 +1105,9 @@ export class NoServerTransport implements ApiTransport {
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
   listBookingPages = async (): Promise<BookingPage[]> => this.fail();
+  search = async (): Promise<SearchResponse> => this.fail();
+  getRecentSearches = async (): Promise<string[]> => this.fail();
+  setRecentSearches = async (): Promise<string[]> => this.fail();
   createBookingPage = async (): Promise<BookingPage> => this.fail();
   updateBookingPage = async (): Promise<BookingPage> => this.fail();
   deleteBookingPage = async (): Promise<{ deleted: true }> => this.fail();

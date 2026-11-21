@@ -9,6 +9,8 @@ import {
   type MeetingReminderEvent,
   type RsvpResponse,
   type SeriesScope,
+  MAX_RECENT_SEARCHES,
+  type SearchResponse,
   type UpdateMeetingRequest,
   type WorkingHours,
   type Message,
@@ -61,7 +63,13 @@ import {
   type TenantArea,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
-import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
+import type {
+  LocalMessage,
+  LocalNotification,
+  LocalSearch,
+  LocalStore,
+  PendingFileInput,
+} from '../db/store';
 import {
   approvalMatches,
   isLocalId,
@@ -92,6 +100,7 @@ import {
   type ApprovalQuery,
   type RecordingsQuery,
   type TaskQuery,
+  type SearchParams,
 } from '../sync/transport';
 
 /** What the connectivity indicator shows. */
@@ -118,6 +127,9 @@ export interface EngineState {
  * Wires the local store, outbox, cursor sync and realtime link together and reacts
  * to connectivity, app foregrounding and session changes.
  */
+/** Settings key for the server's copy of your recent searches. */
+const RECENT_KEY = 'search.recent';
+
 export class ConnectEngine {
   readonly events = new Emitter<{
     state: EngineState;
@@ -144,6 +156,8 @@ export class ConnectEngine {
     booking: { bookingPageId: string } | null;
     /** Your own profile changed on this phone, or a change of it reached the server. */
     profile: null;
+    /** Your recent searches changed here or on another of your devices. */
+    recentSearches: string[];
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -252,6 +266,7 @@ export class ConnectEngine {
         this.realtime.events.on('tenant', (e) => void this.receiveTenant(e.area)),
         this.realtime.events.on('project', (e) => this.events.emit('project', e)),
         this.realtime.events.on('booking', (e) => void this.receiveBooking(e)),
+        this.realtime.events.on('searchRecent', (e) => void this.receiveRecent(e.recent)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -911,6 +926,70 @@ export class ConnectEngine {
     this.events.emit('profile', null);
   }
 
+  // ------------------------------------------------------------ Universal Search
+
+  /**
+   * Everything you may open that matches, from the server (needs a connection). Offline, the
+   * search screen uses {@link searchOnPhone} instead.
+   */
+  search(q: SearchParams): Promise<SearchResponse> {
+    return this.serverAction(() => this.api.search(q));
+  }
+
+  /** Messages saved on this phone that match, including ones not sent yet. */
+  searchOnPhone(q: LocalSearch): Promise<LocalMessage[]> {
+    return this.store.searchMessagesBy(q);
+  }
+
+  /** Your recent searches, newest first: your unsent change, else the server's last copy. */
+  async recentSearches(): Promise<string[]> {
+    const pending = await this.store.work.pendingRecentSearches();
+    if (pending) return pending;
+    const raw = await this.store.getSetting(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  }
+
+  /** Puts a search at the top of your recent ones (on every device; works offline). */
+  async rememberSearch(query: string): Promise<void> {
+    const q = query.trim();
+    if (!q) return;
+    const now = await this.recentSearches();
+    const next = [q, ...now.filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(
+      0,
+      MAX_RECENT_SEARCHES,
+    );
+    if (next.join('\n') === now.join('\n')) return;
+    await this.saveRecent(next);
+  }
+
+  async forgetSearch(query: string): Promise<void> {
+    await this.saveRecent((await this.recentSearches()).filter((x) => x !== query));
+  }
+
+  async clearRecentSearches(): Promise<void> {
+    await this.saveRecent([]);
+  }
+
+  private async saveRecent(recent: string[]): Promise<void> {
+    if (this.session.state === 'demo')
+      await this.store.setSetting(RECENT_KEY, JSON.stringify(recent));
+    else await this.queue({ kind: 'search.recent', recent });
+    this.events.emit('recentSearches', recent);
+  }
+
+  private async receiveRecent(recent: string[]): Promise<void> {
+    await this.store.setSetting(RECENT_KEY, JSON.stringify(recent));
+    await this.emitRecent();
+  }
+
+  private async emitRecent(): Promise<void> {
+    this.events.emit('recentSearches', await this.recentSearches());
+  }
+
+  private async refreshRecentSearches(): Promise<void> {
+    await this.receiveRecent(await this.api.getRecentSearches());
+  }
+
   /** Lays your unsent profile changes over the server's directory. */
   private async overlayProfile(users: DirectoryUser[]): Promise<DirectoryUser[]> {
     const { patch, avatar } = await this.store.work.pendingProfile();
@@ -1091,6 +1170,12 @@ export class ConnectEngine {
       case 'avatar.remove':
         await this.receiveSelf(await this.api.removeAvatar());
         break;
+      case 'search.recent':
+        await this.store.setSetting(
+          RECENT_KEY,
+          JSON.stringify(await this.api.setRecentSearches(i.recent)),
+        );
+        break;
       case 'booking.delete':
         try {
           await this.api.deleteBookingPage(await need(i.bookingPageId));
@@ -1134,6 +1219,7 @@ export class ConnectEngine {
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
+    if (i.kind === 'search.recent') void this.emitRecent();
     if (i.kind === 'profile.update' || i.kind.startsWith('avatar.'))
       void this.sync.rederiveDirectory().then(() => this.events.emit('profile', null));
   }
@@ -1154,6 +1240,7 @@ export class ConnectEngine {
           this.listScheduled(),
           this.listBookmarks(),
           this.listBookingPages(),
+          this.refreshRecentSearches(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
