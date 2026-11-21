@@ -18,6 +18,7 @@ import type {
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
 import { useEngine } from './engine';
+import { deviceOptions } from './call-devices';
 
 /** The call this tab is in: the server's record plus the live SFU room. */
 export interface CurrentCall {
@@ -145,12 +146,15 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
   const connectTo = React.useCallback(
     async (res: CallJoinResponse, video: boolean) => {
       await currentRef.current?.room.disconnect().catch(() => undefined);
+      const dev = deviceOptions();
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
+        videoCaptureDefaults: { resolution: VideoPresets.h720.resolution, ...dev.video },
         publishDefaults: { simulcast: true },
+        ...(dev.audioOutput ? { audioOutput: dev.audioOutput } : {}),
         audioCaptureDefaults: {
+          ...dev.audio,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,

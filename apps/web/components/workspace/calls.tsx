@@ -37,6 +37,7 @@ import { cameraTrackOf, handRaisedAt, screenTrackOf, useCalls } from '@/lib/call
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, conversationTitle, formatTime, nameOf } from './helpers';
 import { MemberCallChat, useCallChatCount } from './call-chat';
+import { CallDeviceSettings } from './call-devices';
 
 const iconBtn =
   'rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40';
@@ -713,6 +714,7 @@ export function CallStage({
             )}
           </ControlButton>
         ) : null}
+        <CallDeviceSettings room={cur.room} />
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>
