@@ -6,6 +6,7 @@ import { LogoMark } from '@/components/brand';
 import { Workspace } from '@/components/workspace/workspace';
 import { useAuth } from '@/lib/auth';
 import { EngineProvider } from '@/lib/engine';
+import { CallsProvider } from '@/lib/calls';
 
 function Splash({ label }: { label: string }) {
   return (
@@ -35,7 +36,9 @@ export default function AppPage() {
         </div>
       ) : null}
       <EngineProvider fallback={<Splash label="Loading messages from this device…" />}>
-        <Workspace />
+        <CallsProvider>
+          <Workspace />
+        </CallsProvider>
       </EngineProvider>
     </>
   );

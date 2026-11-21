@@ -14,7 +14,13 @@ import {
   type SyncResponse,
 } from '@sampledge/contracts';
 import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
-import { NetworkError, ServerError, type NotificationEvent, type Transport } from './transport.js';
+import {
+  NetworkError,
+  ServerError,
+  type CallEvent,
+  type NotificationEvent,
+  type Transport,
+} from './transport.js';
 
 export type ConnectivityState = 'offline' | 'connecting' | 'syncing' | 'online';
 
@@ -75,6 +81,7 @@ export class SyncEngine {
   };
   private listeners = new Set<Listener>();
   private notificationListeners = new Set<(e: NotificationEvent) => void>();
+  private callListeners = new Set<(e: CallEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -110,6 +117,11 @@ export class SyncEngine {
   onNotification(fn: (e: NotificationEvent) => void): () => void {
     this.notificationListeners.add(fn);
     return () => this.notificationListeners.delete(fn);
+  }
+  /** Live call events (ringing, participant changes, ended). Call state itself is fetched over REST. */
+  onCall(fn: (e: CallEvent) => void): () => void {
+    this.callListeners.add(fn);
+    return () => this.callListeners.delete(fn);
   }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
@@ -217,6 +229,9 @@ export class SyncEngine {
       onSessionExpired: () => this.handleSessionExpired(),
       onNotification: (e) => {
         for (const l of this.notificationListeners) l(e);
+      },
+      onCall: (e) => {
+        for (const l of this.callListeners) l(e);
       },
     });
   }

@@ -14,6 +14,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { formatDay, formatTime, nameOf } from './helpers';
 import { MessageAttachments } from './attachments';
 import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
+import { CallCard } from './calls';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 
@@ -28,6 +29,7 @@ export function Timeline({
   pendingReactions = [],
   onReact,
   onReply,
+  offline = false,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -39,6 +41,7 @@ export function Timeline({
   pendingReactions?: PendingReaction[];
   onReact?: (m: LocalMessage, emoji: string, add: boolean) => void;
   onReply?: (m: LocalMessage) => void;
+  offline?: boolean;
 }) {
   const reduce = useReducedMotion();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -103,6 +106,8 @@ export function Timeline({
           const grouped =
             !showDay &&
             prev &&
+            prev.messageType !== 'system' &&
+            m.messageType !== 'system' &&
             prev.senderId === m.senderId &&
             Date.parse(m.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
           const status = own ? displayStatus(m, conversation, receipts) : null;
@@ -118,154 +123,167 @@ export function Timeline({
                   <span className="h-px flex-1 bg-border" />
                 </div>
               ) : null}
-              <motion.div
-                layout={reduce ? false : 'position'}
-                initial={reduce ? false : { opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-                className={cn(
-                  'group flex gap-3',
-                  own && 'flex-row-reverse',
-                  grouped ? 'mt-1' : 'mt-4',
-                )}
-                data-status={status ?? undefined}
-              >
-                <div className="w-9 shrink-0">
-                  {!grouped ? <Avatar name={own ? nameOf(me, directory) : name} size="sm" /> : null}
-                </div>
-                <div
-                  className={cn('flex min-w-0 max-w-[min(640px,78%)] flex-col', own && 'items-end')}
+              {m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
+                <CallCard message={m} me={me} directory={directory} offline={offline} />
+              ) : (
+                <motion.div
+                  layout={reduce ? false : 'position'}
+                  initial={reduce ? false : { opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+                  className={cn(
+                    'group flex gap-3',
+                    own && 'flex-row-reverse',
+                    grouped ? 'mt-1' : 'mt-4',
+                  )}
+                  data-status={status ?? undefined}
                 >
-                  {!grouped ? (
-                    <div
-                      className={cn(
-                        'mb-1 flex items-baseline gap-2 px-1',
-                        own && 'flex-row-reverse',
-                      )}
-                    >
-                      <span className="text-label text-text">{name}</span>
-                      <span className="text-meta text-text-subtle">{formatTime(m.createdAt)}</span>
-                    </div>
-                  ) : null}
-                  {m.replyToMessageId ? (
-                    <ReplyQuote
-                      parent={(() => {
-                        const p = byId.get(m.replyToMessageId);
-                        return p
-                          ? {
-                              senderId: p.senderId,
-                              text:
-                                p.content.text ||
-                                (p.attachments?.length
-                                  ? `${p.attachments.length} attachment${p.attachments.length > 1 ? 's' : ''}`
-                                  : ''),
-                              deleted: !!p.deletedAt,
-                            }
-                          : null;
-                      })()}
-                      directory={directory}
-                      me={me}
-                      own={own}
-                    />
-                  ) : null}
-                  <div className="relative max-w-full">
-                    {m.messageId && !m.deletedAt && onReact && onReply ? (
-                      <MessageActions
-                        own={own}
-                        onReact={(e) => {
-                          const mine = overlayReactions(
-                            m.reactions ?? [],
-                            pendingByMessage.get(m.messageId!) ?? [],
-                            me,
-                          ).find((r) => r.emoji === e)?.mine;
-                          onReact(m, e, !mine);
-                        }}
-                        onReply={() => onReply(m)}
-                      />
+                  <div className="w-9 shrink-0">
+                    {!grouped ? (
+                      <Avatar name={own ? nameOf(me, directory) : name} size="sm" />
                     ) : null}
-                    {m.deletedAt || m.content.text ? (
+                  </div>
+                  <div
+                    className={cn(
+                      'flex min-w-0 max-w-[min(640px,78%)] flex-col',
+                      own && 'items-end',
+                    )}
+                  >
+                    {!grouped ? (
                       <div
                         className={cn(
-                          'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
-                          own
-                            ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
-                            : 'rounded-tl-sm border border-border bg-bubble-other text-text',
-                          grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
-                          m.deletedAt && 'italic opacity-60',
-                          (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                          m.status === 'failed' && 'ring-1 ring-danger',
+                          'mb-1 flex items-baseline gap-2 px-1',
+                          own && 'flex-row-reverse',
                         )}
                       >
-                        {m.deletedAt ? (
-                          'This message was deleted'
-                        ) : (
-                          <MessageText
-                            text={m.content.text}
-                            mentions={m.content.mentions}
-                            directory={directory}
-                            me={me}
-                            own={own}
-                          />
+                        <span className="text-label text-text">{name}</span>
+                        <span className="text-meta text-text-subtle">
+                          {formatTime(m.createdAt)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {m.replyToMessageId ? (
+                      <ReplyQuote
+                        parent={(() => {
+                          const p = byId.get(m.replyToMessageId);
+                          return p
+                            ? {
+                                senderId: p.senderId,
+                                text:
+                                  p.content.text ||
+                                  (p.attachments?.length
+                                    ? `${p.attachments.length} attachment${p.attachments.length > 1 ? 's' : ''}`
+                                    : ''),
+                                deleted: !!p.deletedAt,
+                              }
+                            : null;
+                        })()}
+                        directory={directory}
+                        me={me}
+                        own={own}
+                      />
+                    ) : null}
+                    <div className="relative max-w-full">
+                      {m.messageId && !m.deletedAt && onReact && onReply ? (
+                        <MessageActions
+                          own={own}
+                          onReact={(e) => {
+                            const mine = overlayReactions(
+                              m.reactions ?? [],
+                              pendingByMessage.get(m.messageId!) ?? [],
+                              me,
+                            ).find((r) => r.emoji === e)?.mine;
+                            onReact(m, e, !mine);
+                          }}
+                          onReply={() => onReply(m)}
+                        />
+                      ) : null}
+                      {m.deletedAt || m.content.text ? (
+                        <div
+                          className={cn(
+                            'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
+                            own
+                              ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
+                              : 'rounded-tl-sm border border-border bg-bubble-other text-text',
+                            grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
+                            m.deletedAt && 'italic opacity-60',
+                            (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                            m.status === 'failed' && 'ring-1 ring-danger',
+                          )}
+                        >
+                          {m.deletedAt ? (
+                            'This message was deleted'
+                          ) : (
+                            <MessageText
+                              text={m.content.text}
+                              mentions={m.content.mentions}
+                              directory={directory}
+                              me={me}
+                              own={own}
+                            />
+                          )}
+                          {m.editedAt && !m.deletedAt ? (
+                            <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {!m.deletedAt && m.attachments?.length ? (
+                        <div
+                          className={cn(
+                            (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                          )}
+                        >
+                          <MessageAttachments attachments={m.attachments} own={own} />
+                        </div>
+                      ) : null}
+                    </div>
+                    {m.messageId && !m.deletedAt ? (
+                      <ReactionChips
+                        reactions={overlayReactions(
+                          m.reactions ?? [],
+                          pendingByMessage.get(m.messageId) ?? [],
+                          me,
                         )}
-                        {m.editedAt && !m.deletedAt ? (
-                          <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                        directory={directory}
+                        me={me}
+                        own={own}
+                        onToggle={(e, add) => onReact?.(m, e, add)}
+                      />
+                    ) : null}
+                    {own ? (
+                      <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">
+                        {grouped ? (
+                          <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                            {formatTime(m.createdAt)}
+                          </span>
+                        ) : null}
+                        <MessageStatusIcon status={status!} />
+                        {m.status === 'queued' ? (
+                          <span className="text-warning">Queued</span>
+                        ) : null}
+                        {m.status === 'failed' ? (
+                          <span className="flex items-center gap-2 text-danger">
+                            {m.error?.message ?? 'Not sent'}
+                            <button
+                              onClick={() => onRetry(m.clientMessageId)}
+                              className="inline-flex items-center gap-1 rounded-sm px-1 font-semibold hover:bg-danger/10"
+                            >
+                              <RotateCcw className="size-3" /> Retry
+                            </button>
+                            <button
+                              onClick={() => onDiscard(m.clientMessageId)}
+                              className="inline-flex items-center gap-1 rounded-sm px-1 hover:bg-danger/10"
+                              aria-label="Discard message"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </span>
                         ) : null}
                       </div>
                     ) : null}
-                    {!m.deletedAt && m.attachments?.length ? (
-                      <div
-                        className={cn(
-                          (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                        )}
-                      >
-                        <MessageAttachments attachments={m.attachments} own={own} />
-                      </div>
-                    ) : null}
                   </div>
-                  {m.messageId && !m.deletedAt ? (
-                    <ReactionChips
-                      reactions={overlayReactions(
-                        m.reactions ?? [],
-                        pendingByMessage.get(m.messageId) ?? [],
-                        me,
-                      )}
-                      directory={directory}
-                      me={me}
-                      own={own}
-                      onToggle={(e, add) => onReact?.(m, e, add)}
-                    />
-                  ) : null}
-                  {own ? (
-                    <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">
-                      {grouped ? (
-                        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                          {formatTime(m.createdAt)}
-                        </span>
-                      ) : null}
-                      <MessageStatusIcon status={status!} />
-                      {m.status === 'queued' ? <span className="text-warning">Queued</span> : null}
-                      {m.status === 'failed' ? (
-                        <span className="flex items-center gap-2 text-danger">
-                          {m.error?.message ?? 'Not sent'}
-                          <button
-                            onClick={() => onRetry(m.clientMessageId)}
-                            className="inline-flex items-center gap-1 rounded-sm px-1 font-semibold hover:bg-danger/10"
-                          >
-                            <RotateCcw className="size-3" /> Retry
-                          </button>
-                          <button
-                            onClick={() => onDiscard(m.clientMessageId)}
-                            className="inline-flex items-center gap-1 rounded-sm px-1 hover:bg-danger/10"
-                            aria-label="Discard message"
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </motion.div>
+                </motion.div>
+              )}
             </React.Fragment>
           );
         })}

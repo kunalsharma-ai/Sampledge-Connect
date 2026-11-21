@@ -2,6 +2,8 @@ import { io, type Socket } from 'socket.io-client';
 import {
   ERROR_CODES,
   type Ack,
+  type Call,
+  type CallRingingEvent,
   type AckReceiptRequest,
   type ApiError,
   type ClientToServerEvents,
@@ -40,7 +42,14 @@ export interface RealtimeHandlers {
   onSessionExpired(): void;
   /** In-app notification events for the signed-in user (optional for transports that lack them). */
   onNotification?(e: NotificationEvent): void;
+  /** Call lifecycle events (optional for transports that lack them). */
+  onCall?(e: CallEvent): void;
 }
+
+export type CallEvent =
+  | { type: 'ringing'; ringing: CallRingingEvent }
+  | { type: 'updated'; call: Call }
+  | { type: 'ended'; call: Call };
 
 export type NotificationEvent =
   { type: 'new'; notification: Notification } | { type: 'read'; unreadCount: number };
@@ -205,6 +214,9 @@ export class HttpSocketTransport implements Transport {
     s.on('notification:read', (e) =>
       this.handlers?.onNotification?.({ type: 'read', unreadCount: e.unreadCount }),
     );
+    s.on('call:ringing', (e) => this.handlers?.onCall?.({ type: 'ringing', ringing: e }));
+    s.on('call:updated', (call) => this.handlers?.onCall?.({ type: 'updated', call }));
+    s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
     this.socket = s;
     s.connect();
   }

@@ -69,6 +69,16 @@ export const PushStatusSchema = z.object({
 });
 export type PushStatus = z.infer<typeof PushStatusSchema>;
 
+/** The `data` payload of an incoming-call push. Show a call screen until `expiresAt`. */
+export interface CallPushData {
+  type: 'call';
+  callId: string;
+  conversationId: string;
+  media: 'audio' | 'video';
+  callerId: string;
+  expiresAt: string;
+}
+
 /** The `data` payload of a push. `unreadCount` is the in-app notification unread count (for badges). */
 export interface PushData {
   type: 'message';

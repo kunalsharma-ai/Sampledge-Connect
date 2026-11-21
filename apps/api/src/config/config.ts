@@ -35,6 +35,18 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  /**
+   * Self-hosted LiveKit SFU for voice and video calls. Calls are disabled until all three
+   * of LIVEKIT_PUBLIC_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are set.
+   */
+  /** URL browsers and phones use to reach the SFU, e.g. wss://rtc.example.com. */
+  LIVEKIT_PUBLIC_URL: z.string().url().optional(),
+  /** URL the API uses for the SFU's server API (defaults to the public URL over http/https). */
+  LIVEKIT_API_URL: z.string().url().optional(),
+  LIVEKIT_API_KEY: z.string().min(3).optional(),
+  LIVEKIT_API_SECRET: z.string().min(32).optional(),
+  /** Seconds an unanswered call invite rings before it counts as missed. */
+  CALL_RING_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(300).default(45),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

@@ -44,6 +44,7 @@ import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
+import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 
 const LS_RAIL = 'sampledge.rail';
 const LS_PANEL = 'sampledge.panel';
@@ -272,6 +273,7 @@ export function Workspace() {
                       compact
                     />
                   </button>
+                  <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
                   <NotifyLevelMenu conversation={active} offline={offline} />
                   <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
                     <button
@@ -287,6 +289,7 @@ export function Workspace() {
                     </button>
                   </Tooltip>
                 </header>
+                <LiveCallBanner conversation={active} directory={directory} offline={offline} />
                 {state.failed > 0 ? (
                   <button
                     onClick={() => setDialog('sync')}
@@ -315,6 +318,7 @@ export function Workspace() {
                       );
                   }}
                   onReply={(m) => setReplyTo(m)}
+                  offline={offline}
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -407,6 +411,18 @@ export function Workspace() {
           </div>
         </main>
       )}
+
+      <IncomingCall conversations={conversations ?? []} me={me} directory={directory} />
+      <CallStage
+        conversations={conversations ?? []}
+        me={me}
+        directory={directory}
+        onOpenConversation={(id) => {
+          setModule('messages');
+          setActiveId(id);
+        }}
+      />
+      <CallErrorToast />
 
       <MobileNav
         active={module}

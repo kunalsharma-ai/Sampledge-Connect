@@ -12,6 +12,7 @@ import {
   type Message,
   type Receipt,
   type SendMessageAck,
+  uuidv7,
 } from '@sampledge/contracts';
 import { AppError, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
@@ -182,7 +183,7 @@ export class MessagesService {
     const m = await t.messages.findOne({ _id: messageId });
     if (!m) throw notFound('Message');
     await this.conversations.authorize(ctx, m.conversationId, 'message.edit.own');
-    if (m.senderId !== ctx.userId)
+    if (m.senderId !== ctx.userId || m.messageType === 'system')
       throw new AppError('FORBIDDEN', 'You can only edit your own messages');
     if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
     const updated = await withLock(
@@ -209,6 +210,70 @@ export class MessagesService {
     return dto;
   }
 
+  /**
+   * Posts a server-authored system message (for example a call card) on behalf of `senderId`.
+   * It syncs and renders like any message but never notifies, and members cannot edit it.
+   */
+  async postSystem(
+    tenantId: string,
+    conversationId: string,
+    senderId: string,
+    text: string,
+    metadata: Record<string, unknown>,
+  ): Promise<Message> {
+    const t = this.db.for(tenantId);
+    const doc = await withLock(this.redis, this.lockKey(tenantId, conversationId), async () => {
+      const seq = await this.nextSequence(tenantId, conversationId, true);
+      return t.messages.insertOne({
+        conversationId,
+        clientMessageId: uuidv7(),
+        senderId,
+        senderDeviceId: 'server',
+        messageType: 'system',
+        content: { text, mentions: [] },
+        attachmentIds: [],
+        replyToMessageId: null,
+        serverSequence: seq,
+        changeSequence: seq,
+        createdAt: new Date(),
+        editedAt: null,
+        deletedAt: null,
+        metadata,
+      });
+    });
+    const message = toMessage(doc);
+    this.realtime.toConversation(tenantId, conversationId, 'message:new', message);
+    return message;
+  }
+
+  /** Replaces a system message's text and metadata (for example when a call ends). */
+  async updateSystem(
+    tenantId: string,
+    messageId: string,
+    text: string,
+    metadata: Record<string, unknown>,
+  ): Promise<Message | null> {
+    const t = this.db.for(tenantId);
+    const m = await t.messages.findOne({ _id: messageId, messageType: 'system' });
+    if (!m || m.deletedAt) return null;
+    const updated = await withLock(
+      this.redis,
+      this.lockKey(tenantId, m.conversationId),
+      async () => {
+        const seq = await this.nextSequence(tenantId, m.conversationId, false);
+        return t.messages.findOneAndUpdate(
+          { _id: messageId, deletedAt: null },
+          { $set: { content: { text, mentions: [] }, metadata, changeSequence: seq } },
+          { returnDocument: 'after' },
+        );
+      },
+    );
+    if (!updated) return null;
+    const dto = toMessage(updated);
+    this.realtime.toConversation(tenantId, m.conversationId, 'message:updated', dto);
+    return dto;
+  }
+
   /** Soft delete: content is erased and a tombstone syncs to every device. */
   async remove(ctx: TenantContext, messageId: string): Promise<Message> {
     const t = this.db.for(ctx.tenantId);
@@ -217,7 +282,9 @@ export class MessagesService {
     await this.conversations.authorize(
       ctx,
       m.conversationId,
-      m.senderId === ctx.userId ? 'message.delete.own' : 'message.delete.any',
+      m.senderId === ctx.userId && m.messageType !== 'system'
+        ? 'message.delete.own'
+        : 'message.delete.any',
     );
     if (m.deletedAt) return toMessage(m);
     const updated = await withLock(

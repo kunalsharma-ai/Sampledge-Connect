@@ -4,24 +4,26 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 
 ## Phase 1: product foundation
 
-| Area   | Item                                                                                                          | Status                           |
-| ------ | ------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol                             | Built (docs)                     |
-| Step 2 | Design tokens, five themes, typography, motion tokens, component library                                      | Built                            |
-| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation                              | Built                            |
-| Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                                                 | Planned                          |
-| Step 4 | MongoDB collections, validators, indexes, migrations                                                          | Built                            |
-| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO                              | Built                            |
-| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry                                       | Built                            |
-| Step 7 | Web workspace: nav rail, conversation list, timeline, composer, context panel, Sync Center, ⌘K, admin, themes | Built (web)                      |
-| 1b     | Reactions (offline queue), replies, @mentions                                                                 | Built                            |
-| 1b     | File attachments: upload tickets, GridFS storage, signed downloads, composer and timeline (web, mobile)       | Built                            |
-| 1b     | In-app notifications for mentions and replies (feed, read state, live events, offline cache on web)           | Built                            |
-| 1b     | Per-conversation notify level (all / mentions / none), synced to every device                                 | Built                            |
-| 1b     | Push via Expo Push (token per device session, skipped while the app is open, badge counts)                    | Built (server; mobile registers) |
-| 1b     | Direct FCM/APNs sending, browser Web Push, tenant-level preview privacy                                       | Planned                          |
-|        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                   | Planned                          |
-| Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                | Planned (Phase 1b)               |
+| Area   | Item                                                                                                                             | Status                           |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol                                                | Built (docs)                     |
+| Step 2 | Design tokens, five themes, typography, motion tokens, component library                                                         | Built                            |
+| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation                                                 | Built                            |
+| Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                                                                    | Planned                          |
+| Step 4 | MongoDB collections, validators, indexes, migrations                                                                             | Built                            |
+| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO                                                 | Built                            |
+| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry                                                          | Built                            |
+| Step 7 | Web workspace: nav rail, conversation list, timeline, composer, context panel, Sync Center, ⌘K, admin, themes                    | Built (web)                      |
+| 1b     | Reactions (offline queue), replies, @mentions                                                                                    | Built                            |
+| 1b     | File attachments: upload tickets, GridFS storage, signed downloads, composer and timeline (web, mobile)                          | Built                            |
+| 1b     | In-app notifications for mentions and replies (feed, read state, live events, offline cache on web)                              | Built                            |
+| 1b     | Per-conversation notify level (all / mentions / none), synced to every device                                                    | Built                            |
+| 1b     | Push via Expo Push (token per device session, skipped while the app is open, badge counts)                                       | Built (server; mobile registers) |
+| 1b     | Direct FCM/APNs sending, browser Web Push, tenant-level preview privacy                                                          | Planned                          |
+| 1c     | Self-hosted voice/video calls (LiveKit SFU + TURN in Docker): 1:1 and group, ringing, screen share, raise hand, call cards (web) | Built (see docs/calls.md)        |
+| 1c     | Mobile call screen, scheduled meetings, booking slots, external guest invites (.ics email), lobby, recordings                    | Planned                          |
+|        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                                      | Planned                          |
+| Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                   | Planned (Phase 1b)               |
 
 ## Phase 2 to 4
 

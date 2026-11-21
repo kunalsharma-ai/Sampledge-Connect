@@ -29,6 +29,8 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotificationsService } from './notifications/notifications.service.js';
 import { PushController } from './push/push.controller.js';
 import { PUSH_PROVIDER, createPushProvider } from './push/push-provider.js';
+import { CallsController } from './calls/calls.controller.js';
+import { CallsService } from './calls/calls.service.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -53,6 +55,7 @@ export class AppModule {
         AttachmentsController,
         NotificationsController,
         PushController,
+        CallsController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -67,6 +70,7 @@ export class AppModule {
         RealtimeGateway,
         AttachmentsService,
         NotificationsService,
+        CallsService,
         { provide: PUSH_PROVIDER, useValue: createPushProvider(cfg) },
         {
           provide: FILE_STORAGE,
