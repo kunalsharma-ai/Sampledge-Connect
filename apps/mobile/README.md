@@ -85,7 +85,9 @@ by meaning opening the message, suggested replies filling the composer, Translat
 summary shared only after Send, and the owner's on/off switch), and white-label branding (the
 owner sets the name, logo, colors and sign-in message on the phone; the sign-in screen shows them
 once the workspace is typed; members start on the organization theme; an enforced theme locks
-Appearance).
+Appearance), and administration (the owner's overview; adding a member, changing their role,
+deactivating and reactivating them, checked against the server; the audit log by category and
+for one person; everyone's devices).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -195,7 +197,11 @@ a summary is shared only after you press Send, with an extra tick for sensitive 
 and admins turn it on or off), white-label branding (the organization's logo and name on Home
 and the sign-in screen, its sign-in message, and its theme: members start on it or always see it
 when the owner says so; owners edit name, logo, colors, mode, sign-in message and support links in
-More, Branding; the last copy is kept on the device), on-device
+More, Branding; the last copy is kept on the device), administration for owners and admins in
+More, Administration (the organization at a glance: members, two-step share, devices, messages,
+storage, plan, sign-in mode; members with search, add, role, reset two-step, deactivate and
+reactivate, and their activity; the audit log with search, categories and paging; every device
+with sign-out; lists refresh when you return to them and after each sync), on-device
 search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
@@ -203,7 +209,7 @@ Planned (shown in the app with a "Planned" label and no sample data): Projects, 
 Inbox, recurring meetings, a Files library, resumable uploads, offline image caching,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
-Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), Analytics, the Sampledge module integrations, Administration, SSO (OIDC)
+Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), Analytics, the Sampledge module integrations, SSO (OIDC)
 on mobile, a separate thread pane, screen recording from the phone, recording retention and export
 settings (admin, on the web), and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
