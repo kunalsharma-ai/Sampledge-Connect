@@ -37,6 +37,7 @@ import { CallChatView, type ChatLine } from '@/components/workspace/call-chat';
 import { CallDeviceSettings } from '@/components/workspace/call-devices';
 import { CaptionsButton, CaptionsOverlay } from '@/components/workspace/call-captions';
 import { useLiveCaptions } from '@/lib/captions';
+import { useGuestCallBackground } from '@/lib/call-backgrounds';
 import { deviceOptions } from '@/lib/call-devices';
 import { ApiFailure, apiRequest, postCaptionClip } from '@/lib/api';
 import { API_URL } from '@/lib/config';
@@ -222,6 +223,7 @@ export function GuestJoin({ token }: { token: string }) {
         title={view.title}
         recording={!!state?.recording}
         captionsEnabled={!!state?.captions}
+        captionsSaved={!!state?.captionsSaved}
         myName={name.trim() || view.guest.name}
         onLeave={() => {
           // Only a leave we didn't already explain (ended / removed) counts as "you left".
@@ -631,6 +633,7 @@ function GuestCall({
   title,
   recording,
   captionsEnabled,
+  captionsSaved,
   myName,
   onLeave,
 }: {
@@ -639,10 +642,12 @@ function GuestCall({
   title: string;
   recording: boolean;
   captionsEnabled: boolean;
+  captionsSaved: boolean;
   myName: string;
   onLeave: () => void;
 }) {
   const reduce = useReducedMotion();
+  const backgrounds = useGuestCallBackground();
   const captions = useLiveCaptions(room, {
     enabled: captionsEnabled,
     myName: `${myName} (guest)`,
@@ -770,7 +775,7 @@ function GuestCall({
               ))}
             </div>
           )}
-          <CaptionsOverlay state={captions} />
+          <CaptionsOverlay state={captions} saved={captionsSaved} />
           {chatOpen ? (
             <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
               <CallChatView
@@ -823,7 +828,7 @@ function GuestCall({
             ) : null}
           </span>
           {captionsEnabled ? <CaptionsButton state={captions} /> : null}
-          <CallDeviceSettings room={room} />
+          <CallDeviceSettings room={room} backgrounds={backgrounds} />
           <ControlButton tone="danger" label="Leave meeting" onClick={onLeave}>
             <PhoneOff />
           </ControlButton>

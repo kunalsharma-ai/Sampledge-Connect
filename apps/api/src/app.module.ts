@@ -68,6 +68,8 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
 import { BookingService } from './meetings/booking.service.js';
 import { CaptionsService } from './calls/captions.service.js';
+import { CallBackgroundsController } from './calls/call-backgrounds.controller.js';
+import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -89,6 +91,8 @@ import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
 import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
+import { MinutesController } from './minutes/minutes.controller.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -137,6 +141,7 @@ export class AppModule {
         StatusController,
         ScheduledMessagesController,
         CallsController,
+        CallBackgroundsController,
         MeetingsController,
         GuestsController,
         BookingPagesController,
@@ -145,6 +150,7 @@ export class AppModule {
         IntegrationsController,
         WorkController,
         AiController,
+        MinutesController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -177,6 +183,7 @@ export class AppModule {
         GuestsService,
         BookingService,
         CaptionsService,
+        CallBackgroundsService,
         MailerService,
         WorkStore,
         ModuleSettingsService,
@@ -192,6 +199,7 @@ export class AppModule {
         AiService,
         AiIntegration,
         TranscriptsService,
+        MinutesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

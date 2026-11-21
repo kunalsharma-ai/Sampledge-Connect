@@ -526,6 +526,7 @@ export class GuestsService {
         callId: call._id,
         recording: !!call.recording,
         captions: await this.captions.available(m.tenantId),
+        captionsSaved: (await this.captions.saved(m.tenantId)).keep,
         join: await this.calls.guestJoinToken(call, { guestId: g.guestId, name: decided.name }),
       };
     const waiting = call.lobby?.some((l) => l.guestId === g.guestId);
@@ -545,6 +546,7 @@ export class GuestsService {
         callId: call._id,
         recording: !!call.recording,
         captions: await this.captions.available(m.tenantId),
+        captionsSaved: (await this.captions.saved(m.tenantId)).keep,
         join: await this.calls.guestJoinToken(call, { guestId: g.guestId, name: now2.name }),
       };
     return none('waiting', call);
@@ -621,8 +623,12 @@ export class GuestsService {
 
   /** A caption clip from an admitted guest (see CaptionsService). */
   async captionClip(token: string, audio: unknown, mimeType: string | undefined) {
-    const { meeting: m, guest: g } = await this.admittedCall(token);
-    return this.captions.guest(m.tenantId, g.guestId, audio, mimeType);
+    const { meeting: m, guest: g, call, name } = await this.admittedCall(token);
+    return this.captions.guest(m.tenantId, g.guestId, audio, mimeType, {
+      callId: call._id,
+      conversationId: call.conversationId,
+      name,
+    });
   }
 
   broadcastMeeting(tenantId: string, m: MeetingDoc, toMeeting: ToMeeting) {

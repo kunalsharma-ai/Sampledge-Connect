@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   UseGuards,
@@ -135,5 +136,26 @@ export class AiController {
   @HttpCode(202)
   requestTranscript(@Ctx() ctx: TenantContext, @Param('attachmentId') id: string) {
     return this.transcripts.request(ctx, id);
+  }
+
+  /** Correct lines (original or a translation) or mark it checked. Per-line merge. */
+  @Patch('transcripts/:attachmentId')
+  correctTranscript(
+    @Ctx() ctx: TenantContext,
+    @Param('attachmentId') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.transcripts.update(ctx, id, body);
+  }
+
+  /** Translate a finished transcript into another language (or again). */
+  @Post('transcripts/:attachmentId/translations')
+  @HttpCode(202)
+  translateTranscript(
+    @Ctx() ctx: TenantContext,
+    @Param('attachmentId') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.transcripts.translate(ctx, id, body);
   }
 }

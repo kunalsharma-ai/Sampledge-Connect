@@ -20,7 +20,13 @@ export function CaptionsButton({ state }: { state: CaptionsState }) {
 }
 
 /** Live caption lines over the bottom of the call, plus the "Captions on" notice. */
-export function CaptionsOverlay({ state }: { state: CaptionsState }) {
+export function CaptionsOverlay({
+  state,
+  saved = false,
+}: {
+  state: CaptionsState;
+  saved?: boolean;
+}) {
   if (!state.on && !state.active) return null;
   return (
     <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-col items-center gap-1.5 sm:inset-x-8">
@@ -47,6 +53,7 @@ export function CaptionsOverlay({ state }: { state: CaptionsState }) {
               ? 'Captions on'
               : 'Captions on · waiting for someone to speak'
             : 'Someone turned on captions: speech is transcribed by your organization’s server'}
+        {!state.error && saved ? ' · saved with names for the minutes' : ''}
       </span>
     </div>
   );

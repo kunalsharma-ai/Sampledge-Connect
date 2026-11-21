@@ -9,15 +9,22 @@ import type { Redis } from 'ioredis';
 import {
   AI_TRANSCRIPTION_INTEGRATION_ID,
   TRANSCRIPT_MAX_BYTES,
+  TranslateTranscriptRequestSchema,
+  UpdateTranscriptRequestSchema,
+  type TranscriptTranslation,
   isAudioAttachment,
   isVideoAttachment,
   type AiStatus,
   type AiTranscript,
   type RecordingKind,
 } from '@sampledge/contracts';
-import { AppError, forbidden, notFound } from '../common/errors.js';
+import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { AiTranscriptDoc, AttachmentDoc } from '../database/documents.js';
+import type {
+  AiTranscriptDoc,
+  AttachmentDoc,
+  TranscriptTranslationDoc,
+} from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AttachmentsService } from '../attachments/attachments.service.js';
@@ -25,6 +32,10 @@ import { ConversationsService } from '../conversations/conversations.service.js'
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { ModelEngine } from './model.js';
+import { ModelUnavailableError } from './engine.js';
+import { AI_SETTINGS_SOURCE, type AiSettingsSource } from './settings.js';
 import {
   AI_TRANSCRIPTION_PROVIDER,
   SttClient,
@@ -69,6 +80,8 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
     private readonly rateLimit: RateLimitService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    @Inject(AI_SETTINGS_SOURCE) private readonly modelSettings: AiSettingsSource,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   onModuleInit() {
@@ -101,11 +114,24 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
 
   async config(tenantId: string): Promise<Config> {
     const s = await this.settings(tenantId);
+    const model = await this.model(tenantId);
     return {
       configured: !!s,
       autoTranscribeCalls: !!s?.autoTranscribeCalls,
       autoTranscribeVoice: !!s?.autoTranscribeVoice,
+      translateTo: s?.translateTo ?? [],
+      translation: model ? 'model' : s ? 'english' : 'none',
     };
+  }
+
+  /** The organization's model server, for translating transcripts (null: none). */
+  private async model(tenantId: string): Promise<ModelEngine | null> {
+    try {
+      const m = await this.modelSettings.get(tenantId);
+      return m ? new ModelEngine(m, this.fetchImpl) : null;
+    } catch {
+      return null;
+    }
   }
 
   private async aiEnabled(tenantId: string): Promise<boolean> {
@@ -131,7 +157,12 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
     return a;
   }
 
-  private view(a: AttachmentDoc, doc: AiTranscriptDoc | null, configured: boolean): AiTranscript {
+  private view(
+    a: AttachmentDoc,
+    doc: AiTranscriptDoc | null,
+    configured: boolean,
+    canEdit = false,
+  ): AiTranscript {
     if (!doc)
       return {
         attachmentId: a._id,
@@ -144,7 +175,14 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
         model: null,
         error: null,
         updatedAt: null,
+        translations: [],
+        revision: 0,
+        edited: false,
+        reviewedBy: null,
+        reviewedAt: null,
+        canEdit: false,
       };
+    const revision = doc.revision ?? 0;
     return {
       attachmentId: a._id,
       conversationId: a.conversationId,
@@ -156,14 +194,234 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
       model: doc.model,
       error: doc.status === 'failed' ? doc.error : null,
       updatedAt: doc.updatedAt.toISOString(),
+      translations: (doc.translations ?? []).map((tr) => translationView(tr, revision, doc)),
+      revision,
+      edited: !!doc.edited,
+      reviewedBy: doc.reviewedBy ?? null,
+      reviewedAt: doc.reviewedAt?.toISOString() ?? null,
+      canEdit: canEdit && doc.status === 'done',
     };
+  }
+
+  /**
+   * Who may correct a transcript: who recorded it, people who were in the call, conversation
+   * owners and moderators, and organization admins. Readers who were not there may not.
+   */
+  async canEdit(ctx: TenantContext, a: AttachmentDoc): Promise<boolean> {
+    if (ctx.role === 'owner' || ctx.role === 'admin') return true;
+    if (a.uploaderId === ctx.userId) return true;
+    if (ctx.role === 'guest') return false;
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.conversation_members.findOne(
+      { conversationId: a.conversationId, userId: ctx.userId },
+      { projection: { role: 1 } },
+    );
+    if (m?.role === 'owner' || m?.role === 'moderator') return true;
+    if (!a.callId) return false;
+    const call = await t.calls.findOne({ _id: a.callId }, { projection: { participants: 1 } });
+    return !!call?.participants.some((p) => p.userId === ctx.userId && p.joinedAt);
   }
 
   async get(ctx: TenantContext, attachmentId: string): Promise<AiTranscript> {
     const a = await this.media(ctx, attachmentId);
     const doc = await this.db.for(ctx.tenantId).ai_transcripts.findOne({ attachmentId });
     const configured = !!(await this.settings(ctx.tenantId));
-    return this.view(a, doc, configured);
+    return this.view(a, doc, configured, doc ? await this.canEdit(ctx, a) : false);
+  }
+
+  /**
+   * Correct lines of the original or of a translation, and/or mark it checked. Lines someone
+   * else corrected after `baseRevision` are a conflict; other lines merge, so two people
+   * fixing different lines (or one fixing lines offline) never lose each other's work.
+   */
+  async update(ctx: TenantContext, attachmentId: string, body: unknown): Promise<AiTranscript> {
+    const req = parse(UpdateTranscriptRequestSchema, body);
+    const a = await this.media(ctx, attachmentId);
+    if (!(await this.canEdit(ctx, a)))
+      throw forbidden(
+        'Only people who were in the call, who recorded it or moderators can correct it',
+      );
+    const t = this.db.for(ctx.tenantId);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const doc = await t.ai_transcripts.findOne({ attachmentId });
+      if (!doc || doc.status !== 'done')
+        throw new AppError('CONFLICT', 'This transcript is not finished yet');
+      const revision = doc.revision ?? 0;
+      const next = revision + 1;
+      const now = new Date();
+      const tr = req.language ? doc.translations?.find((x) => x.language === req.language) : null;
+      if (req.language && (!tr || tr.status !== 'done')) throw notFound('Translation');
+      const target = tr ?? doc;
+      const segments = target.segments.map((x) => ({ ...x }));
+      const segRevs = [...(target.segmentRevs ?? [])];
+      let text = target.text ?? '';
+      let changed = false;
+      const conflicts: number[] = [];
+      for (const e of req.segments ?? []) {
+        if (e.index >= segments.length) throw new AppError('VALIDATION_FAILED', 'No such line');
+        const clean = e.text.replace(/\s+/g, ' ').trim();
+        if (clean === segments[e.index]!.text) continue;
+        if ((segRevs[e.index] ?? 0) > req.baseRevision) conflicts.push(e.index);
+        segments[e.index]!.text = clean;
+        segRevs[e.index] = next;
+        changed = true;
+      }
+      if (req.segments?.length && changed)
+        text = segments
+          .map((x) => x.text)
+          .filter(Boolean)
+          .join(' ');
+      if (req.text !== undefined && !segments.length && req.text.trim() !== text.trim()) {
+        if ((target.textRev ?? 0) > req.baseRevision) conflicts.push(-1);
+        text = req.text.trim();
+        changed = true;
+      }
+      if (conflicts.length)
+        throw new AppError(
+          'CONFLICT',
+          'Someone else corrected the same lines. Reload to see their version.',
+          { current: this.view(a, doc, true, true), lines: conflicts },
+        );
+      const reviewed =
+        req.reviewed === undefined
+          ? {}
+          : req.reviewed
+            ? { reviewedBy: ctx.userId, reviewedAt: now }
+            : { reviewedBy: null, reviewedAt: null };
+      if (!changed && req.reviewed === undefined) return this.view(a, doc, true, true);
+      const fields = tr
+        ? {
+            translations: (doc.translations ?? []).map((x) =>
+              x.language === tr.language
+                ? {
+                    ...x,
+                    segments,
+                    segmentRevs: segRevs,
+                    text,
+                    ...(changed
+                      ? { edited: true, textRev: req.text !== undefined ? next : x.textRev }
+                      : {}),
+                    ...reviewed,
+                    updatedAt: now,
+                  }
+                : x,
+            ),
+          }
+        : {
+            segments,
+            segmentRevs: segRevs,
+            text,
+            ...(changed
+              ? { edited: true, textRev: req.text !== undefined ? next : doc.textRev }
+              : {}),
+            ...reviewed,
+          };
+      const r = await t.ai_transcripts.updateOne(
+        { _id: doc._id, revision: doc.revision ?? { $exists: false } } as never,
+        { $set: { ...fields, revision: next, updatedAt: now } },
+      );
+      if (!r.modifiedCount) continue; // someone else saved in between: merge again
+      if (changed && !tr) await this.reindex(ctx.tenantId, a);
+      void this.audit.record({
+        tenantId: ctx.tenantId,
+        actorId: ctx.userId,
+        action: changed ? 'ai.transcript.correct' : 'ai.transcript.review',
+        target: { type: 'attachment', id: attachmentId },
+        metadata: {
+          language: req.language ?? null,
+          lines: req.segments?.length ?? 0,
+          reviewed: req.reviewed ?? null,
+        },
+      });
+      this.changed(ctx.tenantId, a.conversationId, attachmentId, next);
+      return this.get(ctx, attachmentId);
+    }
+    throw new AppError('CONFLICT', 'The transcript is busy. Try again.');
+  }
+
+  /**
+   * Translate a finished transcript (or translate it again). English can come from the
+   * speech-to-text server's translate mode; other languages need the AI model server.
+   */
+  async translate(ctx: TenantContext, attachmentId: string, body: unknown): Promise<AiTranscript> {
+    const { language } = parse(TranslateTranscriptRequestSchema, body);
+    const a = await this.media(ctx, attachmentId);
+    await this.rateLimit.consume('ai', `${ctx.tenantId}:${ctx.userId}`);
+    const t = this.db.for(ctx.tenantId);
+    const doc = await t.ai_transcripts.findOne({ attachmentId });
+    if (!doc || doc.status !== 'done')
+      throw new AppError('CONFLICT', 'Translate the transcript once it is finished');
+    if (doc.language && doc.language === language.split('-')[0])
+      throw new AppError('VALIDATION_FAILED', 'The transcript is already in that language');
+    const how = await this.config(ctx.tenantId);
+    if (how.translation !== 'model' && language !== 'en')
+      throw new AppError(
+        'UNAVAILABLE',
+        'Translating to languages other than English needs your AI model server. An admin can add one in Integrations.',
+      );
+    await this.queueTranslations(ctx.tenantId, doc, [language], ctx.userId, true);
+    void this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'ai.transcript.translate',
+      target: { type: 'attachment', id: attachmentId },
+      metadata: { language },
+    });
+    if (this.cfg.NODE_ENV !== 'test')
+      void this.sweep(ctx.tenantId).catch((e) => this.log.warn(String(e)));
+    return this.get(ctx, attachmentId);
+  }
+
+  private async queueTranslations(
+    tenantId: string,
+    doc: AiTranscriptDoc,
+    languages: string[],
+    requestedBy: string | null,
+    again: boolean,
+  ) {
+    const t = this.db.for(tenantId);
+    const now = new Date();
+    const list = [...(doc.translations ?? [])];
+    let touched = false;
+    for (const language of languages) {
+      if (doc.language && language === doc.language) continue;
+      const i = list.findIndex((x) => x.language === language);
+      if (i >= 0 && !again && list[i]!.status !== 'failed') continue;
+      if (i >= 0 && (list[i]!.status === 'queued' || list[i]!.status === 'processing')) continue;
+      const fresh: TranscriptTranslationDoc = {
+        language,
+        status: 'queued',
+        text: null,
+        segments: [],
+        engine: null,
+        error: null,
+        attempts: 0,
+        sourceRevision: doc.revision ?? 0,
+        requestedBy,
+        updatedAt: now,
+      };
+      if (i >= 0) list[i] = fresh;
+      else list.push(fresh);
+      touched = true;
+    }
+    if (touched)
+      await t.ai_transcripts.updateOne(
+        { _id: doc._id },
+        { $set: { translations: list.slice(0, 8) } },
+      );
+  }
+
+  private changed(
+    tenantId: string,
+    conversationId: string,
+    attachmentId: string,
+    revision: number,
+  ) {
+    this.realtime.toConversation(tenantId, conversationId, 'transcript:changed', {
+      attachmentId,
+      conversationId,
+      revision,
+    });
   }
 
   /** Queue a transcript (or a retry after a failure). Done transcripts are returned as they are. */
@@ -221,15 +479,28 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
    * Finished transcripts for these messages, cut to what the assistant reads. Callers have
    * already checked access to the messages; recordings deleted since are left out.
    */
-  async textsForMessages(tenantId: string, messageIds: string[]): Promise<Map<string, string>> {
+  async textsForMessages(
+    tenantId: string,
+    messageIds: string[],
+    /** Prefer a finished translation into this language when there is one. */
+    language?: string,
+  ): Promise<Map<string, string>> {
     if (!messageIds.length) return new Map();
     const t = this.db.for(tenantId);
-    const docs = await t.ai_transcripts
-      .find(
-        { messageId: { $in: messageIds }, status: 'done' },
-        { projection: { messageId: 1, attachmentId: 1, text: 1 } },
-      )
-      .toArray();
+    const docs = (
+      await t.ai_transcripts
+        .find(
+          { messageId: { $in: messageIds }, status: 'done' },
+          { projection: { messageId: 1, attachmentId: 1, text: 1, translations: 1, language: 1 } },
+        )
+        .toArray()
+    ).map((d) => {
+      const tr =
+        language && d.language !== language
+          ? d.translations?.find((x) => x.language === language && x.status === 'done')
+          : undefined;
+      return tr?.text ? { ...d, text: tr.text } : d;
+    });
     if (!docs.length) return new Map();
     const live = new Set(
       (
@@ -300,7 +571,114 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
       );
       if (!job) break;
       tried.push(job._id);
-      if (await this.runJob(tenantId, job, client)) done++;
+      if (await this.runJob(tenantId, job, client, settings)) done++;
+    }
+    done += await this.translateQueued(tenantId, client);
+    return done;
+  }
+
+  /** Runs queued translations: model server for any language, Whisper translate for English. */
+  private async translateQueued(tenantId: string, client: SttClient): Promise<number> {
+    const t = this.db.for(tenantId);
+    const staleBefore = new Date(Date.now() - STALE_MS);
+    const stuck = await t.ai_transcripts
+      .find(
+        { translations: { $elemMatch: { status: 'processing', updatedAt: { $lt: staleBefore } } } },
+        { projection: { _id: 1 }, limit: 50 },
+      )
+      .toArray();
+    for (const d of stuck)
+      await t.ai_transcripts.updateOne(
+        { _id: d._id },
+        { $set: { 'translations.$[x].status': 'queued' } } as never,
+        { arrayFilters: [{ 'x.status': 'processing', 'x.updatedAt': { $lt: staleBefore } }] },
+      );
+    const jobs = await t.ai_transcripts
+      .find({ 'translations.status': 'queued', status: 'done' }, { limit: JOBS_PER_SWEEP })
+      .toArray();
+    if (!jobs.length) return 0;
+    const model = await this.model(tenantId);
+    let done = 0;
+    for (const doc of jobs) {
+      const tr = doc.translations!.find((x) => x.status === 'queued');
+      if (!tr) continue;
+      const lock = `lock:ai-translate:${tenantId}:${doc.attachmentId}:${tr.language}`;
+      if ((await this.redis.set(lock, '1', 'PX', STALE_MS, 'NX')) !== 'OK') continue;
+      const set = async (patch: Partial<TranscriptTranslationDoc>) => {
+        await t.ai_transcripts.updateOne(
+          { _id: doc._id },
+          {
+            $set: Object.fromEntries(
+              Object.entries({ ...patch, updatedAt: new Date() }).map(([k, v]) => [
+                `translations.$[x].${k}`,
+                v,
+              ]),
+            ),
+          } as never,
+          { arrayFilters: [{ 'x.language': tr.language }] },
+        );
+      };
+      try {
+        await set({ status: 'processing', attempts: tr.attempts + 1 });
+        let result: { text: string; segments: TranscriptTranslationDoc['segments'] } | null = null;
+        let engine: 'model' | 'stt' = 'model';
+        if (model) {
+          try {
+            const lines = doc.segments.length ? doc.segments.map((x) => x.text) : [doc.text ?? ''];
+            const out = await model.translateLines(lines, tr.language);
+            const segments = doc.segments.map((x, i) => ({ ...x, text: out[i] ?? '' }));
+            result = { text: out.filter(Boolean).join(' '), segments };
+          } catch (e) {
+            if (!(e instanceof ModelUnavailableError) || tr.language !== 'en') throw e;
+          }
+        }
+        if (!result && tr.language === 'en') {
+          engine = 'stt';
+          const a = await t.attachments.findOne({ _id: doc.attachmentId, deletedAt: null });
+          if (!a?.storageKey) throw new Error('recording gone');
+          const audio = await readAll(this.attachments.openStored(a), TRANSCRIPT_MAX_BYTES);
+          const r = await client.translateToEnglish(audio, a.fileName, a.mimeType);
+          result = { text: r.text, segments: r.segments };
+        }
+        if (!result)
+          throw new ModelUnavailableError(
+            'Translating to this language needs your AI model server (Integrations).',
+          );
+        await set({
+          status: 'done',
+          text: result.text.slice(0, 1_900_000),
+          segments: result.segments.slice(0, 20_000),
+          segmentRevs: [],
+          edited: false,
+          reviewedBy: null,
+          reviewedAt: null,
+          engine,
+          error: null,
+          sourceRevision: doc.revision ?? 0,
+        });
+        done++;
+        void this.audit.record({
+          tenantId,
+          actorId: tr.requestedBy,
+          action: 'ai.transcript.translated',
+          target: { type: 'attachment', id: doc.attachmentId },
+          metadata: { language: tr.language, engine, chars: result.text.length },
+        });
+      } catch (e) {
+        const reason =
+          e instanceof SttUnavailableError || e instanceof ModelUnavailableError
+            ? e.message
+            : 'The transcript could not be translated.';
+        const retry =
+          (e instanceof SttUnavailableError || e instanceof ModelUnavailableError) &&
+          tr.attempts + 1 < MAX_ATTEMPTS &&
+          !/needs your AI model server/.test(reason);
+        await set({ status: retry ? 'queued' : 'failed', error: reason });
+        this.log.warn(`translation ${doc.attachmentId}/${tr.language} for ${tenantId}: ${reason}`);
+      } finally {
+        await this.redis.del(lock).catch(() => undefined);
+      }
+      this.changed(tenantId, doc.conversationId, doc.attachmentId, doc.revision ?? 0);
     }
     return done;
   }
@@ -383,7 +761,12 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
     if (gone.length) await t.ai_transcripts.deleteMany({ attachmentId: { $in: gone } });
   }
 
-  private async runJob(tenantId: string, job: AiTranscriptDoc, client: SttClient) {
+  private async runJob(
+    tenantId: string,
+    job: AiTranscriptDoc,
+    client: SttClient,
+    settings: SttSettings,
+  ) {
     const t = this.db.for(tenantId);
     const lock = `lock:ai-transcript:${tenantId}:${job.attachmentId}`;
     if ((await this.redis.set(lock, '1', 'PX', STALE_MS, 'NX')) !== 'OK') return false;
@@ -434,6 +817,10 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
         },
       );
       await this.reindex(tenantId, a);
+      const fresh = await t.ai_transcripts.findOne({ _id: job._id });
+      if (fresh && settings.translateTo.length)
+        await this.queueTranslations(tenantId, fresh, settings.translateTo, null, false);
+      this.changed(tenantId, a.conversationId, a._id, fresh?.revision ?? 0);
       void this.audit.record({
         tenantId,
         actorId: job.requestedBy,
@@ -470,6 +857,27 @@ export class TranscriptsService implements OnModuleInit, OnApplicationShutdown {
       { $set: { indexedUpTo: m.changeSequence - 1, updatedAt: new Date() } },
     );
   }
+}
+
+function translationView(
+  tr: TranscriptTranslationDoc,
+  sourceRevision: number,
+  doc: AiTranscriptDoc,
+): TranscriptTranslation & { outdated: boolean } {
+  return {
+    language: tr.language,
+    status: tr.status,
+    text: tr.status === 'done' ? tr.text : null,
+    segments: tr.status === 'done' ? tr.segments : [],
+    engine: tr.engine,
+    error: tr.status === 'failed' ? tr.error : null,
+    edited: !!tr.edited,
+    reviewedBy: tr.reviewedBy ?? null,
+    reviewedAt: tr.reviewedAt?.toISOString() ?? null,
+    updatedAt: tr.updatedAt.toISOString(),
+    // The original was corrected after this was translated.
+    outdated: tr.status === 'done' && !!doc.edited && sourceRevision > tr.sourceRevision,
+  };
 }
 
 async function readAll(stream: NodeJS.ReadableStream, max: number): Promise<Buffer> {

@@ -3,6 +3,11 @@ import type {
   ConversationRole,
   MessageContent,
   MessageType,
+  MinutesActionItem,
+  MinutesAttendee,
+  MinutesEditableField,
+  MinutesSettings,
+  MinutesSources,
   RecordingKind,
   Recurrence,
   TenantRole,
@@ -329,6 +334,10 @@ export interface TenantSettingsDoc extends TenantOwned {
   callRecordingEnabled: boolean;
   /** Private AI assistant on/off for the organization. Absent means on. */
   aiEnabled?: boolean;
+  /** Minutes and chat export (Administration › Minutes and export). Absent: defaults. */
+  minutes?: MinutesSettings;
+  /** Call backgrounds: organization default and whether the logo background is required. */
+  callBackgrounds?: { defaultChoice: { kind: string; presetId?: string }; enforceLogo: boolean };
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -443,6 +452,24 @@ export interface UserAvatarDoc extends TenantOwned {
   createdAt: Date;
 }
 
+/** A person's call background choice, synced to all of their devices. */
+export interface CallBackgroundPrefDoc extends TenantOwned {
+  userId: string;
+  choice: { kind: string; presetId?: string } | null;
+  /** Key of their own image in `call_background_images`, if they uploaded one. */
+  imageKey?: string | null;
+  updatedAt: Date;
+}
+
+/** A personal call background image. `_id` is a random key, so its public URL can't be guessed. */
+export interface CallBackgroundImageDoc extends TenantOwned {
+  userId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
 export interface BookmarkDoc extends TenantOwned {
   userId: string;
   messageId: string;
@@ -535,6 +562,84 @@ export interface AiTranscriptDoc extends TenantOwned {
   requestedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Bumped by every correction or review. */
+  revision?: number;
+  /** Revision at which each segment was last corrected (0 or absent: machine text). */
+  segmentRevs?: number[];
+  /** Revision at which the whole text was last corrected (transcripts without segments). */
+  textRev?: number;
+  edited?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
+  translations?: TranscriptTranslationDoc[];
+}
+
+/** Minutes of meeting for one call (docs/minutes.md). */
+export interface MeetingMinutesDoc extends TenantOwned {
+  callId: string;
+  conversationId: string;
+  meetingId: string | null;
+  title: string;
+  media: 'audio' | 'video';
+  startedAt: Date;
+  endedAt: Date | null;
+  durationSec: number | null;
+  attendees: MinutesAttendee[];
+  agenda: string;
+  summary: string;
+  decisions: string[];
+  actionItems: MinutesActionItem[];
+  openQuestions: string[];
+  notes: string;
+  language: string;
+  sources: MinutesSources;
+  engine: 'basic' | 'model' | 'manual';
+  status: 'draft' | 'shared';
+  revision: number;
+  /** Revision at which each editable field last changed (per-field merge). */
+  fieldRevs: Partial<Record<MinutesEditableField, number>>;
+  /** People in the call (they may edit, with moderators and admins). */
+  editorIds: string[];
+  createdBy: string;
+  createdAt: Date;
+  updatedBy: string;
+  updatedAt: Date;
+  sharedBy: string | null;
+  sharedAt: Date | null;
+  /** The "Minutes shared" card in the conversation. */
+  messageId: string | null;
+}
+
+/** A live caption line kept for the minutes (only when the organization turned that on). */
+export interface CallCaptionDoc extends TenantOwned {
+  callId: string;
+  conversationId: string;
+  /** null for guests. */
+  userId: string | null;
+  speaker: string;
+  text: string;
+  at: Date;
+  /** TTL: removed after the organization's caption retention. */
+  expiresAt: Date;
+}
+
+export interface TranscriptTranslationDoc {
+  language: string;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  text: string | null;
+  segments: { startMs: number; endMs: number; text: string }[];
+  engine: 'model' | 'stt' | null;
+  error: string | null;
+  attempts: number;
+  /** The original's revision this was translated from (outdated once the original changes). */
+  sourceRevision: number;
+  segmentRevs?: number[];
+  textRev?: number;
+  edited?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
+  requestedBy: string | null;
+  updatedAt: Date;
 }
 
 /** A public booking page (`/book/<slug>`); slugs are unique across all tenants. */
@@ -577,12 +682,16 @@ export interface TenantCollections {
   bookmarks: BookmarkDoc;
   search_history: SearchHistoryDoc;
   user_avatars: UserAvatarDoc;
+  call_background_prefs: CallBackgroundPrefDoc;
+  call_background_images: CallBackgroundImageDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
   ai_transcripts: AiTranscriptDoc;
+  meeting_minutes: MeetingMinutesDoc;
+  call_captions: CallCaptionDoc;
   ai_suggestion_dismissals: AiSuggestionDismissalDoc;
   billing_subscriptions: BillingSubscriptionDoc;
   billing_invoices: BillingInvoiceDoc;

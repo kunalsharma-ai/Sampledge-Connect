@@ -430,6 +430,43 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
     return out;
   }
 
+  /** AI on for the organization (minutes then start blank for people to write when off). */
+  async enabledFor(tenantId: string): Promise<boolean> {
+    return this.tenantEnabled(tenantId);
+  }
+
+  /** The organization has a model server (minutes written in any language, translation). */
+  async hasModel(tenantId: string): Promise<boolean> {
+    return (await this.engineFor(tenantId)).kind === 'model';
+  }
+
+  /**
+   * Content for minutes of meeting. The caller (MinutesService) has already checked that the
+   * person may read the call and its conversation; lines are data, never instructions.
+   */
+  async draftMinutes(
+    ctx: TenantContext,
+    input: {
+      title: string;
+      agenda: string;
+      lines: TranscriptLine[];
+      members: Member[];
+      language: string;
+    },
+  ) {
+    await this.gate(ctx);
+    const { value, engine } = await this.run(ctx.tenantId, (e) =>
+      e.summarize({ ...input, purpose: 'minutes' }),
+    );
+    void this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'ai.minutes',
+      metadata: { lines: input.lines.length, engine, language: input.language },
+    });
+    return { value, engine, actionItems: this.mapActionItems(value.actionItems, input.members) };
+  }
+
   async summarizeMeeting(ctx: TenantContext, meetingId: string): Promise<AiMeetingSummary> {
     await this.gate(ctx);
     const m = await this.db.for(ctx.tenantId).meetings.findOne({ _id: meetingId });

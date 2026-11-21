@@ -19,6 +19,7 @@ import type {
   TenantArea,
   BookingPage,
   ChatThemeId,
+  MeetingsArea,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -65,7 +66,7 @@ type RealtimeEvents = {
   /** Your recent searches changed on one of your devices. */
   searchRecent: { recent: string[] };
   /** Your booking pages or working hours changed (on any of your devices). */
-  meetingsChanged: { area: 'booking_pages' | 'working_hours' };
+  meetingsChanged: { area: MeetingsArea };
 };
 
 /**

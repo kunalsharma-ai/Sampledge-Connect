@@ -17,6 +17,7 @@ import { useEngineChange, useTenantChange, type DirectoryEntry } from '@/lib/eng
 import { attachmentUrl, formatBytes } from '@/lib/uploads';
 import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 import { nameOf } from './helpers';
+import { MinutesSettingsPanel } from './minutes-settings';
 
 const FILTERS: { id: RecordingKind | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -163,9 +164,9 @@ export function RecordingsScreen({
             size="sm"
             onClick={() => setAdminOpen((o) => !o)}
             aria-expanded={adminOpen}
-            aria-label="Retention & backup"
+            aria-label="Settings & backup"
           >
-            <ShieldCheck /> <span className="hidden sm:inline">Retention & backup</span>
+            <ShieldCheck /> <span className="hidden sm:inline">Settings & backup</span>
           </Button>
         ) : null}
       </header>
@@ -323,7 +324,7 @@ export function RecordingsScreen({
         {isAdmin && adminOpen ? (
           <aside className="fixed inset-0 z-40 overflow-y-auto border-l border-border bg-surface p-5 md:static md:z-auto md:w-[360px] md:shrink-0">
             <div className="mb-4 flex items-center justify-between md:hidden">
-              <h2 className="text-h3 text-text">Retention & backup</h2>
+              <h2 className="text-h3 text-text">Settings & backup</h2>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -336,6 +337,8 @@ export function RecordingsScreen({
             <RetentionSettings api={api} onSaved={() => void load()} />
             <div className="my-6 h-px bg-border" />
             <ExportPanel api={api} />
+            <div className="my-6 h-px bg-border" />
+            <MinutesSettingsPanel />
           </aside>
         ) : null}
       </div>
