@@ -37,4 +37,19 @@ Role, status and email are changed by admins only, not here.
 API base URL. All profile fields are optional in the schema, so older servers and clients keep
 working.
 
-Editing your profile needs a connection; the apps say so while offline.
+On the web, editing your profile needs a connection; the web app says so while offline.
+
+## Mobile
+
+**More → your name** (or Settings → Profile and photo) opens the profile editor. A new photo can
+come from the camera or the library: the phone crops it to a square, scales it to 512 px and
+compresses it as JPEG under 160 KB before it is sent. Photos show wherever people appear: direct
+messages, member lists, meeting attendees, calls, notifications, activity and the people picker.
+Tapping a member opens their profile card (title, department, email, phone, local time, about and
+Message).
+
+Profile edits and photo changes work offline. They show at once on the phone and go into the
+action queue (`profile.update`, `avatar.set`, `avatar.remove`). Edits to the same field collapse
+into the newest value, and only the last photo choice is sent. Everyone else sees the change when
+the phone reconnects. A change the server refuses (for example an unknown time zone) is dropped,
+and the saved profile shows again with a short notice. See `apps/mobile/README.md`.

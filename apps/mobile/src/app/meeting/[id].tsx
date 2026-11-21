@@ -3,7 +3,7 @@ import type { RsvpResponse } from '@sampledge/contracts';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { RSVP_ICON, RSVP_LABEL, useJoinMeeting, useRsvpColor } from '../../components/MeetingBits';
@@ -259,7 +259,11 @@ export default function MeetingDetail() {
                     i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
                   ]}
                 >
-                  <Avatar name={nameOf(a.userId, { asWritten: true })} size={34} />
+                  <PersonAvatar
+                    userId={a.userId}
+                    name={nameOf(a.userId, { asWritten: true })}
+                    size={34}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text variant="bodyStrong" numberOfLines={1}>
                       {nameOf(a.userId)}

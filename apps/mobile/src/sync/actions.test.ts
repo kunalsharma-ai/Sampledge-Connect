@@ -17,7 +17,7 @@ import { ConnectEngine } from '../state/engine';
 import { conversation, PEER, SELF, serverMessage } from '../test/fixtures';
 import { openNodeDriver } from '../test/nodeDriver';
 import type { RealtimeClient } from './realtime';
-import { TransportError, type ApiTransport } from './transport';
+import { TransportError, type ApiTransport, type DirectoryUser } from './transport';
 
 const NOW = Date.parse('2026-11-21T12:00:00.000Z');
 
@@ -94,6 +94,32 @@ async function setup() {
     approvals: new Map<string, Approval>(),
     scheduled: new Map<string, ScheduledMessage>(),
     booking: new Map<string, BookingPage>(),
+    users: new Map<string, DirectoryUser>([
+      [
+        SELF,
+        {
+          userId: SELF,
+          displayName: 'Sam Patel',
+          email: 's@x',
+          role: 'member',
+          title: 'Analyst',
+          status: 'active',
+          avatarUrl: null,
+        },
+      ],
+      [
+        PEER,
+        {
+          userId: PEER,
+          displayName: 'Marco Silva',
+          email: 'm@x',
+          role: 'member',
+          title: null,
+          status: 'active',
+          avatarUrl: 'https://connect.test/v1/avatars/t1/marco',
+        },
+      ],
+    ]),
     seq: 100,
   };
   const step = (name: string) => {
@@ -109,7 +135,34 @@ async function setup() {
   };
   const api = {
     sync: async () => ({ conversations: [], revokedConversationIds: [], results: [] }),
-    listUsers: async () => [],
+    listUsers: async () => {
+      step('listUsers');
+      return [...server.users.values()];
+    },
+    updateProfile: async (patch: Record<string, string | null>) => {
+      step(`updateProfile ${JSON.stringify(patch)}`);
+      const me = server.users.get(SELF)!;
+      const next = { ...me };
+      for (const [k, v] of Object.entries(patch)) (next as Record<string, unknown>)[k] = v || null;
+      if (patch.displayName) next.displayName = patch.displayName;
+      server.users.set(SELF, next);
+      return next;
+    },
+    setAvatar: async (image: string) => {
+      step(`setAvatar ${image.slice(0, 22)}`);
+      const next = {
+        ...server.users.get(SELF)!,
+        avatarUrl: `https://connect.test/v1/avatars/t1/k${++server.seq}`,
+      };
+      server.users.set(SELF, next);
+      return next;
+    },
+    removeAvatar: async () => {
+      step('removeAvatar');
+      const next = { ...server.users.get(SELF)!, avatarUrl: null };
+      server.users.set(SELF, next);
+      return next;
+    },
     listNotifications: async () => ({ items: [], unreadCount: 0, nextBefore: null }),
     listMeetings: async () => [],
     callsConfig: async () => ({ enabled: false, provider: 'none', ringTimeoutSeconds: 30 }),
@@ -677,5 +730,72 @@ describe('booking pages offline', () => {
     });
     await new Promise((r) => setTimeout(r, 20));
     expect(await t.engine.listBookingPages({ fresh: false })).toEqual([]);
+  });
+});
+
+describe('your profile and photo offline', () => {
+  const dir = async (t: Awaited<ReturnType<typeof setup>>) =>
+    JSON.parse((await t.store.getSetting('directory'))!) as DirectoryUser[];
+  const avatars = async (t: Awaited<ReturnType<typeof setup>>) =>
+    JSON.parse((await t.store.getSetting('avatars'))!) as Record<string, string>;
+
+  it('edits and a new photo show at once offline, then reach the server once, newest value winning', async () => {
+    const t = await setup();
+    await t.online(); // directory cached
+    expect(await avatars(t)).toEqual({ [PEER]: 'https://connect.test/v1/avatars/t1/marco' });
+    t.engine.setNetworkUp(false);
+    await t.engine.updateProfile({ title: 'Senior analyst', phone: '+91 98' });
+    await t.engine.updateProfile({ title: 'Research lead', bio: 'Panels in DACH' });
+    await t.engine.setAvatar('data:image/jpeg;base64,AAAA');
+    const me = await t.engine.myProfile();
+    expect(me).toMatchObject({ title: 'Research lead', phone: '+91 98', bio: 'Panels in DACH' });
+    expect((await avatars(t))[SELF]).toBe('data:image/jpeg;base64,AAAA');
+    // A directory refresh from the server (say a teammate changed) keeps your unsent changes.
+    await t.engine['sync'].refreshDirectory();
+    expect((await dir(t)).find((u) => u.userId === SELF)?.title).toBe('Research lead');
+
+    await t.online();
+    expect(t.calls.filter((c) => /Profile|Avatar/.test(c))).toEqual([
+      'updateProfile {"title":"Research lead","phone":"+91 98","bio":"Panels in DACH"}',
+      'setAvatar data:image/jpeg;base64',
+    ]);
+    const after = (await dir(t)).find((u) => u.userId === SELF)!;
+    expect(after.title).toBe('Research lead');
+    expect(after.avatarUrl).toMatch(/^https:\/\/connect\.test\/v1\/avatars\/t1\/k\d+$/);
+    expect(await t.store.pendingCount()).toBe(0);
+  });
+
+  it('only the last photo choice is sent; removing it shows initials at once', async () => {
+    const t = await setup();
+    await t.online();
+    t.engine.setNetworkUp(false);
+    await t.engine.setAvatar('data:image/jpeg;base64,AAAA');
+    await t.engine.setAvatar('data:image/jpeg;base64,BBBB');
+    await t.engine.removeAvatar();
+    expect((await avatars(t))[SELF]).toBeUndefined();
+    await t.online();
+    expect(t.calls.filter((c) => /Avatar/.test(c))).toEqual(['removeAvatar']);
+  });
+
+  it('a refused change is dropped and your saved profile shows again', async () => {
+    const t = await setup();
+    await t.online();
+    t.refuse('updateProfile', new TransportError('Unknown time zone', 'api', 'VALIDATION_FAILED'));
+    await t.engine.updateProfile({ timeZone: 'Mars/Olympus', title: 'Lead' });
+    await t.online();
+    expect((await t.engine.myProfile())?.title).toBe('Analyst');
+    expect(t.refused).toEqual(['profile.update: Unknown time zone']);
+  });
+
+  it("a teammate's new photo shows when directory:updated arrives", async () => {
+    const t = await setup();
+    await t.online();
+    t.server.users.set(PEER, {
+      ...t.server.users.get(PEER)!,
+      avatarUrl: 'https://connect.test/v1/avatars/t1/new',
+    });
+    t.rt.events.emit('directory', { userId: PEER });
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await avatars(t))[PEER]).toBe('https://connect.test/v1/avatars/t1/new');
   });
 });

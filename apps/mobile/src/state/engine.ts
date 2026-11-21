@@ -28,6 +28,7 @@ import {
   type BookingPage,
   type CreateBookingPageRequest,
   type UpdateBookingPageRequest,
+  type UpdateProfileRequest,
   type Approval,
   type AdminOverview,
   type AuditPage,
@@ -140,6 +141,8 @@ export class ConnectEngine {
     project: { projectId: string };
     /** A booking page you host changed here, on another device or by a co-host. */
     booking: { bookingPageId: string } | null;
+    /** Your own profile changed on this phone, or a change of it reached the server. */
+    profile: null;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -171,7 +174,7 @@ export class ConnectEngine {
     private readonly session: SessionManager,
     private readonly realtime: RealtimeClient | null,
   ) {
-    this.sync = new SyncEngine(store, api);
+    this.sync = new SyncEngine(store, api, { overlay: (users) => this.overlayProfile(users) });
     this.calls = new CallController(api, store.selfUserId);
     this.outbox = new OutboxProcessor({
       store,
@@ -865,6 +868,77 @@ export class ConnectEngine {
     this.events.emit('booking', { bookingPageId: e.bookingPageId });
   }
 
+  // ------------------------------------------------ your profile (queued offline, last write wins)
+
+  /** Your profile as everyone will see it, with changes made on this phone applied. */
+  async myProfile(): Promise<DirectoryUser | null> {
+    const raw = await this.store.getSetting('directory');
+    const self = raw
+      ? ((JSON.parse(raw) as DirectoryUser[]).find((u) => u.userId === this.store.selfUserId) ??
+        null)
+      : null;
+    if (self) return self;
+    const u = this.session.current?.user;
+    if (!u) return null;
+    const [mine] = await this.overlayProfile([
+      { ...u, title: u.title ?? null, status: 'active', role: u.role } as DirectoryUser,
+    ]);
+    return mine ?? null;
+  }
+
+  /**
+   * Edits your name, title, department, phone, about and time zone. Works offline: shown at once
+   * on this phone and sent when you reconnect; the newest value of each field wins.
+   */
+  async updateProfile(patch: UpdateProfileRequest): Promise<void> {
+    if (!Object.keys(patch).length) return;
+    await this.queue({ kind: 'profile.update', patch });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /** A new photo (already cropped and compressed to a data URL). Works offline. */
+  async setAvatar(image: string): Promise<void> {
+    await this.queue({ kind: 'avatar.set', image });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  async removeAvatar(): Promise<void> {
+    await this.queue({ kind: 'avatar.remove' });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /** Lays your unsent profile changes over the server's directory. */
+  private async overlayProfile(users: DirectoryUser[]): Promise<DirectoryUser[]> {
+    const { patch, avatar } = await this.store.work.pendingProfile();
+    if (!Object.keys(patch).length && avatar === undefined) return users;
+    const clean = (v: string | null | undefined) =>
+      v === undefined ? undefined : v?.trim() || null;
+    return users.map((u) => {
+      if (u.userId !== this.store.selfUserId) return u;
+      const next: DirectoryUser = { ...u };
+      if (patch.displayName?.trim()) next.displayName = patch.displayName.trim();
+      for (const k of ['title', 'department', 'phone', 'bio', 'timeZone'] as const) {
+        const v = clean(patch[k]);
+        if (v !== undefined) next[k] = v;
+      }
+      if (avatar !== undefined) next.avatarUrl = avatar;
+      return next;
+    });
+  }
+
+  /** The server answered a profile change: keep its copy of you, then re-apply what is left. */
+  private async receiveSelf(u: DirectoryUser): Promise<void> {
+    const raw = await this.store.getSetting('directory.server');
+    const list = raw ? (JSON.parse(raw) as DirectoryUser[]) : [];
+    const next = list.some((x) => x.userId === u.userId)
+      ? list.map((x) => (x.userId === u.userId ? { ...x, ...u } : x))
+      : [...list, u];
+    await this.store.setSetting('directory.server', JSON.stringify(next));
+  }
+
   /** Try again something created here that the server refused. */
   async retryLocal(kind: LocalKind, localId: string): Promise<void> {
     await this.store.work.retry(localId, kind);
@@ -1007,6 +1081,15 @@ export class ConnectEngine {
         else await w.removeBooking(page.bookingPageId);
         break;
       }
+      case 'profile.update':
+        await this.receiveSelf(await this.api.updateProfile(i.patch));
+        break;
+      case 'avatar.set':
+        await this.receiveSelf(await this.api.setAvatar(i.image));
+        break;
+      case 'avatar.remove':
+        await this.receiveSelf(await this.api.removeAvatar());
+        break;
       case 'booking.delete':
         try {
           await this.api.deleteBookingPage(await need(i.bookingPageId));
@@ -1050,6 +1133,8 @@ export class ConnectEngine {
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
+    if (i.kind === 'profile.update' || i.kind.startsWith('avatar.'))
+      void this.sync.rederiveDirectory().then(() => this.events.emit('profile', null));
   }
 
   /**
