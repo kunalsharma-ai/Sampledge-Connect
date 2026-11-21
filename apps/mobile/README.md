@@ -68,7 +68,10 @@ message deleted" in the chat), and, when the API can record calls, Record and St
 the red indicator, the finished recording arriving in the chat and playing in the player. Last, external guests:
 a guest added by email on the scheduling form (members are refused), the guest list with its
 invite status and a copied join link, and two guests waiting in a live meeting call's lobby, one
-admitted (gets a call token) and one denied.
+admitted (gets a call token) and one denied. Then chat during a call (opening the call's
+conversation, returning to the same call, and the unread count on Chat), and Integrations: a
+member is told only admins can change them, and the owner saves SMTP settings with a password
+that the server keeps encrypted and never returns, then runs Test connection.
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -155,14 +158,18 @@ guests (added by email when scheduling or editing, refused if they are in your o
 the meeting shows each guest's answer and invite email status, and the organizer can share a
 guest's personal join link or resend the invitation), the call lobby (everyone in the call sees
 guests waiting with Admit and Deny, gets a nudge when one arrives, and sees admitted guests as
-"Name (guest)"; guest messages in a meeting chat are named the same way), on-device search, themes, offline and storage settings, sign-out with a warning
+"Name (guest)"; guest messages in a meeting chat are named the same way), chat during a call
+(Chat on the call screen with an unread count), Integrations for owners and admins (More,
+Integrations: email, calls, push and AI connections stored encrypted in the server database
+and applied at once, with Test connection; secrets can be replaced or removed but are never
+shown), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
 Inbox, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
-PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
+Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), AI Assistant, Analytics, the Sampledge module integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, screen recording from the phone, recording retention and export
 settings (admin, on the web), polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 

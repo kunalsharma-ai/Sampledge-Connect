@@ -16,6 +16,9 @@ import {
   type SendMessageRequest,
   type SetReactionRequest,
   type RecordingList,
+  type IntegrationTestResult,
+  type IntegrationValues,
+  type IntegrationView,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -377,6 +380,27 @@ export class ConnectEngine {
       await this.api.resendGuestInvite(meetingId, guestId);
       await this.store.upsertMeetings([await this.api.getMeeting(meetingId)]);
     });
+  }
+
+  /** Administration, Integrations. All need a connection; secrets never come back. */
+  listIntegrations(): Promise<IntegrationView[]> {
+    return this.serverAction(() => this.api.listIntegrations());
+  }
+
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView> {
+    return this.serverAction(() => this.api.saveIntegration(id, enabled, values));
+  }
+
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult> {
+    return this.serverAction(() => this.api.testIntegration(id, values));
+  }
+
+  resetIntegration(id: string): Promise<IntegrationView> {
+    return this.serverAction(() => this.api.resetIntegration(id));
   }
 
   private async serverAction<T>(run: () => Promise<T>): Promise<T> {

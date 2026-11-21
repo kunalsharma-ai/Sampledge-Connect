@@ -9,6 +9,9 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type IntegrationTestResult,
+  type IntegrationValues,
+  type IntegrationView,
   type Recording,
   type RecordingKind,
   type RecordingList,
@@ -127,6 +130,15 @@ export interface ApiTransport {
   lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call>;
   guestLink(meetingId: string, guestId: string): Promise<{ url: string }>;
   resendGuestInvite(meetingId: string, guestId: string): Promise<void>;
+  /** Administration, Integrations (integrations.manage): settings stored in the database. */
+  listIntegrations(): Promise<IntegrationView[]>;
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView>;
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult>;
+  resetIntegration(id: string): Promise<IntegrationView>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -457,6 +469,33 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  listIntegrations(): Promise<IntegrationView[]> {
+    return this.request('GET', '/v1/admin/integrations', undefined);
+  }
+
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView> {
+    return this.request('PUT', `/v1/admin/integrations/${encodeURIComponent(id)}`, {
+      enabled,
+      values,
+    });
+  }
+
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult> {
+    return this.request(
+      'POST',
+      `/v1/admin/integrations/${encodeURIComponent(id)}/test`,
+      values ? { values } : {},
+    );
+  }
+
+  resetIntegration(id: string): Promise<IntegrationView> {
+    return this.request('DELETE', `/v1/admin/integrations/${encodeURIComponent(id)}`, undefined);
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -586,4 +625,8 @@ export class NoServerTransport implements ApiTransport {
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();
+  listIntegrations = async (): Promise<IntegrationView[]> => this.fail();
+  saveIntegration = async (): Promise<IntegrationView> => this.fail();
+  testIntegration = async (): Promise<IntegrationTestResult> => this.fail();
+  resetIntegration = async (): Promise<IntegrationView> => this.fail();
 }

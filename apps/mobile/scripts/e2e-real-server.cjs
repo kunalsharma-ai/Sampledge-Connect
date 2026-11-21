@@ -1312,6 +1312,109 @@ async function api(method, path, body, token) {
       await p.waitForTimeout(2000);
     }
   }
+
+  // ---- Integrations: settings live in the server database, edited from the phone.
+  // A member sees why they cannot change them; the owner saves SMTP with a write-only
+  // password, tests it, and the settings reach the API.
+  {
+    await p.goto(`${APP}/more`);
+    await p.waitForTimeout(2500);
+    await p.getByText('Integrations', { exact: true }).first().click();
+    await p.waitForTimeout(2500);
+    check(
+      'members are told only admins change integrations',
+      /Only owners and admins can change integrations\./.test(await p.innerText('body')),
+    );
+    await shot('76-integrations-member');
+
+    const ctx3 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p3 = await ctx3.newPage();
+    const shot3 = async (n) => {
+      await p3.waitForTimeout(1200);
+      await p3.screenshot({ path: `${out}/${n}.png` });
+      console.log('shot', n);
+    };
+    await p3.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p3.waitForTimeout(1500);
+    const f = p3.locator('input');
+    await f.nth(0).fill(API);
+    await f.nth(1).fill('northwind');
+    await f.nth(2).fill('priya@northwind.test');
+    await f.nth(3).fill(pw);
+    await p3.getByRole('button', { name: 'Sign in' }).click();
+    await p3.waitForTimeout(4000);
+    await p3.goto(`${APP}/admin/integrations`);
+    await p3.waitForTimeout(3000);
+    const list = await p3.innerText('body');
+    check(
+      'owner sees the built-in providers by category',
+      /Email \(SMTP\)|SMTP/.test(list) && /LiveKit|Call server/i.test(list) && /Push/.test(list),
+    );
+    await shot3('77-integrations-list');
+
+    await p3
+      .getByRole('button', { name: /SMTP.*Configure/ })
+      .first()
+      .click();
+    await p3.waitForTimeout(1000);
+    await p3.getByRole('switch', { name: /^Use / }).first().click();
+    await p3
+      .getByRole('button', { name: /^Save / })
+      .first()
+      .click();
+    await p3.waitForTimeout(800);
+    check(
+      'required fields are checked before saving',
+      /Host is required\./.test(await p3.innerText('body')),
+    );
+    await p3.getByLabel('Host', { exact: true }).fill('127.0.0.1');
+    await p3.getByLabel('Port', { exact: true }).fill('2525');
+    const user = p3.getByLabel('Username', { exact: true });
+    if (await user.count()) await user.fill('mailer');
+    await p3.getByLabel('Password', { exact: true }).fill('s3cret-from-phone');
+    const from = p3.getByLabel(/^From/).first();
+    if (await from.count()) await from.fill('meetings@northwind.test');
+    check(
+      'errors clear as fields are filled',
+      !/Host is required\.|From address is required\./.test(await p3.innerText('body')),
+    );
+    await shot3('78-integrations-smtp-form');
+    await p3
+      .getByRole('button', { name: /^Save / })
+      .first()
+      .click();
+    await p3.waitForTimeout(2500);
+    const saved = await p3.innerText('body');
+    check('save confirms it applies at once', /Saved\. It applies straight away\./.test(saved));
+    check('the password is not shown again', /Stored securely/.test(saved));
+    const priyaTok = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'priya@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    const views = await api('GET', '/v1/admin/integrations', undefined, priyaTok);
+    const smtp = views.find((v) => v.provider.id === 'smtp');
+    check(
+      'SMTP settings are stored on the server with the secret kept write-only',
+      smtp.enabled &&
+        smtp.source === 'tenant' &&
+        (smtp.saved?.secretsSet ?? []).includes('password') &&
+        !JSON.stringify(smtp).includes('s3cret-from-phone'),
+    );
+    await p3.getByRole('button', { name: 'Test connection' }).first().click();
+    await p3.waitForTimeout(6000);
+    check(
+      'test connection reports the result from the server',
+      /Last test (passed|failed)|refused|connect|ECONN|timed out|Reached/i.test(
+        await p3.innerText('body'),
+      ),
+    );
+    await shot3('79-integrations-tested');
+    await ctx3.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
