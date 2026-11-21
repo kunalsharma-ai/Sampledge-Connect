@@ -68,6 +68,11 @@ export default function Integrations() {
   useEffect(() => {
     void load();
   }, [load, engineState?.networkUp]);
+  // Another admin saved a setting elsewhere: show it here (unless a form is open).
+  useEffect(
+    () => engine.events.on('tenant', (e) => e.area === 'integrations' && !open && void load()),
+    [engine, load, open],
+  );
 
   const replace = (v: IntegrationView) =>
     setViews((all) => (all ?? []).map((x) => (x.provider.id === v.provider.id ? v : x)));

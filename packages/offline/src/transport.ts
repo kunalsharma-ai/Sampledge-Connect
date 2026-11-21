@@ -73,6 +73,13 @@ export type ChangeEvent =
   | { type: 'project'; projectId: string }
   | { type: 'meetings'; area: MeetingsArea }
   | { type: 'recording'; recordingId: string; conversationId: string; deleted: boolean }
+  /** A module record in this conversation was linked or updated, or a record action ran. */
+  | {
+      type: 'records';
+      conversationId: string;
+      linkId: string;
+      reason: 'linked' | 'updated' | 'action';
+    }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
@@ -266,6 +273,7 @@ export class HttpSocketTransport implements Transport {
     s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
     s.on('meetings:changed', (e) => this.handlers?.onChange?.({ type: 'meetings', ...e }));
     s.on('recording:changed', (e) => this.handlers?.onChange?.({ type: 'recording', ...e }));
+    s.on('record:changed', (e) => this.handlers?.onChange?.({ type: 'records', ...e }));
     this.socket = s;
     s.connect();
   }

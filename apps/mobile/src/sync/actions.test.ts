@@ -492,3 +492,34 @@ describe('cache recovery', () => {
     expect(await t.db.all('SELECT * FROM outbox')).toEqual([]);
   });
 });
+
+describe('organization changes from other devices', () => {
+  it('refreshes names on directory:updated and reloads branding on tenant:updated', async () => {
+    const t = await setup();
+    let users = [
+      {
+        userId: PEER,
+        displayName: 'Marco',
+        email: 'm@x',
+        role: 'member',
+        title: null,
+        status: 'active',
+      },
+    ];
+    const api = (t.engine as unknown as { api: Record<string, unknown> }).api;
+    api.listUsers = async () => users;
+    api.getBranding = async () => ({ appName: 'Northwind' });
+    t.engine.setNetworkUp(true);
+    users = [{ ...users[0]!, displayName: 'Marco Silva' }];
+    t.rt.events.emit('directory', { userId: PEER });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(JSON.parse((await t.store.getSetting('people'))!)).toEqual({ [PEER]: 'Marco Silva' });
+
+    const seen: unknown[] = [];
+    t.engine.events.on('branding', (b) => seen.push(b));
+    t.engine.events.on('tenant', (e) => seen.push(e.area));
+    t.rt.events.emit('tenant', { area: 'branding' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen).toEqual([{ appName: 'Northwind' }, 'branding']);
+  });
+});

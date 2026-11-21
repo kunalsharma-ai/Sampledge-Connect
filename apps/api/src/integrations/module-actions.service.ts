@@ -225,6 +225,7 @@ export class ModuleActionsService {
         },
       },
     );
+    this.records.notifyChanged(ctx.tenantId, rec.conversationId, rec._id, 'action');
     return toModuleAction(action);
   }
 }

@@ -67,7 +67,7 @@ export class SyncEngine {
   }
 
   /** Caches display names for the UI. Best effort: guests have no directory access. */
-  private async refreshDirectory(): Promise<void> {
+  async refreshDirectory(): Promise<void> {
     try {
       const users = await this.api.listUsers();
       const people = Object.fromEntries(users.map((u) => [u.userId, u.displayName]));
