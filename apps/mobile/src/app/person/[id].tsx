@@ -6,6 +6,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
+import { StatusLine } from '../../components/StatusLine';
 import { Text } from '../../components/Text';
 import { zoneLabel } from '../../lib/time';
 import { useWorkspace } from '../../state/AppProvider';
@@ -113,6 +114,7 @@ export default function Person() {
               {u.title}
             </Text>
           ) : null}
+          <StatusLine status={u.userStatus} schedule={u.dndSchedule} center />
         </View>
         {self ? (
           <Button

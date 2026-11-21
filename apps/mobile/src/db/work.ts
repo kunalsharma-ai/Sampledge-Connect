@@ -16,6 +16,8 @@ import {
   type Task,
   type UpdateTaskRequest,
   type UpdateProfileRequest,
+  type UserStatus,
+  type DndSchedule,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -59,9 +61,22 @@ export type ActionInput =
   | { kind: 'avatar.set'; image: string }
   | { kind: 'avatar.remove' }
   /** Your recent searches as a whole list (synced to all your devices; the latest wins). */
-  | { kind: 'search.recent'; recent: string[] };
+  | { kind: 'search.recent'; recent: string[] }
+  /** Availability and custom status, replaced as a whole (the latest wins). */
+  | { kind: 'status.set'; status: UserStatus }
+  /** Quiet hours, replaced as a whole (the latest wins). */
+  | { kind: 'dnd.set'; schedule: DndSchedule };
 
 export type ActionKind = ActionInput['kind'];
+
+/** Your own changes not on the server yet (see {@link WorkStore.pendingProfile}). */
+export interface PendingProfile {
+  patch: UpdateProfileRequest;
+  /** A data URL, or null when you removed your photo. */
+  avatar?: string | null;
+  status?: UserStatus;
+  dndSchedule?: DndSchedule;
+}
 
 export interface QueuedAction {
   id: string;
@@ -151,11 +166,15 @@ const targetOf = (a: ActionInput): string => {
       return 'avatar:me';
     case 'search.recent':
       return 'search:recent';
+    case 'status.set':
+      return 'status:me';
+    case 'dnd.set':
+      return 'dnd:me';
   }
 };
 
 const kindOfCache = (k: ActionKind): CacheKind =>
-  k.startsWith('avatar.')
+  k.startsWith('avatar.') || k === 'status.set' || k === 'dnd.set'
     ? 'profile'
     : k === 'pin' || k === 'poll.create' || k === 'poll.close'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
@@ -400,6 +419,8 @@ export class WorkStore {
           break;
         }
         case 'search.recent':
+        case 'status.set':
+        case 'dnd.set':
         case 'avatar.set':
         case 'avatar.remove':
           // Only the latest photo (or its removal, or recent list) matters.
@@ -838,14 +859,16 @@ export class WorkStore {
    * Your profile changes not on the server yet: the fields you edited, and the photo you picked
    * (a data URL) or removed (null). Refused changes are not included.
    */
-  async pendingProfile(): Promise<{ patch: UpdateProfileRequest; avatar?: string | null }> {
+  async pendingProfile(): Promise<PendingProfile> {
     const rows = (
       await this.db.all<ActionRow>(
-        `SELECT * FROM actions WHERE target IN ('profile:me', 'avatar:me') AND state != 'failed' ORDER BY enqueued_at, rowid`,
+        `SELECT * FROM actions WHERE target IN ('profile:me', 'avatar:me', 'status:me', 'dnd:me') AND state != 'failed' ORDER BY enqueued_at, rowid`,
       )
     ).map(toAction);
-    const out: { patch: UpdateProfileRequest; avatar?: string | null } = { patch: {} };
+    const out: PendingProfile = { patch: {} };
     for (const a of rows) {
+      if (a.input.kind === 'status.set') out.status = a.input.status;
+      if (a.input.kind === 'dnd.set') out.dndSchedule = a.input.schedule;
       if (a.input.kind === 'profile.update') out.patch = { ...out.patch, ...a.input.patch };
       if (a.input.kind === 'avatar.set') out.avatar = a.input.image;
       if (a.input.kind === 'avatar.remove') out.avatar = null;

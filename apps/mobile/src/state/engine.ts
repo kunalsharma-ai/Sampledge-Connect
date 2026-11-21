@@ -1,4 +1,8 @@
 import {
+  effectiveStatus,
+  type UserStatus,
+  type DndSchedule,
+  type PresenceInfo,
   MAX_FORWARD_TARGETS,
   uuidv7,
   backoffDelay,
@@ -929,6 +933,23 @@ export class ConnectEngine {
     this.events.emit('profile', null);
   }
 
+  /**
+   * Your availability and custom status (emoji, text, when it clears). Works offline: shown at
+   * once on this phone and sent when you reconnect; every device and teammate then updates.
+   */
+  async setStatus(status: UserStatus): Promise<void> {
+    await this.queue({ kind: 'status.set', status });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /** Recurring quiet hours (no push notifications). Works offline like {@link setStatus}. */
+  async setDndSchedule(schedule: DndSchedule): Promise<void> {
+    await this.queue({ kind: 'dnd.set', schedule });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
   /** A new photo (already cropped and compressed to a data URL). Works offline. */
   async setAvatar(image: string): Promise<void> {
     await this.queue({ kind: 'avatar.set', image });
@@ -1008,8 +1029,8 @@ export class ConnectEngine {
 
   /** Lays your unsent profile changes over the server's directory. */
   private async overlayProfile(users: DirectoryUser[]): Promise<DirectoryUser[]> {
-    const { patch, avatar } = await this.store.work.pendingProfile();
-    if (!Object.keys(patch).length && avatar === undefined) return users;
+    const { patch, avatar, status, dndSchedule } = await this.store.work.pendingProfile();
+    if (!Object.keys(patch).length && avatar === undefined && !status && !dndSchedule) return users;
     const clean = (v: string | null | undefined) =>
       v === undefined ? undefined : v?.trim() || null;
     return users.map((u) => {
@@ -1021,8 +1042,24 @@ export class ConnectEngine {
         if (v !== undefined) next[k] = v;
       }
       if (avatar !== undefined) next.avatarUrl = avatar;
+      if (status) next.userStatus = status;
+      if (dndSchedule) next.dndSchedule = dndSchedule;
       return next;
     });
+  }
+
+  private async receivePresence(p: PresenceInfo): Promise<void> {
+    const raw = await this.store.getSetting('directory.server');
+    const list = raw ? (JSON.parse(raw) as DirectoryUser[]) : [];
+    const self = this.store.selfUserId;
+    await this.store.setSetting(
+      'directory.server',
+      JSON.stringify(
+        list.map((u) =>
+          u.userId === self ? { ...u, userStatus: p.status, dndSchedule: p.dndSchedule } : u,
+        ),
+      ),
+    );
   }
 
   /** The server answered a profile change: keep its copy of you, then re-apply what is left. */
@@ -1186,6 +1223,15 @@ export class ConnectEngine {
       case 'avatar.remove':
         await this.receiveSelf(await this.api.removeAvatar());
         break;
+      case 'status.set': {
+        // Queued while offline long enough to have expired: it has cleared itself by now.
+        const s = effectiveStatus(i.status, new Date());
+        await this.receivePresence(await this.api.setStatus(s));
+        break;
+      }
+      case 'dnd.set':
+        await this.receivePresence(await this.api.setDndSchedule(i.schedule));
+        break;
       case 'search.recent':
         await this.store.setSetting(
           RECENT_KEY,
@@ -1236,7 +1282,12 @@ export class ConnectEngine {
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
     if (i.kind === 'search.recent') void this.emitRecent();
-    if (i.kind === 'profile.update' || i.kind.startsWith('avatar.'))
+    if (
+      i.kind === 'profile.update' ||
+      i.kind.startsWith('avatar.') ||
+      i.kind === 'status.set' ||
+      i.kind === 'dnd.set'
+    )
       void this.sync.rederiveDirectory().then(() => this.events.emit('profile', null));
   }
 

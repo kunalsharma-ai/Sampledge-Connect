@@ -4,6 +4,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar } from '../../components/Avatar';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
+import { StatusLine } from '../../components/StatusLine';
 import { Text } from '../../components/Text';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { useProfile } from '../../state/hooks';
@@ -73,6 +74,7 @@ export default function More() {
               <Text variant="meta" tone="muted" numberOfLines={1}>
                 {me?.title ? `${me.title} · ${session?.tenant.name ?? ''}` : sub}
               </Text>
+              <StatusLine status={me?.userStatus} schedule={me?.dndSchedule} />
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
           </Glass>
@@ -113,6 +115,12 @@ export default function More() {
               icon="person-circle-outline"
               title="Profile and photo"
               onPress={() => router.push('/settings/profile')}
+            />
+            <Row
+              icon="happy-outline"
+              title="Status and quiet hours"
+              onPress={() => router.push('/settings/status')}
+              divider
             />
             <Row
               icon="color-palette-outline"

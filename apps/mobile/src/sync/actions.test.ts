@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_DND_SCHEDULE } from '@sampledge/contracts';
 import type {
   Approval,
   BookingPage,
@@ -7,6 +8,8 @@ import type {
   Poll,
   ScheduledMessage,
   Task,
+  UserStatus,
+  DndSchedule,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import { migrate, rebuildPreservingUnsent } from '../db/migrations';
@@ -163,6 +166,24 @@ async function setup() {
       const next = { ...server.users.get(SELF)!, avatarUrl: null };
       server.users.set(SELF, next);
       return next;
+    },
+    setStatus: async (status: UserStatus) => {
+      step(`setStatus ${status.availability} ${status.text ?? ''}`.trim());
+      if (status.expiresAt && Date.parse(status.expiresAt) <= Date.now())
+        throw new TransportError('Pick a time in the future', 'api', 'VALIDATION_FAILED');
+      const me = server.users.get(SELF)!;
+      server.users.set(SELF, { ...me, userStatus: status });
+      return { status, dndSchedule: me.dndSchedule ?? DEFAULT_DND_SCHEDULE, dndActive: false };
+    },
+    setDndSchedule: async (schedule: DndSchedule) => {
+      step(`setDndSchedule ${schedule.enabled} ${schedule.start}-${schedule.end}`);
+      const me = server.users.get(SELF)!;
+      server.users.set(SELF, { ...me, dndSchedule: schedule });
+      return {
+        status: me.userStatus ?? { availability: 'auto', emoji: null, text: null, expiresAt: null },
+        dndSchedule: schedule,
+        dndActive: false,
+      };
     },
     getRecentSearches: async () => {
       step('listRecentSearches');
@@ -923,5 +944,67 @@ describe('files on this phone', () => {
       localUri: 'file:///x/brief.pdf',
       kind: 'documents',
     });
+  });
+});
+
+describe('status and quiet hours offline', () => {
+  const me = async (t: Awaited<ReturnType<typeof setup>>) =>
+    (JSON.parse((await t.store.getSetting('directory'))!) as DirectoryUser[]).find(
+      (u) => u.userId === SELF,
+    )!;
+  const quiet: DndSchedule = {
+    enabled: true,
+    timeZone: 'Asia/Kolkata',
+    days: [1, 2, 3, 4, 5],
+    start: '19:00',
+    end: '08:00',
+  };
+
+  it('shows at once offline; only the latest status and schedule are sent', async () => {
+    const t = await setup();
+    await t.online();
+    t.engine.setNetworkUp(false);
+    await t.engine.setStatus({
+      availability: 'busy',
+      emoji: '📅',
+      text: 'In a meeting',
+      expiresAt: null,
+    });
+    await t.engine.setStatus({
+      availability: 'away',
+      emoji: '🧪',
+      text: 'In the field',
+      expiresAt: null,
+    });
+    await t.engine.setDndSchedule(quiet);
+    expect((await me(t)).userStatus).toMatchObject({ availability: 'away', text: 'In the field' });
+    expect((await me(t)).dndSchedule).toEqual(quiet);
+    // A directory refresh while offline keeps them.
+    await t.engine['sync'].refreshDirectory();
+    expect((await me(t)).userStatus?.text).toBe('In the field');
+
+    await t.online();
+    expect(t.calls.filter((c) => /^set(Status|Dnd)/.test(c))).toEqual([
+      'setStatus away In the field',
+      'setDndSchedule true 19:00-08:00',
+    ]);
+    expect((await me(t)).userStatus?.text).toBe('In the field');
+    expect(await t.store.pendingCount()).toBe(0);
+  });
+
+  it('a status that expired while waiting offline is sent as cleared, not refused', async () => {
+    const t = await setup();
+    await t.online();
+    t.engine.setNetworkUp(false);
+    await t.engine.setStatus({
+      availability: 'busy',
+      emoji: null,
+      text: 'Quick call',
+      expiresAt: new Date(Date.now() + 50).toISOString(),
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setStatus'))).toEqual(['setStatus auto']);
+    expect(t.refused).toEqual([]);
   });
 });
