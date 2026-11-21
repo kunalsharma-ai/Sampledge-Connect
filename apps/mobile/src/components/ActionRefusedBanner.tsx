@@ -35,6 +35,7 @@ const WHAT: Record<ActionKind, string> = {
   'search.recent': 'Saving your recent searches',
   'status.set': 'Changing your status',
   'dnd.set': 'Changing your quiet hours',
+  'hours.set': 'Saving your working hours',
 };
 
 /**

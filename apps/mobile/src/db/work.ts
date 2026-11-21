@@ -18,6 +18,7 @@ import {
   type UpdateProfileRequest,
   type UserStatus,
   type DndSchedule,
+  type WorkingHours,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -65,7 +66,9 @@ export type ActionInput =
   /** Availability and custom status, replaced as a whole (the latest wins). */
   | { kind: 'status.set'; status: UserStatus }
   /** Quiet hours, replaced as a whole (the latest wins). */
-  | { kind: 'dnd.set'; schedule: DndSchedule };
+  | { kind: 'dnd.set'; schedule: DndSchedule }
+  /** Your working hours, replaced as a whole (the latest wins). */
+  | { kind: 'hours.set'; hours: WorkingHours };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -170,11 +173,13 @@ const targetOf = (a: ActionInput): string => {
       return 'status:me';
     case 'dnd.set':
       return 'dnd:me';
+    case 'hours.set':
+      return 'hours:me';
   }
 };
 
 const kindOfCache = (k: ActionKind): CacheKind =>
-  k.startsWith('avatar.') || k === 'status.set' || k === 'dnd.set'
+  k.startsWith('avatar.') || k === 'status.set' || k === 'dnd.set' || k === 'hours.set'
     ? 'profile'
     : k === 'pin' || k === 'poll.create' || k === 'poll.close'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
@@ -421,6 +426,7 @@ export class WorkStore {
         case 'search.recent':
         case 'status.set':
         case 'dnd.set':
+        case 'hours.set':
         case 'avatar.set':
         case 'avatar.remove':
           // Only the latest photo (or its removal, or recent list) matters.
@@ -874,6 +880,17 @@ export class WorkStore {
       if (a.input.kind === 'avatar.remove') out.avatar = null;
     }
     return out;
+  }
+
+  /** Working hours changed on this device and not on the server yet (null: none). */
+  async pendingWorkingHours(): Promise<WorkingHours | null> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'hours:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'hours.set' ? last.hours : null;
   }
 
   /** Your recent searches changed on this device and not on the server yet (null: none). */
