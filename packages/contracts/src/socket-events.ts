@@ -1,3 +1,4 @@
+import type { ChatThemeId } from './chat-themes.js';
 import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
@@ -91,6 +92,8 @@ export interface ServerToClientEvents {
   'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
   /** Your recent searches changed (sent to all of your devices). */
   'search:recent': (e: { recent: string[] }) => void;
+  /** You picked another chat theme (sent to all of your devices). null = organization default. */
+  'chat-theme:changed': (e: { themeId: ChatThemeId | null }) => void;
   /**
    * A booking page you host (or hosted until now) was created, changed or deleted, by you on
    * another device or by a co-host. `page` is null when it was deleted; a page whose hostIds no
@@ -125,7 +128,14 @@ export interface ServerToClientEvents {
 export const MEETINGS_AREAS = ['working_hours', 'booking_pages'] as const;
 export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
 
-export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
+export const TENANT_AREAS = [
+  'branding',
+  'billing',
+  'integrations',
+  'ai',
+  'recordings',
+  'chat_themes',
+] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
 /** Typing state expires server-side if not refreshed. */

@@ -25,6 +25,8 @@ export interface TenantDoc {
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
   /** White-label settings (see BrandingInputSchema); older tenants may have none. */
   branding: Record<string, unknown> | null;
+  /** Chat theme default and allowed list (see ChatThemePolicySchema); absent = all allowed. */
+  chatThemePolicy?: { defaultThemeId: string; allowed: string[] | null } | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
@@ -59,6 +61,8 @@ export interface UserDoc extends TenantOwned {
     start: string;
     end: string;
   } | null;
+  /** Chosen chat theme (PUT /v1/me/chat-theme); absent = organization default. */
+  chatTheme?: string | null;
   /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
   mfa?: UserMfaDoc | null;
 }

@@ -121,6 +121,7 @@ const LABELS: Record<string, string> = {
   'auth.mfa_reset_by_admin': 'Reset someone’s two-step verification',
   'tenant.created': 'Created the organization',
   'tenant.branding_updated': 'Changed branding',
+  'tenant.chat_themes_updated': 'Changed chat theme rules',
   'member.invited': 'Added a member',
   'member.updated': 'Changed a member',
   'member.created_by_sso': 'Joined through single sign-on',

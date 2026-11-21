@@ -29,3 +29,4 @@ export * from './search.js';
 export * from './files.js';
 export * from './status.js';
 export * from './analytics.js';
+export * from './chat-themes.js';

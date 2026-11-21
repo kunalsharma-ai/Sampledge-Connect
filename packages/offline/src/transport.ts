@@ -71,6 +71,7 @@ export type ChangeEvent =
   | { type: 'pollVote'; messageId: string; optionIds: string[] }
   /** Your recent searches changed on one of your devices. */
   | { type: 'searchRecent'; recent: string[] }
+  | { type: 'chatTheme'; themeId: string | null }
   | { type: 'directory'; userId: string }
   | { type: 'tenant'; area: TenantArea }
   | { type: 'project'; projectId: string }
@@ -275,6 +276,7 @@ export class HttpSocketTransport implements Transport {
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
     s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
+    s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));
     s.on('poll:myVote', (e) => this.handlers?.onChange?.({ type: 'pollVote', ...e }));
     s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
     s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));

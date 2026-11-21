@@ -1,5 +1,6 @@
 'use client';
 import { QuietHoursCard, StatusCard } from './status';
+import { ChatThemesCard } from './chat-themes';
 import * as React from 'react';
 import { ProfileCard } from './profile-card';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -434,6 +435,7 @@ export function SettingsDialog({
         >
           <ThemePicker />
         </div>
+        <ChatThemesCard />
         <BrowserNotificationsCard />
         <StatusCard />
         <QuietHoursCard />
