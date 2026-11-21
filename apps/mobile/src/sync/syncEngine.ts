@@ -61,7 +61,19 @@ export class SyncEngine {
       }
     }
     const evicted = await this.store.enforceQuota();
+    await this.refreshDirectory();
     await this.store.setSetting('sync.lastSuccessAt', new Date().toISOString());
     return { rounds, changesApplied, evicted };
+  }
+
+  /** Caches display names for the UI. Best effort: guests have no directory access. */
+  private async refreshDirectory(): Promise<void> {
+    try {
+      const users = await this.api.listUsers();
+      const people = Object.fromEntries(users.map((u) => [u.userId, u.displayName]));
+      await this.store.setSetting('people', JSON.stringify(people));
+    } catch {
+      // keep whatever names we had
+    }
   }
 }

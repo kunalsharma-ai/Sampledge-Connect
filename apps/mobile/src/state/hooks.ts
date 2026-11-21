@@ -55,16 +55,20 @@ export function useMessages(conversationId: string): {
 }
 
 /**
- * Display names by user id. The member directory endpoint is not in the API contract yet,
- * so for a real server this falls back to a short id until it is (planned).
+ * Display names by user id, cached from GET /v1/users after each sync.
+ * Falls back to a short id when the directory is unavailable (e.g. guest accounts).
  */
 export function usePeople(): (userId: string) => string {
   const { store, selfId } = useWorkspace();
   const [people, setPeople] = useState<Record<string, string>>({});
   useEffect(() => {
-    void store
-      .getSetting('people')
-      .then((raw) => raw && setPeople(JSON.parse(raw) as Record<string, string>));
+    const load = () =>
+      void store
+        .getSetting('people')
+        .then((raw) => raw && setPeople(JSON.parse(raw) as Record<string, string>));
+    load();
+    // Sync rewrites the directory and then touches conversations.
+    return store.events.on('conversations', load);
   }, [store]);
   return (id) => (id === selfId ? 'You' : (people[id] ?? `Member ${id.slice(-4)}`));
 }

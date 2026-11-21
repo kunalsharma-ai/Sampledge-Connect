@@ -41,6 +41,17 @@ export interface ApiTransport {
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
+  listUsers(): Promise<DirectoryUser[]>;
+}
+
+export interface DirectoryUser {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: string;
+  title: string | null;
+  status: string;
+  presence?: string;
 }
 
 export interface HttpTransportOptions {
@@ -79,11 +90,12 @@ export class HttpTransport implements ApiTransport {
   }
 
   ackReceipt(req: AckReceiptRequest): Promise<Receipt> {
-    return this.request(
-      'POST',
-      `/v1/conversations/${encodeURIComponent(req.conversationId)}/receipts`,
-      req,
-    );
+    return this.request('POST', '/v1/messages/receipts', req);
+  }
+
+  /** Member directory (needs directory.read; guests get FORBIDDEN). */
+  listUsers(): Promise<DirectoryUser[]> {
+    return this.request('GET', '/v1/users', undefined);
   }
 
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
@@ -103,7 +115,7 @@ export class HttpTransport implements ApiTransport {
       res = await this.fetchImpl(new URL(path, this.opts.baseUrl).toString(), {
         method,
         headers,
-        body: JSON.stringify(body),
+        body: method === 'GET' ? undefined : JSON.stringify(body),
         signal: controller.signal,
       });
     } catch (err) {
@@ -114,15 +126,14 @@ export class HttpTransport implements ApiTransport {
     } finally {
       clearTimeout(timer);
     }
-    const json = (await res.json().catch(() => undefined)) as
-      | { ok: true; data: T }
-      | { ok: false; error: { code: ErrorCode; message: string; retryAfterMs?: number } }
-      | T
-      | undefined;
-    const envelope = json && typeof json === 'object' && 'ok' in json ? json : undefined;
-    if (res.ok && (!envelope || envelope.ok))
-      return (envelope ? (envelope as { data: T }).data : json) as T;
-    const error = envelope && !envelope.ok ? envelope.error : undefined;
+    // REST returns the body directly on 2xx and `{ error: ApiError }` otherwise.
+    // (The `{ ok, data }` envelope is only used for Socket.IO acks.)
+    const json = (await res.json().catch(() => undefined)) as unknown;
+    if (res.ok) return json as T;
+    const error =
+      json && typeof json === 'object' && 'error' in json
+        ? (json as { error?: { code?: ErrorCode; message?: string; retryAfterMs?: number } }).error
+        : undefined;
     const code = error?.code ?? codeForStatus(res.status);
     const retryAfter = error?.retryAfterMs ?? retryAfterHeader(res.headers.get('retry-after'));
     throw new TransportError(error?.message ?? `HTTP ${res.status}`, 'api', code, retryAfter);
@@ -170,4 +181,5 @@ export class NoServerTransport implements ApiTransport {
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
   ackReceipt = async (): Promise<Receipt> => this.fail();
+  listUsers = async (): Promise<DirectoryUser[]> => this.fail();
 }

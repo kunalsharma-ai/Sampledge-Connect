@@ -68,8 +68,7 @@ Planned (shown in the app with a "Planned" label and no sample data): Projects, 
 Inbox, Meetings, Files and attachments (with resumable upload), Tasks and Approvals,
 Notifications and push, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
 on mobile, threads, reactions, edits and deletes from mobile (edits and deletes from other
-clients already display), voice messages, polls, member directory names (needs an API
-endpoint; ids are shown until then), and queued read receipts.
+clients already display), voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
 Not yet verified on a device or simulator: this change was checked with type checks, unit
 tests and Android and iOS release bundle exports, not by running the app.

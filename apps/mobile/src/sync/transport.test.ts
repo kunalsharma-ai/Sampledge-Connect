@@ -27,12 +27,9 @@ const req = {
 };
 
 describe('HttpTransport', () => {
-  it('posts with a bearer token and unwraps the ack envelope', async () => {
+  it('posts with a bearer token and returns the REST body directly', async () => {
     const { t, calls } = transport(() =>
-      json(201, {
-        ok: true,
-        data: { clientMessageId: req.clientMessageId, duplicate: false, message: {} },
-      }),
+      json(201, { clientMessageId: req.clientMessageId, duplicate: false, message: {} }),
     );
     const ack = await t.sendMessage(req);
     expect(ack.duplicate).toBe(false);
@@ -43,7 +40,6 @@ describe('HttpTransport', () => {
   it('maps error envelopes and status codes to retryable or permanent errors', async () => {
     const limited = transport(() =>
       json(429, {
-        ok: false,
         error: { code: 'RATE_LIMITED', message: 'slow down', retryAfterMs: 1500 },
       }),
     ).t;
@@ -56,6 +52,10 @@ describe('HttpTransport', () => {
     const e2 = (await forbidden.sendMessage(req).catch((e) => e)) as TransportError;
     expect(e2.code).toBe('FORBIDDEN');
     expect(e2.retryable).toBe(false);
+
+    const receipts = transport(() => json(200, { conversationId: 'c' }));
+    await receipts.t.ackReceipt({ conversationId: 'c', kind: 'read', upToSequence: 3 });
+    expect(receipts.calls[0]!.url).toBe('https://api.example.com/v1/messages/receipts');
 
     const expired = transport(() => new Response('', { status: 401 })).t;
     expect(((await expired.sync({}).catch((e) => e)) as TransportError).isAuth).toBe(true);
