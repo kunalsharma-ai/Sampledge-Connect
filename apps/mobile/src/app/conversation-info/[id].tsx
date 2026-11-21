@@ -171,6 +171,21 @@ export default function ConversationInfo() {
               <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
             </Pressable>
             <Pressable
+              onPress={() => router.push({ pathname: '/summary/[id]', params: { id } })}
+              accessibilityRole="button"
+              accessibilityLabel="Summarize with AI"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="sparkles-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Summarize with AI
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
+            <Pressable
               onPress={() =>
                 router.push({ pathname: '/recordings', params: { conversationId: id, title } })
               }

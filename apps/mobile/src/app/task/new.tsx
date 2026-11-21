@@ -26,9 +26,15 @@ import { useTheme } from '../../theme/ThemeProvider';
 
 /** New task, from a message (chat-to-task) or on its own. Needs a connection. */
 export default function NewTask() {
-  const { conversationId, messageId } = useLocalSearchParams<{
+  const {
+    conversationId,
+    messageId,
+    title: titleParam,
+  } = useLocalSearchParams<{
     conversationId?: string;
     messageId?: string;
+    /** Suggested title, e.g. an AI action item. */
+    title?: string;
   }>();
   const { theme } = useTheme();
   const c = theme.colors;
@@ -47,7 +53,7 @@ export default function NewTask() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const blocked = engine.serverActionBlocker();
-  const shownTitle = title ?? titleFrom(source?.text);
+  const shownTitle = title ?? (titleParam ? titleParam.slice(0, 200) : titleFrom(source?.text));
 
   const input = [
     typeScale.body,

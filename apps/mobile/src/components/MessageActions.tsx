@@ -19,7 +19,8 @@ export type MessageAction =
   | 'unsave'
   | 'closePoll'
   | 'createTask'
-  | 'requestApproval';
+  | 'requestApproval'
+  | 'translate';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -88,6 +89,8 @@ export function MessageActions({
         icon: 'shield-checkmark-outline',
       });
     }
+    if (message.text.trim())
+      rows.push({ key: 'translate', label: 'Translate', icon: 'language-outline' });
     rows.push(
       saved
         ? { key: 'unsave', label: 'Remove from saved', icon: 'bookmark' }

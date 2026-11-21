@@ -26,6 +26,7 @@ import { CallBanner } from '../../calls/CallBanner';
 import { Button } from '../../components/Button';
 import { canPostIn, isUnjoinedChannel } from '../../lib/access';
 import { formatSendAt } from '../../lib/schedule';
+import { defaultTargetLanguage, TRANSLATE_LANGUAGES } from '../../lib/ai';
 import { guestSenderLabel } from '../../lib/guests';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import {
@@ -55,6 +56,27 @@ export default function ConversationScreen() {
   const [mode, setMode] = useState<ComposerMode>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // AI translation of one message, shown above the list until dismissed.
+  const [translation, setTranslation] = useState<{
+    messageId: string;
+    lang: string;
+    text: string | null;
+    busy: boolean;
+  } | null>(null);
+  const translate = (messageId: string, lang: string) => {
+    setTranslation({ messageId, lang, text: null, busy: true });
+    engine
+      .aiTranslate(messageId, lang)
+      .then((r) =>
+        setTranslation((t) =>
+          t?.messageId === messageId ? { messageId, lang, text: r.text, busy: false } : t,
+        ),
+      )
+      .catch((e: unknown) => {
+        setTranslation(null);
+        setActionError(e instanceof Error ? e.message : String(e));
+      });
+  };
   const pins = usePinned(id);
   const savedIds = useSavedIds();
   const tenantRole = useTenantRole();
@@ -235,6 +257,11 @@ export default function ConversationScreen() {
           pathname: action === 'createTask' ? '/task/new' : '/approval/new',
           params: { conversationId: id, messageId: m.messageId! },
         });
+      case 'translate':
+        return translate(
+          m.messageId!,
+          defaultTargetLanguage(Intl.DateTimeFormat().resolvedOptions().locale),
+        );
       case 'save':
       case 'unsave':
         return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
@@ -407,6 +434,51 @@ export default function ConversationScreen() {
               <Ionicons name="close" size={16} color={theme.colors.danger} />
             </Pressable>
           ) : null}
+          {translation ? (
+            <View
+              style={[styles.translation, { backgroundColor: alpha(theme.colors.accent, 0.1) }]}
+              accessibilityLiveRegion="polite"
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Ionicons name="language-outline" size={16} color={theme.colors.accent} />
+                <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                  Translation ·{' '}
+                  {TRANSLATE_LANGUAGES.find((l) => l.tag === translation.lang)?.label ??
+                    translation.lang}
+                </Text>
+                <Pressable
+                  onPress={() => setTranslation(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close translation"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={16} color={theme.colors.textSubtle} />
+                </Pressable>
+              </View>
+              <Text variant="meta" numberOfLines={6}>
+                {translation.busy
+                  ? 'Translating…'
+                  : (translation.text ??
+                    'Translation needs a model server. An admin can connect one in More, Integrations.')}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {TRANSLATE_LANGUAGES.filter((l) => l.tag !== translation.lang)
+                  .slice(0, 5)
+                  .map((l) => (
+                    <Pressable
+                      key={l.tag}
+                      onPress={() => translate(translation.messageId, l.tag)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Translate to ${l.label}`}
+                    >
+                      <Text variant="meta" tone="accent">
+                        {l.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+              </View>
+            </View>
+          ) : null}
         </View>
         <FlatList
           ref={list}
@@ -565,6 +637,13 @@ function PinnedBar({
 }
 
 const styles = StyleSheet.create({
+  translation: {
+    marginHorizontal: space.md,
+    marginTop: space.xs,
+    padding: space.sm,
+    gap: 4,
+    borderRadius: radius.md,
+  },
   pinned: {
     flexDirection: 'row',
     alignItems: 'center',

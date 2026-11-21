@@ -114,6 +114,27 @@ export function Composer({
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // AI suggested replies: null when not asked, [] while loading.
+  const [replies, setReplies] = useState<string[] | null>(null);
+
+  const suggestReplies = async () => {
+    setAttachOpen(false);
+    setFileError(null);
+    setReplies([]);
+    try {
+      const r = await engine.aiReplies(conversationId);
+      if (!r.suggestions.length) {
+        setReplies(null);
+        setNotice('No reply suggestions for the latest message.');
+        setTimeout(() => setNotice(null), 4000);
+        return;
+      }
+      setReplies(r.suggestions);
+    } catch (e) {
+      setReplies(null);
+      setFileError(e instanceof Error ? e.message : String(e));
+    }
+  };
   /** With nothing typed or attached, the send button becomes the voice message mic. */
   const showMic = !editing && !canSend && text.trim().length === 0;
 
@@ -390,6 +411,45 @@ export function Composer({
         onPick={(at) => void schedule(at)}
         onClose={() => setScheduleOpen(false)}
       />
+      {replies ? (
+        <View style={styles.replies} accessibilityLabel="Suggested replies">
+          <Ionicons name="sparkles" size={14} color={c.accent} />
+          {replies.length ? (
+            replies.map((r) => (
+              <Pressable
+                key={r}
+                onPress={() => {
+                  setText(r);
+                  setReplies(null);
+                  input.current?.focus();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Use reply: ${r}`}
+                style={[
+                  styles.replyChip,
+                  { borderColor: c.accent, backgroundColor: alpha(c.accent, 0.1) },
+                ]}
+              >
+                <Text variant="label" numberOfLines={1} style={{ color: c.accent }}>
+                  {r}
+                </Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text variant="meta" tone="muted">
+              Thinking of replies…
+            </Text>
+          )}
+          <Pressable
+            onPress={() => setReplies(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Hide suggested replies"
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={16} color={c.textSubtle} />
+          </Pressable>
+        </View>
+      ) : null}
       {notice ? (
         <Text
           variant="meta"
@@ -454,6 +514,31 @@ export function Composer({
           >
             <Ionicons name="stats-chart-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Poll</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void suggestReplies()}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="sparkles-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Suggest replies</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setAttachOpen(false);
+              router.push({ pathname: '/summary/[id]', params: { id: conversationId } });
+            }}
+            accessibilityRole="button"
+            style={[
+              styles.attachRow,
+              { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="reader-outline" size={20} color={c.accent} />
+            <Text variant="bodyStrong">Summarize conversation</Text>
           </Pressable>
           {Platform.OS !== 'web' ? (
             <Pressable
@@ -543,6 +628,21 @@ export function Composer({
 }
 
 const styles = StyleSheet.create({
+  replies: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 6,
+    marginBottom: 2,
+  },
+  replyChip: {
+    maxWidth: 260,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   wrap: {
     paddingHorizontal: space.md,
     paddingTop: space.sm,

@@ -123,8 +123,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'ai',
     title: 'AI Assistant',
     icon: 'sparkles-outline',
-    status: 'planned',
-    summary: 'Summaries and drafting help.',
+    status: 'available',
+    href: '/assistant',
+    summary:
+      'Ask about your conversations, search by meaning and get a status digest. Runs on your own server and only reads what you can read.',
   },
   {
     key: 'analytics',
