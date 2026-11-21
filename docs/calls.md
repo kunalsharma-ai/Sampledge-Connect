@@ -125,3 +125,6 @@ the repository and the WebAssembly runtime is copied from `node_modules` into `p
 web app builds (`scripts/copy-vision-assets.mjs`), so nothing loads from a CDN. The web CSP allows
 `'wasm-unsafe-eval'` for this, which permits compiling WebAssembly only. Blur stays on when the camera
 is turned off and on again. Browsers without WebGL or insertable streams show "Not supported".
+
+When an admin turns on **Keep live captions for minutes**, caption lines are saved with speaker
+names for the minutes and the captions notice says so. See `minutes.md`.

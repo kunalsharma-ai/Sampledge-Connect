@@ -61,6 +61,8 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Create a task from an AI suggestion             | `task:upsert`                                               | Needs a connection                     |
 | AI summaries, digest, search                    | Computed on request, cached on the server                   | Needs a connection by nature           |
 | Analytics                                       | Computed on request, refreshed each minute and on reconnect | Last result cached on the device       |
+| Minutes of meeting (edit, share, delete)        | `minutes:changed`                                           | Edits queued                           |
+| Transcript corrections and translations         | `transcript:changed`                                        | Corrections queued                     |
 | Typing, presence                                | `typing:update`, `presence:update`                          | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.

@@ -80,6 +80,17 @@ export type ChangeEvent =
   | { type: 'aiSuggestion'; suggestionId: string; dismissed: boolean }
   | { type: 'meetings'; area: MeetingsArea }
   | { type: 'recording'; recordingId: string; conversationId: string; deleted: boolean }
+  /** Minutes of a call in this conversation were made, edited, shared or deleted. */
+  | {
+      type: 'minutes';
+      minutesId: string;
+      callId: string;
+      conversationId: string;
+      revision: number;
+      deleted: boolean;
+    }
+  /** A transcript finished, was translated, corrected or checked. */
+  | { type: 'transcript'; attachmentId: string; conversationId: string; revision: number }
   /** A module record in this conversation was linked or updated, or a record action ran. */
   | {
       type: 'records';
@@ -284,6 +295,8 @@ export class HttpSocketTransport implements Transport {
     s.on('meetings:changed', (e) => this.handlers?.onChange?.({ type: 'meetings', ...e }));
     s.on('recording:changed', (e) => this.handlers?.onChange?.({ type: 'recording', ...e }));
     s.on('record:changed', (e) => this.handlers?.onChange?.({ type: 'records', ...e }));
+    s.on('minutes:changed', (e) => this.handlers?.onChange?.({ type: 'minutes', ...e }));
+    s.on('transcript:changed', (e) => this.handlers?.onChange?.({ type: 'transcript', ...e }));
     this.socket = s;
     s.connect();
   }
