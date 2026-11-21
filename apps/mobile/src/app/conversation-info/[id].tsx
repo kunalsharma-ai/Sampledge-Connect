@@ -170,6 +170,23 @@ export default function ConversationInfo() {
               </Text>
               <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
             </Pressable>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/recordings', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Recordings in this conversation"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="recording-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Recordings
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
           </Glass>
         ) : null}
 

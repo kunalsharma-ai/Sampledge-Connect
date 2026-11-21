@@ -987,6 +987,155 @@ async function api(method, path, body, token) {
     check('meeting cancelled on the server', cancelled.status === 'cancelled');
     check('cancelled shown on the phone', /Cancelled/.test(await p.innerText('body')));
   }
+  // ---- Recordings: voice messages with the fake microphone (online and queued offline),
+  // playback, the Recordings library with filters, delete for everyone, and call recording
+  // (when the API has egress set up; otherwise the Record button stays hidden).
+  {
+    const voiceOnServer = async () =>
+      (await serverMsgs()).filter((m) => m.attachments?.[0]?.recording === 'voice');
+    const recordVoice = async (ms) => {
+      await p.getByRole('button', { name: 'Record voice message', exact: true }).click();
+      await p.waitForTimeout(ms);
+    };
+    await p.goto(`${APP}/conversation/${ch.conversationId}`);
+    await p.waitForTimeout(3000);
+    await recordVoice(2600);
+    await p.waitForTimeout(200);
+    check('recording bar counts up', /0:0[2-4]/.test(await p.innerText('body')));
+    await p.screenshot({ path: `${out}/60-recording-voice.png` });
+    console.log('shot', '60-recording-voice');
+    await p.getByRole('button', { name: 'Send voice message' }).click();
+    await p.waitForTimeout(4000);
+    await shot('61-voice-sent');
+    let voices = await voiceOnServer();
+    const first = voices[0]?.attachments[0];
+    check(
+      'voice message reached the server as a voice recording',
+      voices.length === 1 && first.mimeType === 'audio/webm' && first.durationMs >= 1500,
+    );
+    const audioBytes = await (
+      await fetch(
+        API + (await api('GET', `/v1/attachments/${first.attachmentId}/url`, undefined, marco)).url,
+      )
+    ).arrayBuffer();
+    check('voice clip bytes are stored', audioBytes.byteLength > 1000);
+    await p
+      .getByRole('button', { name: /^Play Voice message/ })
+      .last()
+      .click();
+    await p.waitForTimeout(1500);
+    check(
+      'voice message plays',
+      (await p.getByRole('button', { name: /^Pause Voice message/ }).count()) > 0,
+    );
+    await shot('62-voice-playing');
+    await p.waitForTimeout(2500);
+
+    // Recorded offline: queued with the clip, sent once on reconnect.
+    await ctx.setOffline(true);
+    await p.waitForTimeout(1500);
+    await recordVoice(2200);
+    await p.getByRole('button', { name: 'Send voice message' }).click();
+    await shot('63-voice-queued-offline');
+    check('offline voice message waits on the phone', (await voiceOnServer()).length === 1);
+    await ctx.setOffline(false);
+    await p.waitForTimeout(7000);
+    voices = await voiceOnServer();
+    check('offline voice message delivered once on reconnect', voices.length === 2);
+
+    // Library.
+    await p.goto(`${APP}/recordings`);
+    await p.waitForTimeout(3000);
+    await shot('64-recordings-library');
+    const libText = await p.innerText('body');
+    check(
+      'library lists both voice messages with their conversation',
+      (libText.match(/Voice message · fieldwork-ops/g) ?? []).length === 2,
+    );
+    await p.getByRole('tab', { name: 'Calls', exact: true }).click();
+    await p.waitForTimeout(1500);
+    check(
+      'kind filter narrows the list',
+      /No calls recordings|No call/.test(await p.innerText('body')),
+    );
+    await p.getByRole('tab', { name: 'All', exact: true }).click();
+    await p.waitForTimeout(1500);
+    await p
+      .getByRole('button', { name: /^Delete Voice message/ })
+      .first()
+      .click();
+    await p.waitForTimeout(2500);
+    const left = await api(
+      'GET',
+      `/v1/recordings?conversationId=${ch.conversationId}`,
+      undefined,
+      marco,
+    );
+    check('deleted recording is gone from the server library', left.items.length === 1);
+    await p.goto(`${APP}/conversation/${ch.conversationId}`);
+    await p.waitForTimeout(3000);
+    check(
+      'chat shows the deleted voice message',
+      /Voice message deleted/.test(await p.innerText('body')),
+    );
+    await shot('65-voice-deleted-in-chat');
+
+    // Call recording.
+    const cfg = await api('GET', '/v1/calls/config', undefined, marco);
+    if (cfg.enabled) {
+      await p.getByRole('button', { name: 'Start video call' }).click();
+      await p.waitForTimeout(5000);
+      const recordBtn = p.getByRole('button', { name: 'Record', exact: true });
+      if (cfg.recordingEnabled) {
+        await recordBtn.click();
+        let on = false;
+        for (let i = 0; i < 10 && !on; i++) {
+          await p.waitForTimeout(1500);
+          on = /Recording · /.test(await p.innerText('body'));
+        }
+        check('recording indicator shown in the call', on);
+        await shot('66-call-recording');
+        await p.waitForTimeout(6000);
+        await p.getByRole('button', { name: 'Stop rec', exact: true }).click();
+        await p.waitForTimeout(2000);
+        await p.getByRole('button', { name: 'End for all' }).click();
+        let card = false;
+        for (let i = 0; i < 20 && !card; i++) {
+          await p.waitForTimeout(3000);
+          card = /Call recording · \d/.test(await p.innerText('body'));
+        }
+        check('call recording arrives in the chat', card);
+        await shot('67-call-recording-in-chat');
+        const calls = await api('GET', '/v1/recordings?kind=call', undefined, marco);
+        check(
+          'call recording is in the library with its length',
+          calls.items.length === 1 && calls.items[0].durationMs > 3000,
+        );
+        await p
+          .getByRole('button', { name: /^Play Call recording/ })
+          .last()
+          .click();
+        let playing = false;
+        for (let i = 0; i < 10 && !playing; i++) {
+          await p.waitForTimeout(1000);
+          playing = await p.evaluate(() => {
+            const v = document.querySelector('video');
+            return !!v && v.readyState >= 2 && v.currentTime > 0;
+          });
+        }
+        check('call recording plays in the player', playing);
+        await shot('68-call-recording-player');
+        await p.getByRole('button', { name: 'Close player' }).click();
+      } else {
+        check(
+          'Record is hidden when the server cannot record calls',
+          (await recordBtn.count()) === 0,
+        );
+        await p.getByRole('button', { name: 'End for all' }).click();
+        await p.waitForTimeout(2000);
+      }
+    }
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

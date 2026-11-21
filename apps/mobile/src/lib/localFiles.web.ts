@@ -23,3 +23,11 @@ export async function putFileBytes(
   const r = await fetch(url, { method: 'PUT', headers, body: blob });
   return { status: r.status, body: await r.text() };
 }
+
+export async function localFileSize(uri: string): Promise<number> {
+  try {
+    return (await (await fetch(uri)).blob()).size;
+  } catch {
+    return 0;
+  }
+}

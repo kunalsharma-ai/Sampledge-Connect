@@ -175,6 +175,13 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       CREATE INDEX meetings_by_start ON meetings (starts_at);
     `);
   },
+  // v9: voice and video clips recorded on this device keep their kind and length until uploaded
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE message_files ADD COLUMN recording TEXT;
+      ALTER TABLE message_files ADD COLUMN duration_ms INTEGER;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -55,3 +55,13 @@ export async function putFileBytes(
   });
   return { status: r.status, body: r.body };
 }
+
+/** Size in bytes of a file in app storage (0 if it is gone). */
+export async function localFileSize(uri: string): Promise<number> {
+  try {
+    const f = new File(uri);
+    return f.exists ? f.size : 0;
+  } catch {
+    return 0;
+  }
+}

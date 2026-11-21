@@ -61,7 +61,17 @@ a group and a private channel from the people picker, adding and removing people
 details screen, leaving, and signing out another device from Settings, Devices. Then meetings:
 scheduling from suggested times, answers arriving live, the card in the meeting chat, an
 invitation answered offline and delivered on reconnect, the server's reminder banner (waits up
-to a minute for the reminder sweep), joining the meeting's call, working hours and cancelling.
+to a minute for the reminder sweep), joining the meeting's call, working hours and cancelling. Then recordings: a voice message
+recorded with the fake microphone (sent online, and recorded offline then delivered once on
+reconnect), playback, the Recordings library with its filters, delete for everyone ("Voice
+message deleted" in the chat), and, when the API can record calls, Record and Stop in a call,
+the red indicator, the finished recording arriving in the chat and playing in the player.
+
+Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
+`RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
+`livekit/egress` with `--network host --shm-size=1g --cap-add SYS_ADMIN -v <spool>:/out`.
+LiveKit's `rtc.node_ip` must be a real interface address, not 127.0.0.1, or the recorder's
+browser cannot connect and egress aborts with "Start signal not received".
 
 ## How offline-first works
 
@@ -128,7 +138,16 @@ editing, rescheduling and cancelling for the organizer; Going, Maybe or Not goin
 work offline and are sent when back online; Join, which opens 15 minutes before the start and
 joins the meeting chat's call; meeting cards in the chat that open the meeting; a reminder
 banner with Join; meeting pushes open the meeting; working hours in Settings; the next meeting
-on Home), on-device search, themes, offline and storage settings, sign-out with a warning
+on Home), voice messages (tap the mic when the field is empty; records mono AAC on phones,
+up to 30 minutes, with a red timer, discard and send; the clip is copied into app storage and
+queued like any file, so it sends offline-safe; inline player with progress), video messages on
+phones (Attach, Video message, through the system camera), inline players for audio and video
+clips and call recordings (video opens a full-screen player with native controls and picture
+in picture), "Recording deleted" in place of removed clips, call recording (Record and Stop on
+the call screen when the server allows it, a red Recording indicator with who started it for
+everyone in the call, and the finished recording delivered into the chat as a card with its
+player), a Recordings library (More, Recordings, or a conversation's details) with filters for
+voice, video, screen and calls, paging, playback and delete for those allowed, on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
@@ -136,7 +155,8 @@ Inbox, email invites with calendar files for people outside the workspace and gu
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
-on mobile, a separate thread pane, voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
+on mobile, a separate thread pane, screen recording from the phone, recording retention and export
+settings (admin, on the web), polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
 Not yet verified on a device or simulator. This cloud environment has no KVM (so no Android
 emulator) and no macOS (so no iOS simulator). A device build needs either a local machine with

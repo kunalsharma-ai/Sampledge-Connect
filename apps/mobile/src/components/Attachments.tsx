@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { isImageAttachment } from '@sampledge/contracts';
+import { isAudioAttachment, isImageAttachment, isVideoAttachment } from '@sampledge/contracts';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,6 +14,7 @@ import type { LocalAttachment } from '../db/store';
 import { useWorkspace } from '../state/AppProvider';
 import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { AudioClip, DeletedClip, RECORDING_LABEL, VideoClip } from './MediaClips';
 import { Text } from './Text';
 
 export function formatBytes(n: number): string {
@@ -162,13 +163,19 @@ export function AttachmentList({ items, own }: { items: LocalAttachment[]; own: 
   if (!items.length) return null;
   return (
     <View style={styles.list}>
-      {items.map((a, i) =>
-        isImageAttachment(a) ? (
-          <ImageAttachment key={a.attachmentId ?? `${a.fileName}-${i}`} a={a} own={own} />
-        ) : (
-          <FileAttachment key={a.attachmentId ?? `${a.fileName}-${i}`} a={a} own={own} />
-        ),
-      )}
+      {items.map((a, i) => {
+        const key = a.attachmentId ?? `${a.fileName}-${i}`;
+        const label = a.recording ? RECORDING_LABEL[a.recording] : a.fileName;
+        if (a.deletedAt) return <DeletedClip key={key} own={own} kind={a.recording} />;
+        if (isImageAttachment(a)) return <ImageAttachment key={key} a={a} own={own} />;
+        if (isAudioAttachment(a))
+          return (
+            <AudioClip key={key} source={a} durationMs={a.durationMs} own={own} label={label} />
+          );
+        if (isVideoAttachment(a))
+          return <VideoClip key={key} source={a} durationMs={a.durationMs} label={label} />;
+        return <FileAttachment key={key} a={a} own={own} />;
+      })}
     </View>
   );
 }

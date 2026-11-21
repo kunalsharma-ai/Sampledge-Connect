@@ -30,7 +30,8 @@ export default function CallScreen() {
   const { width } = useWindowDimensions();
   const { engine, store, selfId } = useWorkspace();
   const nameOf = usePeople();
-  const { current } = useCalls();
+  const { current, config, error: callError } = useCalls();
+  const [recBusy, setRecBusy] = useState(false);
   const call = current?.call.callId === id ? current : null;
   const [conv, setConv] = useState<LocalConversation | undefined>();
   const [now, setNow] = useState(Date.now());
@@ -114,6 +115,20 @@ export default function CallScreen() {
   const cols = tiles.length <= 1 ? 1 : tiles.length <= 4 ? 2 : 3;
   const tileW = (Math.min(width, 900) - space.md * 2 - space.sm * (cols - 1)) / cols;
   const canEnd = call.call.startedBy === selfId;
+  const rec = call.call.recording ?? null;
+  const recLabel = !rec
+    ? null
+    : rec.status === 'starting'
+      ? 'Starting recording…'
+      : rec.status === 'stopping'
+        ? 'Saving recording…'
+        : `Recording · ${formatDuration((now - new Date(rec.startedAt).getTime()) / 1000)}`;
+  const toggleRecording = async () => {
+    if (recBusy) return;
+    setRecBusy(true);
+    await engine.calls.setRecording(!rec);
+    setRecBusy(false);
+  };
 
   const leave = async (forAll = false) => {
     leaving.current = true;
@@ -133,6 +148,27 @@ export default function CallScreen() {
         >
           {call.media === 'video' ? 'Video call' : 'Voice call'} · {status}
         </Text>
+        {rec ? (
+          <View
+            style={[styles.recPill, { backgroundColor: alpha('#EF4444', 0.18) }]}
+            accessibilityRole="text"
+            accessibilityLabel={`${recLabel}. Started by ${rec.startedBy === selfId ? 'you' : nameOf(rec.startedBy)}. Everyone in the call can see this.`}
+            accessibilityLiveRegion="polite"
+          >
+            <View style={styles.recDot} />
+            <Text variant="meta" style={{ color: '#FECACA' }}>
+              {recLabel}
+              {rec.startedBy === selfId ? '' : ` · started by ${nameOf(rec.startedBy)}`}
+            </Text>
+          </View>
+        ) : null}
+        {callError ? (
+          <Pressable onPress={() => engine.calls.dismissError()} accessibilityRole="button">
+            <Text variant="meta" style={{ color: '#FCA5A5', textAlign: 'center' }}>
+              {callError} (tap to dismiss)
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
       <ScrollView contentContainerStyle={styles.grid}>
         {tiles.map((t) => (
@@ -201,6 +237,15 @@ export default function CallScreen() {
           active={media.handUp}
           onPress={() => void media.toggleHand()}
         />
+        {config?.recordingEnabled ? (
+          <Control
+            icon={rec ? 'stop' : 'radio-button-on'}
+            label={rec ? 'Stop rec' : 'Record'}
+            active={!!rec}
+            disabled={recBusy || rec?.status === 'stopping'}
+            onPress={() => void toggleRecording()}
+          />
+        ) : null}
         <Control icon="call" label="Leave" danger onPress={() => void leave()} />
         {canEnd ? (
           <Control icon="stop-circle" label="End for all" danger onPress={() => void leave(true)} />
@@ -215,12 +260,14 @@ export default function CallScreen() {
     onPress,
     active,
     danger,
+    disabled,
   }: {
     icon: keyof typeof Ionicons.glyphMap;
     label: string;
     onPress: () => void;
     active?: boolean;
     danger?: boolean;
+    disabled?: boolean;
   }) {
     return (
       <View style={{ alignItems: 'center', gap: 6, width: 64 }}>
@@ -228,10 +275,12 @@ export default function CallScreen() {
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ selected: !!active }}
+          accessibilityState={{ selected: !!active, disabled: !!disabled }}
+          disabled={disabled}
           style={({ pressed }) => [
             styles.ctl,
             {
+              opacity: disabled ? 0.5 : 1,
               backgroundColor: danger
                 ? c.danger
                 : active
@@ -243,7 +292,17 @@ export default function CallScreen() {
           <Ionicons
             name={icon}
             size={24}
-            color={danger ? '#FFFFFF' : active ? '#05070D' : '#FFFFFF'}
+            color={
+              danger
+                ? '#FFFFFF'
+                : icon === 'radio-button-on'
+                  ? '#F87171'
+                  : active
+                    ? icon === 'stop'
+                      ? '#DC2626'
+                      : '#05070D'
+                    : '#FFFFFF'
+            }
             style={icon === 'call' ? { transform: [{ rotate: '135deg' }] } : undefined}
           />
         </Pressable>
@@ -287,8 +346,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  recPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
   controls: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     gap: space.md,
     paddingTop: space.lg,

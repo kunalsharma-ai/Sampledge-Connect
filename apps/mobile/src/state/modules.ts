@@ -61,6 +61,15 @@ export const MODULES: ModuleEntry[] = [
       'Scheduled meetings with RSVP, suggested free times from working hours, reminders and Join. Guest invites by email are planned.',
   },
   {
+    key: 'recordings',
+    title: 'Recordings',
+    icon: 'recording-outline',
+    status: 'available',
+    href: '/recordings',
+    summary:
+      'Voice and video messages, screen recordings and call recordings in your conversations. Retention and export settings for admins are planned on mobile.',
+  },
+  {
     key: 'files',
     title: 'Files',
     icon: 'folder-outline',

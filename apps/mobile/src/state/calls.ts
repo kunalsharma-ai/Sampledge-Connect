@@ -151,6 +151,27 @@ export class CallController {
     }
   }
 
+  /**
+   * Starts or stops recording the call you are in (anyone joined may). Everyone in the call
+   * sees the Recording indicator from the call record; the file arrives in the chat later.
+   */
+  async setRecording(on: boolean): Promise<boolean> {
+    const cur = this._state.current;
+    if (!cur) return false;
+    try {
+      const id = cur.call.callId;
+      this.applyCall(await (on ? this.api.startCallRecording(id) : this.api.stopCallRecording(id)));
+      return true;
+    } catch (err) {
+      // The server says exactly why recording is not allowed (turned off, not set up, not joined).
+      this.patch({
+        error:
+          err instanceof TransportError && err.code === 'FORBIDDEN' ? err.message : describe(err),
+      });
+      return false;
+    }
+  }
+
   dismissError(): void {
     this.patch({ error: null });
   }

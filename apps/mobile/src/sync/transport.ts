@@ -9,6 +9,9 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type Recording,
+  type RecordingKind,
+  type RecordingList,
   type Conversation,
   type CreateConversationRequest,
   type CreateMeetingRequest,
@@ -115,9 +118,23 @@ export interface ApiTransport {
   findTimes(req: FindTimesRequest): Promise<FindTimesResponse>;
   getWorkingHours(): Promise<WorkingHours>;
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
+  /** Recordings library, newest first; page with `before` = the previous page's nextBefore. */
+  listRecordings(q: RecordingsQuery): Promise<RecordingList>;
+  deleteRecording(recordingId: string): Promise<void>;
+  startCallRecording(callId: string): Promise<Call>;
+  stopCallRecording(callId: string): Promise<Call>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
+export interface RecordingsQuery {
+  conversationId?: string;
+  kind?: RecordingKind;
+  before?: string;
+  limit?: number;
+}
+
+export type { Recording };
+
 export interface DeviceSession {
   sessionId: string;
   userId: string;
@@ -391,6 +408,27 @@ export class HttpTransport implements ApiTransport {
     return this.request('PUT', '/v1/me/working-hours', hours);
   }
 
+  listRecordings(q: RecordingsQuery): Promise<RecordingList> {
+    const p = new URLSearchParams();
+    if (q.conversationId) p.set('conversationId', q.conversationId);
+    if (q.kind) p.set('kind', q.kind);
+    if (q.before) p.set('before', q.before);
+    p.set('limit', String(q.limit ?? 30));
+    return this.request('GET', `/v1/recordings?${p.toString()}`, undefined);
+  }
+
+  deleteRecording(recordingId: string): Promise<void> {
+    return this.request('DELETE', `/v1/recordings/${encodeURIComponent(recordingId)}`, undefined);
+  }
+
+  startCallRecording(callId: string): Promise<Call> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/start`, {});
+  }
+
+  stopCallRecording(callId: string): Promise<Call> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/recording/stop`, {});
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -513,4 +551,8 @@ export class NoServerTransport implements ApiTransport {
   findTimes = async (): Promise<FindTimesResponse> => this.fail();
   getWorkingHours = async (): Promise<WorkingHours> => this.fail();
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
+  listRecordings = async (): Promise<RecordingList> => this.fail();
+  deleteRecording = async (): Promise<void> => this.fail();
+  startCallRecording = async (): Promise<Call> => this.fail();
+  stopCallRecording = async (): Promise<Call> => this.fail();
 }

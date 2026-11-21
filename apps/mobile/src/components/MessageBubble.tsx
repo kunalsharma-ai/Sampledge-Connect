@@ -5,7 +5,7 @@ import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
-import { callMeta, meetingMeta, systemText } from '../lib/systemMessages';
+import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemMessages';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AttachmentList } from './Attachments';
@@ -234,15 +234,21 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
   const c = theme.colors;
   const call = callMeta(m.metadata);
   const meeting = meetingMeta(m.metadata);
+  const rec = recordingMeta(m.metadata);
   const missed =
-    call?.status === 'missed' || call?.status === 'declined' || meeting?.status === 'cancelled';
-  const icon: keyof typeof Ionicons.glyphMap = call
-    ? call.media === 'video'
-      ? 'videocam'
-      : 'call'
-    : meeting
-      ? 'calendar'
-      : 'information-circle-outline';
+    call?.status === 'missed' ||
+    call?.status === 'declined' ||
+    meeting?.status === 'cancelled' ||
+    !!rec?.failed;
+  const icon: keyof typeof Ionicons.glyphMap = rec
+    ? 'recording-outline'
+    : call
+      ? call.media === 'video'
+        ? 'videocam'
+        : 'call'
+      : meeting
+        ? 'calendar'
+        : 'information-circle-outline';
   const label = systemText(m.text, m.metadata);
   const openMeeting = meeting?.meetingId
     ? () => router.push({ pathname: '/meeting/[id]', params: { id: meeting.meetingId! } })
@@ -277,11 +283,17 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
           {openMeeting ? <Ionicons name="chevron-forward" size={12} color={c.textSubtle} /> : null}
         </View>
       </Pressable>
+      {m.attachments.length ? (
+        <View style={styles.systemFiles}>
+          <AttachmentList items={m.attachments} own={false} />
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  systemFiles: { marginTop: 6, alignItems: 'center' },
   row: { paddingHorizontal: space.lg, paddingVertical: 1.5 },
   rowOwn: { alignItems: 'flex-end' },
   rowOther: { alignItems: 'flex-start' },
