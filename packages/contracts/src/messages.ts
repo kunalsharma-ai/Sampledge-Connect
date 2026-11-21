@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ClientIdSchema, ServerIdSchema } from './ids.js';
+import { AttachmentSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
 
 /**
  * Outgoing message lifecycle as shown to the sender.
@@ -50,7 +51,9 @@ export const ReactionEmojiSchema = z
   .refine(
     (e) =>
       /^(\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)/u.test(e) &&
-      [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(e)].length === 1,
+      // Hermes (React Native) may lack Intl.Segmenter: fall back to the length bound only.
+      (typeof Intl.Segmenter !== 'function' ||
+        [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(e)].length === 1),
     'must be a single emoji',
   );
 
@@ -80,6 +83,8 @@ export const MessageSchema = z.object({
   messageType: MessageTypeSchema,
   content: MessageContentSchema,
   attachmentIds: z.array(ServerIdSchema).default([]),
+  /** Metadata snapshot of the files attached at send time (bytes via GET /v1/attachments/:id/url). */
+  attachments: z.array(AttachmentSchema).default([]),
   replyToMessageId: ServerIdSchema.nullable().default(null),
   /** Monotonic per conversation, assigned once at creation. Defines display order. */
   serverSequence: z.number().int().positive(),
@@ -98,16 +103,23 @@ export const MessageSchema = z.object({
 export type Message = z.infer<typeof MessageSchema>;
 
 /** Body of POST /v1/conversations/:id/messages and of the `message:send` socket event. */
-export const SendMessageRequestSchema = z.object({
-  conversationId: ServerIdSchema,
-  /** Idempotency key. Re-sending the same id returns the original message. */
-  clientMessageId: ClientIdSchema,
-  messageType: z.literal('text').default('text'),
-  content: MessageContentSchema.refine((c) => c.text.trim().length > 0, 'message text is empty'),
-  replyToMessageId: ServerIdSchema.nullable().default(null),
-  /** Client clock at composition time, informational only; ordering uses serverSequence. */
-  composedAt: z.string().datetime().optional(),
-});
+export const SendMessageRequestSchema = z
+  .object({
+    conversationId: ServerIdSchema,
+    /** Idempotency key. Re-sending the same id returns the original message. */
+    clientMessageId: ClientIdSchema,
+    messageType: z.literal('text').default('text'),
+    content: MessageContentSchema,
+    /** Ready uploads (POST /v1/uploads) by the sender in this conversation. */
+    attachmentIds: z.array(ServerIdSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).default([]),
+    replyToMessageId: ServerIdSchema.nullable().default(null),
+    /** Client clock at composition time, informational only; ordering uses serverSequence. */
+    composedAt: z.string().datetime().optional(),
+  })
+  .refine((r) => r.content.text.trim().length > 0 || (r.attachmentIds?.length ?? 0) > 0, {
+    message: 'message text is empty',
+    path: ['content', 'text'],
+  });
 export type SendMessageRequest = z.input<typeof SendMessageRequestSchema>;
 
 export const EditMessageRequestSchema = z.object({

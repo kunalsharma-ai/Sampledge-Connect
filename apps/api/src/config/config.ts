@@ -19,6 +19,12 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** HMAC key for signed download URLs (32+ chars). Required in production. */
+  FILES_URL_SECRET: z.string().min(32).optional(),
+  /** Where attachment bytes live. `gridfs` (MongoDB) is built; `nextcloud` is planned. */
+  FILE_STORAGE: z.enum(['gridfs']).default('gridfs'),
+  /** Public base URL of this API, used to build absolute signed URLs. */
+  PUBLIC_API_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
@@ -34,6 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!cfg.JWT_PRIVATE_KEY || !cfg.JWT_PUBLIC_KEY) {
       throw new Error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production');
     }
+    if (!cfg.FILES_URL_SECRET) throw new Error('FILES_URL_SECRET is required in production');
     if (cfg.RATE_LIMIT_DISABLED)
       throw new Error('RATE_LIMIT_DISABLED is not allowed in production');
   }

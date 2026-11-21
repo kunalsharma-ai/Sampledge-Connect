@@ -27,8 +27,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('json', { limit: '256kb' });
   app.enableCors({
     origin: cfg.corsOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Content-Length'],
     maxAge: 600,
   });
   app.useWebSocketAdapter(new RedisIoAdapter(app, cfg));

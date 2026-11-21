@@ -78,6 +78,27 @@ export class MessagesService {
         throw new AppError('VALIDATION_FAILED', 'Reply target not found in this conversation');
     }
 
+    const attachmentIds = [...new Set(req.attachmentIds ?? [])];
+    const files = attachmentIds.length
+      ? await t.attachments.find({ _id: { $in: attachmentIds } }).toArray()
+      : [];
+    if (
+      files.length !== attachmentIds.length ||
+      files.some(
+        (f) =>
+          f.status !== 'ready' ||
+          f.uploaderId !== ctx.userId ||
+          f.conversationId !== req.conversationId ||
+          f.messageId !== null,
+      )
+    ) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Attachments must be your own completed, unused uploads in this conversation',
+      );
+    }
+    const ordered = attachmentIds.map((id) => files.find((f) => f._id === id)!);
+
     let doc: MessageDoc;
     try {
       doc = await withLock(this.redis, this.lockKey(ctx.tenantId, req.conversationId), async () => {
@@ -89,7 +110,16 @@ export class MessagesService {
           senderDeviceId: ctx.deviceId,
           messageType: 'text',
           content: { text: req.content.text, mentions: req.content.mentions ?? [] },
-          attachmentIds: [],
+          attachmentIds,
+          attachments: ordered.map((f) => ({
+            attachmentId: f._id,
+            fileName: f.fileName,
+            mimeType: f.mimeType,
+            sizeBytes: f.sizeBytes,
+            width: f.width,
+            height: f.height,
+            createdAt: f.createdAt,
+          })),
           replyToMessageId: req.replyToMessageId ?? null,
           serverSequence: seq,
           changeSequence: seq,
@@ -108,6 +138,12 @@ export class MessagesService {
       throw e;
     }
 
+    if (attachmentIds.length) {
+      await t.attachments.updateMany(
+        { _id: { $in: attachmentIds }, messageId: null },
+        { $set: { messageId: doc._id } },
+      );
+    }
     const message = toMessage(doc);
     this.realtime.toConversation(ctx.tenantId, req.conversationId, 'message:new', message);
     return { clientMessageId: req.clientMessageId, message, duplicate: false };

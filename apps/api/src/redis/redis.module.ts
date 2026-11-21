@@ -18,6 +18,7 @@ const POLICIES = {
   register_ip: { points: 5, duration: 3600 },
   message_send: { points: 30, duration: 10 },
   reaction: { points: 60, duration: 10 },
+  upload: { points: 30, duration: 60 },
   api_user: { points: 300, duration: 60 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;

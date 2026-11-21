@@ -5,6 +5,7 @@ import {
   isRetryable,
   uuidv7,
   type ApiError,
+  type Attachment,
   type Conversation,
   type Message,
   type MessageStatus,
@@ -230,7 +231,11 @@ export class SyncEngine {
   async compose(
     conversationId: string,
     text: string,
-    opts: { mentions?: string[]; replyToMessageId?: string | null } = {},
+    opts: {
+      mentions?: string[];
+      replyToMessageId?: string | null;
+      attachments?: Attachment[];
+    } = {},
   ): Promise<LocalMessage> {
     const now = this.now();
     const item: OutboxItem = {
@@ -242,6 +247,7 @@ export class SyncEngine {
         mentions: opts.mentions ?? [],
         replyToMessageId: opts.replyToMessageId ?? null,
         composedAt: new Date(now).toISOString(),
+        attachments: opts.attachments ?? [],
       },
       state: 'queued',
       attempts: 0,
@@ -268,7 +274,8 @@ export class SyncEngine {
       senderId: this.opts.userId,
       messageType: 'text',
       content: { text: it.payload.text, mentions: it.payload.mentions },
-      attachmentIds: [],
+      attachmentIds: (it.payload.attachments ?? []).map((a) => a.attachmentId),
+      attachments: it.payload.attachments ?? [],
       replyToMessageId: it.payload.replyToMessageId,
       serverSequence: null,
       changeSequence: null,
@@ -465,6 +472,7 @@ export class SyncEngine {
         content: { text: item.payload.text, mentions: item.payload.mentions },
         replyToMessageId: item.payload.replyToMessageId,
         composedAt: item.payload.composedAt,
+        attachmentIds: (item.payload.attachments ?? []).map((a) => a.attachmentId),
       });
       await this.db.transaction('rw', this.db.outbox, this.db.messages, async () => {
         await this.db.outbox.delete(item.clientMessageId);

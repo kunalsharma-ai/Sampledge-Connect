@@ -1,5 +1,12 @@
 import { Dexie, type EntityTable, type Table } from 'dexie';
-import type { ApiError, Conversation, Message, MessageStatus, Receipt } from '@sampledge/contracts';
+import type {
+  ApiError,
+  Attachment,
+  Conversation,
+  Message,
+  MessageStatus,
+  Receipt,
+} from '@sampledge/contracts';
 
 /** A message as stored locally: either server-confirmed or still pending on this device. */
 export interface LocalMessage extends Omit<
@@ -30,6 +37,8 @@ export interface OutboxItem {
     mentions: string[];
     replyToMessageId: string | null;
     composedAt: string;
+    /** Completed uploads to attach (uploading needs a connection; sending can wait). */
+    attachments?: Attachment[];
   };
   state: OutboxState;
   attempts: number;
