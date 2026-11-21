@@ -10,7 +10,7 @@ import {
   type PushData,
 } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { PushProviders, type PushMessage } from '../push/push-provider.js';
+import { PushProviders, forProvider, type PushMessage } from '../push/push-provider.js';
 import { parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import type {
@@ -182,23 +182,29 @@ export class NotificationsService {
         notificationId: n?._id ?? null,
         unreadCount: unread.get(d.userId)!,
       };
-      messages.push({
-        token: d.push!.token,
-        title,
-        body: provider.showPreviews
-          ? kind === 'mention'
-            ? `Mentioned you: ${preview}`
-            : kind === 'reply'
-              ? `Replied: ${preview}`
-              : preview
-          : kind === 'mention'
-            ? 'Mentioned you'
-            : kind === 'reply'
-              ? 'Replied to your message'
-              : 'New message',
-        data: { ...data },
-        badge: data.unreadCount,
-      });
+      const showPreviews = provider.showPreviewsFor(d.push!.provider);
+      messages.push(
+        forProvider(
+          {
+            token: d.push!.token,
+            title,
+            body: showPreviews
+              ? kind === 'mention'
+                ? `Mentioned you: ${preview}`
+                : kind === 'reply'
+                  ? `Replied: ${preview}`
+                  : preview
+              : kind === 'mention'
+                ? 'Mentioned you'
+                : kind === 'reply'
+                  ? 'Replied to your message'
+                  : 'New message',
+            data: { ...data },
+            badge: data.unreadCount,
+          },
+          d.push!.provider,
+        ),
+      );
     }
     if (messages.length === 0) return;
     const { invalidTokens } = await provider.send(messages);
@@ -266,7 +272,12 @@ export class NotificationsService {
         callerId: call.startedBy,
         expiresAt: expiresAt.toISOString(),
       };
-      messages.push({ token: d.push!.token, title: callerName, body, data: { ...data } });
+      messages.push(
+        forProvider(
+          { token: d.push!.token, title: callerName, body, data: { ...data } },
+          d.push!.provider,
+        ),
+      );
     }
     if (!messages.length) return;
     const { invalidTokens } = await provider.send(messages);
@@ -303,7 +314,7 @@ export class NotificationsService {
       if (!live.has(d.userId))
         live.set(d.userId, await this.realtime.liveSessions(tenantId, d.userId));
       if (live.get(d.userId)!.has(d._id)) continue;
-      messages.push({ token: d.push!.token, title, body, data });
+      messages.push(forProvider({ token: d.push!.token, title, body, data }, d.push!.provider));
     }
     if (!messages.length) return;
     const { invalidTokens } = await provider.send(messages);
@@ -312,6 +323,73 @@ export class NotificationsService {
         { 'push.token': { $in: invalidTokens } },
         { $set: { push: null } },
       );
+  }
+
+  /**
+   * Notifies chosen people about a server-posted card (module alerts, task assignments,
+   * approval requests): in-app notification, live event and push. Respects each person's
+   * notify level ('none' mutes, 'mentions' still gets these since they're addressed to them).
+   * Idempotent per user and message.
+   */
+  async notifyAbout(
+    tenantId: string,
+    message: Pick<MessageDoc, '_id' | 'conversationId' | 'senderId' | 'content' | 'attachments'>,
+    userIds: string[],
+    kind: 'alert' | 'task' | 'approval',
+    pushTitle: string,
+  ): Promise<void> {
+    const t = this.db.for(tenantId);
+    const members = await t.conversation_members
+      .find(
+        { conversationId: message.conversationId, userId: { $in: userIds } },
+        { projection: { userId: 1, notifyLevel: 1 } },
+      )
+      .toArray();
+    const targets = members
+      .filter((m) => m.userId !== message.senderId && (m.notifyLevel ?? 'all') !== 'none')
+      .map((m) => m.userId);
+    if (!targets.length) return;
+    const preview = previewOf(message);
+    const now = new Date();
+    const created: NotificationDoc[] = [];
+    for (const userId of targets) {
+      try {
+        created.push(
+          await t.notifications.insertOne({
+            userId,
+            kind,
+            conversationId: message.conversationId,
+            messageId: message._id,
+            actorId: message.senderId,
+            preview,
+            createdAt: now,
+            readAt: null,
+          }),
+        );
+      } catch (e) {
+        if (e instanceof MongoServerError && e.code === 11000) continue;
+        throw e;
+      }
+    }
+    for (const d of created)
+      this.realtime.toUser(tenantId, d.userId, 'notification:new', toNotification(d));
+    void (async () => {
+      for (const d of created) {
+        const unreadCount = await t.notifications.countDocuments({
+          userId: d.userId,
+          readAt: null,
+        });
+        const data: PushData = {
+          type: 'message',
+          conversationId: message.conversationId,
+          messageId: message._id,
+          kind,
+          notificationId: d._id,
+          unreadCount,
+        };
+        await this.pushToUsers(tenantId, [d.userId], pushTitle, preview, { ...data });
+      }
+    })().catch((e) => this.log.warn(`push failed for ${message._id}: ${String(e)}`));
   }
 
   /** A deleted message no longer notifies anyone. */

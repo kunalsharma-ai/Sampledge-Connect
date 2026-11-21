@@ -1,4 +1,5 @@
 import {
+  uuidv7,
   backoffDelay,
   type CreateConversationRequest,
   type CreateMeetingRequest,
@@ -16,6 +17,37 @@ import {
   type SendMessageRequest,
   type SetReactionRequest,
   type RecordingList,
+  type IntegrationTestResult,
+  type IntegrationValues,
+  type IntegrationView,
+  type Bookmark,
+  type CreatePollRequest,
+  type Poll,
+  type PostingPolicy,
+  type ScheduledMessage,
+  type Task,
+  type Approval,
+  type BrandingInput,
+  type BrandingView,
+  type AiAskRequest,
+  type AiAskResponse,
+  type AiDigest,
+  type AiDigestRequest,
+  type AiMeetingSummary,
+  type AiProposal,
+  type AiSearchRequest,
+  type AiSearchResponse,
+  type AiStatus,
+  type AiSuggestedReplies,
+  type AiSummary,
+  type AiTranscript,
+  type AiTranslation,
+  type ConfirmAiProposalRequest,
+  type SummaryRange,
+  type CreateTaskRequest,
+  type UpdateTaskRequest,
+  type CreateApprovalRequest,
+  type DecideApprovalRequest,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -30,7 +62,9 @@ import {
   TransportError,
   type ApiTransport,
   type DeviceSession,
+  type ApprovalQuery,
   type RecordingsQuery,
+  type TaskQuery,
 } from '../sync/transport';
 
 /** What the connectivity indicator shows. */
@@ -64,7 +98,18 @@ export class ConnectEngine {
     notification: LocalNotification;
     /** A meeting you attend starts soon (drives the reminder banner). */
     meetingReminder: MeetingReminderEvent;
+    /** The set of messages you saved for later changed. */
+    bookmarks: ReadonlySet<string>;
+    /** One of your scheduled messages changed here, on another device or by being sent. */
+    scheduled: ScheduledMessage | null;
+    /** A task or approval you are involved in was created or changed (here or live). */
+    work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
+    branding: BrandingView;
   }>();
+  /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
+  private myVotes = new Map<string, string[]>();
+  /** Message ids you saved, as of the last list or change on this device. */
+  private saved = new Set<string>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
   readonly calls: CallController;
@@ -150,6 +195,8 @@ export class ConnectEngine {
         this.realtime.events.on('needsSync', () => void this.resume()),
         this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
+        this.realtime.events.on('scheduledUpdated', (m) => this.events.emit('scheduled', m)),
+        this.realtime.events.on('work', (w) => this.events.emit('work', w)),
         this.realtime.events.on('meetingReminder', (e) => {
           const mine = e.meeting.attendees.find((a) => a.userId === this.store.selfUserId);
           if (e.meeting.status === 'scheduled' && mine?.response !== 'declined')
@@ -377,6 +424,300 @@ export class ConnectEngine {
       await this.api.resendGuestInvite(meetingId, guestId);
       await this.store.upsertMeetings([await this.api.getMeeting(meetingId)]);
     });
+  }
+
+  /** Pins or unpins for everyone; the change syncs to other devices like an edit. */
+  pinMessage(messageId: string, pinned: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.applyServerMessages([await this.api.pinMessage(messageId, pinned)]);
+    });
+  }
+
+  /** Saved messages, newest first (needs a connection; the list lives on the server). */
+  listBookmarks(): Promise<Bookmark[]> {
+    return this.serverAction(async () => {
+      const list = await this.api.listBookmarks();
+      this.saved = new Set(list.map((b) => b.messageId));
+      this.events.emit('bookmarks', this.saved);
+      return list;
+    });
+  }
+
+  /** Whether you saved this message, as far as this device knows. */
+  isSaved(messageId: string): boolean {
+    return this.saved.has(messageId);
+  }
+
+  setBookmark(messageId: string, saved: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.api.setBookmark(messageId, saved);
+      this.saved = new Set(this.saved);
+      if (saved) this.saved.add(messageId);
+      else this.saved.delete(messageId);
+      this.events.emit('bookmarks', this.saved);
+    });
+  }
+
+  /** Posts a poll (online; idempotent on its clientMessageId, so a retry never doubles it). */
+  createPoll(
+    conversationId: string,
+    poll: Omit<CreatePollRequest, 'clientMessageId'>,
+  ): Promise<void> {
+    const clientMessageId = uuidv7();
+    return this.serverAction(async () => {
+      const m = await this.api.createPoll(conversationId, { ...poll, clientMessageId });
+      this.myVotes.set(m.messageId, []);
+      await this.store.applyServerMessages([m]);
+    });
+  }
+
+  /** Your current choice in a poll; asks the server once when the poll hides voters. */
+  async myPollVote(messageId: string, poll: Poll): Promise<string[] | null> {
+    const known = this.myVotes.get(messageId);
+    if (known) return known;
+    if (!poll.anonymous) {
+      const self = this.session.current?.user.userId;
+      return poll.options.filter((o) => self && o.voterIds.includes(self)).map((o) => o.optionId);
+    }
+    if (this.serverActionBlocker()) return null;
+    try {
+      const v = await this.api.myPollVote(messageId);
+      this.myVotes.set(messageId, v.optionIds);
+      return v.optionIds;
+    } catch {
+      return null;
+    }
+  }
+
+  votePoll(messageId: string, optionIds: string[]): Promise<void> {
+    return this.serverAction(async () => {
+      const m = await this.api.votePoll(messageId, optionIds);
+      this.myVotes.set(messageId, optionIds);
+      await this.store.applyServerMessages([m]);
+    });
+  }
+
+  closePoll(messageId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.applyServerMessages([await this.api.closePoll(messageId)]);
+    });
+  }
+
+  /** Your scheduled messages (scheduled and failed), soonest first. Kept on the server. */
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]> {
+    return this.serverAction(async () =>
+      (await this.api.listScheduled(conversationId)).sort((a, b) => (a.sendAt < b.sendAt ? -1 : 1)),
+    );
+  }
+
+  /** The server holds it and sends it as you at `sendAt`, even with this phone off. */
+  scheduleMessage(
+    conversationId: string,
+    text: string,
+    sendAt: Date,
+    opts: { mentions?: string[]; replyTo?: string | null } = {},
+  ): Promise<ScheduledMessage> {
+    const clientMessageId = uuidv7();
+    return this.serverAction(async () => {
+      const m = await this.api.scheduleMessage(conversationId, {
+        clientMessageId,
+        content: { text, mentions: opts.mentions ?? [] },
+        replyToMessageId: opts.replyTo ?? null,
+        sendAt: sendAt.toISOString(),
+      });
+      this.events.emit('scheduled', m);
+      return m;
+    });
+  }
+
+  rescheduleMessage(id: string, sendAt: Date): Promise<ScheduledMessage> {
+    return this.serverAction(async () => {
+      const m = await this.api.updateScheduled(id, { sendAt: sendAt.toISOString() });
+      this.events.emit('scheduled', m);
+      return m;
+    });
+  }
+
+  cancelScheduled(id: string): Promise<void> {
+    return this.serverAction(async () => {
+      this.events.emit('scheduled', await this.api.cancelScheduled(id));
+    });
+  }
+
+  sendScheduledNow(id: string): Promise<void> {
+    return this.serverAction(async () => {
+      this.events.emit('scheduled', await this.api.sendScheduledNow(id));
+      void this.resume();
+    });
+  }
+
+  // ------------------------------------------------ tasks and approvals (online; kept on the server)
+
+  listTasks(q: TaskQuery): Promise<Task[]> {
+    return this.serverAction(() => this.api.listTasks(q));
+  }
+
+  getTask(taskId: string): Promise<Task> {
+    return this.serverAction(() => this.api.getTask(taskId));
+  }
+
+  /** Creates a task (its card is posted in the conversation). Retry-safe. */
+  createTask(req: Omit<CreateTaskRequest, 'clientRequestId'>): Promise<Task> {
+    const clientRequestId = uuidv7();
+    return this.serverAction(async () => {
+      const task = await this.api.createTask({ ...req, clientRequestId });
+      this.events.emit('work', { kind: 'task', task });
+      return task;
+    });
+  }
+
+  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task> {
+    return this.serverAction(async () => {
+      const task = await this.api.updateTask(taskId, req);
+      this.events.emit('work', { kind: 'task', task });
+      return task;
+    });
+  }
+
+  listApprovals(q: ApprovalQuery): Promise<Approval[]> {
+    return this.serverAction(() => this.api.listApprovals(q));
+  }
+
+  getApproval(approvalId: string): Promise<Approval> {
+    return this.serverAction(() => this.api.getApproval(approvalId));
+  }
+
+  createApproval(req: Omit<CreateApprovalRequest, 'clientRequestId'>): Promise<Approval> {
+    const clientRequestId = uuidv7();
+    return this.serverAction(async () => {
+      const approval = await this.api.createApproval({ ...req, clientRequestId });
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
+    });
+  }
+
+  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval> {
+    return this.serverAction(async () => {
+      const approval = await this.api.decideApproval(approvalId, req);
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
+    });
+  }
+
+  cancelApproval(approvalId: string): Promise<Approval> {
+    return this.serverAction(async () => {
+      const approval = await this.api.cancelApproval(approvalId);
+      this.events.emit('work', { kind: 'approval', approval });
+      return approval;
+    });
+  }
+
+  // ------------------------------------------------------------ white-label branding
+
+  getBranding(): Promise<BrandingView> {
+    return this.serverAction(() => this.api.getBranding());
+  }
+
+  /** Owners only; the server checks. Emits `branding` so the theme updates at once. */
+  saveBranding(input: BrandingInput): Promise<BrandingView> {
+    return this.serverAction(async () => {
+      const v = await this.api.saveBranding(input);
+      this.events.emit('branding', v);
+      return v;
+    });
+  }
+
+  // ------------------------------------------------------------ private AI assistant
+  // Kept on the server and optional: failures stay in the screen that asked (docs/ai.md).
+
+  aiStatus(): Promise<AiStatus> {
+    return this.serverAction(() => this.api.aiStatus());
+  }
+
+  setAiEnabled(enabled: boolean): Promise<AiStatus> {
+    return this.serverAction(() => this.api.setAiEnabled(enabled));
+  }
+
+  aiSummarize(conversationId: string, range: SummaryRange): Promise<AiSummary> {
+    return this.serverAction(() => this.api.aiSummarize(conversationId, range));
+  }
+
+  aiSummarizeMeeting(meetingId: string): Promise<AiMeetingSummary> {
+    return this.serverAction(() => this.api.aiSummarizeMeeting(meetingId));
+  }
+
+  aiReplies(conversationId: string): Promise<AiSuggestedReplies> {
+    return this.serverAction(() => this.api.aiReplies(conversationId));
+  }
+
+  aiSearch(req: AiSearchRequest): Promise<AiSearchResponse> {
+    return this.serverAction(() => this.api.aiSearch(req));
+  }
+
+  aiAsk(req: AiAskRequest): Promise<AiAskResponse> {
+    return this.serverAction(() => this.api.aiAsk(req));
+  }
+
+  aiTranslate(messageId: string, targetLanguage: string): Promise<AiTranslation> {
+    return this.serverAction(() => this.api.aiTranslate(messageId, targetLanguage));
+  }
+
+  aiDigest(req: AiDigestRequest): Promise<AiDigest> {
+    return this.serverAction(() => this.api.aiDigest(req));
+  }
+
+  /**
+   * Share AI text in a conversation: the server drafts it, and it is sent only when the person
+   * confirms (sensitive drafts need `acknowledgeRisk`). The message arrives through sync.
+   */
+  aiPropose(conversationId: string, text: string): Promise<AiProposal> {
+    return this.serverAction(() => this.api.aiPropose(conversationId, text));
+  }
+
+  aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal> {
+    return this.serverAction(async () => {
+      const p = await this.api.aiConfirm(proposalId, req);
+      void this.runSync();
+      return p;
+    });
+  }
+
+  aiDismiss(proposalId: string): Promise<AiProposal> {
+    return this.serverAction(() => this.api.aiDismiss(proposalId));
+  }
+
+  aiTranscript(attachmentId: string, queue = false): Promise<AiTranscript> {
+    return this.serverAction(() => this.api.aiTranscript(attachmentId, queue));
+  }
+
+  /** Announcement channel on or off (channel owners and moderators). */
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([
+        await this.api.setPostingPolicy(conversationId, policy),
+      ]);
+    });
+  }
+
+  /** Administration, Integrations. All need a connection; secrets never come back. */
+  listIntegrations(): Promise<IntegrationView[]> {
+    return this.serverAction(() => this.api.listIntegrations());
+  }
+
+  saveIntegration(
+    id: string,
+    enabled: boolean,
+    values: IntegrationValues,
+  ): Promise<IntegrationView> {
+    return this.serverAction(() => this.api.saveIntegration(id, enabled, values));
+  }
+
+  testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult> {
+    return this.serverAction(() => this.api.testIntegration(id, values));
+  }
+
+  resetIntegration(id: string): Promise<IntegrationView> {
+    return this.serverAction(() => this.api.resetIntegration(id));
   }
 
   private async serverAction<T>(run: () => Promise<T>): Promise<T> {

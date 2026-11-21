@@ -23,12 +23,8 @@ export interface TenantDoc {
   name: string;
   status: 'active' | 'suspended';
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
-  branding: {
-    primary?: string;
-    secondary?: string;
-    logoUrl?: string;
-    mode?: 'dark' | 'light';
-  } | null;
+  /** White-label settings (see BrandingInputSchema); older tenants may have none. */
+  branding: Record<string, unknown> | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
@@ -41,6 +37,20 @@ export interface UserDoc extends TenantOwned {
   title: string | null;
   status: 'active' | 'deactivated';
   createdAt: Date;
+  /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
+  mfa?: UserMfaDoc | null;
+}
+
+export interface UserMfaDoc {
+  /** Sealed base32 TOTP secret; set once confirmed. */
+  totpSecret: string | null;
+  /** Sealed secret awaiting a first code. */
+  pendingSecret: string | null;
+  enabledAt: Date | null;
+  /** sha256 of unused recovery codes. */
+  recoveryCodeHashes: string[];
+  /** Last accepted TOTP step: a code is never accepted twice. */
+  lastStep: number;
 }
 
 export interface MembershipDoc extends TenantOwned {
@@ -69,6 +79,8 @@ export interface ConversationDoc extends TenantOwned {
   archivedAt: Date | null;
   lastChangeSequence: number;
   lastMessageAt: Date | null;
+  /** Channels only; absent = everyone may post. */
+  postingPolicy?: 'everyone' | 'moderators';
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -112,6 +124,21 @@ export interface MessageDoc extends TenantOwned {
   attachments?: AttachmentSnapshot[];
   /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
   reactions?: { emoji: string; userIds: string[] }[];
+  pinned?: { pinnedBy: string; pinnedAt: Date } | null;
+  /** Poll messages only. Votes live inline so tallies change atomically under the conversation lock. */
+  poll?: PollDoc;
+}
+
+export interface PollDoc {
+  question: string;
+  options: { optionId: string; text: string }[];
+  multiple: boolean;
+  anonymous: boolean;
+  closesAt: Date | null;
+  closedAt: Date | null;
+  closedBy: string | null;
+  /** One row per voter, in first-vote order. */
+  votes: { userId: string; optionIds: string[]; at: Date }[];
 }
 
 export interface ReceiptDoc extends TenantOwned {
@@ -137,7 +164,7 @@ export interface DeviceDoc extends TenantOwned {
   revokedReason: string | null;
   /** Push token for this device session; cleared on revoke and sign-out. */
   push?: {
-    provider: 'expo' | 'fcm' | 'apns';
+    provider: 'expo' | 'fcm' | 'apns' | 'webpush';
     token: string;
     platform: string;
     updatedAt: Date;
@@ -186,11 +213,17 @@ export interface AttachmentDoc extends TenantOwned {
   /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  /** Where the bytes live. Absent on older rows (GridFS). */
+  storage?: {
+    backend: 'gridfs' | 'nextcloud';
+    /** Nextcloud test-mode copy, or a live-mode upload that fell back to Connect storage. */
+    mirror?: { status: 'copying' | 'copied' | 'failed'; at: Date; error: string | null } | null;
+  };
 }
 
 export interface NotificationDoc extends TenantOwned {
   userId: string;
-  kind: 'mention' | 'reply';
+  kind: 'mention' | 'reply' | 'alert' | 'task' | 'approval';
   conversationId: string;
   messageId: string;
   actorId: string;
@@ -264,6 +297,8 @@ export interface CallRecordingDoc {
 export interface TenantSettingsDoc extends TenantOwned {
   recordingRetentionDays: number | null;
   callRecordingEnabled: boolean;
+  /** Private AI assistant on/off for the organization. Absent means on. */
+  aiEnabled?: boolean;
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -362,6 +397,92 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+export interface BookmarkDoc extends TenantOwned {
+  userId: string;
+  messageId: string;
+  conversationId: string;
+  createdAt: Date;
+}
+
+export interface ScheduledMessageDoc extends TenantOwned {
+  conversationId: string;
+  userId: string;
+  clientMessageId: string;
+  content: { text: string; mentions: string[] };
+  replyToMessageId: string | null;
+  sendAt: Date;
+  /** 'sending' is a short-lived claim held by the sweeper. */
+  status: 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled';
+  messageId: string | null;
+  error: string | null;
+  attempts: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** One embedding per message per embedding model (the vector index for semantic search). */
+export interface AiEmbeddingDoc extends TenantOwned {
+  conversationId: string;
+  messageId: string;
+  senderId: string;
+  /** Embedding model id, e.g. "basic-hash-512" or "model:nomic-embed-text". */
+  model: string;
+  vector: number[];
+  changeSequence: number;
+  createdAt: Date;
+}
+
+/** How far each conversation is indexed, per embedding model. */
+export interface AiIndexStateDoc extends TenantOwned {
+  conversationId: string;
+  model: string;
+  indexedUpTo: number;
+  updatedAt: Date;
+}
+
+/** Cached summaries, keyed by conversation, message range and engine. Expire after a week. */
+export interface AiSummaryCacheDoc extends TenantOwned {
+  conversationId: string;
+  key: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+}
+
+/** A drafted action waiting for the person to confirm. Nothing happens until they do. */
+export interface AiProposalDoc extends TenantOwned {
+  userId: string;
+  kind: 'send_message';
+  conversationId: string;
+  text: string;
+  risk: { level: 'normal' | 'sensitive'; categories: string[] };
+  status: 'pending' | 'confirmed' | 'dismissed';
+  /** Idempotency key for the message sent on confirm. */
+  clientMessageId: string;
+  messageId: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  confirmedAt: Date | null;
+}
+
+/** One transcript per recording or voice message, from the tenant's own speech-to-text server. */
+export interface AiTranscriptDoc extends TenantOwned {
+  attachmentId: string;
+  conversationId: string;
+  messageId: string | null;
+  kind: string | null;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  text: string | null;
+  segments: { startMs: number; endMs: number; text: string }[];
+  language: string | null;
+  model: string | null;
+  error: string | null;
+  attempts: number;
+  /** null when queued automatically (call recordings). */
+  requestedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -380,4 +501,63 @@ export interface TenantCollections {
   meeting_series: MeetingSeriesDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
+  bookmarks: BookmarkDoc;
+  scheduled_messages: ScheduledMessageDoc;
+  ai_embeddings: AiEmbeddingDoc;
+  ai_index_state: AiIndexStateDoc;
+  ai_summaries: AiSummaryCacheDoc;
+  ai_proposals: AiProposalDoc;
+  ai_transcripts: AiTranscriptDoc;
+  billing_subscriptions: BillingSubscriptionDoc;
+  billing_invoices: BillingInvoiceDoc;
+}
+
+/** One per tenant. Prices are never stored here: they come from the plan catalog. */
+export interface BillingSubscriptionDoc extends TenantOwned {
+  planId: string | null;
+  status: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled';
+  interval: 'month' | 'year';
+  seats: number;
+  trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  provider: 'manual' | 'stripe' | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeItemId: string | null;
+  /** A free trial is offered once per organization. */
+  trialUsed: boolean;
+  updatedAt: Date;
+}
+
+export interface BillingInvoiceDoc extends TenantOwned {
+  provider: 'stripe' | 'manual';
+  providerInvoiceId: string;
+  number: string | null;
+  status: 'draft' | 'open' | 'paid' | 'void' | 'uncollectible';
+  currency: string;
+  total: number;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  createdAt: Date;
+  url: string | null;
+  pdfUrl: string | null;
+}
+
+/** Global plan catalog (no tenantId): edited by platform operators. */
+export interface BillingPlanDoc {
+  _id: string;
+  name: string;
+  description: string;
+  currency: string;
+  monthlyPerSeat: number;
+  yearlyPerSeat: number | null;
+  limits: { seats: number | null; storageGb: number | null; recordingHours: number | null };
+  features: string[];
+  trialDays: number;
+  public: boolean;
+  active: boolean;
+  sortOrder: number;
+  updatedAt: Date;
+  updatedBy: string | null;
 }

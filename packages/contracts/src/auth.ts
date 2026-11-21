@@ -79,3 +79,65 @@ export interface AccessTokenClaims {
   sid: string; // device session id
   role: z.infer<typeof TenantRoleSchema>;
 }
+
+// ---------- Two-step verification (TOTP) ----------
+
+/**
+ * POST /v1/auth/login answers with this instead of a Session when the account has
+ * two-step verification on. Finish with POST /v1/auth/mfa/verify within 5 minutes.
+ */
+export const MfaChallengeSchema = z.object({
+  mfaRequired: z.literal(true),
+  challengeId: z.string(),
+  methods: z.array(z.enum(['totp', 'recovery'])),
+  expiresAt: z.string(),
+});
+export type MfaChallenge = z.infer<typeof MfaChallengeSchema>;
+export type LoginResponse = Session | MfaChallenge;
+export const isMfaChallenge = (r: LoginResponse): r is MfaChallenge =>
+  (r as MfaChallenge).mfaRequired === true;
+
+export const MfaVerifyRequestSchema = z.object({
+  challengeId: z.string().min(10).max(200),
+  /** A 6-digit authenticator code, or a recovery code like `7f3k-9q2m`. */
+  code: z.string().trim().min(6).max(20),
+});
+
+export const MfaStatusSchema = z.object({
+  enabled: z.boolean(),
+  enabledAt: z.string().nullable(),
+  recoveryCodesLeft: z.number().int(),
+  /** Setup started but not confirmed with a code yet. */
+  pending: z.boolean(),
+});
+export type MfaStatus = z.infer<typeof MfaStatusSchema>;
+
+export interface TotpSetup {
+  /** Base32 secret for manual entry. */
+  secret: string;
+  /** `otpauth://` URL (what the QR code encodes). */
+  otpauthUrl: string;
+  /** The QR code as an SVG document, ready to show. */
+  qrSvg: string;
+}
+
+export const MfaCodeRequestSchema = z.object({ code: z.string().trim().min(6).max(20) });
+export const MfaDisableRequestSchema = z.object({
+  password: z.string().min(1).max(256),
+  code: z.string().trim().min(6).max(20),
+});
+export interface RecoveryCodes {
+  recoveryCodes: string[];
+}
+
+/** GET /v1/auth/sso/:slug — what the login page offers for a workspace. */
+export interface SsoInfo {
+  enabled: boolean;
+  /** Button text the admin chose. */
+  label: string | null;
+  /** False when the workspace is SSO-only (the owner can still use a password). */
+  passwordLogin: boolean;
+}
+
+/** POST /v1/auth/sso/exchange — swaps the one-time code from `#sso=` for the session. */
+export const SsoExchangeRequestSchema = z.object({ code: z.string().min(10).max(200) });

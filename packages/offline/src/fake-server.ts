@@ -77,6 +77,7 @@ export class FakeServer {
       deletedAt: null,
       metadata: {},
       reactions: [],
+      pinned: null,
     };
     this.messages.push(m);
     const c = this.conversations.get(req.conversationId);

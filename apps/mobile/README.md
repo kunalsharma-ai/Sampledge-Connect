@@ -68,7 +68,24 @@ message deleted" in the chat), and, when the API can record calls, Record and St
 the red indicator, the finished recording arriving in the chat and playing in the player. Last, external guests:
 a guest added by email on the scheduling form (members are refused), the guest list with its
 invite status and a copied join link, and two guests waiting in a live meeting call's lobby, one
-admitted (gets a call token) and one denied.
+admitted (gets a call token) and one denied. Then chat during a call (opening the call's
+conversation, returning to the same call, and the unread count on Chat), and Integrations: a
+member is told only admins can change them, and the owner saves SMTP settings with a password
+that the server keeps encrypted and never returns, then runs Test connection. Then two-step
+sign-in (code step, wrong code, recovery-code option, a real authenticator code), and pins and
+saved messages (pin from the message sheet, another member's pin arriving live, the pinned
+list with Unpin, Save for later and the Saved messages screen), polls (post, vote, a vote
+arriving live, change a vote, close), and scheduled messages and announcement channels (Send
+later, the scheduled list with Change time, Delete and Send now, the read-only composer for
+members, and the owner's switch in details), and tasks and approvals (Create task from a
+message with an assignee, due date and priority; Request approval with an amount and an
+approver; both cards in the conversation; the approver deciding from To decide; ticking a task
+done from the list), and the AI assistant (Ask with numbered sources, the status digest, search
+by meaning opening the message, suggested replies filling the composer, Translate, a channel
+summary shared only after Send, and the owner's on/off switch), and white-label branding (the
+owner sets the name, logo, colors and sign-in message on the phone; the sign-in screen shows them
+once the workspace is typed; members start on the organization theme; an enforced theme locks
+Appearance).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -155,16 +172,40 @@ guests (added by email when scheduling or editing, refused if they are in your o
 the meeting shows each guest's answer and invite email status, and the organizer can share a
 guest's personal join link or resend the invitation), the call lobby (everyone in the call sees
 guests waiting with Admit and Deny, gets a nudge when one arrives, and sees admitted guests as
-"Name (guest)"; guest messages in a meeting chat are named the same way), on-device search, themes, offline and storage settings, sign-out with a warning
+"Name (guest)"; guest messages in a meeting chat are named the same way), chat during a call
+(Chat on the call screen with an unread count), Integrations for owners and admins (More,
+Integrations: email, calls, push and AI connections stored encrypted in the server database
+and applied at once, with Test connection; secrets can be replaced or removed but are never
+shown), two-step sign-in (authenticator or recovery code), pins (a bar under the conversation
+header with the newest pin, a pinned list, pin and unpin from the message sheet, kept on the
+device so they show offline) and saved messages (Save for later, More, Saved messages), polls
+(+ menu, Poll: multiple choice, anonymous, closing time; vote on the card with live results;
+Close poll for the author and moderators), scheduled messages (+ menu, Send later, or hold the
+send button; quick times or a day and time; the server sends them as you; a banner in the
+conversation and More, Scheduled messages to send now, change the time or delete), announcement
+channels (members get a read-only bar; owners and moderators switch it in details), tasks and
+approvals (hold a message and choose Create task or Request approval; assignees or approvers,
+due date, priority, category and amount; task and approval cards in the conversation open the
+details; More, Tasks & Approvals lists My tasks, To decide, Created by me and Requested, with a
+tick to finish a task, status changes, and Approve or Reject with a comment), the private AI
+assistant (More, AI Assistant: Ask about your conversations with sources, search by meaning and
+a status digest with suggested tasks; Summarize conversation in the + menu and conversation
+details, Summarize meeting on a meeting; Suggest replies in the + menu; Translate on a message;
+a summary is shared only after you press Send, with an extra tick for sensitive drafts; owners
+and admins turn it on or off), white-label branding (the organization's logo and name on Home
+and the sign-in screen, its sign-in message, and its theme: members start on it or always see it
+when the owner says so; owners edit name, logo, colors, mode, sign-in message and support links in
+More, Branding; the last copy is kept on the device), on-device
+search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
+Inbox, recurring meetings, a Files library, resumable uploads, offline image caching,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
-PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
+Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), Analytics, the Sampledge module integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, screen recording from the phone, recording retention and export
-settings (admin, on the web), polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
+settings (admin, on the web), and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
 Not yet verified on a device or simulator. This cloud environment has no KVM (so no Android
 emulator) and no macOS (so no iOS simulator). A device build needs either a local machine with

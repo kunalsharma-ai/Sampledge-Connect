@@ -6,7 +6,7 @@ import { date, ensureCollection, nullable, str, tenantScoped } from './001-initi
  * series' occurrences. Occurrences are ordinary `meetings` documents with `series.seriesId`.
  */
 export const meetingSeriesMigration: Migration = {
-  id: '011-meeting-series',
+  id: '030-meeting-series',
   async up(db) {
     await ensureCollection(
       db,

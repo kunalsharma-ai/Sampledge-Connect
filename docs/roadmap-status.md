@@ -4,32 +4,62 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 
 ## Phase 1: product foundation
 
-| Area   | Item                                                                                                                              | Status                           |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol                                                 | Built (docs)                     |
-| Step 2 | Design tokens, five themes, typography, motion tokens, component library                                                          | Built                            |
-| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation                                                  | Built                            |
-| Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                                                                     | Planned                          |
-| Step 4 | MongoDB collections, validators, indexes, migrations                                                                              | Built                            |
-| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO                                                  | Built                            |
-| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry                                                           | Built                            |
-| Step 7 | Web workspace: nav rail, conversation list, timeline, composer, context panel, Sync Center, ⌘K, admin, themes                     | Built (web)                      |
-| 1b     | Reactions (offline queue), replies, @mentions                                                                                     | Built                            |
-| 1b     | File attachments: upload tickets, GridFS storage, signed downloads, composer and timeline (web, mobile)                           | Built                            |
-| 1b     | In-app notifications for mentions and replies (feed, read state, live events, offline cache on web)                               | Built                            |
-| 1b     | Per-conversation notify level (all / mentions / none), synced to every device                                                     | Built                            |
-| 1b     | Push via Expo Push (token per device session, skipped while the app is open, badge counts)                                        | Built (server; mobile registers) |
-| 1b     | Direct FCM/APNs sending, browser Web Push, tenant-level preview privacy                                                           | Planned                          |
-| 1b     | Integration settings in MongoDB: per-tenant and platform defaults, AES-256-GCM secrets, admin screen, test connection, hot reload | Built                            |
-| 1c     | Self-hosted voice/video calls (LiveKit SFU + TURN in Docker): 1:1 and group, ringing, screen share, raise hand, call cards (web)  | Built (see docs/calls.md)        |
-| 1c     | Recordings: voice/video/screen clips in chat, call and meeting recording (LiveKit Egress), library, auto-delete, ZIP backup (web) | Built (see docs/recordings.md)   |
-| 1c     | External guests: email invites with .ics via your SMTP, updates/cancellations, join links, RSVP, lobby with admit/deny (web)      | Built (see docs/guests.md)       |
-| 1c     | Meeting chat inside calls, for members and admitted guests (web)                                                                  | Built (see docs/guests.md)       |
-| 1c     | Recurring meetings: daily/weekly/monthly, edit or cancel one or the series, recurring guest invites (web)                         | Built (see docs/meetings.md)     |
-| 1c     | Booking pages, lobby and recording on mobile                                                                                      | Planned                          |
-|        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                                       | Planned                          |
-| Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                    | Planned (Phase 1b)               |
+| Area   | Item                                                                                                                                                                                                                                           | Status                           |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol                                                                                                                                                              | Built (docs)                     |
+| Step 2 | Design tokens, five themes, typography, motion tokens, component library                                                                                                                                                                       | Built                            |
+| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation                                                                                                                                                               | Built                            |
+| Step 3 | Two-step verification with authenticator apps (TOTP), recovery codes, admin reset (web; mobile sign-in pending)                                                                                                                                | Built (see docs/sign-in.md)      |
+| Step 3 | OIDC single sign-on (any provider, PKCE, domain allowlist, optional SSO-only, set up in Integrations; web)                                                                                                                                     | Built (see docs/sign-in.md)      |
+| Step 3 | Passkeys (WebAuthn), required-MFA policy, SSO on mobile, SAML/SCIM                                                                                                                                                                             | Planned                          |
+| Step 4 | MongoDB collections, validators, indexes, migrations                                                                                                                                                                                           | Built                            |
+| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO                                                                                                                                                               | Built                            |
+| Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry                                                                                                                                                                        | Built                            |
+| Step 7 | Web workspace: nav rail, conversation list, timeline, composer, context panel, Sync Center, ⌘K, admin, themes                                                                                                                                  | Built (web)                      |
+| 1b     | Reactions (offline queue), replies, @mentions                                                                                                                                                                                                  | Built                            |
+| 1b     | File attachments: upload tickets, GridFS storage, signed downloads, composer and timeline (web, mobile)                                                                                                                                        | Built                            |
+| 1b     | In-app notifications for mentions and replies (feed, read state, live events, offline cache on web)                                                                                                                                            | Built                            |
+| 1b     | Per-conversation notify level (all / mentions / none), synced to every device                                                                                                                                                                  | Built                            |
+| 1b     | Push via Expo Push (token per device session, skipped while the app is open, badge counts)                                                                                                                                                     | Built (server; mobile registers) |
+| 1b     | Browser notifications (Web Push with VAPID keys generated and stored in the database, opt-in per browser, click opens the message, preview privacy per provider)                                                                               | Built (web)                      |
+| 1b     | Direct FCM/APNs sending                                                                                                                                                                                                                        | Planned                          |
+| 1b     | Integration settings in MongoDB: per-tenant and platform defaults, AES-256-GCM secrets, admin screen, test connection, hot reload                                                                                                              | Built                            |
+| 1c     | Self-hosted voice/video calls (LiveKit SFU + TURN in Docker): 1:1 and group, ringing, screen share, raise hand, call cards (web)                                                                                                               | Built (see docs/calls.md)        |
+| 1c     | Recordings: voice/video/screen clips in chat, call and meeting recording (LiveKit Egress), library, auto-delete, ZIP backup (web)                                                                                                              | Built (see docs/recordings.md)   |
+| 1c     | External guests: email invites with .ics via your SMTP, updates/cancellations, join links, RSVP, lobby with admit/deny (web)                                                                                                                   | Built (see docs/guests.md)       |
+| 1c     | Meeting chat inside calls, for members and admitted guests (web)                                                                                                                                                                               | Built (see docs/guests.md)       |
+| 1c     | Recurring meetings: daily/weekly/monthly, edit or cancel one or the series, recurring guest invites (web)                                                                                                                                      | Built (see docs/meetings.md)     |
+| 1c     | Booking pages, lobby and recording on mobile                                                                                                                                                                                                   | Planned                          |
+| 4      | Private AI assistant: summaries, meeting summaries, action items, semantic search, ask with sources, translation, suggested replies, status digest, task suggestions, duplicate check, notification priority, confirm-before-send drafts (web) | Built (see docs/ai.md)           |
+| 4      | Call recording and voice message transcripts from your own speech-to-text server (Integrations); used in meeting and chat summaries, search and ask                                                                                            | Built (see docs/ai.md)           |
+| 4      | AI on mobile, create-task from suggestions, Samptrek project status (tasks and projects APIs now exist), speaker labels in transcripts                                                                                                         | Planned                          |
+| 1b     | Thread panel (nested replies), pins for everyone (max 50 per conversation), private saved messages with a Saved view                                                                                                                           | Built                            |
+| 1b     | Polls (single/multiple choice, anonymous, close time), scheduled messages (send later, reschedule, send now), announcement channels                                                                                                            | Built                            |
+|        | Message forwarding                                                                                                                                                                                                                             | Planned                          |
+| Step 8 | Nextcloud storage for chat files and recordings (WebDAV), with a safe test mode, live mode with fallback, set up from Integrations                                                                                                             | Built (see docs/storage.md)      |
 
-## Phase 2 to 4
+## Phase 2: Sampledge modules, tasks and approvals
 
-Sampledge SDK and the seven module adapters (Samptrek, SampleAudience, Sampcode, SampBidX, SampForce, SampCrew, Talk2Tax); connector gateway and unified client inbox; private AI; billing and white-label: all Planned.
+| Item                                                                                                                                                              | Status                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| API gateway for modules: per-module Connect keys (hashed), HMAC-signed idempotent events, rate limits, audit                                                      | Built (see docs/sampledge-modules.md)                 |
+| Adapters for Samptrek, SampleAudience, Sampcode, SampBidX, SampForce, SampCrew, Talk2Tax: record channels, cards, notifications, tasks, approvals, identity sync  | Built, test mode (real module APIs not yet available) |
+| Module settings in the database (mode, base URL, API key, signing secret, channel visibility, widget origins); admin panel with test events, logs, identity links | Built                                                 |
+| Outbound module actions (task created, approval decided, Log to SampForce, …): live mode calls `{base}/connect/actions`, test mode records only                   | Built                                                 |
+| Signed outbound webhooks with a durable retry queue and delivery log                                                                                              | Built                                                 |
+| Server SDK `@sampledge/connect-sdk` and React chat widget `@sampledge/chat-widget`                                                                                | Built (see docs/sdk.md)                               |
+| Tasks & Approvals screen, Projects screen, chat-to-task and request approval from any message, linked records in Details (web)                                    | Built (see docs/work.md)                              |
+| Automatic retries for failed module actions, conversation-scoped widget tokens, tasks/projects screens on mobile, publishing the SDK packages                     | Planned                                               |
+
+## Phase 3 and later
+
+Connector gateway and unified client inbox (in progress in its own thread).
+
+## Phase 4: enterprise
+
+| Item                                                                                                                                                     | Status                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Billing: plan catalog in the database (no hardcoded prices), Stripe checkout, portal and signed webhooks, invoices, member limits, invoice billing (web) | Built (see docs/billing.md)     |
+| White-label: app name, logo, colors, enforced theme, branded sign-in page and guest emails, support contacts (web)                                       | Built (see docs/white-label.md) |
+| Administration screen: overview, members, devices, audit log with filters and CSV export; marketing page with live pricing (web)                         | Built (see docs/admin.md)       |
+| Enforcing storage and recording limits, other payment providers, billing and branding on mobile, custom domains                                          | Planned                         |

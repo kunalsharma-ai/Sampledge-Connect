@@ -26,6 +26,7 @@ export const TENANT_PERMISSIONS = [
   'audit.read',
   'integrations.manage',
   'recordings.manage', // retention settings, delete any recording, bulk export
+  'ai.manage', // turn the private AI assistant on or off for the organization
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',
@@ -39,6 +40,7 @@ export const CONVERSATION_PERMISSIONS = [
   'conversation.read',
   'message.send',
   'message.react',
+  'message.pin',
   'message.edit.own',
   'message.delete.own',
   'message.delete.any', // moderation
@@ -74,6 +76,7 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
       'conversation.read',
       'message.send',
       'message.react',
+      'message.pin',
       'message.edit.own',
       'message.delete.own',
       'message.delete.any',
@@ -85,6 +88,7 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
       'conversation.read',
       'message.send',
       'message.react',
+      'message.pin',
       'message.edit.own',
       'message.delete.own',
     ],
@@ -106,6 +110,7 @@ export interface ConversationAccess {
 const WRITE_PERMISSIONS: ReadonlySet<ConversationPermission> = new Set([
   'message.send',
   'message.react',
+  'message.pin',
   'message.edit.own',
   'members.add',
   'conversation.rename',

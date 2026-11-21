@@ -1,3 +1,4 @@
+import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
 import type { Meeting, MeetingReminderEvent } from './meetings.js';
@@ -10,6 +11,7 @@ import type {
 } from './messages.js';
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
+import type { Approval, Task } from './work.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -48,6 +50,8 @@ export interface ServerToClientEvents {
   'conversation:revoked': (e: { conversationId: string }) => void;
   /** A new in-app notification for the caller (all of their devices). */
   'notification:new': (notification: Notification) => void;
+  /** One of the caller's scheduled messages changed (sent, failed, edited, cancelled). */
+  'scheduled:updated': (scheduled: ScheduledMessage) => void;
   /** Notifications were marked read on another device; refetch the unread count. */
   'notification:read': (e: { unreadCount: number }) => void;
   /** You are invited to a call (sent to each invitee's devices). Stop ringing at expiresAt. */
@@ -60,6 +64,10 @@ export interface ServerToClientEvents {
   'meeting:upsert': (meeting: Meeting) => void;
   /** A meeting you're attending starts soon. */
   'meeting:reminder': (e: MeetingReminderEvent) => void;
+  /** A task you're assigned to or created was created or changed. */
+  'task:upsert': (task: Task) => void;
+  /** An approval you requested or must decide was created or decided. */
+  'approval:upsert': (approval: Approval) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

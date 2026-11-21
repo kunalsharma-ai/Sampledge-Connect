@@ -12,6 +12,8 @@ export interface GuestEmailInput {
   timeZone: string;
   organizerName: string;
   organizationName: string;
+  /** The organization's app name; null hides the product credit (white-label). */
+  poweredBy: string | null;
   guestName: string;
   url: string;
   /** Recurring meetings: "Weekly on Tuesday" (the times are the next meeting's). */
@@ -80,7 +82,9 @@ export function guestEmail(kind: GuestEmailKind, i: GuestEmailInput) {
     ...(i.agenda && !cancelled ? ['', i.agenda] : []),
     ...(cancelled ? [] : ['', `Join the meeting: ${i.url}`, '', how]),
     '',
-    `Sent by ${i.organizationName} with Sampledge Connect.`,
+    i.poweredBy
+      ? `Sent by ${i.organizationName} with ${i.poweredBy}.`
+      : `Sent by ${i.organizationName}.`,
   ].join('\n');
 
   const button = cancelled
@@ -102,7 +106,7 @@ export function guestEmail(kind: GuestEmailKind, i: GuestEmailInput) {
 ${repeats ? `<tr><td style="padding:2px 0 0;color:#374151;font-size:14px;line-height:21px">${esc(repeats)}</td></tr>` : ''}
 ${agenda}
 ${button}
-<tr><td style="padding:24px 0 0;color:#9ca3af;font-size:12px">Sent by ${esc(i.organizationName)} with Sampledge Connect.</td></tr>
+<tr><td style="padding:24px 0 0;color:#9ca3af;font-size:12px">Sent by ${esc(i.organizationName)}${i.poweredBy ? ` with ${esc(i.poweredBy)}` : ''}.</td></tr>
 </table></td></tr></table></body></html>`;
   return { subject, text, html };
 }

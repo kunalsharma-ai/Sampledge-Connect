@@ -40,8 +40,20 @@ export const ConversationSchema = z.object({
   myRole: ConversationRoleSchema.nullable(),
   /** The caller's notification level for this conversation (default 'all'). */
   myNotifyLevel: NotifyLevelSchema.default('all'),
+  /**
+   * Channels only. 'moderators' makes it an announcement channel: only conversation owners
+   * and moderators (and tenant admins) can post; everyone can read and react.
+   * Absent means 'everyone'.
+   */
+  postingPolicy: z.enum(['everyone', 'moderators']).optional(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
+
+/** PUT /v1/conversations/:id/posting-policy — channel owners and moderators. */
+export const SetPostingPolicyRequestSchema = z.object({
+  policy: z.enum(['everyone', 'moderators']),
+});
+export type PostingPolicy = z.infer<typeof SetPostingPolicyRequestSchema>['policy'];
 
 export const GROUP_MAX_MEMBERS = 256;
 

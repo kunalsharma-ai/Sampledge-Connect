@@ -6,8 +6,14 @@ import { callsMigration } from './004-calls.js';
 import { meetingsMigration } from './005-meetings.js';
 import { recordingsMigration } from './006-recordings.js';
 import { guestsMigration } from './007-guests.js';
+import { sampledgeModulesMigration } from './012-sampledge-modules.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
-import { meetingSeriesMigration } from './011-meeting-series.js';
+import { bookmarksMigration } from './008-bookmarks.js';
+import { scheduledMessagesMigration } from './020-scheduled-messages.js';
+import { aiMigration } from './011-ai.js';
+import { aiTranscriptsMigration } from './013-ai-transcripts.js';
+import { billingMigration } from './021-billing.js';
+import { meetingSeriesMigration } from './030-meeting-series.js';
 
 export interface Migration {
   id: string;
@@ -24,6 +30,12 @@ export const MIGRATIONS: Migration[] = [
   recordingsMigration,
   guestsMigration,
   integrationSettingsMigration,
+  aiMigration,
+  sampledgeModulesMigration,
+  aiTranscriptsMigration,
+  bookmarksMigration,
+  scheduledMessagesMigration,
+  billingMigration,
   meetingSeriesMigration,
 ];
 

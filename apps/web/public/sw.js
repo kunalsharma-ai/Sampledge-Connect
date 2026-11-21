@@ -62,3 +62,60 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+/*
+ * Browser notifications (Web Push). The payload is encrypted end to end and decrypted by the
+ * browser; it is shown only while no Connect tab is focused (an open tab shows messages live).
+ */
+self.addEventListener('push', (event) => {
+  let p = {};
+  try {
+    p = event.data ? event.data.json() : {};
+  } catch {
+    p = { title: 'Sampledge Connect', body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((tabs) => {
+      if (tabs.some((t) => t.focused)) return undefined;
+      if (typeof p.badge === 'number' && self.navigator.setAppBadge)
+        self.navigator.setAppBadge(p.badge).catch(() => undefined);
+      return self.registration.showNotification(p.title || 'Sampledge Connect', {
+        body: p.body || '',
+        icon: '/icon.svg',
+        badge: '/icon.svg',
+        tag: p.tag || undefined,
+        renotify: !!p.tag,
+        requireInteraction: p.data && p.data.type === 'call',
+        data: { url: p.url || '/app', ...(p.data || {}) },
+      });
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL(
+    (event.notification.data && event.notification.data.url) || '/app',
+    self.location.origin,
+  );
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (tabs) => {
+      const tab = tabs.find((t) => new URL(t.url).pathname.startsWith('/app'));
+      if (tab) {
+        await tab.focus();
+        tab.postMessage({ type: 'open', url: target.pathname + target.search });
+        return;
+      }
+      await self.clients.openWindow(target.href);
+    }),
+  );
+});
+
+// The browser rotated the subscription: let an open tab re-register it.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((tabs) => tabs.forEach((t) => t.postMessage({ type: 'resubscribe' }))),
+  );
+});

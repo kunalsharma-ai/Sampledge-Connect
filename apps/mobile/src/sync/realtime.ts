@@ -13,6 +13,9 @@ import type {
   SendMessageRequest,
   ServerToClientEvents,
   SetReactionRequest,
+  ScheduledMessage,
+  Task,
+  Approval,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -38,6 +41,10 @@ type RealtimeEvents = {
   callUpdated: Call;
   /** A meeting you attend starts soon. */
   meetingReminder: MeetingReminderEvent;
+  /** One of your scheduled messages changed (sent, failed, edited on another device). */
+  scheduledUpdated: ScheduledMessage;
+  /** A task or approval you are involved in was created or changed. */
+  work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
 };
 
 /**
@@ -105,6 +112,11 @@ export class RealtimeClient {
       void this.store.upsertMeetings([e.meeting]);
       this.events.emit('meetingReminder', e);
     });
+    socket.on('scheduled:updated', (m) => this.events.emit('scheduledUpdated', m));
+    socket.on('task:upsert', (task) => this.events.emit('work', { kind: 'task', task }));
+    socket.on('approval:upsert', (approval) =>
+      this.events.emit('work', { kind: 'approval', approval }),
+    );
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

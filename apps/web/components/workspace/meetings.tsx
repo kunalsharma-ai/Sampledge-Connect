@@ -63,6 +63,7 @@ import {
   useMeetingsApi,
 } from '@/lib/meetings';
 import { nameOf } from './helpers';
+import { MeetingAiSummary } from './ai-summary-card';
 import { RepeatPicker } from './repeat-picker';
 
 const HOUR_PX = 56;
@@ -616,6 +617,10 @@ function MeetingDetails({
             <p className="mb-1 text-label text-text">Agenda</p>
             <p className="whitespace-pre-wrap text-label font-normal text-text-muted">{m.agenda}</p>
           </div>
+        ) : null}
+
+        {conversation ? (
+          <MeetingAiSummary meetingId={m.meetingId} me={me} directory={directory} />
         ) : null}
 
         <div>

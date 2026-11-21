@@ -158,7 +158,7 @@ export default function NotificationSettings() {
               'An Expo (EAS) project ID in the app config, and a device build made with EAS.',
               'iOS: an Apple Developer account and an APNs key uploaded to EAS.',
               'Android: a Firebase project, its google-services.json, and FCM credentials uploaded to EAS.',
-              'Server: PUSH_PROVIDER=expo, plus EXPO_ACCESS_TOKEN if your Expo account requires one.',
+              'Server: an admin turns on Push notifications in More → Integrations (and adds an Expo access token if your account requires one).',
             ].map((t) => (
               <View key={t} style={{ flexDirection: 'row', gap: space.sm }}>
                 <Text tone="subtle">•</Text>

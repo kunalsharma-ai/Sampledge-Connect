@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
-import type { TenantRole } from '@sampledge/contracts';
+import type { ScheduledMessage, TenantRole } from '@sampledge/contracts';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -252,4 +252,126 @@ export function useNow(ms = 30_000): number {
     return () => clearInterval(t);
   }, [ms]);
   return now;
+}
+
+/** Pinned messages of a conversation from the local cache, most recently pinned first. */
+export function usePinned(conversationId: string): LocalMessage[] {
+  const { store } = useWorkspace();
+  const [pins, setPins] = useState<LocalMessage[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void store.listPinned(conversationId).then((p) => alive && setPins(p));
+    load();
+    const off = store.events.on('messages', (e) => e.conversationId === conversationId && load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store, conversationId]);
+  return pins;
+}
+
+/** Ids of messages you saved; loads the list once when a connection allows. */
+export function useSavedIds(): ReadonlySet<string> {
+  const { engine } = useWorkspace();
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const off = engine.events.on('bookmarks', setIds);
+    if (!engine.serverActionBlocker()) void engine.listBookmarks().catch(() => undefined);
+    return off;
+  }, [engine]);
+  return ids;
+}
+
+/** Your scheduled messages (optionally for one conversation), kept fresh from the server. */
+export function useScheduled(conversationId?: string): {
+  items: ScheduledMessage[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<ScheduledMessage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      if (engine.serverActionBlocker()) return;
+      void engine
+        .listScheduled(conversationId)
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load();
+    const off = engine.events.on('scheduled', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [engine, conversationId, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * A list of tasks or approvals from the server, reloaded when one changes (here or live).
+ * Null until the first load; needs a connection.
+ */
+export function useWorkList<T>(
+  load: () => Promise<T[]>,
+  deps: readonly unknown[],
+): { items: T[] | null; error: string | null; loading: boolean; reload: () => void } {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<T[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const run = () => {
+      if (engine.serverActionBlocker()) return;
+      setLoading(true);
+      load()
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => alive && setLoading(false));
+    };
+    run();
+    const off = engine.events.on('work', run);
+    return () => {
+      alive = false;
+      off();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, engineState?.networkUp, tick, ...deps]);
+  return { items, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * People you can assign work to or ask for approval: the conversation's members when there is
+ * one, else everyone in the workspace. You come first, as "Me".
+ */
+export function usePeopleChoices(conversationId?: string): { key: string; label: string }[] {
+  const { selfId } = useWorkspace();
+  const conv = useConversation(conversationId ?? '');
+  const directory = useDirectory();
+  const nameOf = usePeople();
+  const ids = conversationId
+    ? (conv?.memberIds ?? []).filter((u) => u !== selfId)
+    : directory.map((u) => u.userId);
+  return [
+    { key: selfId, label: 'Me' },
+    ...ids
+      .map((u) => ({ key: u, label: nameOf(u) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
 }

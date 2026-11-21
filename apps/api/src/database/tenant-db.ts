@@ -11,7 +11,7 @@ import {
   type UpdateFilter,
   type UpdateOptions,
 } from 'mongodb';
-import type { TenantCollections, TenantDoc } from './documents.js';
+import type { BillingPlanDoc, TenantCollections, TenantDoc } from './documents.js';
 
 export const newId = (): string => new ObjectId().toHexString();
 
@@ -113,6 +113,11 @@ export class TenantDb {
     return this.db.collection<TenantDoc>('tenants');
   }
 
+  /** Global plan catalog. Only billing code uses this. */
+  get billingPlans(): Collection<BillingPlanDoc> {
+    return this.db.collection<BillingPlanDoc>('billing_plans');
+  }
+
   /**
    * Today every tenant lives in the shared database. A dedicated-database
    * tenant would resolve to a different `Db` here, without changing callers.
@@ -142,6 +147,15 @@ export class TenantDb {
       meeting_series: c('meeting_series'),
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
+      bookmarks: c('bookmarks'),
+      scheduled_messages: c('scheduled_messages'),
+      ai_embeddings: c('ai_embeddings'),
+      ai_index_state: c('ai_index_state'),
+      ai_summaries: c('ai_summaries'),
+      ai_proposals: c('ai_proposals'),
+      ai_transcripts: c('ai_transcripts'),
+      billing_subscriptions: c('billing_subscriptions'),
+      billing_invoices: c('billing_invoices'),
     };
   }
 }
