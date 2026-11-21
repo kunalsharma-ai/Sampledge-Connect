@@ -10,7 +10,7 @@ import type {
 
 /**
  * Documents owned by the integrations and work modules. They live in their own collections
- * (see migration 011-sampledge-modules) and are always accessed through TenantCollection,
+ * (see migration 012-sampledge-modules) and are always accessed through TenantCollection,
  * so every read and write is tenant-scoped.
  */
 interface Owned {

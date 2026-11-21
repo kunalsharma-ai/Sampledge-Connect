@@ -6,7 +6,7 @@ import { date, ensureCollection, nullable, str, tenantScoped } from './001-initi
  * Module connection settings themselves live in integration_settings (010).
  */
 export const sampledgeModulesMigration: Migration = {
-  id: '011-sampledge-modules',
+  id: '012-sampledge-modules',
   async up(db) {
     // In-app notifications gain module alerts, task assignments and approval requests.
     await ensureCollection(

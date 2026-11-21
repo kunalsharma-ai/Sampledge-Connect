@@ -141,6 +141,10 @@ export class TenantDb {
       meetings: c('meetings'),
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
+      ai_embeddings: c('ai_embeddings'),
+      ai_index_state: c('ai_index_state'),
+      ai_summaries: c('ai_summaries'),
+      ai_proposals: c('ai_proposals'),
     };
   }
 }

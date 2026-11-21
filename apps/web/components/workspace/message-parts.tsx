@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { CheckSquare, CornerUpLeft, SmilePlus, Stamp } from 'lucide-react';
+import { CheckSquare, CornerUpLeft, Languages, SmilePlus, Stamp } from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -146,6 +146,7 @@ export function MessageActions({
   onReply,
   onCreateTask,
   onRequestApproval,
+  onTranslate,
 }: {
   own: boolean;
   onReact: (emoji: string) => void;
@@ -153,6 +154,8 @@ export function MessageActions({
   /** Chat-to-task: turn this message into a task or an approval request. */
   onCreateTask?: () => void;
   onRequestApproval?: () => void;
+  /** Present when the AI assistant is available. */
+  onTranslate?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -215,6 +218,15 @@ export function MessageActions({
                 <Stamp className="size-4" />
               </button>
             </Tooltip>
+          ) : null}
+          {onTranslate ? (
+            <button
+              onClick={onTranslate}
+              aria-label="Translate"
+              className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-surface-raised hover:text-text"
+            >
+              <Languages className="size-4" />
+            </button>
           ) : null}
         </>
       )}

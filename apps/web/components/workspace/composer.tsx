@@ -66,6 +66,7 @@ export function Composer({
   replyTo,
   onCancelReply,
   conversationId,
+  prefill,
 }: {
   placeholder: string;
   disabled?: boolean;
@@ -77,6 +78,8 @@ export function Composer({
   replyTo?: { name: string; text: string } | null;
   onCancelReply?: () => void;
   conversationId: string;
+  /** Puts text in the box (e.g. an AI suggested reply). The person still presses send. */
+  prefill?: { text: string; nonce: number } | null;
 }) {
   const { getAccessToken } = useAuth();
   const [drafts, setDrafts] = React.useState<DraftAttachment[]>([]);
@@ -181,6 +184,16 @@ export function Composer({
   const [query, setQuery] = React.useState<{ start: number; query: string } | null>(null);
   const [active, setActive] = React.useState(0);
   const ref = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    if (!prefill) return;
+    setText(prefill.text);
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prefill.text.length, prefill.text.length);
+    });
+  }, [prefill]);
   const typingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingOn = React.useRef(false);
   const trimmed = text.trim();

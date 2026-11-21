@@ -56,6 +56,10 @@ import { TasksService } from './work/tasks.service.js';
 import { ApprovalsService } from './work/approvals.service.js';
 import { ProjectsService } from './work/projects.service.js';
 import { WorkController } from './work/work.controller.js';
+import { AiController } from './ai/ai.controller.js';
+import { AiService } from './ai/ai.service.js';
+import { AiIntegration } from './ai/ai-integration.js';
+import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -89,6 +93,7 @@ export class AppModule {
         IntegrationApiController,
         IntegrationsController,
         WorkController,
+        AiController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -119,6 +124,9 @@ export class AppModule {
         TasksService,
         ApprovalsService,
         ProjectsService,
+        AiService,
+        AiIntegration,
+        { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         {
           provide: FILE_STORAGE,

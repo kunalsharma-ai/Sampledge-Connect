@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { TYPING_TTL_MS } from '@sampledge/contracts';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -81,21 +81,24 @@ export default function ConversationScreen() {
     return store.events.on('conversations', load);
   }, [store, id]);
 
-  // Mark as read up to the newest server message while the screen is open.
+  // Mark as read up to the newest server message while the screen is showing (not while it
+  // sits under another screen, such as a call with its chat opened on top).
+  const focused = useIsFocused();
   const newestSeq = useMemo(
     () => messages.reduce((n, m) => Math.max(n, m.serverSeq ?? 0), 0),
     [messages],
   );
   useEffect(() => {
-    if (newestSeq > 0) void engine.markRead(id, newestSeq);
-  }, [engine, id, newestSeq]);
+    if (focused && newestSeq > 0) void engine.markRead(id, newestSeq);
+  }, [engine, id, newestSeq, focused]);
 
   // Opening a conversation clears its mentions and replies, here and on your other devices.
   useEffect(() => {
+    if (!focused) return;
     const clear = () => void engine.markNotificationsRead({ conversationId: id });
     clear();
     return store.events.on('notifications', clear);
-  }, [engine, store, id]);
+  }, [engine, store, id, focused]);
 
   useEffect(
     () =>
@@ -314,7 +317,8 @@ export default function ConversationScreen() {
             nameOf={nameOf}
             onJoin={(media) => void joinCall(media)}
             onReturn={() =>
-              router.push({ pathname: '/call/[id]', params: { id: liveCall!.callId } })
+              // Back to the call screen already in the stack (never a second copy of the call).
+              router.dismissTo({ pathname: '/call/[id]', params: { id: liveCall!.callId } })
             }
             onDismissError={() => engine.calls.dismissError()}
           />
