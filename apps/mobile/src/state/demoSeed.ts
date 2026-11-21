@@ -1,0 +1,134 @@
+import { uuidv7, type Conversation, type Message } from '@sampledge/contracts';
+import type { LocalStore } from '../db/store';
+
+/**
+ * Local demo workspace. Chosen explicitly on the sign-in screen and labelled
+ * everywhere as "Demo workspace, no server connected". Nothing here pretends to
+ * be live: messages you send stay queued on the device because there is no server.
+ */
+export const DEMO_SELF = 'demo-you';
+
+export const DEMO_PEOPLE: Record<string, string> = {
+  [DEMO_SELF]: 'You',
+  'demo-aisha': 'Aisha Khan',
+  'demo-marco': 'Marco Silva',
+  'demo-lena': 'Lena Fischer',
+  'demo-ravi': 'Ravi Menon',
+};
+
+export async function seedDemo(store: LocalStore): Promise<void> {
+  if ((await store.getSetting('demo.seeded')) === '1') return;
+  const t0 = Date.now() - 1000 * 60 * 60 * 5;
+  const conv = (
+    id: string,
+    kind: Conversation['kind'],
+    name: string | null,
+    topic: string | null,
+    members: string[],
+  ): Conversation => ({
+    conversationId: id,
+    tenantId: 'demo',
+    workspaceId: 'demo',
+    kind,
+    name,
+    topic,
+    memberIds: members,
+    createdBy: DEMO_SELF,
+    createdAt: new Date(t0).toISOString(),
+    archivedAt: null,
+    lastChangeSequence: 0,
+    lastMessageAt: null,
+    myRole: 'member',
+  });
+  const all = Object.keys(DEMO_PEOPLE);
+  const conversations = [
+    conv(
+      'demo-fieldwork',
+      'channel_public',
+      'fieldwork-ops',
+      'Daily field status across all live studies',
+      all,
+    ),
+    conv('demo-aisha', 'dm', null, null, [DEMO_SELF, 'demo-aisha']),
+    conv('demo-qa', 'channel_private', 'qa-review', 'Questionnaire QA before client sign-off', [
+      DEMO_SELF,
+      'demo-lena',
+      'demo-ravi',
+    ]),
+    conv('demo-launch', 'group', 'Retail tracker launch', null, [
+      DEMO_SELF,
+      'demo-marco',
+      'demo-aisha',
+    ]),
+  ];
+  await store.upsertConversations(conversations);
+
+  const script: [string, string, string][] = [
+    [
+      'demo-fieldwork',
+      'demo-marco',
+      'Morning all. UK panel is at 62% of quota for the retail tracker, DE at 48%.',
+    ],
+    [
+      'demo-fieldwork',
+      'demo-lena',
+      'DE is slow because of the 35-44 cell. I can open a boost sample this afternoon.',
+    ],
+    ['demo-fieldwork', DEMO_SELF, 'Please do. Keep the incidence assumptions from last wave.'],
+    [
+      'demo-fieldwork',
+      'demo-ravi',
+      'Data checks on the first 400 completes look clean. Two speeders removed.',
+    ],
+    ['demo-aisha', 'demo-aisha', 'Do you have five minutes before the client call?'],
+    ['demo-aisha', DEMO_SELF, 'Yes, calling you now.'],
+    ['demo-aisha', 'demo-aisha', 'Thanks. Sending the revised proposal deck after lunch.'],
+    [
+      'demo-qa',
+      'demo-lena',
+      'Q14 routing skips the brand-awareness block for non-users. Is that intended?',
+    ],
+    ['demo-qa', 'demo-ravi', 'No, that is a bug. Fixing the logic in the script now.'],
+    ['demo-launch', 'demo-marco', 'Soft launch is live. Watching the first 50 completes.'],
+  ];
+  const seqByConv = new Map<string, number>();
+  const messages: Message[] = script.map(([conversationId, senderId, text], i) => {
+    const seq = (seqByConv.get(conversationId) ?? 0) + 1;
+    seqByConv.set(conversationId, seq);
+    const at = t0 + i * 1000 * 60 * 23;
+    return {
+      messageId: `demo-${conversationId}-${seq}`,
+      clientMessageId: uuidv7(at),
+      tenantId: 'demo',
+      conversationId,
+      senderId,
+      messageType: 'text',
+      content: { text, mentions: [] },
+      attachmentIds: [],
+      replyToMessageId: null,
+      serverSequence: seq,
+      changeSequence: seq,
+      createdAt: new Date(at).toISOString(),
+      editedAt: null,
+      deletedAt: null,
+      metadata: {},
+    };
+  });
+  await store.applyServerMessages(messages);
+  // Your own demo messages count as read by everyone so the ticks look settled.
+  await store.applyReceipts(
+    conversations.flatMap((c) =>
+      c.memberIds
+        .filter((m) => m !== DEMO_SELF)
+        .map((userId) => ({
+          conversationId: c.conversationId,
+          userId,
+          deliveredUpTo: seqByConv.get(c.conversationId) ?? 0,
+          readUpTo: seqByConv.get(c.conversationId) ?? 0,
+        })),
+    ),
+  );
+  await store.markReadLocally('demo-fieldwork', 3);
+  await store.setSetting('people', JSON.stringify(DEMO_PEOPLE));
+  await store.setSetting('demo.seeded', '1');
+}
