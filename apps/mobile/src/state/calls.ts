@@ -172,6 +172,13 @@ export class CallController {
     }
   }
 
+  /** Turns a clip of my own speech in the current call into text (empty when nothing heard). */
+  async transcribeCaption(clip: Blob): Promise<string> {
+    const cur = this._state.current;
+    if (!cur) return '';
+    return (await this.api.transcribeCaption(cur.call.callId, clip)).text.trim();
+  }
+
   /** Admits or denies a guest waiting in the lobby of the call you are in. */
   async decideGuest(guestId: string, decision: 'admit' | 'deny'): Promise<boolean> {
     const cur = this._state.current;

@@ -107,6 +107,11 @@ guest join state has `captions`, so apps know whether to show the button. A serv
 (faster-whisper) on a small GPU keeps captions about 4 to 6 seconds behind speech; on CPU use a small
 model.
 
+On mobile, the **Captions** button in a call does the same: it sets the `captions` attribute and shows
+everyone's caption lines over the controls, with the speaker's name. Sending your own speech needs
+MediaRecorder, which the web build has but the native WebRTC module does not yet, so a phone shows
+everyone else's captions and says "your own speech isn't captioned from this phone yet" (planned).
+
 ## Devices and background blur
 
 The settings button in a call (members and guests) picks the microphone, camera and speaker, and turns
