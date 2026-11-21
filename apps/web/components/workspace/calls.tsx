@@ -343,7 +343,7 @@ export function Tile({
   return (
     <div
       className={cn(
-        'relative flex min-h-0 items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
+        'relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
         speaking ? 'border-success shadow-[0_0_0_2px_var(--color-success)]' : 'border-border',
       )}
       data-testid="call-tile"
