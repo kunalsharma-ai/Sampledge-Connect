@@ -8,3 +8,4 @@ export * from './sync.js';
 export * from './errors.js';
 export * from './socket-events.js';
 export * from './backoff.js';
+export * from './attachments.js';

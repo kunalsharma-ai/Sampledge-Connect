@@ -67,6 +67,7 @@ export class FakeServer {
       messageType: 'text',
       content: { text: req.content.text, mentions: req.content.mentions ?? [] },
       attachmentIds: [],
+      attachments: [],
       replyToMessageId: req.replyToMessageId ?? null,
       serverSequence: n,
       changeSequence: n,

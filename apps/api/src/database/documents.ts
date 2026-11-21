@@ -76,6 +76,16 @@ export interface ConversationMemberDoc extends TenantOwned {
   joinedAt: Date;
 }
 
+export interface AttachmentSnapshot {
+  attachmentId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  createdAt: Date;
+}
+
 export interface MessageDoc extends TenantOwned {
   conversationId: string;
   clientMessageId: string;
@@ -91,6 +101,8 @@ export interface MessageDoc extends TenantOwned {
   editedAt: Date | null;
   deletedAt: Date | null;
   metadata: Record<string, unknown>;
+  /** Snapshot of attachment metadata at send time (absent on older messages). */
+  attachments?: AttachmentSnapshot[];
   /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
   reactions?: { emoji: string; userIds: string[] }[];
 }
@@ -134,6 +146,26 @@ export interface AuditLogDoc extends TenantOwned {
   metadata: Record<string, unknown>;
 }
 
+export interface AttachmentDoc extends TenantOwned {
+  conversationId: string;
+  uploaderId: string;
+  fileName: string;
+  mimeType: string;
+  /** Declared at ticket creation. */
+  sizeBytes: number;
+  /** Actually received. */
+  storedBytes: number | null;
+  sha256: string | null;
+  width: number | null;
+  height: number | null;
+  status: 'pending' | 'ready';
+  storageKey: string | null;
+  /** Set when attached to a message; an attachment can be used once. */
+  messageId: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -145,4 +177,5 @@ export interface TenantCollections {
   devices: DeviceDoc;
   sync_checkpoints: SyncCheckpointDoc;
   audit_logs: AuditLogDoc;
+  attachments: AttachmentDoc;
 }
