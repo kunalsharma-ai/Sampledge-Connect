@@ -2,6 +2,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Db } from 'mongodb';
 import {
+  GuestChatSendSchema,
+  guestIdentity,
+  type GuestChatResponse,
   GUEST_EARLY_JOIN_MINUTES,
   GUEST_LATE_JOIN_MINUTES,
   GuestLobbyRequestSchema,
@@ -19,6 +22,8 @@ import { MONGO_DB } from '../database/database.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { CallsService } from '../calls/calls.service.js';
 import { MailerService } from '../mail/mailer.service.js';
+import { MessagesService } from '../messages/messages.service.js';
+import { RateLimitService } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { buildIcs } from './ics.js';
 import { guestEmail, type GuestEmailKind } from './guest-email.js';
@@ -44,6 +49,8 @@ export class GuestsService {
     @Inject(MONGO_DB) private readonly rawDb: Db,
     private readonly calls: CallsService,
     private readonly mailer: MailerService,
+    private readonly messages: MessagesService,
+    private readonly rateLimit: RateLimitService,
     private readonly realtime: RealtimePublisher,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {
@@ -398,6 +405,69 @@ export class GuestsService {
     const { meeting: m, guest: g } = await this.resolve(token);
     const call = await this.calls.liveCall(m.tenantId, m.conversationId);
     if (call) await this.calls.leaveLobby(m.tenantId, call._id, g.guestId);
+  }
+
+  // ---------- meeting chat ----------
+
+  /** The live call this guest is admitted to (else a 403 the page shows as "join first"). */
+  private async admittedCall(token: string) {
+    const { meeting: m, guest: g } = await this.resolve(token);
+    const call = await this.calls.liveCall(m.tenantId, m.conversationId);
+    const me = call?.guests?.find((x) => x.guestId === g.guestId);
+    if (!call || !me || me.state === 'denied') throw forbidden('Join the meeting to use its chat');
+    return { meeting: m, guest: g, call, name: me.name };
+  }
+
+  /**
+   * Meeting chat as a guest sees it: messages since this call started (never the chat's
+   * earlier history), text only, attachments by name.
+   */
+  async chat(token: string): Promise<GuestChatResponse> {
+    const { meeting: m, guest: g, call } = await this.admittedCall(token);
+    const t = this.db.for(m.tenantId);
+    const docs = await t.messages
+      .find(
+        {
+          conversationId: m.conversationId,
+          messageType: 'text',
+          deletedAt: null,
+          createdAt: { $gte: call.startedAt },
+        },
+        { sort: { serverSequence: -1 }, limit: 200 },
+      )
+      .toArray();
+    docs.reverse();
+    const userIds = [
+      ...new Set(docs.map((d) => d.senderId).filter((id) => !id.startsWith('guest:'))),
+    ];
+    const users = userIds.length
+      ? await t.users.find({ _id: { $in: userIds } }, { projection: { displayName: 1 } }).toArray()
+      : [];
+    const names = new Map(users.map((u) => [u._id, u.displayName]));
+    const mine = guestIdentity(g.guestId);
+    return {
+      messages: docs.map((d) => {
+        const guest = (d.metadata as { guest?: { name?: string } } | undefined)?.guest;
+        return {
+          messageId: d._id,
+          senderName: guest?.name ?? names.get(d.senderId) ?? 'Someone',
+          fromGuest: !!guest,
+          mine: d.senderId === mine,
+          text: d.content.text,
+          attachmentNames: (d.attachments ?? []).map((a) => a.fileName),
+          createdAt: d.createdAt.toISOString(),
+          editedAt: d.editedAt?.toISOString() ?? null,
+        };
+      }),
+    };
+  }
+
+  async sendChat(token: string, input: unknown): Promise<GuestChatResponse> {
+    const { text } = parse(GuestChatSendSchema, input);
+    const { meeting: m, guest: g, name } = await this.admittedCall(token);
+    await this.rateLimit.consume('message_send', `${m.tenantId}:guest:${g.guestId}`);
+    await this.messages.postGuest(m.tenantId, m.conversationId, { guestId: g.guestId, name }, text);
+    return this.chat(token);
   }
 
   broadcastMeeting(tenantId: string, m: MeetingDoc, toMeeting: ToMeeting) {

@@ -63,6 +63,20 @@ export class GuestsController {
     return this.guests.lobby(token, body ?? {});
   }
 
+  /** Meeting chat while admitted to the call (polled by the page). */
+  @Get(':token/chat')
+  async chat(@Param('token') token: string, @Req() req: Request) {
+    await this.limit(req);
+    return this.guests.chat(token);
+  }
+
+  @Post(':token/chat')
+  @HttpCode(200)
+  async sendChat(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
+    await this.limit(req);
+    return this.guests.sendChat(token, body);
+  }
+
   @Post(':token/lobby/leave')
   @HttpCode(200)
   async leave(@Param('token') token: string, @Req() req: Request) {

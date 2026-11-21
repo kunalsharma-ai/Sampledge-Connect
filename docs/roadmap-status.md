@@ -23,7 +23,8 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | 1c     | Self-hosted voice/video calls (LiveKit SFU + TURN in Docker): 1:1 and group, ringing, screen share, raise hand, call cards (web)  | Built (see docs/calls.md)        |
 | 1c     | Recordings: voice/video/screen clips in chat, call and meeting recording (LiveKit Egress), library, auto-delete, ZIP backup (web) | Built (see docs/recordings.md)   |
 | 1c     | External guests: email invites with .ics via your SMTP, updates/cancellations, join links, RSVP, lobby with admit/deny (web)      | Built (see docs/guests.md)       |
-| 1c     | Booking pages, recurring meetings, guest in-meeting chat, lobby and recording on mobile                                           | Planned                          |
+| 1c     | Meeting chat inside calls, for members and admitted guests (web)                                                                  | Built (see docs/guests.md)       |
+| 1c     | Booking pages, recurring meetings, lobby and recording on mobile                                                                  | Planned                          |
 |        | Threads view, pins, bookmarks, polls, voice, scheduled messages, forwarding                                                       | Planned                          |
 | Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                    | Planned (Phase 1b)               |
 
