@@ -14,7 +14,7 @@ import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { LogoMark, Wordmark } from '../brand';
 import { BACKGROUNDS } from './status';
-import { errorText } from './ui';
+import { errorText, plural } from './ui';
 
 function usePublic<T>(path: string) {
   const [data, setData] = React.useState<T | null>(null);
@@ -381,7 +381,7 @@ export function PublicCommunityPage({ slug }: { slug: string }) {
                 <h1 className="font-display text-h1 text-text">{c.name}</h1>
                 <p className="flex items-center gap-1.5 text-label font-normal text-text-muted">
                   <Globe className="size-4" /> Public community · <Users className="size-4" />{' '}
-                  {c.memberCount} members · {c.followerCount} followers
+                  {plural(c.memberCount, 'member')} · {plural(c.followerCount, 'follower')}
                 </p>
               </div>
             </div>
@@ -560,7 +560,7 @@ export function CommunityLinkJoin({ token }: { token: string }) {
           ) : (
             <Lock className="size-4" />
           )}{' '}
-          {data.memberCount} members
+          {plural(data.memberCount, 'member')}
         </p>
         <div className="mt-4 text-left">
           {auth.status === 'signed-in' ? (

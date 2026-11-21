@@ -137,4 +137,7 @@ export function Section({
   );
 }
 
+/** "1 member", "4 members". */
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export const CIRCLE_LABEL = { business: 'Business', friends: 'Friends' } as const;

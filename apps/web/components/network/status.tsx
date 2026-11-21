@@ -172,6 +172,19 @@ export function StatusViewer({
     const t = setTimeout(() => (i < list.length - 1 ? setI(i + 1) : onClose()), 6000);
     return () => clearTimeout(t);
   }, [s, i, list.length, paused, onClose]);
+  React.useEffect(() => {
+    if (!authorId) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Arrow keys move between statuses unless you are typing a reply.
+      const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT';
+      if (e.key === 'Escape') onClose();
+      else if (!typing && e.key === 'ArrowRight')
+        setI((n) => (n < list.length - 1 ? n + 1 : n));
+      else if (!typing && e.key === 'ArrowLeft') setI((n) => Math.max(0, n - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [authorId, list.length, onClose]);
   if (!authorId || !s || !author) return null;
 
   const sendReply = async () => {

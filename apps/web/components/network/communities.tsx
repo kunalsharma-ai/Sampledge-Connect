@@ -37,7 +37,7 @@ import {
 } from '@sampledge/ui';
 import { newActionId, useNet, useNetwork } from '@/lib/network';
 import { Switch } from './profile';
-import { PersonLine, QueuedBadge, ScreenHeader, Section, Tabs, errorText } from './ui';
+import { PersonLine, QueuedBadge, ScreenHeader, Section, Tabs, errorText, plural } from './ui';
 
 const ROLE_LABEL = {
   owner: 'Owner',
@@ -373,8 +373,8 @@ function CommunityPage({
               ) : (
                 <Lock className="size-3" />
               )}
-              {c.visibility === 'public' ? 'Public' : 'Private'} · {c.memberCount} members ·{' '}
-              {c.followerCount} followers
+              {c.visibility === 'public' ? 'Public' : 'Private'} · {plural(c.memberCount, 'member')} ·{' '}
+              {plural(c.followerCount, 'follower')}
               <QueuedBadge match={(p) => p.includes(c.communityId)} />
             </p>
             {c.description ? (
@@ -411,6 +411,7 @@ function CommunityPage({
                     : 'Join'}
               </Button>
             )}
+            {c.myStatus === 'member' ? null : (
             <Button
               variant="secondary"
               onClick={() =>
@@ -423,6 +424,7 @@ function CommunityPage({
             >
               {c.following ? 'Following' : 'Follow'}
             </Button>
+            )}
             {c.publicUrl ? (
               <Button
                 variant="ghost"
@@ -507,7 +509,7 @@ function CommunityPage({
                         ? 'Only admins and moderators post'
                         : g.topic ||
                           (g.access === 'private' ? 'Private group' : 'Open to all members')}{' '}
-                      · {g.memberCount} members
+                      · {plural(g.memberCount, 'member')}
                     </p>
                   </div>
                   {g.joined ? (
