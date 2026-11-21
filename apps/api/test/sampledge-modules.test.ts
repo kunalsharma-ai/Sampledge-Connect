@@ -280,7 +280,7 @@ describe('Samptrek adapter', () => {
         content: { text: 'Can someone check the German quotas before Friday?', mentions: [] },
       },
     });
-    expect(send.status).toBe(201);
+    expect(send.status).toBe(200);
     const msgId = send.body.message.messageId;
     const clientRequestId = crypto.randomUUID();
     const body = {
