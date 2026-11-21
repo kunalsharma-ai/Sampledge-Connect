@@ -7,6 +7,7 @@ import {
   type ConversationKind,
   type ConversationRole,
   type Attachment,
+  type ForwardedSnapshot,
   type Meeting,
   type Message,
   type MessageStatus,
@@ -240,6 +241,8 @@ export interface LocalConversation {
   notifyLevelPending: boolean;
   /** 'moderators' makes a channel an announcement channel. */
   postingPolicy: PostingPolicy;
+  /** False when owners turned forwarding out of this private channel or group off. */
+  allowForwarding: boolean;
 }
 
 export interface OutboxItem {
@@ -531,16 +534,19 @@ export class LocalStore {
     replyTo?: string | null;
     mentions?: readonly string[];
     files?: readonly PendingFileInput[];
+    /** Forward this message (by its server id); the snapshot shows until the server answers. */
+    forward?: { of: string; snapshot: ForwardedSnapshot };
   }): Promise<LocalMessage> {
     const text = input.text.trim();
     const files = input.files ?? [];
-    if (!text && files.length === 0) throw new Error('Cannot send an empty message');
+    const forward = input.forward;
+    if (!text && files.length === 0 && !forward) throw new Error('Cannot send an empty message');
     const clientId = uuidv7(this.now());
     const createdAt = new Date(this.now()).toISOString();
     await this.db.transaction(async (tx) => {
       await tx.run(
-        `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, reply_to, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
+        `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, reply_to, status, created_at, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
         [
           clientId,
           input.conversationId,
@@ -549,6 +555,7 @@ export class LocalStore {
           JSON.stringify([...new Set(input.mentions ?? [])]),
           input.replyTo ?? null,
           createdAt,
+          JSON.stringify(forward ? { forwarded: forward.snapshot, forwardOf: forward.of } : {}),
         ],
       );
       await tx.run(
@@ -576,7 +583,11 @@ export class LocalStore {
       await tx.run('DELETE FROM drafts WHERE conversation_id = ?', [input.conversationId]);
       await tx.run(
         'UPDATE conversations SET last_preview = ?, last_message_at = ? WHERE conversation_id = ?',
-        [text || filesPreview(files), createdAt, input.conversationId],
+        [
+          text || (forward ? `Forwarded: ${forward.snapshot.text}` : filesPreview(files)),
+          createdAt,
+          input.conversationId,
+        ],
       );
     });
     this.events.emit('messages', { conversationId: input.conversationId });
@@ -1231,12 +1242,12 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const c of conversations) {
         await tx.run(
-          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy, allow_forwarding)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id) DO UPDATE SET
              kind = excluded.kind, name = excluded.name, topic = excluded.topic, member_ids = excluded.member_ids,
              archived_at = excluded.archived_at, my_role = excluded.my_role, notify_level = excluded.notify_level,
-             posting_policy = excluded.posting_policy,
+             posting_policy = excluded.posting_policy, allow_forwarding = excluded.allow_forwarding,
              last_change_seq = MAX(conversations.last_change_seq, excluded.last_change_seq),
              last_message_at = COALESCE(MAX(conversations.last_message_at, excluded.last_message_at), excluded.last_message_at, conversations.last_message_at)`,
           [
@@ -1251,6 +1262,7 @@ export class LocalStore {
             c.lastMessageAt,
             c.myNotifyLevel ?? 'all',
             c.postingPolicy ?? 'everyone',
+            c.allowForwarding === false ? 0 : 1,
           ],
         );
       }
@@ -1417,6 +1429,7 @@ export class LocalStore {
       notify_level: NotifyLevel;
       pending_notify_level: NotifyLevel | null;
       posting_policy: PostingPolicy | null;
+      allow_forwarding: number | null;
     }>(
       `SELECT c.*,
          CASE WHEN c.kind = 'channel_public' AND c.my_role IS NULL THEN 0 ELSE
@@ -1444,6 +1457,7 @@ export class LocalStore {
       notifyLevel: r.pending_notify_level ?? r.notify_level,
       notifyLevelPending: r.pending_notify_level != null,
       postingPolicy: r.posting_policy ?? 'everyone',
+      allowForwarding: r.allow_forwarding !== 0,
     }));
   }
 

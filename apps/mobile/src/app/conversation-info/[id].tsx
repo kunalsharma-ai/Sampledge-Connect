@@ -10,6 +10,7 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { canInConversation, canSetPostingPolicy, isUnjoinedChannel } from '../../lib/access';
 import { confirmThen } from '../../lib/confirm';
+import { canTurnOffForwarding } from '../../lib/forward';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useConversation, usePeople, useTenantRole } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
@@ -245,6 +246,34 @@ export default function ConversationInfo() {
                       )
                     }
                     accessibilityLabel="Announcement channel"
+                  />
+                )}
+              </View>
+            ) : null}
+            {canTurnOffForwarding(conv) && canInConversation(conv, role, 'conversation.rename') ? (
+              <View
+                style={[
+                  styles.row,
+                  { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                ]}
+              >
+                <Ionicons name="arrow-redo-outline" size={20} color={c.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong">Allow forwarding</Text>
+                  <Text variant="meta" tone="muted">
+                    When off, messages here can only be shared again inside this conversation.
+                  </Text>
+                </View>
+                {busy === 'forwarding' ? (
+                  <ActivityIndicator size="small" color={c.accent} />
+                ) : (
+                  <Switch
+                    value={conv.allowForwarding}
+                    disabled={!!blocked}
+                    onValueChange={(on) =>
+                      void run('forwarding', () => engine.setForwarding(id, on))
+                    }
+                    accessibilityLabel="Allow forwarding"
                   />
                 )}
               </View>

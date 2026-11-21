@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { TYPING_TTL_MS } from '@sampledge/contracts';
 import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { canForwardMessage } from '../../lib/forward';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -240,6 +241,8 @@ export default function ConversationScreen() {
           message: m,
           senderName: guestSenderLabel(m.metadata) ?? nameOf(m.senderId),
         });
+      case 'forward':
+        return router.push({ pathname: '/forward', params: { clientId: m.clientId } });
       case 'edit':
         return setMode({ kind: 'edit', message: m });
       case 'retry':
@@ -585,6 +588,7 @@ export default function ConversationScreen() {
         saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
         canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
         canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
+        canForward={!!sheetFor && canForwardMessage(sheetFor)}
         canClosePoll={
           !!sheetFor?.poll &&
           !pollIsClosed(sheetFor.poll) &&
