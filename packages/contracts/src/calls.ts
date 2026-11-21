@@ -84,6 +84,8 @@ export const CallsConfigSchema = z.object({
   recordingEnabled: z.boolean().optional(),
   /** Live captions are available (the organization has a speech-to-text server). */
   captionsEnabled: z.boolean().optional(),
+  /** Caption text is kept (with speaker names) for the minutes; tell everyone in the call. */
+  captionsSaved: z.boolean().optional(),
 });
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 

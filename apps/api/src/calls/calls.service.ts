@@ -168,6 +168,9 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       ringTimeoutSeconds: this.cfg.CALL_RING_TIMEOUT_SECONDS,
       recordingEnabled: await this.recordingAllowed(ctx.tenantId),
       captionsEnabled: !!(await this.transcripts.settings(ctx.tenantId)),
+      captionsSaved: !!(
+        await this.db.for(ctx.tenantId).tenant_settings.findOne({}, { projection: { minutes: 1 } })
+      )?.minutes?.keepCaptions,
     };
   }
 

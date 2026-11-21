@@ -217,6 +217,8 @@ describe('transcripts without a speech-to-text server', () => {
       configured: false,
       autoTranscribeCalls: false,
       autoTranscribeVoice: false,
+      translateTo: [],
+      translation: 'none',
     });
     const { attachment } = await upload(
       ravi,
@@ -266,6 +268,9 @@ describe('transcripts from the organization’s own speech-to-text server', () =
       configured: true,
       autoTranscribeCalls: true,
       autoTranscribeVoice: false,
+      translateTo: [],
+      // No model server: the speech-to-text server can still translate into English.
+      translation: 'english',
     });
   });
 

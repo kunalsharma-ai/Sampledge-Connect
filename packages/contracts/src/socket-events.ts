@@ -12,7 +12,8 @@ import type {
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
-import type { AiProposal, AiSuggestionEvent } from './ai.js';
+import type { AiProposal, AiSuggestionEvent, TranscriptChangedEvent } from './ai.js';
+import type { MinutesChangedEvent } from './minutes.js';
 import type { BookingPage } from './booking.js';
 
 /**
@@ -118,6 +119,10 @@ export interface ServerToClientEvents {
   'ai:proposal': (proposal: AiProposal) => void;
   /** You dismissed a suggested task, or brought it back (your devices only). */
   'ai:suggestion': (e: AiSuggestionEvent) => void;
+  /** Minutes of a call in this conversation were created, edited, shared or deleted. */
+  'minutes:changed': (e: MinutesChangedEvent) => void;
+  /** A transcript in this conversation finished, was translated, corrected or reviewed. */
+  'transcript:changed': (e: TranscriptChangedEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
@@ -125,7 +130,14 @@ export interface ServerToClientEvents {
 export const MEETINGS_AREAS = ['working_hours', 'booking_pages'] as const;
 export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
 
-export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
+export const TENANT_AREAS = [
+  'branding',
+  'billing',
+  'integrations',
+  'ai',
+  'recordings',
+  'minutes',
+] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
 /** Typing state expires server-side if not refreshed. */
