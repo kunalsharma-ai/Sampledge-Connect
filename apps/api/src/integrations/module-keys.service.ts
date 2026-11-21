@@ -90,7 +90,10 @@ export class ModuleKeysService {
   async status(ctx: TenantContext): Promise<ModuleIntegration[]> {
     const w = this.store.for(ctx.tenantId);
     const views = new Map(
-      (await this.integrationSettings.list({ tenantId: ctx.tenantId })).map((v) => [v.provider.id, v]),
+      (await this.integrationSettings.list({ tenantId: ctx.tenantId })).map((v) => [
+        v.provider.id,
+        v,
+      ]),
     );
     return Promise.all(
       SAMPLEDGE_MODULES.map(async (m) => {
@@ -116,7 +119,9 @@ export class ModuleKeysService {
           lastEventAt: last?.receivedAt.toISOString() ?? null,
           eventCount: count,
           lastTestedAt: view?.lastTest?.testedAt ?? null,
-          lastTestResult: view?.lastTest ? `${view.lastTest.ok ? 'OK' : 'Failed'}: ${view.lastTest.message}` : null,
+          lastTestResult: view?.lastTest
+            ? `${view.lastTest.ok ? 'OK' : 'Failed'}: ${view.lastTest.message}`
+            : null,
           updatedAt: view?.saved?.updatedAt ?? null,
         } satisfies ModuleIntegration;
       }),
@@ -132,7 +137,10 @@ export class ModuleKeysService {
     if (!doc) throw new AppError('UNAUTHENTICATED', 'Invalid or revoked Connect API key');
     const s = await this.settings.get(doc.tenantId, doc.module);
     if (!s.enabled)
-      throw new AppError('FORBIDDEN', `${MODULE_CATALOG[doc.module].name} is not enabled in Connect`);
+      throw new AppError(
+        'FORBIDDEN',
+        `${MODULE_CATALOG[doc.module].name} is not enabled in Connect`,
+      );
     if (!doc.lastUsedAt || Date.now() - doc.lastUsedAt.getTime() > 60_000)
       void this.store.keysGlobal.updateOne({ _id: doc._id }, { $set: { lastUsedAt: new Date() } });
     return { tenantId: doc.tenantId, module: doc.module, keyId: doc._id };

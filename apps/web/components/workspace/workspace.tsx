@@ -4,6 +4,8 @@ import { AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   CalendarPlus,
+  CheckSquare,
+  FolderKanban,
   Hash,
   Lock,
   MessageSquarePlus,
@@ -51,6 +53,10 @@ import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetin
 import { RecordingsScreen } from './recordings-screen';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
+import { ProjectsScreen } from './projects-screen';
+import { TasksScreen } from './tasks-screen';
+import { ConversationWorkProvider } from './work-cards';
+import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
 
 const LS_RAIL = 'sampledge.rail';
 const LS_PANEL = 'sampledge.panel';
@@ -105,6 +111,10 @@ export function Workspace() {
   const [focusMeeting, setFocusMeeting] = React.useState<{
     meetingId: string;
     startsAt: string;
+  } | null>(null);
+  const [workDialog, setWorkDialog] = React.useState<{
+    kind: 'task' | 'approval';
+    source: WorkSource;
   } | null>(null);
   const openConversation = React.useCallback((id: string) => {
     setModule('messages');
@@ -218,6 +228,15 @@ export function Workspace() {
           online={state.connectivity === 'online'}
           onOpenConversation={openConversation}
         />
+      ) : module === 'tasks' ? (
+        <TasksScreen
+          me={me}
+          directory={directory}
+          conversations={conversations ?? []}
+          onOpenConversation={openConversation}
+        />
+      ) : module === 'projects' ? (
+        <ProjectsScreen me={me} directory={directory} onOpenConversation={openConversation} />
       ) : module === 'integrations' ? (
         <IntegrationsScreen online={state.connectivity === 'online'} />
       ) : module === 'notifications' ? (
@@ -233,7 +252,7 @@ export function Workspace() {
           }}
         />
       ) : mod.built ? (
-        <>
+        <ConversationWorkProvider conversationId={active?.conversationId ?? null} me={me}>
           <div
             className={cn(
               'h-full min-w-0 pb-16 md:pb-0 lg:block',
@@ -371,6 +390,32 @@ export function Workspace() {
                     setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
                     setModule('meetings');
                   }}
+                  onCreateTask={
+                    offline || readOnly
+                      ? undefined
+                      : (m) =>
+                          setWorkDialog({
+                            kind: 'task',
+                            source: {
+                              conversation: active,
+                              messageId: m.messageId,
+                              text: m.content.text,
+                            },
+                          })
+                  }
+                  onRequestApproval={
+                    offline || readOnly
+                      ? undefined
+                      : (m) =>
+                          setWorkDialog({
+                            kind: 'approval',
+                            source: {
+                              conversation: active,
+                              messageId: m.messageId,
+                              text: m.content.text,
+                            },
+                          })
+                  }
                 />
                 <Composer
                   placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
@@ -443,7 +488,7 @@ export function Workspace() {
               </div>
             ) : null}
           </AnimatePresence>
-        </>
+        </ConversationWorkProvider>
       ) : (
         <main className="flex flex-1 items-center justify-center p-6 pb-20 md:pb-6">
           <div className="max-w-md text-center">
@@ -484,6 +529,21 @@ export function Workspace() {
           setFocusMeeting({ meetingId: m.meetingId, startsAt: m.startsAt });
           setModule('meetings');
         }}
+      />
+
+      <CreateTaskDialog
+        open={workDialog?.kind === 'task'}
+        onOpenChange={(o) => !o && setWorkDialog(null)}
+        source={workDialog?.source ?? null}
+        me={me}
+        directory={directory}
+      />
+      <RequestApprovalDialog
+        open={workDialog?.kind === 'approval'}
+        onOpenChange={(o) => !o && setWorkDialog(null)}
+        source={workDialog?.source ?? null}
+        me={me}
+        directory={directory}
       />
 
       <MobileNav
@@ -538,6 +598,18 @@ export function Workspace() {
             icon: RefreshCw,
             run: () => setDialog('sync'),
           },
+          {
+            id: 'a:tasks',
+            label: 'Tasks & Approvals',
+            icon: CheckSquare,
+            run: () => setModule('tasks'),
+          },
+          {
+            id: 'a:projects',
+            label: 'Projects',
+            icon: FolderKanban,
+            run: () => setModule('projects'),
+          },
           { id: 'a:theme', label: 'Change theme', icon: Palette, run: () => setDialog('settings') },
           ...(isAdmin
             ? [
@@ -561,7 +633,7 @@ export function Workspace() {
   );
 }
 
-const MOBILE: ModuleId[] = ['messages', 'channels', 'meetings', 'notifications', 'settings'];
+const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications', 'settings'];
 
 function MobileNav({
   active,

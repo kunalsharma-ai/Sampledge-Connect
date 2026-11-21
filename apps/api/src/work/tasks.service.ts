@@ -37,7 +37,9 @@ export const toTask = (t: TaskDoc): Task => ({
   sourceExcerpt: t.sourceExcerpt,
   record: t.record,
   origin: t.origin,
-  moduleSync: t.moduleSync ? { status: t.moduleSync.status, at: t.moduleSync.at.toISOString() } : null,
+  moduleSync: t.moduleSync
+    ? { status: t.moduleSync.status, at: t.moduleSync.at.toISOString() }
+    : null,
   createdAt: t.createdAt.toISOString(),
   updatedAt: t.updatedAt.toISOString(),
   completedAt: t.completedAt?.toISOString() ?? null,
@@ -45,7 +47,13 @@ export const toTask = (t: TaskDoc): Task => ({
 
 export const recordOf = (r: LinkedRecordDoc | null): WorkRecordDoc | null =>
   r && r.recordType !== '_channel'
-    ? { module: r.module, recordType: r.recordType, externalId: r.externalId, title: r.title, url: r.url }
+    ? {
+        module: r.module,
+        recordType: r.recordType,
+        externalId: r.externalId,
+        title: r.title,
+        url: r.url,
+      }
     : null;
 
 const KIND_WORD: Record<TaskKind, string> = {
@@ -121,10 +129,7 @@ export class TasksService {
       if (c && c.kind !== 'channel_public') {
         const members = new Set(await this.conversations.memberIds(tenantId, conversationId));
         if (unique.some((id) => !members.has(id)))
-          throw new AppError(
-            'VALIDATION_FAILED',
-            'Assignees must be members of this conversation',
-          );
+          throw new AppError('VALIDATION_FAILED', 'Assignees must be members of this conversation');
       }
     }
     return unique;
@@ -134,7 +139,9 @@ export class TasksService {
     const req = parse(CreateTaskRequestSchema, body);
     const w = this.store.for(ctx.tenantId);
     if (req.clientRequestId) {
-      const prior = await w.tasks.findOne({ requestKey: `client:${ctx.userId}:${req.clientRequestId}` });
+      const prior = await w.tasks.findOne({
+        requestKey: `client:${ctx.userId}:${req.clientRequestId}`,
+      });
       if (prior) return toTask(prior);
     }
     let excerpt: string | null = null;
@@ -158,7 +165,11 @@ export class TasksService {
     } else if (req.sourceMessageId) {
       throw new AppError('VALIDATION_FAILED', 'sourceMessageId needs its conversationId');
     }
-    const assigneeIds = await this.checkAssignees(ctx.tenantId, req.assigneeIds, req.conversationId);
+    const assigneeIds = await this.checkAssignees(
+      ctx.tenantId,
+      req.assigneeIds,
+      req.conversationId,
+    );
     const task = await this.insert(ctx.tenantId, {
       title: req.title,
       description: req.description,
@@ -207,7 +218,17 @@ export class TasksService {
 
   private async insert(
     tenantId: string,
-    d: Omit<TaskDoc, '_id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt' | 'completedAt' | 'cardMessageId' | 'moduleSync'>,
+    d: Omit<
+      TaskDoc,
+      | '_id'
+      | 'tenantId'
+      | 'status'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'completedAt'
+      | 'cardMessageId'
+      | 'moduleSync'
+    >,
   ): Promise<{ doc: TaskDoc; duplicate: boolean }> {
     const now = new Date();
     try {
@@ -324,11 +345,17 @@ export class TasksService {
       .for(ctx.tenantId)
       .tasks.findOneAndUpdate({ _id: id }, { $set: set }, { returnDocument: 'after' }))!;
     if (doc.cardMessageId)
-      await this.messages.updateSystem(ctx.tenantId, doc.cardMessageId, this.cardText(doc), this.cardMeta(doc));
+      await this.messages.updateSystem(
+        ctx.tenantId,
+        doc.cardMessageId,
+        this.cardText(doc),
+        this.cardMeta(doc),
+      );
     const added = (set.assigneeIds ?? []).filter((u) => !t.assigneeIds.includes(u));
     if (added.length && doc.cardMessageId) {
       const m = await this.db.for(ctx.tenantId).messages.findOne({ _id: doc.cardMessageId });
-      if (m) await this.notifications.notifyAbout(ctx.tenantId, m, added, 'task', 'New task for you');
+      if (m)
+        await this.notifications.notifyAbout(ctx.tenantId, m, added, 'task', 'New task for you');
     }
     this.broadcast(ctx.tenantId, doc);
     for (const u of t.assigneeIds.filter((u) => !doc.assigneeIds.includes(u)))
@@ -351,7 +378,8 @@ export class TasksService {
         filter.createdBy = ctx.userId;
         break;
       case 'conversation':
-        if (!q.conversationId) throw new AppError('VALIDATION_FAILED', 'conversationId is required');
+        if (!q.conversationId)
+          throw new AppError('VALIDATION_FAILED', 'conversationId is required');
         await this.conversations.authorize(ctx, q.conversationId, 'conversation.read');
         filter.conversationId = q.conversationId;
         break;

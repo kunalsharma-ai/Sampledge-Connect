@@ -79,7 +79,12 @@ export class ModuleActionsService {
         error: `${MODULE_CATALOG[m].name} is not enabled`,
       });
     if (s.mode === 'test')
-      return w.module_actions.insertOne({ ...base, status: 'test_mode', statusCode: null, error: null });
+      return w.module_actions.insertOne({
+        ...base,
+        status: 'test_mode',
+        statusCode: null,
+        error: null,
+      });
     const missing = this.settings.missing(s).filter((x) => !x.startsWith('Event signing'));
     if (missing.length)
       return w.module_actions.insertOne({

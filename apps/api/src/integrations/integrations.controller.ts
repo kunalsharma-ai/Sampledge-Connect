@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { z } from 'zod';
 import {
   LinkIdentityRequestSchema,
@@ -98,7 +110,14 @@ export class IntegrationsController {
       ? await t.users.findOne({ _id: req.userId, status: 'active' })
       : await t.users.findOne({ email: req.email!, status: 'active' });
     if (!user) throw notFound('Connect user');
-    const link = await this.records.saveLink(ctx.tenantId, mod(m), req.externalUserId, user._id, user.email, 'manual');
+    const link = await this.records.saveLink(
+      ctx.tenantId,
+      mod(m),
+      req.externalUserId,
+      user._id,
+      user.email,
+      'manual',
+    );
     await this.audit.record({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,
@@ -190,7 +209,9 @@ export class IntegrationsController {
   async recordsFor(
     @Ctx() ctx: TenantContext,
     @Query('conversationId') conversationId: string,
-  ): Promise<(LinkedRecord & { actions: Pick<ModuleActionDef, 'type' | 'label' | 'description'>[] })[]> {
+  ): Promise<
+    (LinkedRecord & { actions: Pick<ModuleActionDef, 'type' | 'label' | 'description'>[] })[]
+  > {
     if (!conversationId) return [];
     await this.conversations.authorize(ctx, conversationId, 'conversation.read');
     const rows = await this.records.recordsForConversation(ctx.tenantId, conversationId);

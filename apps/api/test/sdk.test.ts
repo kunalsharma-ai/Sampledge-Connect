@@ -26,13 +26,21 @@ beforeAll(async () => {
       body: { generateSigningSecret: true },
     })
   ).body;
-  client = new ConnectClient({ baseUrl: h.url, apiKey: creds.connectApiKey, signingSecret: creds.signingSecret! });
+  client = new ConnectClient({
+    baseUrl: h.url,
+    apiKey: creds.connectApiKey,
+    signingSecret: creds.signingSecret!,
+  });
 });
 afterAll(() => h?.close());
 
 describe('@sampledge/connect-sdk', () => {
   it('checks the connection', async () => {
-    expect(await client.me()).toMatchObject({ module: 'sampbidx', moduleName: 'SampBidX', signingSecretSet: true });
+    expect(await client.me()).toMatchObject({
+      module: 'sampbidx',
+      moduleName: 'SampBidX',
+      signingSecretSet: true,
+    });
   });
 
   it('sends signed events; a retry with the same eventId is a no-op', async () => {
@@ -52,7 +60,10 @@ describe('@sampledge/connect-sdk', () => {
   });
 
   it('posts into the bid conversation and reads its history', async () => {
-    await client.postMessage('bid', 'BID-903', { text: 'Client confirmed the sample size', idempotencyKey: 'n-1' });
+    await client.postMessage('bid', 'BID-903', {
+      text: 'Client confirmed the sample size',
+      idempotencyKey: 'n-1',
+    });
     const { record, messages } = await client.history('bid', 'BID-903');
     expect(record.title).toBe('Contoso usage & attitude study');
     expect(messages[0]!.content.text).toBe('Client confirmed the sample size');
@@ -61,7 +72,10 @@ describe('@sampledge/connect-sdk', () => {
   it('maps identities and signs users into the widget', async () => {
     const link = await client.getIdentity('bx-lena');
     expect(link.userId).toBe(lena.user.userId);
-    const s = await client.createWidgetSession({ user: { externalUserId: 'bx-lena' }, deviceName: 'SampBidX web' });
+    const s = await client.createWidgetSession({
+      user: { externalUserId: 'bx-lena' },
+      deviceName: 'SampBidX web',
+    });
     expect(s.userId).toBe(lena.user.userId);
   });
 

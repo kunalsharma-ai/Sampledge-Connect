@@ -53,7 +53,10 @@ export class WorkStore {
       'projects',
     ];
     return Object.fromEntries(
-      names.map((n) => [n, new TenantCollection(this.raw.collection<{ _id: string; tenantId: string }>(n), tenantId)]),
+      names.map((n) => [
+        n,
+        new TenantCollection(this.raw.collection<{ _id: string; tenantId: string }>(n), tenantId),
+      ]),
     ) as unknown as WorkDb;
   }
 

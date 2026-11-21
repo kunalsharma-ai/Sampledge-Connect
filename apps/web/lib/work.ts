@@ -38,7 +38,10 @@ export function useWorkApi() {
       projects: () => req<Project[]>('GET', '/v1/projects'),
       createProject: (b: CreateProjectRequest) => req<Project>('POST', '/v1/projects', b),
       records: (conversationId: string) =>
-        req<RecordWithActions[]>('GET', `/v1/integrations/records?conversationId=${conversationId}`),
+        req<RecordWithActions[]>(
+          'GET',
+          `/v1/integrations/records?conversationId=${conversationId}`,
+        ),
       runAction: (linkId: string, action: string, note: string, messageId?: string) =>
         req<ModuleAction>('POST', `/v1/integrations/records/${linkId}/actions`, {
           action,
@@ -56,7 +59,10 @@ export function useWorkApi() {
 function useCachedList<T>(
   cacheKey: string,
   fetcher: () => Promise<T[]>,
-  live: (prev: T[], e: { type: 'task'; task: Task } | { type: 'approval'; approval: Approval }) => T[] | null,
+  live: (
+    prev: T[],
+    e: { type: 'task'; task: Task } | { type: 'approval'; approval: Approval },
+  ) => T[] | null,
 ) {
   const { db, engine, state } = useEngine();
   const [items, setItems] = React.useState<T[] | null>(null);
@@ -66,22 +72,27 @@ function useCachedList<T>(
   fetchRef.current = fetcher;
   const liveRef = React.useRef(live);
   liveRef.current = live;
+  const keyRef = React.useRef(cacheKey);
+  keyRef.current = cacheKey;
 
   const refresh = React.useCallback(async () => {
     try {
       const v = await fetchRef.current();
+      // The list switched (another conversation) while this was in flight.
+      if (keyRef.current !== cacheKey) return;
       setItems(v);
       setError(null);
       void db.meta.put({ key: cacheKey, value: v });
     } catch (e) {
-      setError((e as Error).message);
+      if (keyRef.current === cacheKey) setError((e as Error).message);
     }
   }, [db, cacheKey]);
 
   React.useEffect(() => {
     setItems(null);
+    setError(null);
     void db.meta.get(cacheKey).then((row) => {
-      if (row) setItems((s) => s ?? (row.value as T[]));
+      if (row && keyRef.current === cacheKey) setItems((s) => s ?? (row.value as T[]));
     });
   }, [db, cacheKey]);
   React.useEffect(() => {
@@ -108,12 +119,17 @@ function useCachedList<T>(
 
 const ACTIVE = new Set(['open', 'in_progress', 'blocked']);
 
-export function useTasks(scope: 'mine' | 'created' | 'conversation', me: string, conversationId?: string) {
+export function useTasks(
+  scope: 'mine' | 'created' | 'conversation',
+  me: string,
+  conversationId?: string,
+) {
   const api = useWorkApi();
   const q = `scope=${scope}&status=any${conversationId ? `&conversationId=${conversationId}` : ''}`;
   return useCachedList<Task>(
     `work.tasks.${scope}.${conversationId ?? ''}`,
-    () => api.tasks(q),
+    // A conversation list with no conversation open is simply empty.
+    () => (scope === 'conversation' && !conversationId ? Promise.resolve([]) : api.tasks(q)),
     (prev, e) => {
       if (e.type !== 'task') return prev;
       const t = e.task;
@@ -129,12 +145,16 @@ export function useTasks(scope: 'mine' | 'created' | 'conversation', me: string,
   );
 }
 
-export function useApprovals(scope: 'to_decide' | 'requested' | 'conversation', me: string, conversationId?: string) {
+export function useApprovals(
+  scope: 'to_decide' | 'requested' | 'conversation',
+  me: string,
+  conversationId?: string,
+) {
   const api = useWorkApi();
   const q = `scope=${scope}&status=any${conversationId ? `&conversationId=${conversationId}` : ''}`;
   return useCachedList<Approval>(
     `work.approvals.${scope}.${conversationId ?? ''}`,
-    () => api.approvals(q),
+    () => (scope === 'conversation' && !conversationId ? Promise.resolve([]) : api.approvals(q)),
     (prev, e) => {
       if (e.type !== 'approval') return prev;
       const a = e.approval;
@@ -153,7 +173,11 @@ export function useApprovals(scope: 'to_decide' | 'requested' | 'conversation', 
 export function useProjects() {
   const api = useWorkApi();
   // Counts change with every task: refetch on work events rather than patching locally.
-  return useCachedList<Project>('work.projects', () => api.projects(), () => null);
+  return useCachedList<Project>(
+    'work.projects',
+    () => api.projects(),
+    () => null,
+  );
 }
 
 export const isActiveTask = (t: Task) => ACTIVE.has(t.status);

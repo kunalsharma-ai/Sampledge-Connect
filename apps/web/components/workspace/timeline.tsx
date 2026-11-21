@@ -17,6 +17,7 @@ import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './messag
 import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
+import { ModuleActionCard, ModuleCard, WorkCard } from './work-cards';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -34,6 +35,8 @@ export function Timeline({
   onReply,
   offline = false,
   onOpenMeeting,
+  onCreateTask,
+  onRequestApproval,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -47,6 +50,8 @@ export function Timeline({
   onReply?: (m: LocalMessage) => void;
   offline?: boolean;
   onOpenMeeting?: (meta: MeetingSystemMetadata) => void;
+  onCreateTask?: (m: LocalMessage) => void;
+  onRequestApproval?: (m: LocalMessage) => void;
 }) {
   const reduce = useReducedMotion();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -137,6 +142,12 @@ export function Timeline({
                 />
               ) : m.messageType === 'system' && m.metadata?.recording && !m.deletedAt ? (
                 <CallRecordingCard message={m} me={me} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.module && !m.deletedAt ? (
+                <ModuleCard message={m} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.work && !m.deletedAt ? (
+                <WorkCard message={m} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.moduleAction && !m.deletedAt ? (
+                <ModuleActionCard message={m} directory={directory} />
               ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
                 <CallCard message={m} me={me} directory={directory} offline={offline} />
               ) : (
@@ -210,6 +221,10 @@ export function Timeline({
                             onReact(m, e, !mine);
                           }}
                           onReply={() => onReply(m)}
+                          onCreateTask={onCreateTask ? () => onCreateTask(m) : undefined}
+                          onRequestApproval={
+                            onRequestApproval ? () => onRequestApproval(m) : undefined
+                          }
                         />
                       ) : null}
                       {m.deletedAt || m.content.text ? (

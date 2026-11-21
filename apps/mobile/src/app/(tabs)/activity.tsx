@@ -27,6 +27,9 @@ const when = (iso: string) => {
 const VERB: Record<LocalNotification['kind'], string> = {
   mention: 'mentioned you',
   reply: 'replied to you',
+  task: 'gave you a task',
+  approval: 'needs your approval',
+  alert: 'posted an update',
 };
 
 /** Activity: mentions of you and replies to your messages, from the server feed cached on this device. */

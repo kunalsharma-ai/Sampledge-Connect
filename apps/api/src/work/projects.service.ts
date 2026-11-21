@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
-import {
-  CreateProjectRequestSchema,
-  type Project,
-  type RecordRef,
-} from '@sampledge/contracts';
+import { CreateProjectRequestSchema, type Project, type RecordRef } from '@sampledge/contracts';
 import { AppError, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
@@ -39,12 +35,21 @@ export class ProjectsService {
     const [tasks, approvals] = await Promise.all([
       w.tasks
         .aggregate<{ _id: string; open: number; overdue: number }>([
-          { $match: { conversationId: { $in: conversationIds }, status: { $in: ['open', 'in_progress', 'blocked'] } } },
+          {
+            $match: {
+              conversationId: { $in: conversationIds },
+              status: { $in: ['open', 'in_progress', 'blocked'] },
+            },
+          },
           {
             $group: {
               _id: '$conversationId',
               open: { $sum: 1 },
-              overdue: { $sum: { $cond: [{ $and: [{ $ne: ['$dueAt', null] }, { $lt: ['$dueAt', now] }] }, 1, 0] } },
+              overdue: {
+                $sum: {
+                  $cond: [{ $and: [{ $ne: ['$dueAt', null] }, { $lt: ['$dueAt', now] }] }, 1, 0],
+                },
+              },
             },
           },
         ])
@@ -62,10 +67,7 @@ export class ProjectsService {
     };
   }
 
-  private toDto(
-    p: ProjectDoc,
-    c: Awaited<ReturnType<ProjectsService['counts']>>,
-  ): Project {
+  private toDto(p: ProjectDoc, c: Awaited<ReturnType<ProjectsService['counts']>>): Project {
     const t = p.conversationId ? c.tasks.get(p.conversationId) : undefined;
     return {
       projectId: p._id,
@@ -89,13 +91,18 @@ export class ProjectsService {
 
   /** Projects whose channel the caller can read. */
   async list(ctx: TenantContext): Promise<Project[]> {
-    const readable = new Set((await this.conversations.listReadable(ctx)).map((c) => c.conversationId));
+    const readable = new Set(
+      (await this.conversations.listReadable(ctx)).map((c) => c.conversationId),
+    );
     const rows = await this.store
       .for(ctx.tenantId)
       .projects.find({}, { sort: { updatedAt: -1 }, limit: 500 })
       .toArray();
     const visible = rows.filter((p) => p.conversationId && readable.has(p.conversationId));
-    const c = await this.counts(ctx.tenantId, visible.map((p) => p.conversationId!));
+    const c = await this.counts(
+      ctx.tenantId,
+      visible.map((p) => p.conversationId!),
+    );
     return visible.map((p) => this.toDto(p, c));
   }
 
@@ -186,7 +193,8 @@ export class ProjectsService {
     conversationId: string | null,
     botId: string,
   ) {
-    if (!parent) throw new AppError('VALIDATION_FAILED', 'Milestone events need `parent` (the project)');
+    if (!parent)
+      throw new AppError('VALIDATION_FAILED', 'Milestone events need `parent` (the project)');
     await this.upsertFromSamptrek(tenantId, parent, {}, conversationId, [], botId);
     const w = this.store.for(tenantId);
     const p = await w.projects.findOne({ source: 'samptrek', externalId: parent.id });
@@ -208,6 +216,9 @@ export class ProjectsService {
       status,
     });
     ms.sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity));
-    await w.projects.updateOne({ _id: p._id }, { $set: { milestones: ms.slice(-50), updatedAt: new Date() } });
+    await w.projects.updateOne(
+      { _id: p._id },
+      { $set: { milestones: ms.slice(-50), updatedAt: new Date() } },
+    );
   }
 }

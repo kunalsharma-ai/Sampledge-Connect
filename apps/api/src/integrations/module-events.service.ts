@@ -143,7 +143,8 @@ export class ModuleEventsService {
       const prior = await w.integration_events.findOne({ module: m, eventId: e.eventId });
       if (!prior) throw err;
       // A failed attempt may be retried with the same eventId; anything else is a duplicate.
-      const stuck = prior.error === 'processing' && Date.now() - prior.receivedAt.getTime() > 120_000;
+      const stuck =
+        prior.error === 'processing' && Date.now() - prior.receivedAt.getTime() > 120_000;
       if (!(prior.status === 'failed' && (prior.error !== 'processing' || stuck)))
         return toResult(prior, true);
       await w.integration_events.updateOne(
@@ -158,7 +159,8 @@ export class ModuleEventsService {
       result = await this.process(tenantId, m, e, source, base);
     } catch (err) {
       const msg = err instanceof AppError ? err.message : 'Internal error while processing';
-      if (!(err instanceof AppError)) this.logger.error(`event ${m}/${e.eventId}: ${(err as Error).stack}`);
+      if (!(err instanceof AppError))
+        this.logger.error(`event ${m}/${e.eventId}: ${(err as Error).stack}`);
       result = { ...base, status: 'failed', error: msg };
     }
     await w.integration_events.updateOne(
@@ -231,10 +233,25 @@ export class ModuleEventsService {
 
     await this.records.updateRecordFacts(tenantId, record._id, scalarFacts(e, def.facts), e.type);
     if (def.project === 'upsert') {
-      await this.projects.upsertFromSamptrek(tenantId, e.record, e.data, conversationId, people.userIds, botId);
+      await this.projects.upsertFromSamptrek(
+        tenantId,
+        e.record,
+        e.data,
+        conversationId,
+        people.userIds,
+        botId,
+      );
       actions.push('project.updated');
     } else if (def.project === 'milestone') {
-      await this.projects.milestone(tenantId, e.parent, e.record, e.type, e.data, conversationId, botId);
+      await this.projects.milestone(
+        tenantId,
+        e.parent,
+        e.record,
+        e.type,
+        e.data,
+        conversationId,
+        botId,
+      );
       actions.push('milestone.updated');
     }
 
@@ -252,7 +269,10 @@ export class ModuleEventsService {
         ? (e.data.priority as (typeof PRIORITIES)[number])
         : def.task.priority;
       const t = await this.tasks.createFromModule(tenantId, {
-        title: (def.type === 'task.assigned' ? e.record.title : (e.summary ?? e.record.title)).slice(0, 200),
+        title: (def.type === 'task.assigned'
+          ? e.record.title
+          : (e.summary ?? e.record.title)
+        ).slice(0, 200),
         description: e.summary ?? '',
         kind: def.task.kind,
         priority,
@@ -297,14 +317,23 @@ export class ModuleEventsService {
       eventType: e.type,
       eventLabel: def.label,
       tone: def.tone,
-      record: { type: e.record.type, id: e.record.id, title: e.record.title, url: e.record.url ?? null },
+      record: {
+        type: e.record.type,
+        id: e.record.id,
+        title: e.record.title,
+        url: e.record.url ?? null,
+      },
       facts,
       taskId,
       approvalId,
       test: source === 'admin_test',
     };
     const summary = e.summary ?? def.description;
-    const text = `${source === 'admin_test' ? '[Test] ' : ''}${def.label} · ${e.record.title}: ${summary}`.slice(0, 4000);
+    const text =
+      `${source === 'admin_test' ? '[Test] ' : ''}${def.label} · ${e.record.title}: ${summary}`.slice(
+        0,
+        4000,
+      );
     const msg = await this.records.postCard(tenantId, m, conversationId, text, { module: card });
     actions.push('card.posted');
     if (approvalId) await this.approvals.attachCard(tenantId, approvalId, msg._id);
@@ -350,7 +379,13 @@ export class ModuleEventsService {
         occurredAt: new Date().toISOString(),
         record: { ...ex.record, id: `TEST-${ex.record.id}`, title: `${ex.record.title} (test)` },
         ...(ex.parent
-          ? { parent: { ...ex.parent, id: `TEST-${ex.parent.id}`, title: `${ex.parent.title} (test)` } }
+          ? {
+              parent: {
+                ...ex.parent,
+                id: `TEST-${ex.parent.id}`,
+                title: `${ex.parent.title} (test)`,
+              },
+            }
           : {}),
         people: [{ email: me.email }],
         summary: ex.summary,

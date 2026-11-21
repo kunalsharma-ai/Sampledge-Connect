@@ -121,7 +121,10 @@ export const MODULE_CATALOG: Record<SampledgeModule, ModuleDef> = {
       { label: 'Task assignments', how: 'task.assigned creates a Connect task for the assignee' },
       { label: 'Escalation workflows', how: 'project.escalated: urgent escalation task + alert' },
       { label: 'Deadline notifications', how: 'deadline.approaching notifies the people named' },
-      { label: 'Project-linked attachments', how: 'file.linked posts the file link in the channel' },
+      {
+        label: 'Project-linked attachments',
+        how: 'file.linked posts the file link in the channel',
+      },
       { label: 'Chat-to-task conversion', how: 'Create task from a message; sent to Samptrek' },
     ],
     events: [
@@ -762,11 +765,17 @@ export const MODULE_CATALOG: Record<SampledgeModule, ModuleDef> = {
     ],
     features: [
       { label: 'Employee announcements', how: 'announcement.published posts in #announcements' },
-      { label: 'Onboarding communication', how: 'onboarding.started opens a private onboarding chat' },
+      {
+        label: 'Onboarding communication',
+        how: 'onboarding.started opens a private onboarding chat',
+      },
       { label: 'Leave notifications', how: 'leave.requested approval, leave.decided card' },
       { label: 'HR support channels', how: 'hr.case.opened opens a private case chat with HR' },
       { label: 'Internal policy discussions', how: 'policy.published posts in #policies' },
-      { label: 'Employee directory', how: 'employee.synced links SampCrew people to Connect users' },
+      {
+        label: 'Employee directory',
+        how: 'employee.synced links SampCrew people to Connect users',
+      },
       {
         label: 'Permission-sensitive HR conversations',
         how: 'Employee, leave and case chats are private to the people named',
@@ -942,7 +951,10 @@ export const MODULE_CATALOG: Record<SampledgeModule, ModuleDef> = {
         example: {
           record: { type: 'invoice', id: 'INV-2026-118', title: 'Invoice INV-2026-118' },
           summary: 'Payment due in 3 days',
-          data: { amount: { amountMinor: 1875000, currency: 'EUR' }, dueAt: '2026-12-15T00:00:00.000Z' },
+          data: {
+            amount: { amountMinor: 1875000, currency: 'EUR' },
+            dueAt: '2026-12-15T00:00:00.000Z',
+          },
         },
       },
       {
@@ -1069,6 +1081,8 @@ export function formatFact(format: FactFormat, value: unknown): string | null {
     case 'url':
       return typeof value === 'string' && /^https?:\/\//.test(value) ? value : null;
     default:
-      return typeof value === 'string' || typeof value === 'number' ? String(value).slice(0, 200) : null;
+      return typeof value === 'string' || typeof value === 'number'
+        ? String(value).slice(0, 200)
+        : null;
   }
 }

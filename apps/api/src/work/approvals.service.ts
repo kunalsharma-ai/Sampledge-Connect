@@ -141,9 +141,16 @@ export class ApprovalsService {
     } else if (req.sourceMessageId) {
       throw new AppError('VALIDATION_FAILED', 'sourceMessageId needs its conversationId');
     }
-    const approverIds = await this.checkApprovers(ctx.tenantId, req.approverIds, req.conversationId);
+    const approverIds = await this.checkApprovers(
+      ctx.tenantId,
+      req.approverIds,
+      req.conversationId,
+    );
     if (approverIds.includes(ctx.userId) && approverIds.length === 1)
-      throw new AppError('VALIDATION_FAILED', 'You cannot be the only approver of your own request');
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'You cannot be the only approver of your own request',
+      );
     const doc = await this.insert(ctx.tenantId, {
       title: req.title,
       description: req.description,
@@ -190,7 +197,10 @@ export class ApprovalsService {
 
   private async insert(
     tenantId: string,
-    d: Omit<ApprovalDoc, '_id' | 'tenantId' | 'status' | 'decisions' | 'createdAt' | 'decidedAt' | 'cardMessageId'>,
+    d: Omit<
+      ApprovalDoc,
+      '_id' | 'tenantId' | 'status' | 'decisions' | 'createdAt' | 'decidedAt' | 'cardMessageId'
+    >,
   ) {
     try {
       const doc = await this.store.for(tenantId).approvals.insertOne({
@@ -204,7 +214,9 @@ export class ApprovalsService {
       return { doc, duplicate: false };
     } catch (e) {
       if (e instanceof MongoServerError && e.code === 11000 && d.requestKey) {
-        const prior = await this.store.for(tenantId).approvals.findOne({ requestKey: d.requestKey });
+        const prior = await this.store
+          .for(tenantId)
+          .approvals.findOne({ requestKey: d.requestKey });
         if (prior) return { doc: prior, duplicate: true };
       }
       throw e;
@@ -248,7 +260,12 @@ export class ApprovalsService {
           .catch((e) => this.log.warn(`approval notify: ${String(e)}`));
     }
     this.broadcast(tenantId, doc);
-    void this.webhooks.emit(tenantId, 'approval.requested', toApproval(doc), doc.record?.module ?? null);
+    void this.webhooks.emit(
+      tenantId,
+      'approval.requested',
+      toApproval(doc),
+      doc.record?.module ?? null,
+    );
     return doc;
   }
 
@@ -268,23 +285,36 @@ export class ApprovalsService {
   async decide(ctx: TenantContext, id: string, body: unknown): Promise<Approval> {
     const req = parse(DecideApprovalRequestSchema, body);
     const a = await this.load(ctx, id);
-    if (!a.approverIds.includes(ctx.userId)) throw forbidden('You are not an approver of this request');
-    if (a.status !== 'pending') throw new AppError('CONFLICT', `This request is already ${a.status}`);
+    if (!a.approverIds.includes(ctx.userId))
+      throw forbidden('You are not an approver of this request');
+    if (a.status !== 'pending')
+      throw new AppError('CONFLICT', `This request is already ${a.status}`);
     if (a.decisions.some((d) => d.userId === ctx.userId))
       throw new AppError('CONFLICT', 'You already decided');
-    const decisions = [...a.decisions, { userId: ctx.userId, decision: req.decision, comment: req.comment, at: new Date() }];
+    const decisions = [
+      ...a.decisions,
+      { userId: ctx.userId, decision: req.decision, comment: req.comment, at: new Date() },
+    ];
     let status: ApprovalDoc['status'] = 'pending';
     if (req.decision === 'reject') status = 'rejected';
     else if (a.policy === 'any') status = 'approved';
-    else if (a.approverIds.every((u) => decisions.some((d) => d.userId === u && d.decision === 'approve')))
+    else if (
+      a.approverIds.every((u) => decisions.some((d) => d.userId === u && d.decision === 'approve'))
+    )
       status = 'approved';
     const updated = await this.store.for(ctx.tenantId).approvals.findOneAndUpdate(
       // Optimistic concurrency: only if nobody decided in between.
-      { _id: id, status: 'pending', 'decisions.userId': { $ne: ctx.userId }, decisions: { $size: a.decisions.length } },
+      {
+        _id: id,
+        status: 'pending',
+        'decisions.userId': { $ne: ctx.userId },
+        decisions: { $size: a.decisions.length },
+      },
       { $set: { decisions, status, decidedAt: status === 'pending' ? null : new Date() } },
       { returnDocument: 'after' },
     );
-    if (!updated) throw new AppError('CONFLICT', 'Someone decided at the same time; reload and try again');
+    if (!updated)
+      throw new AppError('CONFLICT', 'Someone decided at the same time; reload and try again');
     await this.audit.record({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,
@@ -300,7 +330,8 @@ export class ApprovalsService {
     const a = await this.load(ctx, id);
     const admin = ctx.role === 'owner' || ctx.role === 'admin';
     if (a.requesterId !== ctx.userId && !admin) throw forbidden();
-    if (a.status !== 'pending') throw new AppError('CONFLICT', `This request is already ${a.status}`);
+    if (a.status !== 'pending')
+      throw new AppError('CONFLICT', `This request is already ${a.status}`);
     const updated = (await this.store
       .for(ctx.tenantId)
       .approvals.findOneAndUpdate(
@@ -335,7 +366,9 @@ export class ApprovalsService {
     }
     void this.webhooks.emit(tenantId, 'approval.decided', toApproval(a), a.record?.module ?? null);
     if (a.record && a.status !== 'cancelled') {
-      const auto = MODULE_CATALOG[a.record.module].actions.find((x) => x.automatic === 'approval.decided');
+      const auto = MODULE_CATALOG[a.record.module].actions.find(
+        (x) => x.automatic === 'approval.decided',
+      );
       if (auto)
         await this.actions.run(
           tenantId,
@@ -367,7 +400,8 @@ export class ApprovalsService {
         filter.requesterId = ctx.userId;
         break;
       case 'conversation':
-        if (!q.conversationId) throw new AppError('VALIDATION_FAILED', 'conversationId is required');
+        if (!q.conversationId)
+          throw new AppError('VALIDATION_FAILED', 'conversationId is required');
         await this.conversations.authorize(ctx, q.conversationId, 'conversation.read');
         filter.conversationId = q.conversationId;
         break;

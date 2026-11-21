@@ -25,7 +25,8 @@ class MemoryStorage {
 const until = async (c: WidgetClient, pred: (s: WidgetState) => boolean, ms = 5000) => {
   const end = Date.now() + ms;
   while (!pred(c.getState())) {
-    if (Date.now() > end) throw new Error(`timeout; state ${JSON.stringify({ ...c.getState(), people: undefined })}`);
+    if (Date.now() > end)
+      throw new Error(`timeout; state ${JSON.stringify({ ...c.getState(), people: undefined })}`);
     await new Promise((r) => setTimeout(r, 50));
   }
   return c.getState();
@@ -66,11 +67,15 @@ describe('chat widget engine', () => {
     expect(c.getState().conversation!.name).toBe('Fabrikam brand health 2027');
 
     c.send('Hello from SampForce');
-    const s = await until(c, (x) => x.messages.some((m) => m.content.text === 'Hello from SampForce'));
+    const s = await until(c, (x) =>
+      x.messages.some((m) => m.content.text === 'Hello from SampForce'),
+    );
     expect(s.pending).toHaveLength(0);
 
     // Someone in the full Connect app answers; the widget sees it live.
-    await api(h, 'POST', `/v1/conversations/${session.conversationId}/join`, { token: owner.accessToken });
+    await api(h, 'POST', `/v1/conversations/${session.conversationId}/join`, {
+      token: owner.accessToken,
+    });
     await api(h, 'POST', `/v1/conversations/${session.conversationId}/messages`, {
       token: owner.accessToken,
       body: {
@@ -103,9 +108,16 @@ describe('chat widget engine', () => {
     down = false;
     const c2 = new WidgetClient({ apiUrl: h.url, session, storage, fetch: flaky });
     await c2.start();
-    await until(c2, (s) => s.pending.length === 0 && s.messages.some((m) => m.content.text === 'Written while offline'));
+    await until(
+      c2,
+      (s) =>
+        s.pending.length === 0 &&
+        s.messages.some((m) => m.content.text === 'Written while offline'),
+    );
     const all = (
-      await api<Message[]>(h, 'GET', `/v1/conversations/${session.conversationId}/messages`, { token: omar.accessToken })
+      await api<Message[]>(h, 'GET', `/v1/conversations/${session.conversationId}/messages`, {
+        token: omar.accessToken,
+      })
     ).body;
     expect(all.filter((m) => m.content.text === 'Written while offline')).toHaveLength(1);
     expect(storage.m.size).toBe(0);

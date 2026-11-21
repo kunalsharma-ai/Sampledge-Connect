@@ -56,7 +56,10 @@ export function useConnectChat(opts: {
   return { client, state };
 }
 
-const TONE: Record<ModuleCardMetadata['tone'], keyof (typeof THEMES)['midnight-executive']['colors']> = {
+const TONE: Record<
+  ModuleCardMetadata['tone'],
+  keyof (typeof THEMES)['midnight-executive']['colors']
+> = {
   info: 'info',
   success: 'success',
   warning: 'warning',
@@ -112,7 +115,11 @@ export function ConnectChat(props: ConnectChatProps) {
             ? 'Unavailable'
             : 'Connecting…';
   const statusColor =
-    status === 'online' ? colors.success : status === 'offline' || status === 'connecting' ? colors.warning : colors.danger;
+    status === 'online'
+      ? colors.success
+      : status === 'offline' || status === 'connecting'
+        ? colors.warning
+        : colors.danger;
   const name = (id: string) => state?.people.get(id)?.displayName ?? 'Someone';
   const submit = () => {
     if (!draft.trim() || !client) return;
@@ -167,10 +174,26 @@ export function ConnectChat(props: ConnectChatProps) {
           #
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div
+            style={{
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {title}
           </div>
-          <div role="status" style={{ fontSize: 12, color: 'var(--sc-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div
+            role="status"
+            style={{
+              fontSize: 12,
+              color: 'var(--sc-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
             <span style={{ width: 7, height: 7, borderRadius: 99, background: statusColor }} />
             {statusLabel}
             {state?.conversation ? ` · ${state.conversation.memberIds.length} members` : ''}
@@ -181,18 +204,36 @@ export function ConnectChat(props: ConnectChatProps) {
             href={`${props.connectWebUrl.replace(/\/+$/, '')}/app?c=${state.conversation.conversationId}`}
             target="_blank"
             rel="noreferrer"
-            style={{ fontSize: 12, color: 'var(--sc-accent)', textDecoration: 'none', fontWeight: 600 }}
+            style={{
+              fontSize: 12,
+              color: 'var(--sc-accent)',
+              textDecoration: 'none',
+              fontWeight: 600,
+            }}
           >
             Open in Connect ↗
           </a>
         ) : null}
       </header>
 
-      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div
+        ref={listRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
         {!state || (status === 'connecting' && !state.messages.length) ? (
           <p style={{ color: 'var(--sc-subtle)', margin: 'auto' }}>Loading conversation…</p>
         ) : state.error ? (
-          <p role="alert" style={{ color: 'var(--sc-danger)', margin: 'auto', textAlign: 'center' }}>
+          <p
+            role="alert"
+            style={{ color: 'var(--sc-danger)', margin: 'auto', textAlign: 'center' }}
+          >
             {state.error}
           </p>
         ) : state.messages.length === 0 && state.pending.length === 0 ? (
@@ -201,10 +242,20 @@ export function ConnectChat(props: ConnectChatProps) {
           </p>
         ) : null}
         {state?.messages.map((m) => (
-          <MessageRow key={m.messageId} m={m} own={m.senderId === state.userId} name={name(m.senderId)} />
+          <MessageRow
+            key={m.messageId}
+            m={m}
+            own={m.senderId === state.userId}
+            name={name(m.senderId)}
+          />
         ))}
         {state?.pending.map((p) => (
-          <PendingRow key={p.clientMessageId} p={p} onRetry={() => client?.retry(p.clientMessageId)} onDiscard={() => client?.discard(p.clientMessageId)} />
+          <PendingRow
+            key={p.clientMessageId}
+            p={p}
+            onRetry={() => client?.retry(p.clientMessageId)}
+            onDiscard={() => client?.discard(p.clientMessageId)}
+          />
         ))}
       </div>
 
@@ -227,7 +278,11 @@ export function ConnectChat(props: ConnectChatProps) {
             }
           }}
           rows={1}
-          placeholder={status === 'offline' ? 'Offline: your message will send when you reconnect' : 'Write a message…'}
+          placeholder={
+            status === 'offline'
+              ? 'Offline: your message will send when you reconnect'
+              : 'Write a message…'
+          }
           style={{
             flex: 1,
             resize: 'none',
@@ -266,7 +321,9 @@ export function ConnectChat(props: ConnectChatProps) {
 function MessageRow({ m, own, name }: { m: Message; own: boolean; name: string }) {
   const card = m.metadata.module as ModuleCardMetadata | undefined;
   if (m.deletedAt)
-    return <p style={{ color: 'var(--sc-subtle)', fontStyle: 'italic', margin: 0 }}>Message deleted</p>;
+    return (
+      <p style={{ color: 'var(--sc-subtle)', fontStyle: 'italic', margin: 0 }}>Message deleted</p>
+    );
   if (card) return <ModuleCard card={card} text={m.content.text} at={m.createdAt} />;
   if (m.messageType === 'system')
     return (
@@ -276,7 +333,9 @@ function MessageRow({ m, own, name }: { m: Message; own: boolean; name: string }
     );
   return (
     <div style={{ alignSelf: own ? 'flex-end' : 'flex-start', maxWidth: '82%' }}>
-      {!own ? <div style={{ fontSize: 12, color: 'var(--sc-muted)', marginBottom: 2 }}>{name}</div> : null}
+      {!own ? (
+        <div style={{ fontSize: 12, color: 'var(--sc-muted)', marginBottom: 2 }}>{name}</div>
+      ) : null}
       <div
         style={{
           padding: '8px 12px',
@@ -289,7 +348,14 @@ function MessageRow({ m, own, name }: { m: Message; own: boolean; name: string }
       >
         {m.content.text}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--sc-subtle)', marginTop: 2, textAlign: own ? 'right' : 'left' }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--sc-subtle)',
+          marginTop: 2,
+          textAlign: own ? 'right' : 'left',
+        }}
+      >
         {time(m.createdAt)}
         {own ? ' · Sent' : ''}
         {m.editedAt ? ' · edited' : ''}
@@ -311,7 +377,15 @@ function ModuleCard({ card, text, at }: { card: ModuleCardMetadata; text: string
         background: 'var(--sc-raised)',
       }}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, color: 'var(--sc-muted)' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'baseline',
+          fontSize: 12,
+          color: 'var(--sc-muted)',
+        }}
+      >
         <strong style={{ color }}>{card.eventLabel}</strong>
         <span>{MODULE_CATALOG[card.module].name}</span>
         {card.test ? <span style={{ color: 'var(--sc-warning)' }}>Test</span> : null}
@@ -320,13 +394,26 @@ function ModuleCard({ card, text, at }: { card: ModuleCardMetadata; text: string
       <div style={{ fontWeight: 600, marginTop: 2 }}>{card.record.title}</div>
       <div style={{ color: 'var(--sc-muted)' }}>{summary}</div>
       {card.facts.length ? (
-        <dl style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', margin: '6px 0 0', fontSize: 12.5 }}>
+        <dl
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '4px 16px',
+            margin: '6px 0 0',
+            fontSize: 12.5,
+          }}
+        >
           {card.facts.map((f) => (
             <div key={f.label} style={{ display: 'flex', gap: 4 }}>
               <dt style={{ color: 'var(--sc-subtle)' }}>{f.label}</dt>
               <dd style={{ margin: 0 }}>
                 {/^https?:\/\//.test(f.value) ? (
-                  <a href={f.value} target="_blank" rel="noreferrer" style={{ color: 'var(--sc-accent)' }}>
+                  <a
+                    href={f.value}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: 'var(--sc-accent)' }}
+                  >
                     Open link
                   </a>
                 ) : (
@@ -341,22 +428,40 @@ function ModuleCard({ card, text, at }: { card: ModuleCardMetadata; text: string
   );
 }
 
-function PendingRow({ p, onRetry, onDiscard }: { p: PendingMessage; onRetry: () => void; onDiscard: () => void }) {
+function PendingRow({
+  p,
+  onRetry,
+  onDiscard,
+}: {
+  p: PendingMessage;
+  onRetry: () => void;
+  onDiscard: () => void;
+}) {
   return (
-    <div style={{ alignSelf: 'flex-end', maxWidth: '82%', opacity: p.state === 'failed' ? 1 : 0.75 }}>
+    <div
+      style={{ alignSelf: 'flex-end', maxWidth: '82%', opacity: p.state === 'failed' ? 1 : 0.75 }}
+    >
       <div
         style={{
           padding: '8px 12px',
           borderRadius: 14,
           background: 'var(--sc-accent-soft)',
           color: 'var(--sc-text)',
-          border: p.state === 'failed' ? '1px solid var(--sc-danger)' : '1px dashed var(--sc-accent)',
+          border:
+            p.state === 'failed' ? '1px solid var(--sc-danger)' : '1px dashed var(--sc-accent)',
           whiteSpace: 'pre-wrap',
         }}
       >
         {p.text}
       </div>
-      <div style={{ fontSize: 11, marginTop: 2, textAlign: 'right', color: p.state === 'failed' ? 'var(--sc-danger)' : 'var(--sc-subtle)' }}>
+      <div
+        style={{
+          fontSize: 11,
+          marginTop: 2,
+          textAlign: 'right',
+          color: p.state === 'failed' ? 'var(--sc-danger)' : 'var(--sc-subtle)',
+        }}
+      >
         {p.state === 'failed' ? (
           <>
             Not sent{p.error ? `: ${p.error}` : ''} ·{' '}

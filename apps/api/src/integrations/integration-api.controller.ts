@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
   CreateWidgetSessionRequestSchema,
@@ -24,7 +35,13 @@ import { toMessage } from '../messages/message.mapper.js';
 import { WorkStore } from './collections.js';
 import type { IdentityLinkDoc } from './docs.js';
 import { ModuleEventsService } from './module-events.service.js';
-import { ModuleCaller, ModuleKeyGuard, ModuleKeysService, RawBody, type ModulePrincipal } from './module-keys.service.js';
+import {
+  ModuleCaller,
+  ModuleKeyGuard,
+  ModuleKeysService,
+  RawBody,
+  type ModulePrincipal,
+} from './module-keys.service.js';
 import { RecordsService, toLinkedRecord } from './records.service.js';
 import { verifySignature } from './signing.js';
 
@@ -122,7 +139,10 @@ export class IntegrationApiController {
   }
 
   @Get('records/:type/:id')
-  async getRecord(@ModuleCaller() p: ModulePrincipal, @Param() params: unknown): Promise<LinkedRecord> {
+  async getRecord(
+    @ModuleCaller() p: ModulePrincipal,
+    @Param() params: unknown,
+  ): Promise<LinkedRecord> {
     const { type, id } = parse(RecordParams, params);
     const r = await this.records.findRecord(p.tenantId, p.module, type, id);
     if (!r) throw notFound('Record');
@@ -183,7 +203,11 @@ export class IntegrationApiController {
     } catch (e) {
       if (e instanceof MongoServerError && e.code === 11000) {
         const prior = await w.integration_events.findOne({ module: p.module, eventId });
-        return { duplicate: true, conversationId: r.conversationId, messageId: prior?.messageId ?? null };
+        return {
+          duplicate: true,
+          conversationId: r.conversationId,
+          messageId: prior?.messageId ?? null,
+        };
       }
       throw e;
     }
@@ -195,7 +219,13 @@ export class IntegrationApiController {
     });
     await w.integration_events.updateOne(
       { module: p.module, eventId },
-      { $set: { messageId: msg._id, actions: ['message.posted'], unmatchedPeople: people.unmatched } },
+      {
+        $set: {
+          messageId: msg._id,
+          actions: ['message.posted'],
+          unmatchedPeople: people.unmatched,
+        },
+      },
     );
     if (people.userIds.length)
       await this.notifications.notifyAbout(
@@ -205,7 +235,12 @@ export class IntegrationApiController {
         'alert',
         MODULE_CATALOG[p.module].name,
       );
-    return { duplicate: false, conversationId: r.conversationId, messageId: msg._id, unmatchedPeople: people.unmatched };
+    return {
+      duplicate: false,
+      conversationId: r.conversationId,
+      messageId: msg._id,
+      unmatchedPeople: people.unmatched,
+    };
   }
 
   /** PUT /v1/integration/identities: link a module user id to a Connect user. */

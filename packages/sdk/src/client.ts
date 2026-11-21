@@ -86,7 +86,12 @@ export class ConnectClient {
         message?: string;
         details?: unknown;
       };
-      throw new ConnectError(res.status, err.code ?? 'HTTP_ERROR', err.message ?? `HTTP ${res.status}`, err.details);
+      throw new ConnectError(
+        res.status,
+        err.code ?? 'HTTP_ERROR',
+        err.message ?? `HTTP ${res.status}`,
+        err.details,
+      );
     }
     return json as T;
   }
@@ -124,16 +129,20 @@ export class ConnectClient {
   }
 
   getRecord(recordType: string, externalId: string) {
-    return this.request<LinkedRecord>('GET', `/v1/integration/records/${enc(recordType)}/${enc(externalId)}`);
+    return this.request<LinkedRecord>(
+      'GET',
+      `/v1/integration/records/${enc(recordType)}/${enc(externalId)}`,
+    );
   }
 
   /** Post into a record's conversation as your module (idempotent per idempotencyKey). */
   postMessage(recordType: string, externalId: string, req: PostRecordMessageRequest) {
-    return this.request<{ duplicate: boolean; conversationId: string; messageId: string | null; unmatchedPeople?: string[] }>(
-      'POST',
-      `/v1/integration/records/${enc(recordType)}/${enc(externalId)}/messages`,
-      req,
-    );
+    return this.request<{
+      duplicate: boolean;
+      conversationId: string;
+      messageId: string | null;
+      unmatchedPeople?: string[];
+    }>('POST', `/v1/integration/records/${enc(recordType)}/${enc(externalId)}/messages`, req);
   }
 
   /** Recent messages of a record's conversation, newest first (linked conversation history). */

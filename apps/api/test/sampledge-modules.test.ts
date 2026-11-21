@@ -20,7 +20,15 @@ import type {
   WidgetSession,
 } from '@sampledge/contracts';
 import { signPayload, verifySignature } from '../src/integrations/signing.js';
-import { api, connect, inviteAndLogin, nextEvent, registerTenant, startHarness, type Harness } from './harness.js';
+import {
+  api,
+  connect,
+  inviteAndLogin,
+  nextEvent,
+  registerTenant,
+  startHarness,
+  type Harness,
+} from './harness.js';
 
 let h: Harness;
 let owner: Session;
@@ -61,7 +69,11 @@ async function issueKeys(module: string) {
 }
 
 /** Sends a module event the way the SDK does: Bearer key + HMAC signature over the raw body. */
-async function sendEvent(creds: ModuleCredentials, event: ModuleEventInput, opts: { sign?: string | null } = {}) {
+async function sendEvent(
+  creds: ModuleCredentials,
+  event: ModuleEventInput,
+  opts: { sign?: string | null } = {},
+) {
   const body = JSON.stringify(event);
   const res = await fetch(`${h.url}/v1/integration/events`, {
     method: 'POST',
@@ -82,7 +94,11 @@ const moduleApi = <T>(creds: ModuleCredentials, method: string, path: string, bo
   api<T>(h, method, path, { token: creds.connectApiKey, body });
 
 const messagesIn = async (s: Session, conversationId: string) =>
-  (await api<Message[]>(h, 'GET', `/v1/conversations/${conversationId}/messages`, { token: s.accessToken })).body;
+  (
+    await api<Message[]>(h, 'GET', `/v1/conversations/${conversationId}/messages`, {
+      token: s.accessToken,
+    })
+  ).body;
 
 async function waitFor<T>(fn: () => T | undefined | Promise<T | undefined>, ms = 6000): Promise<T> {
   const until = Date.now() + ms;
@@ -127,7 +143,9 @@ afterAll(async () => {
 
 describe('module connection', () => {
   it('settings live in the database; status lists what live mode still needs', async () => {
-    const r = await api<ModuleIntegration[]>(h, 'GET', '/v1/integrations/modules', { token: owner.accessToken });
+    const r = await api<ModuleIntegration[]>(h, 'GET', '/v1/integrations/modules', {
+      token: owner.accessToken,
+    });
     expect(r.status).toBe(200);
     expect(r.body).toHaveLength(7);
     const st = r.body.find((m) => m.module === 'samptrek')!;
@@ -140,12 +158,19 @@ describe('module connection', () => {
   it('only admins can manage modules', async () => {
     const r = await api(h, 'GET', '/v1/integrations/modules', { token: ravi.accessToken });
     expect(r.status).toBe(403);
-    const k = await api(h, 'POST', '/v1/integrations/modules/samptrek/keys', { token: ravi.accessToken, body: {} });
+    const k = await api(h, 'POST', '/v1/integrations/modules/samptrek/keys', {
+      token: ravi.accessToken,
+      body: {},
+    });
     expect(k.status).toBe(403);
   });
 
   it('authenticates the module server by its Connect API key', async () => {
-    const me = await moduleApi<{ module: string; tenantId: string }>(samptrek, 'GET', '/v1/integration/me');
+    const me = await moduleApi<{ module: string; tenantId: string }>(
+      samptrek,
+      'GET',
+      '/v1/integration/me',
+    );
     expect(me.status).toBe(200);
     expect(me.body).toMatchObject({ module: 'samptrek', tenantId: owner.tenant.tenantId });
     const bad = await api(h, 'GET', '/v1/integration/me', { token: 'sk_samptrek_nope' });
@@ -162,8 +187,15 @@ describe('module connection', () => {
       record: { type: 'project', id: 'P-SIG', title: 'Sig test' },
     };
     expect((await sendEvent(samptrek, ev, { sign: null })).status).toBe(401);
-    expect((await sendEvent(samptrek, ev, { sign: signPayload('wrong-secret', JSON.stringify(ev)) })).status).toBe(401);
-    const stale = signPayload(samptrek.signingSecret!, JSON.stringify(ev), Date.now() - 10 * 60_000);
+    expect(
+      (await sendEvent(samptrek, ev, { sign: signPayload('wrong-secret', JSON.stringify(ev)) }))
+        .status,
+    ).toBe(401);
+    const stale = signPayload(
+      samptrek.signingSecret!,
+      JSON.stringify(ev),
+      Date.now() - 10 * 60_000,
+    );
     expect((await sendEvent(samptrek, ev, { sign: stale })).status).toBe(401);
   });
 });
@@ -177,25 +209,46 @@ describe('Samptrek adapter', () => {
     const r = await sendEvent(samptrek, {
       eventId: 'evt-1',
       type: 'project.created',
-      record: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1', url: 'https://samptrek.example/p/1042' },
-      people: [{ email: email('Ravi Kumar'), externalUserId: 'st-ravi' }, { email: 'nobody@elsewhere.test' }],
+      record: {
+        type: 'project',
+        id: 'PRJ-1042',
+        title: 'Northwind tracker Q1',
+        url: 'https://samptrek.example/p/1042',
+      },
+      people: [
+        { email: email('Ravi Kumar'), externalUserId: 'st-ravi' },
+        { email: 'nobody@elsewhere.test' },
+      ],
       summary: 'New project',
       data: { status: 'active', dueAt: '2026-12-19T17:00:00.000Z', client: 'Northwind' },
     });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(r.body).toMatchObject({ status: 'processed', duplicate: false, unmatchedPeople: ['nobody@elsewhere.test'] });
-    expect(r.body.actions).toEqual(expect.arrayContaining(['conversation.created', 'project.updated', 'card.posted']));
+    expect(r.body).toMatchObject({
+      status: 'processed',
+      duplicate: false,
+      unmatchedPeople: ['nobody@elsewhere.test'],
+    });
+    expect(r.body.actions).toEqual(
+      expect.arrayContaining(['conversation.created', 'project.updated', 'card.posted']),
+    );
     projectConv = r.body.conversationId!;
     expect((await notified).conversationId).toBe(projectConv);
     sock.disconnect();
 
-    const conv = await api<Conversation>(h, 'GET', `/v1/conversations/${projectConv}`, { token: ravi.accessToken });
+    const conv = await api<Conversation>(h, 'GET', `/v1/conversations/${projectConv}`, {
+      token: ravi.accessToken,
+    });
     expect(conv.body).toMatchObject({ kind: 'channel_public', name: 'Northwind tracker Q1' });
     expect(conv.body.memberIds).toContain(ravi.user.userId);
 
     const card = (await messagesIn(ravi, projectConv)).find((m) => m.metadata.module)!;
     const meta = card.metadata.module as ModuleCardMetadata;
-    expect(meta).toMatchObject({ module: 'samptrek', eventType: 'project.created', tone: 'info', test: false });
+    expect(meta).toMatchObject({
+      module: 'samptrek',
+      eventType: 'project.created',
+      tone: 'info',
+      test: false,
+    });
     expect(meta.facts).toEqual(
       expect.arrayContaining([
         { label: 'Status', value: 'active' },
@@ -219,7 +272,11 @@ describe('Samptrek adapter', () => {
       { token: owner.accessToken },
     );
     expect(links.body).toContainEqual(
-      expect.objectContaining({ externalUserId: 'st-ravi', userId: ravi.user.userId, matchedBy: 'email' }),
+      expect.objectContaining({
+        externalUserId: 'st-ravi',
+        userId: ravi.user.userId,
+        matchedBy: 'email',
+      }),
     );
   });
 
@@ -230,7 +287,11 @@ describe('Samptrek adapter', () => {
       type: 'project.created',
       record: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1' },
     });
-    expect(r.body).toMatchObject({ duplicate: true, status: 'processed', conversationId: projectConv });
+    expect(r.body).toMatchObject({
+      duplicate: true,
+      status: 'processed',
+      conversationId: projectConv,
+    });
     expect((await messagesIn(ravi, projectConv)).length).toBe(before);
   });
 
@@ -262,24 +323,34 @@ describe('Samptrek adapter', () => {
       parent: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1' },
       data: { dueAt: '2026-11-24T17:00:00.000Z' },
     });
-    const p = (await api<Project[]>(h, 'GET', '/v1/projects', { token: ravi.accessToken })).body.find(
-      (x) => x.externalId === 'PRJ-1042',
-    )!;
+    const p = (
+      await api<Project[]>(h, 'GET', '/v1/projects', { token: ravi.accessToken })
+    ).body.find((x) => x.externalId === 'PRJ-1042')!;
     expect(p.milestones).toEqual([
-      { milestoneId: 'MS-7', title: 'Questionnaire sign-off', dueAt: '2026-11-24T17:00:00.000Z', status: 'due' },
+      {
+        milestoneId: 'MS-7',
+        title: 'Questionnaire sign-off',
+        dueAt: '2026-11-24T17:00:00.000Z',
+        status: 'due',
+      },
     ]);
     expect(p.openTasks).toBe(1);
   });
 
   it('chat-to-task in a project channel links the task and records the Samptrek push (test mode)', async () => {
-    const send = await api<{ message: Message }>(h, 'POST', `/v1/conversations/${projectConv}/messages`, {
-      token: ravi.accessToken,
-      body: {
-        conversationId: projectConv,
-        clientMessageId: crypto.randomUUID(),
-        content: { text: 'Can someone check the German quotas before Friday?', mentions: [] },
+    const send = await api<{ message: Message }>(
+      h,
+      'POST',
+      `/v1/conversations/${projectConv}/messages`,
+      {
+        token: ravi.accessToken,
+        body: {
+          conversationId: projectConv,
+          clientMessageId: crypto.randomUUID(),
+          content: { text: 'Can someone check the German quotas before Friday?', mentions: [] },
+        },
       },
-    });
+    );
     expect(send.status).toBe(200);
     const msgId = send.body.message.messageId;
     const clientRequestId = crypto.randomUUID();
@@ -302,9 +373,14 @@ describe('Samptrek adapter', () => {
     const again = await api<Task>(h, 'POST', '/v1/tasks', { token: ravi.accessToken, body });
     expect(again.body.taskId).toBe(t.body.taskId);
 
-    const actions = await api<ModuleAction[]>(h, 'GET', '/v1/integrations/actions?module=samptrek', {
-      token: owner.accessToken,
-    });
+    const actions = await api<ModuleAction[]>(
+      h,
+      'GET',
+      '/v1/integrations/actions?module=samptrek',
+      {
+        token: owner.accessToken,
+      },
+    );
     expect(actions.body[0]).toMatchObject({ type: 'task.created', status: 'test_mode' });
     expect((actions.body[0]!.payload.task as Task).title).toBe('Check German quotas');
 
@@ -318,7 +394,9 @@ describe('Samptrek adapter', () => {
       body: { status: 'done' },
     });
     expect(done.body.completedAt).toBeTruthy();
-    const updated = (await messagesIn(ravi, projectConv)).find((m) => m.messageId === card.messageId)!;
+    const updated = (await messagesIn(ravi, projectConv)).find(
+      (m) => m.messageId === card.messageId,
+    )!;
     expect(updated.content.text).toBe('Task: Check German quotas (Done)');
   });
 
@@ -331,15 +409,25 @@ describe('Samptrek adapter', () => {
       token: ravi.accessToken,
       body: { title: 'Private thing', conversationId: priv.body.conversationId },
     });
-    expect((await api(h, 'GET', `/v1/tasks/${t.body.taskId}`, { token: outsider.accessToken })).status).toBe(404);
     expect(
-      (await api(h, 'PATCH', `/v1/tasks/${t.body.taskId}`, { token: outsider.accessToken, body: { status: 'done' } }))
-        .status,
+      (await api(h, 'GET', `/v1/tasks/${t.body.taskId}`, { token: outsider.accessToken })).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(h, 'PATCH', `/v1/tasks/${t.body.taskId}`, {
+          token: outsider.accessToken,
+          body: { status: 'done' },
+        })
+      ).status,
     ).toBe(404);
     // Assignees must be able to read the conversation.
     const bad = await api(h, 'POST', '/v1/tasks', {
       token: ravi.accessToken,
-      body: { title: 'x', conversationId: priv.body.conversationId, assigneeIds: [outsider.user.userId] },
+      body: {
+        title: 'x',
+        conversationId: priv.body.conversationId,
+        assigneeIds: [outsider.user.userId],
+      },
     });
     expect(bad.status).toBe(400);
   });
@@ -351,17 +439,27 @@ describe('Samptrek adapter', () => {
       record: { type: 'project', id: 'PRJ-1042', title: 'Northwind tracker Q1' },
     });
     expect(r.body.status).toBe('ignored');
-    const log = await api<{ eventId: string; status: string }[]>(h, 'GET', '/v1/integrations/modules/samptrek/events', {
-      token: owner.accessToken,
-    });
+    const log = await api<{ eventId: string; status: string }[]>(
+      h,
+      'GET',
+      '/v1/integrations/modules/samptrek/events',
+      {
+        token: owner.accessToken,
+      },
+    );
     expect(log.body[0]).toMatchObject({ eventId: 'evt-x', status: 'ignored' });
   });
 
   it('admin "Send test event" runs the catalogue example, addressed to the admin, marked as a test', async () => {
-    const r = await api<ModuleEventResult>(h, 'POST', '/v1/integrations/modules/samptrek/test-event', {
-      token: owner.accessToken,
-      body: { type: 'milestone.reached' },
-    });
+    const r = await api<ModuleEventResult>(
+      h,
+      'POST',
+      '/v1/integrations/modules/samptrek/test-event',
+      {
+        token: owner.accessToken,
+        body: { type: 'milestone.reached' },
+      },
+    );
     expect(r.status).toBe(200);
     expect(r.body.status).toBe('processed');
     const card = (await messagesIn(owner, r.body.conversationId!)).find((m) => m.metadata.module)!;
@@ -391,12 +489,25 @@ describe('Talk2Tax adapter: restricted finance records and approvals', () => {
       token: mia.accessToken,
     });
     expect(conv.body.kind).toBe('channel_private');
-    expect(conv.body.memberIds).toEqual(expect.arrayContaining([mia.user.userId, ravi.user.userId]));
+    expect(conv.body.memberIds).toEqual(
+      expect.arrayContaining([mia.user.userId, ravi.user.userId]),
+    );
     // Not visible to people outside the chat, even with the ids.
-    expect((await api(h, 'GET', `/v1/conversations/${result.conversationId}`, { token: outsider.accessToken })).status).toBe(404);
-    expect((await api(h, 'GET', `/v1/approvals/${result.approvalId}`, { token: outsider.accessToken })).status).toBe(404);
+    expect(
+      (
+        await api(h, 'GET', `/v1/conversations/${result.conversationId}`, {
+          token: outsider.accessToken,
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(h, 'GET', `/v1/approvals/${result.approvalId}`, { token: outsider.accessToken }))
+        .status,
+    ).toBe(404);
 
-    const todo = await api<Approval[]>(h, 'GET', '/v1/approvals?scope=to_decide&status=pending', { token: mia.accessToken });
+    const todo = await api<Approval[]>(h, 'GET', '/v1/approvals?scope=to_decide&status=pending', {
+      token: mia.accessToken,
+    });
     expect(todo.body[0]).toMatchObject({
       approvalId: result.approvalId,
       category: 'expense',
@@ -404,8 +515,13 @@ describe('Talk2Tax adapter: restricted finance records and approvals', () => {
       requesterId: ravi.user.userId,
       origin: 'module',
     });
-    const notes = await api<NotificationPage>(h, 'GET', '/v1/notifications', { token: mia.accessToken });
-    expect(notes.body.items[0]).toMatchObject({ kind: 'approval', conversationId: result.conversationId });
+    const notes = await api<NotificationPage>(h, 'GET', '/v1/notifications', {
+      token: mia.accessToken,
+    });
+    expect(notes.body.items[0]).toMatchObject({
+      kind: 'approval',
+      conversationId: result.conversationId,
+    });
   });
 
   it('only approvers decide; the decision updates the card and is recorded for Talk2Tax', async () => {
@@ -425,11 +541,18 @@ describe('Talk2Tax adapter: restricted finance records and approvals', () => {
       body: { decision: 'reject' },
     });
     expect(twice.status).toBe(409);
-    const card = (await messagesIn(mia, result.conversationId!)).find((m) => m.messageId === result.messageId)!;
+    const card = (await messagesIn(mia, result.conversationId!)).find(
+      (m) => m.messageId === result.messageId,
+    )!;
     expect(card.content.text).toContain('(Approved)');
-    const actions = await api<ModuleAction[]>(h, 'GET', '/v1/integrations/actions?module=talk2tax', {
-      token: owner.accessToken,
-    });
+    const actions = await api<ModuleAction[]>(
+      h,
+      'GET',
+      '/v1/integrations/actions?module=talk2tax',
+      {
+        token: owner.accessToken,
+      },
+    );
     expect(actions.body[0]).toMatchObject({ type: 'approval.decided', status: 'test_mode' });
   });
 
@@ -448,7 +571,11 @@ describe('Talk2Tax adapter: restricted finance records and approvals', () => {
     ).body;
     const look = await moduleApi(key, 'GET', '/v1/integration/records/expense/EXP-930');
     expect(look.status).toBe(404);
-    const mine = await moduleApi<LinkedRecord>(talk2tax, 'GET', '/v1/integration/records/expense/EXP-930');
+    const mine = await moduleApi<LinkedRecord>(
+      talk2tax,
+      'GET',
+      '/v1/integration/records/expense/EXP-930',
+    );
     expect(mine.status).toBe(200);
   });
 });
@@ -466,14 +593,24 @@ describe('contextual chat API and widget sign-on', () => {
         samptrek,
         'POST',
         '/v1/integration/records/project/PRJ-2000/messages',
-        { text: 'Kick-off moved to Monday', notify: [{ email: email('Mia Chen') }], idempotencyKey: 'k-1' },
+        {
+          text: 'Kick-off moved to Monday',
+          notify: [{ email: email('Mia Chen') }],
+          idempotencyKey: 'k-1',
+        },
       );
     const a = await post();
     const b = await post();
     expect(a.body.duplicate).toBe(false);
     expect(b.body).toMatchObject({ duplicate: true, messageId: a.body.messageId });
-    const hist = await moduleApi<{ messages: Message[] }>(samptrek, 'GET', '/v1/integration/records/project/PRJ-2000/messages');
-    expect(hist.body.messages.filter((m) => m.content.text === 'Kick-off moved to Monday')).toHaveLength(1);
+    const hist = await moduleApi<{ messages: Message[] }>(
+      samptrek,
+      'GET',
+      '/v1/integration/records/project/PRJ-2000/messages',
+    );
+    expect(
+      hist.body.messages.filter((m) => m.content.text === 'Kick-off moved to Monday'),
+    ).toHaveLength(1);
   });
 
   it('signs a module user into the chat widget with a normal, revocable session', async () => {
@@ -483,7 +620,9 @@ describe('contextual chat API and widget sign-on', () => {
     });
     expect(w.status, JSON.stringify(w.body)).toBe(201);
     expect(w.body.userId).toBe(mia.user.userId);
-    const me = await api<{ user: { userId: string } }>(h, 'GET', '/v1/me', { token: w.body.accessToken });
+    const me = await api<{ user: { userId: string } }>(h, 'GET', '/v1/me', {
+      token: w.body.accessToken,
+    });
     expect(me.body.user.userId).toBe(mia.user.userId);
     const conv = await api<Conversation>(h, 'GET', `/v1/conversations/${w.body.conversationId}`, {
       token: w.body.accessToken,
@@ -503,15 +642,24 @@ describe('live mode and webhooks', () => {
       baseUrl: `${receiverUrl}/samptrek`,
       apiKey: 'samptrek-key-123456',
     });
-    const test = await api<{ ok: boolean; message: string }>(h, 'POST', '/v1/admin/integrations/sampledge.samptrek/test', {
-      token: owner.accessToken,
-      body: {},
-    });
+    const test = await api<{ ok: boolean; message: string }>(
+      h,
+      'POST',
+      '/v1/admin/integrations/sampledge.samptrek/test',
+      {
+        token: owner.accessToken,
+        body: {},
+      },
+    );
     expect(test.body.ok, JSON.stringify(test.body)).toBe(true);
     expect(received.at(-1)).toMatchObject({ path: '/samptrek/connect/health' });
     expect(received.at(-1)!.headers.authorization).toBe('Bearer samptrek-key-123456');
 
-    const rec = await moduleApi<LinkedRecord>(samptrek, 'GET', '/v1/integration/records/project/PRJ-1042');
+    const rec = await moduleApi<LinkedRecord>(
+      samptrek,
+      'GET',
+      '/v1/integration/records/project/PRJ-1042',
+    );
     const t = await api<Task>(h, 'POST', '/v1/tasks', {
       token: ravi.accessToken,
       body: { title: 'Book the translator', conversationId: rec.body.conversationId },
@@ -519,7 +667,13 @@ describe('live mode and webhooks', () => {
     expect(t.body.moduleSync?.status).toBe('sent');
     const call = received.find((r) => r.path === '/samptrek/connect/actions')!;
     expect(call.headers.authorization).toBe('Bearer samptrek-key-123456');
-    expect(verifySignature(samptrek.signingSecret!, call.body, call.headers['sampledge-signature'] as string)).toBe('ok');
+    expect(
+      verifySignature(
+        samptrek.signingSecret!,
+        call.body,
+        call.headers['sampledge-signature'] as string,
+      ),
+    ).toBe('ok');
     expect(JSON.parse(call.body)).toMatchObject({
       type: 'task.created',
       data: { record: { type: 'project', id: 'PRJ-1042' }, task: { title: 'Book the translator' } },
@@ -528,12 +682,25 @@ describe('live mode and webhooks', () => {
   });
 
   it('delivers signed webhooks for tasks and messages in linked conversations, and retries failures', async () => {
-    const sub = await api<{ subscriptionId: string; signingSecret: string }>(h, 'POST', '/v1/integrations/webhooks', {
-      token: owner.accessToken,
-      body: { url: `${receiverUrl}/hooks`, events: ['task.created', 'message.created'], modules: ['samptrek'] },
-    });
+    const sub = await api<{ subscriptionId: string; signingSecret: string }>(
+      h,
+      'POST',
+      '/v1/integrations/webhooks',
+      {
+        token: owner.accessToken,
+        body: {
+          url: `${receiverUrl}/hooks`,
+          events: ['task.created', 'message.created'],
+          modules: ['samptrek'],
+        },
+      },
+    );
     expect(sub.status).toBe(201);
-    const rec = await moduleApi<LinkedRecord>(samptrek, 'GET', '/v1/integration/records/project/PRJ-1042');
+    const rec = await moduleApi<LinkedRecord>(
+      samptrek,
+      'GET',
+      '/v1/integration/records/project/PRJ-1042',
+    );
     await api(h, 'POST', `/v1/conversations/${rec.body.conversationId}/messages`, {
       token: ravi.accessToken,
       body: {
@@ -545,7 +712,13 @@ describe('live mode and webhooks', () => {
     const hook = await waitFor(() =>
       received.find((r) => r.path === '/hooks' && JSON.parse(r.body).type === 'message.created'),
     );
-    expect(verifySignature(sub.body.signingSecret, hook.body, hook.headers['sampledge-signature'] as string)).toBe('ok');
+    expect(
+      verifySignature(
+        sub.body.signingSecret,
+        hook.body,
+        hook.headers['sampledge-signature'] as string,
+      ),
+    ).toBe('ok');
     expect(JSON.parse(hook.body).data).toMatchObject({
       message: { content: { text: 'Webhook me' } },
       record: { module: 'samptrek', externalId: 'PRJ-1042' },
@@ -557,7 +730,11 @@ describe('live mode and webhooks', () => {
     });
     await api(h, 'POST', `/v1/conversations/${dm.body.conversationId}/messages`, {
       token: ravi.accessToken,
-      body: { conversationId: dm.body.conversationId, clientMessageId: crypto.randomUUID(), content: { text: 'private dm', mentions: [] } },
+      body: {
+        conversationId: dm.body.conversationId,
+        clientMessageId: crypto.randomUUID(),
+        content: { text: 'private dm', mentions: [] },
+      },
     });
 
     const failing = await api<{ subscriptionId: string }>(h, 'POST', '/v1/integrations/webhooks', {
@@ -566,9 +743,14 @@ describe('live mode and webhooks', () => {
     });
     await api(h, 'POST', '/v1/tasks', { token: ravi.accessToken, body: { title: 'Webhook task' } });
     const failed = await waitFor(async () => {
-      const d = await api<WebhookDelivery[]>(h, 'GET', `/v1/integrations/webhooks/${failing.body.subscriptionId}/deliveries`, {
-        token: owner.accessToken,
-      });
+      const d = await api<WebhookDelivery[]>(
+        h,
+        'GET',
+        `/v1/integrations/webhooks/${failing.body.subscriptionId}/deliveries`,
+        {
+          token: owner.accessToken,
+        },
+      );
       return d.body.find((x) => x.status === 'failed');
     });
     expect(failed).toMatchObject({ attempts: 1, lastStatusCode: 500 });

@@ -114,7 +114,7 @@ export type ModuleEventLog = z.infer<typeof ModuleEventLogSchema>;
 /**
  * Status of one module's connection (GET /v1/integrations/modules). The settings themselves
  * (base URL, API key, signing secret, mode) are edited through the shared integration-settings
- * store (provider id `module.<module>`); this is the read model with activity and what's missing.
+ * store (provider id `sampledge.<module>`); this is the read model with activity and what's missing.
  */
 export const ModuleIntegrationSchema = z.object({
   module: SampledgeModuleSchema,

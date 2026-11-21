@@ -27,7 +27,15 @@ export const sampledgeModulesMigration: Migration = {
       ),
     );
 
-    const MODULES = ['samptrek', 'sampleaudience', 'sampcode', 'sampbidx', 'sampforce', 'sampcrew', 'talk2tax'];
+    const MODULES = [
+      'samptrek',
+      'sampleaudience',
+      'sampcode',
+      'sampbidx',
+      'sampforce',
+      'sampcrew',
+      'talk2tax',
+    ];
     const moduleEnum = { enum: MODULES };
 
     await ensureCollection(
@@ -46,8 +54,14 @@ export const sampledgeModulesMigration: Migration = {
       { key: { tenantId: 1, module: 1, revokedAt: 1 }, name: 'active' },
     ]);
 
-    await ensureCollection(db, 'module_bots', tenantScoped(['module', 'userId'], { module: moduleEnum, userId: str }));
-    await db.collection('module_bots').createIndex({ tenantId: 1, module: 1 }, { unique: true, name: 'one_per_module' });
+    await ensureCollection(
+      db,
+      'module_bots',
+      tenantScoped(['module', 'userId'], { module: moduleEnum, userId: str }),
+    );
+    await db
+      .collection('module_bots')
+      .createIndex({ tenantId: 1, module: 1 }, { unique: true, name: 'one_per_module' });
 
     await ensureCollection(
       db,
@@ -77,7 +91,11 @@ export const sampledgeModulesMigration: Migration = {
       }),
     );
     await db.collection('identity_links').createIndexes([
-      { key: { tenantId: 1, module: 1, externalUserId: 1 }, name: 'one_per_external', unique: true },
+      {
+        key: { tenantId: 1, module: 1, externalUserId: 1 },
+        name: 'one_per_external',
+        unique: true,
+      },
       { key: { tenantId: 1, userId: 1 }, name: 'by_user' },
     ]);
 
@@ -95,7 +113,11 @@ export const sampledgeModulesMigration: Migration = {
       }),
     );
     await db.collection('linked_records').createIndexes([
-      { key: { tenantId: 1, module: 1, recordType: 1, externalId: 1 }, name: 'one_per_record', unique: true },
+      {
+        key: { tenantId: 1, module: 1, recordType: 1, externalId: 1 },
+        name: 'one_per_record',
+        unique: true,
+      },
       { key: { tenantId: 1, conversationId: 1 }, name: 'by_conversation' },
     ]);
 
@@ -109,7 +131,9 @@ export const sampledgeModulesMigration: Migration = {
         createdAt: date,
       }),
     );
-    await db.collection('module_actions').createIndex({ tenantId: 1, module: 1, _id: -1 }, { name: 'log' });
+    await db
+      .collection('module_actions')
+      .createIndex({ tenantId: 1, module: 1, _id: -1 }, { name: 'log' });
 
     await ensureCollection(
       db,
@@ -122,17 +146,22 @@ export const sampledgeModulesMigration: Migration = {
         createdAt: date,
       }),
     );
-    await db.collection('webhook_subscriptions').createIndex({ tenantId: 1, active: 1, events: 1 }, { name: 'matching' });
+    await db
+      .collection('webhook_subscriptions')
+      .createIndex({ tenantId: 1, active: 1, events: 1 }, { name: 'matching' });
 
     await ensureCollection(
       db,
       'webhook_deliveries',
-      tenantScoped(['subscriptionId', 'event', 'eventId', 'body', 'status', 'attempts', 'createdAt'], {
-        subscriptionId: str,
-        status: { enum: ['pending', 'delivered', 'failed', 'dead'] },
-        body: { bsonType: 'string', maxLength: 300_000 },
-        createdAt: date,
-      }),
+      tenantScoped(
+        ['subscriptionId', 'event', 'eventId', 'body', 'status', 'attempts', 'createdAt'],
+        {
+          subscriptionId: str,
+          status: { enum: ['pending', 'delivered', 'failed', 'dead'] },
+          body: { bsonType: 'string', maxLength: 300_000 },
+          createdAt: date,
+        },
+      ),
     );
     await db.collection('webhook_deliveries').createIndexes([
       { key: { status: 1, nextAttemptAt: 1 }, name: 'due' },
@@ -150,20 +179,23 @@ export const sampledgeModulesMigration: Migration = {
     await ensureCollection(
       db,
       'tasks',
-      tenantScoped(['title', 'kind', 'status', 'priority', 'assigneeIds', 'createdBy', 'origin', 'createdAt'], {
-        title: { bsonType: 'string', maxLength: 200 },
-        description: { bsonType: 'string', maxLength: 4000 },
-        kind: { enum: ['task', 'bug', 'follow_up', 'escalation'] },
-        status: { enum: ['open', 'in_progress', 'blocked', 'done', 'cancelled'] },
-        priority: { enum: ['low', 'normal', 'high', 'urgent'] },
-        assigneeIds: { bsonType: 'array', maxItems: 100 },
-        createdBy: str,
-        dueAt: nullable(date),
-        conversationId: nullable(str),
-        record: workRecord,
-        origin: { enum: ['connect', 'module'] },
-        createdAt: date,
-      }),
+      tenantScoped(
+        ['title', 'kind', 'status', 'priority', 'assigneeIds', 'createdBy', 'origin', 'createdAt'],
+        {
+          title: { bsonType: 'string', maxLength: 200 },
+          description: { bsonType: 'string', maxLength: 4000 },
+          kind: { enum: ['task', 'bug', 'follow_up', 'escalation'] },
+          status: { enum: ['open', 'in_progress', 'blocked', 'done', 'cancelled'] },
+          priority: { enum: ['low', 'normal', 'high', 'urgent'] },
+          assigneeIds: { bsonType: 'array', maxItems: 100 },
+          createdBy: str,
+          dueAt: nullable(date),
+          conversationId: nullable(str),
+          record: workRecord,
+          origin: { enum: ['connect', 'module'] },
+          createdAt: date,
+        },
+      ),
     );
     await db.collection('tasks').createIndexes([
       { key: { tenantId: 1, assigneeIds: 1, status: 1 }, name: 'mine' },
@@ -181,19 +213,34 @@ export const sampledgeModulesMigration: Migration = {
     await ensureCollection(
       db,
       'approvals',
-      tenantScoped(['title', 'category', 'requesterId', 'approverIds', 'policy', 'decisions', 'status', 'origin', 'createdAt'], {
-        title: { bsonType: 'string', maxLength: 200 },
-        category: { enum: ['general', 'pricing', 'survey', 'expense', 'budget', 'invoice', 'leave'] },
-        requesterId: str,
-        approverIds: { bsonType: 'array', minItems: 1, maxItems: 100 },
-        policy: { enum: ['any', 'all'] },
-        decisions: { bsonType: 'array' },
-        status: { enum: ['pending', 'approved', 'rejected', 'cancelled'] },
-        conversationId: nullable(str),
-        record: workRecord,
-        origin: { enum: ['connect', 'module'] },
-        createdAt: date,
-      }),
+      tenantScoped(
+        [
+          'title',
+          'category',
+          'requesterId',
+          'approverIds',
+          'policy',
+          'decisions',
+          'status',
+          'origin',
+          'createdAt',
+        ],
+        {
+          title: { bsonType: 'string', maxLength: 200 },
+          category: {
+            enum: ['general', 'pricing', 'survey', 'expense', 'budget', 'invoice', 'leave'],
+          },
+          requesterId: str,
+          approverIds: { bsonType: 'array', minItems: 1, maxItems: 100 },
+          policy: { enum: ['any', 'all'] },
+          decisions: { bsonType: 'array' },
+          status: { enum: ['pending', 'approved', 'rejected', 'cancelled'] },
+          conversationId: nullable(str),
+          record: workRecord,
+          origin: { enum: ['connect', 'module'] },
+          createdAt: date,
+        },
+      ),
     );
     await db.collection('approvals').createIndexes([
       { key: { tenantId: 1, approverIds: 1, status: 1 }, name: 'to_decide' },

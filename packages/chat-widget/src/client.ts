@@ -75,7 +75,8 @@ export class WidgetClient {
   constructor(private readonly opts: WidgetClientOptions) {
     this.session = opts.session;
     const cid = opts.conversationId ?? opts.session.conversationId;
-    if (!cid) throw new Error('ConnectChat needs a conversationId (or a session created with a record)');
+    if (!cid)
+      throw new Error('ConnectChat needs a conversationId (or a session created with a record)');
     this.conversationId = cid;
     this.f = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.storage = opts.storage === undefined ? safeStorage() : opts.storage;
@@ -174,7 +175,9 @@ export class WidgetClient {
     const text = await res.text();
     const json = text ? JSON.parse(text) : undefined;
     if (!res.ok) {
-      const e = new Error(json?.error?.message ?? `HTTP ${res.status}`) as Error & { status?: number };
+      const e = new Error(json?.error?.message ?? `HTTP ${res.status}`) as Error & {
+        status?: number;
+      };
       e.status = res.status;
       throw e;
     }
@@ -195,11 +198,18 @@ export class WidgetClient {
         body: JSON.stringify({ refreshToken: this.session.refreshToken }),
       });
       if (!res.ok) throw new Error(`refresh ${res.status}`);
-      const s = (await res.json()) as { accessToken: string; accessTokenExpiresIn: number; refreshToken: string };
+      const s = (await res.json()) as {
+        accessToken: string;
+        accessTokenExpiresIn: number;
+        refreshToken: string;
+      };
       this.session = { ...this.session, ...s };
     } catch (e) {
       if (!this.opts.renewSession) {
-        this.set({ status: 'expired', error: 'Your chat session ended. Reload the page to continue.' });
+        this.set({
+          status: 'expired',
+          error: 'Your chat session ended. Reload the page to continue.',
+        });
         throw e;
       }
       this.session = await this.opts.renewSession();
@@ -222,12 +232,17 @@ export class WidgetClient {
         conversation,
         messages: [...messages].sort((a, b) => a.serverSequence - b.serverSequence),
         people: new Map(people.map((p) => [p.userId, p])),
-        status: this.socket?.connected ? 'online' : this.state.status === 'online' ? 'online' : 'connecting',
+        status: this.socket?.connected
+          ? 'online'
+          : this.state.status === 'online'
+            ? 'online'
+            : 'connecting',
         error: null,
       });
     } catch (e) {
       const status = (e as { status?: number }).status;
-      if (status === 404) this.set({ status: 'error', error: 'This conversation is not available to you.' });
+      if (status === 404)
+        this.set({ status: 'error', error: 'This conversation is not available to you.' });
       else if (status === undefined) this.set({ status: 'offline' });
       else this.set({ status: 'error', error: (e as Error).message });
     }
@@ -279,7 +294,9 @@ export class WidgetClient {
   retry(clientMessageId: string) {
     this.saveOutbox(
       this.state.pending.map((p) =>
-        p.clientMessageId === clientMessageId ? { ...p, state: 'queued', attempts: 0, error: undefined } : p,
+        p.clientMessageId === clientMessageId
+          ? { ...p, state: 'queued', attempts: 0, error: undefined }
+          : p,
       ),
     );
     void this.flush();
@@ -319,7 +336,11 @@ export class WidgetClient {
           const attempts = next.attempts + 1;
           // 4xx (except 408/429) will not succeed on retry: show it as failed with a retry button.
           if (status && status < 500 && status !== 408 && status !== 429) {
-            this.mark(next.clientMessageId, { state: 'failed', error: (e as Error).message, attempts });
+            this.mark(next.clientMessageId, {
+              state: 'failed',
+              error: (e as Error).message,
+              attempts,
+            });
             continue;
           }
           this.mark(next.clientMessageId, { state: 'queued', attempts });
@@ -335,7 +356,9 @@ export class WidgetClient {
   }
 
   private mark(id: string, patch: Partial<PendingMessage>) {
-    this.saveOutbox(this.state.pending.map((p) => (p.clientMessageId === id ? { ...p, ...patch } : p)));
+    this.saveOutbox(
+      this.state.pending.map((p) => (p.clientMessageId === id ? { ...p, ...patch } : p)),
+    );
   }
 }
 

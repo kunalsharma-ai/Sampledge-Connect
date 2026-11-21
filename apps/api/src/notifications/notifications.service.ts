@@ -364,7 +364,10 @@ export class NotificationsService {
       this.realtime.toUser(tenantId, d.userId, 'notification:new', toNotification(d));
     void (async () => {
       for (const d of created) {
-        const unreadCount = await t.notifications.countDocuments({ userId: d.userId, readAt: null });
+        const unreadCount = await t.notifications.countDocuments({
+          userId: d.userId,
+          readAt: null,
+        });
         const data: PushData = {
           type: 'message',
           conversationId: message.conversationId,

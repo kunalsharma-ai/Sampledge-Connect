@@ -251,7 +251,12 @@ export class RecordsService {
     let owner: { type: string; id: string; title: string; url?: string; channelKey: string | null };
     let restricted = isRestrictedRecord(m, record.type);
     if (typeof target === 'object') {
-      owner = { type: '_channel', id: target.channel, title: target.name, channelKey: target.channel };
+      owner = {
+        type: '_channel',
+        id: target.channel,
+        title: target.name,
+        channelKey: target.channel,
+      };
       restricted = target.visibility === 'private';
     } else if (target === 'parent' && parent) {
       owner = { ...parent, channelKey: null };
@@ -330,7 +335,9 @@ export class RecordsService {
           url: record.url ?? null,
           conversationId: ownerDoc.conversationId,
           parent:
-            owner.type === '_channel' ? null : { type: owner.type, id: owner.id, title: owner.title },
+            owner.type === '_channel'
+              ? null
+              : { type: owner.type, id: owner.id, title: owner.title },
           updatedAt: now,
         },
         $setOnInsert: {
@@ -357,8 +364,7 @@ export class RecordsService {
     const ctx = await this.botCtx(tenantId, m);
     const base = channelName(opts.title);
     for (let attempt = 0; attempt < 5; attempt++) {
-      const name =
-        attempt === 0 ? base : `${base.slice(0, 60)} ${randomBytes(2).toString('hex')}`;
+      const name = attempt === 0 ? base : `${base.slice(0, 60)} ${randomBytes(2).toString('hex')}`;
       try {
         const c = await this.conversations.create(ctx, {
           kind: opts.private ? 'channel_private' : 'channel_public',

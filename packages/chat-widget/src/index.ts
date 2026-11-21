@@ -1,4 +1,9 @@
-export { ConnectChat, useConnectChat, type ConnectChatProps, type WidgetTheme } from './connect-chat.js';
+export {
+  ConnectChat,
+  useConnectChat,
+  type ConnectChatProps,
+  type WidgetTheme,
+} from './connect-chat.js';
 export {
   WidgetClient,
   type PendingMessage,

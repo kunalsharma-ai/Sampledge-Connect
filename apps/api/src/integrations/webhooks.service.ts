@@ -19,7 +19,14 @@ import type { WebhookDeliveryDoc, WebhookSubscriptionDoc } from './docs.js';
 import { newSecret, signPayload } from './signing.js';
 
 /** Retry schedule after a failed attempt; after the last one the delivery is dead. */
-export const WEBHOOK_BACKOFF_MS = [10_000, 60_000, 5 * 60_000, 30 * 60_000, 2 * 3600_000, 6 * 3600_000];
+export const WEBHOOK_BACKOFF_MS = [
+  10_000,
+  60_000,
+  5 * 60_000,
+  30 * 60_000,
+  2 * 3600_000,
+  6 * 3600_000,
+];
 const MAX_SUBSCRIPTIONS = 25;
 
 const toSubscription = (s: WebhookSubscriptionDoc): WebhookSubscription => ({
@@ -133,7 +140,10 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     const w = this.store.for(ctx.tenantId);
     const r = await w.webhook_subscriptions.deleteMany({ _id: id });
     if (!r.deletedCount) throw notFound('Webhook');
-    await w.webhook_deliveries.deleteMany({ subscriptionId: id, status: { $in: ['pending', 'failed'] } });
+    await w.webhook_deliveries.deleteMany({
+      subscriptionId: id,
+      status: { $in: ['pending', 'failed'] },
+    });
     this.messageSubs.delete(ctx.tenantId);
     await this.audit.record({
       tenantId: ctx.tenantId,
@@ -276,7 +286,14 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     if (!sub || !sub.active) {
       await w.webhook_deliveries.updateOne(
         { _id: d._id },
-        { $set: { status: 'dead', lastError: 'Subscription removed or disabled', lockedUntil: null, nextAttemptAt: null } },
+        {
+          $set: {
+            status: 'dead',
+            lastError: 'Subscription removed or disabled',
+            lockedUntil: null,
+            nextAttemptAt: null,
+          },
+        },
       );
       return;
     }
@@ -307,7 +324,16 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     if (!error) {
       await w.webhook_deliveries.updateOne(
         { _id: d._id },
-        { $set: { status: 'delivered', attempts, lastStatusCode: statusCode, lastError: null, lockedUntil: null, nextAttemptAt: null } },
+        {
+          $set: {
+            status: 'delivered',
+            attempts,
+            lastStatusCode: statusCode,
+            lastError: null,
+            lockedUntil: null,
+            nextAttemptAt: null,
+          },
+        },
       );
       await w.webhook_subscriptions.updateOne(
         { _id: sub._id },
@@ -326,7 +352,9 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
           lastStatusCode: statusCode,
           lastError: error,
           lockedUntil: null,
-          nextAttemptAt: dead ? null : new Date(now.getTime() + delay! * (0.8 + Math.random() * 0.4)),
+          nextAttemptAt: dead
+            ? null
+            : new Date(now.getTime() + delay! * (0.8 + Math.random() * 0.4)),
         },
       },
     );
