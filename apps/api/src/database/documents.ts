@@ -27,6 +27,8 @@ export interface TenantDoc {
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
+  /** 'network' marks the one reserved Sampledge Network tenant (docs/network.md). */
+  kind?: 'organization' | 'network';
 }
 
 export interface UserDoc extends TenantOwned {
@@ -80,6 +82,10 @@ export interface ConversationDoc extends TenantOwned {
   lastMessageAt: Date | null;
   /** Channels only; absent = everyone may post. */
   postingPolicy?: 'everyone' | 'moderators';
+  /** Sampledge Network: the community this group belongs to. */
+  communityId?: string | null;
+  /** Sampledge Network: the community's built-in announcements channel. */
+  communityRole?: 'announcements' | 'group';
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -298,6 +304,8 @@ export interface TenantSettingsDoc extends TenantOwned {
   callRecordingEnabled: boolean;
   /** Private AI assistant on/off for the organization. Absent means on. */
   aiEnabled?: boolean;
+  /** Sampledge Network policy for this organization's members (absent = defaults). */
+  networkPolicy?: import('@sampledge/contracts').NetworkPolicy;
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -465,6 +473,169 @@ export interface TenantCollections {
   ai_transcripts: AiTranscriptDoc;
   billing_subscriptions: BillingSubscriptionDoc;
   billing_invoices: BillingInvoiceDoc;
+  network_profiles: NetworkProfileDoc;
+  network_requests: NetworkRequestDoc;
+  network_connections: NetworkConnectionDoc;
+  network_follows: NetworkFollowDoc;
+  network_blocks: NetworkBlockDoc;
+  network_reports: NetworkReportDoc;
+  network_invites: NetworkInviteDoc;
+  network_statuses: NetworkStatusDoc;
+  network_status_views: NetworkStatusViewDoc;
+  network_actions: NetworkActionDoc;
+  communities: CommunityDoc;
+  community_members: CommunityMemberDoc;
+  community_links: CommunityLinkDoc;
+}
+
+// ─── Sampledge Network (only ever stored in the network tenant) ──────────────
+
+export interface NetworkProfileDoc extends TenantOwned {
+  /** Same as the network user's id. */
+  userId: string;
+  handle: string;
+  displayName: string;
+  headline: string;
+  bio: string;
+  kind: 'work' | 'personal';
+  /** Work accounts: the organization account this identity belongs to. */
+  homeTenantId: string | null;
+  homeUserId: string | null;
+  organizationName: string | null;
+  /** Lowercased; used only for exact-match lookups when the person allows it. */
+  email: string | null;
+  emailDomain: string | null;
+  phone: string | null;
+  privacy: import('@sampledge/contracts').NetworkPrivacy;
+  avatarColor: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NetworkRequestDoc extends TenantOwned {
+  fromUserId: string;
+  toUserId: string;
+  /** Sorted "a:b". One pending request per pair (partial unique index). */
+  pairKey: string;
+  circle: 'business' | 'friends';
+  message: string;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  createdAt: Date;
+  respondedAt: Date | null;
+}
+
+/** One row per direction, so each side keeps its own circle. */
+export interface NetworkConnectionDoc extends TenantOwned {
+  userId: string;
+  otherUserId: string;
+  circle: 'business' | 'friends';
+  connectedAt: Date;
+}
+
+export interface NetworkFollowDoc extends TenantOwned {
+  followerId: string;
+  targetType: 'user' | 'community';
+  targetId: string;
+  createdAt: Date;
+}
+
+export interface NetworkBlockDoc extends TenantOwned {
+  userId: string;
+  blockedUserId: string;
+  createdAt: Date;
+}
+
+export interface NetworkReportDoc extends TenantOwned {
+  reporterId: string;
+  targetType: 'user' | 'status' | 'community' | 'message';
+  targetId: string;
+  reason: string;
+  details: string;
+  status: 'open' | 'reviewed';
+  createdAt: Date;
+}
+
+export interface NetworkInviteDoc extends TenantOwned {
+  inviterId: string;
+  tokenHash: string;
+  channel: 'email' | 'link' | 'sms';
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+  circle: 'business' | 'friends';
+  delivery: 'sent' | 'not_configured' | 'failed' | null;
+  status: 'pending' | 'accepted';
+  acceptedBy: string[];
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface NetworkStatusDoc extends TenantOwned {
+  authorId: string;
+  clientStatusId: string;
+  kind: 'text' | 'image' | 'video';
+  text: string;
+  background: string;
+  attachmentId: string | null;
+  audience: 'connections' | 'followers' | 'public' | 'selected';
+  userIds: string[];
+  allowReplies: boolean;
+  createdAt: Date;
+  /** A TTL index removes the status at this time. */
+  expiresAt: Date;
+}
+
+export interface NetworkStatusViewDoc extends TenantOwned {
+  statusId: string;
+  authorId: string;
+  viewerId: string;
+  viewedAt: Date;
+}
+
+/** Idempotency record for network mutations (offline replays). Expires after 7 days. */
+export interface NetworkActionDoc extends TenantOwned {
+  userId: string;
+  clientActionId: string;
+  result: unknown;
+  createdAt: Date;
+}
+
+export interface CommunityDoc extends TenantOwned {
+  slug: string;
+  name: string;
+  description: string;
+  rules: string;
+  visibility: 'public' | 'private';
+  joinPolicy: 'open' | 'approval';
+  ownerId: string;
+  announcementsConversationId: string;
+  /** The group every new member joins (General). */
+  defaultGroupId: string | null;
+  avatarColor: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CommunityMemberDoc extends TenantOwned {
+  communityId: string;
+  userId: string;
+  role: 'owner' | 'admin' | 'moderator' | 'member';
+  status: 'active' | 'pending' | 'invited' | 'banned';
+  invitedBy: string | null;
+  joinedAt: Date;
+}
+
+export interface CommunityLinkDoc extends TenantOwned {
+  communityId: string;
+  tokenHash: string;
+  /** Kept so admins can copy the link again; the token only grants a join. */
+  token: string;
+  createdBy: string;
+  expiresAt: Date | null;
+  maxUses: number | null;
+  uses: number;
+  revokedAt: Date | null;
+  createdAt: Date;
 }
 
 /** One per tenant. Prices are never stored here: they come from the plan catalog. */

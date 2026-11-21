@@ -155,6 +155,19 @@ export class TenantDb {
       ai_transcripts: c('ai_transcripts'),
       billing_subscriptions: c('billing_subscriptions'),
       billing_invoices: c('billing_invoices'),
+      network_profiles: c('network_profiles'),
+      network_requests: c('network_requests'),
+      network_connections: c('network_connections'),
+      network_follows: c('network_follows'),
+      network_blocks: c('network_blocks'),
+      network_reports: c('network_reports'),
+      network_invites: c('network_invites'),
+      network_statuses: c('network_statuses'),
+      network_status_views: c('network_status_views'),
+      network_actions: c('network_actions'),
+      communities: c('communities'),
+      community_members: c('community_members'),
+      community_links: c('community_links'),
     };
   }
 }

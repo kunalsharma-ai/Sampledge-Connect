@@ -28,6 +28,8 @@ import { TenantDb } from '../database/tenant-db.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { presenceOf } from '../realtime/realtime.gateway.js';
+import { NetworkTenant } from '../network/network-tenant.js';
+import { NetworkService } from '../network/network.service.js';
 
 const UpdateMemberSchema = z.object({
   role: TenantRoleSchema.exclude(['owner']).optional(),
@@ -45,6 +47,8 @@ export class DirectoryController {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly mfa: MfaService,
     private readonly billing: BillingService,
+    private readonly networkTenant: NetworkTenant,
+    private readonly network: NetworkService,
   ) {}
 
   @Get('me')
@@ -72,6 +76,18 @@ export class DirectoryController {
   /** Employee directory with live presence. */
   @Get('users')
   async list(@Ctx() ctx: TenantContext) {
+    if (await this.networkTenant.isNetwork(ctx.tenantId)) {
+      // Network: only you, your connections and people you share a conversation with.
+      const rows = await this.network.directory(ctx);
+      const presence = await presenceOf(this.redis, ctx.tenantId, rows.map((r) => r.userId));
+      const conns = new Set(
+        (await this.db.for(ctx.tenantId).network_connections.find({ userId: ctx.userId }).toArray()).map((c) => c.otherUserId),
+      );
+      return rows.map((r) => ({
+        ...r,
+        presence: r.userId === ctx.userId || conns.has(r.userId) ? (presence[r.userId] ?? 'offline') : 'offline',
+      }));
+    }
     if (!tenantCan(ctx.role, 'directory.read')) throw forbidden();
     const t = this.db.for(ctx.tenantId);
     const [users, memberships] = await Promise.all([

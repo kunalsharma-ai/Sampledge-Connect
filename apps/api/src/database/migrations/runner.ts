@@ -13,6 +13,7 @@ import { scheduledMessagesMigration } from './020-scheduled-messages.js';
 import { aiMigration } from './011-ai.js';
 import { aiTranscriptsMigration } from './013-ai-transcripts.js';
 import { billingMigration } from './021-billing.js';
+import { networkMigration } from './030-network.js';
 
 export interface Migration {
   id: string;
@@ -35,6 +36,7 @@ export const MIGRATIONS: Migration[] = [
   bookmarksMigration,
   scheduledMessagesMigration,
   billingMigration,
+  networkMigration,
 ];
 
 /**

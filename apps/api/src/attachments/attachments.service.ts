@@ -338,6 +338,53 @@ export class AttachmentsService {
     };
   }
 
+  /**
+   * A signed link for a file whose access the caller already checked itself (Sampledge
+   * Network status media, which has no conversation).
+   */
+  async signedUrlUnchecked(tenantId: string, attachmentId: string): Promise<AttachmentUrl | null> {
+    const a = await this.db.for(tenantId).attachments.findOne({ _id: attachmentId });
+    if (!a || a.status !== 'ready' || a.deletedAt) return null;
+    const exp = Math.floor(Date.now() / 1000) + DOWNLOAD_URL_TTL_SECONDS;
+    const path = `/v1/files/${tenantId}/${a._id}?exp=${exp}&sig=${this.sign(tenantId, a._id, exp)}`;
+    return { url: (this.cfg.PUBLIC_API_URL ?? '') + path, expiresAt: new Date(exp * 1000).toISOString() };
+  }
+
+  /** Upload ticket for status media: not tied to a conversation (`status:<userId>`). */
+  async createStatusUpload(
+    ctx: TenantContext,
+    req: { fileName: string; mimeType: string; sizeBytes: number },
+  ): Promise<UploadTicket> {
+    await this.rateLimit.consume('upload', `${ctx.tenantId}:${ctx.userId}`);
+    const doc = await this.db.for(ctx.tenantId).attachments.insertOne({
+      conversationId: `status:${ctx.userId}`,
+      uploaderId: ctx.userId,
+      fileName: req.fileName,
+      mimeType: req.mimeType.toLowerCase(),
+      sizeBytes: req.sizeBytes,
+      storedBytes: null,
+      sha256: null,
+      width: null,
+      height: null,
+      status: 'pending',
+      storageKey: null,
+      messageId: null,
+      createdAt: new Date(),
+      completedAt: null,
+      recording: null,
+      durationMs: null,
+      callId: null,
+      deletedAt: null,
+      deletedBy: null,
+    });
+    return {
+      uploadId: doc._id,
+      uploadUrl: `/v1/uploads/${doc._id}/content`,
+      expiresAt: new Date(doc.createdAt.getTime() + UPLOAD_TICKET_TTL_SECONDS * 1000).toISOString(),
+      attachment: toAttachment(doc),
+    };
+  }
+
   /** Verifies a signed URL and returns what to stream. No bearer token: the signature is the capability. */
   async openSigned(tenantId: string, id: string, exp: string, sig: string) {
     const e = Number(exp);

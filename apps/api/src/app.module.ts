@@ -79,6 +79,18 @@ import { AiIntegration } from './ai/ai-integration.js';
 import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
 import type { Db } from 'mongodb';
+import { NetworkTenant } from './network/network-tenant.js';
+import { NetworkPolicyService } from './network/network-policy.service.js';
+import { NetworkGate } from './network/network-gate.js';
+import { NetworkRules } from './network/network-rules.js';
+import { NetworkService } from './network/network.service.js';
+import { StatusService } from './network/status.service.js';
+import { CommunitiesService } from './network/communities.service.js';
+import {
+  NetworkAdminController,
+  NetworkController,
+  NetworkPublicController,
+} from './network/network.controller.js';
 
 @Module({})
 export class AppModule {
@@ -119,6 +131,9 @@ export class AppModule {
         IntegrationsController,
         WorkController,
         AiController,
+        NetworkPublicController,
+        NetworkAdminController,
+        NetworkController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -160,6 +175,13 @@ export class AppModule {
         AiService,
         AiIntegration,
         TranscriptsService,
+        NetworkTenant,
+        NetworkPolicyService,
+        NetworkGate,
+        NetworkRules,
+        NetworkService,
+        StatusService,
+        CommunitiesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

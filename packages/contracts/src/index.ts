@@ -23,3 +23,4 @@ export * from './modules-catalog.js';
 export * from './billing.js';
 export * from './branding.js';
 export * from './admin.js';
+export * from './network.js';

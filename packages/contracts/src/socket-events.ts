@@ -12,6 +12,7 @@ import type {
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
+import type { NetworkChangedEvent } from './network.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -68,6 +69,8 @@ export interface ServerToClientEvents {
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
+  /** Sampledge Network: requests, follows, statuses or communities changed; refetch that scope. */
+  'network:changed': (e: NetworkChangedEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

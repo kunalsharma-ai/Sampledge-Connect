@@ -19,6 +19,7 @@ import type { ConversationDoc, ConversationMemberDoc } from '../database/documen
 import { TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { NetworkRules } from '../network/network-rules.js';
 
 export interface LoadedConversation {
   conversation: ConversationDoc;
@@ -32,6 +33,7 @@ export class ConversationsService {
     private readonly db: TenantDb,
     private readonly audit: AuditService,
     private readonly realtime: RealtimePublisher,
+    private readonly networkRules: NetworkRules,
   ) {}
 
   /**
@@ -67,6 +69,10 @@ export class ConversationsService {
     ) {
       throw forbidden('Only moderators can post in this announcement channel');
     }
+    if (permission === 'message.send')
+      await this.networkRules.assertCanSend(ctx, conversation, () =>
+        this.memberIds(ctx.tenantId, conversationId),
+      );
     return { conversation, membership, access };
   }
 
@@ -186,6 +192,7 @@ export class ConversationsService {
     if (req.kind === 'dm') {
       if (others.length !== 1)
         throw new AppError('VALIDATION_FAILED', 'A direct message needs exactly one other person');
+      await this.networkRules.assertCanDm(ctx, others[0]!);
       const dmKey = [ctx.userId, others[0]!].sort().join(':');
       const existing = await t.conversations.findOne({ dmKey });
       if (existing) return this.toDto(ctx, existing);
@@ -259,7 +266,8 @@ export class ConversationsService {
     return this.announce(ctx, c, members);
   }
 
-  private async announce(ctx: TenantContext, c: ConversationDoc, members: string[]) {
+  /** Joins members' sockets to the conversation and sends each of them the conversation. */
+  async announce(ctx: TenantContext, c: ConversationDoc, members: string[]) {
     for (const userId of members) {
       this.realtime.joinConversation(ctx.tenantId, userId, c._id);
       const membership = await this.db
@@ -351,6 +359,7 @@ export class ConversationsService {
       );
     const t = this.db.for(ctx.tenantId);
     const unique = [...new Set(userIds)];
+    await this.networkRules.assertCanAdd(ctx, conversation, unique);
     const found = await t.users.countDocuments({ _id: { $in: unique }, status: 'active' });
     if (found !== unique.length)
       throw new AppError('VALIDATION_FAILED', 'One or more members do not exist');
