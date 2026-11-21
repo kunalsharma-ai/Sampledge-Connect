@@ -629,6 +629,197 @@ async function api(method, path, body, token) {
     await p2.waitForTimeout(3000);
     await ctx2.close();
   }
+
+  // ---- Start conversations, browse and join channels, members, devices
+  {
+    const users = await api('GET', '/v1/users', undefined, samApi);
+    const uid = (email) => users.find((u) => u.email === email).userId;
+    const lenaApi = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'lena@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    // A public channel Sam is not in yet.
+    const qa = await api(
+      'POST',
+      '/v1/conversations',
+      {
+        kind: 'channel_public',
+        name: 'brand-tracker-qa',
+        topic: 'Questionnaire QA for the Q1 brand tracker',
+        memberIds: [uid('marco@northwind.test')],
+      },
+      lenaApi,
+    );
+    await p.goto(`${APP}/messages`);
+    await p.waitForTimeout(3500);
+    check(
+      'unjoined public channel kept out of the Messages list',
+      !(await p.innerText('body')).includes('# brand-tracker-qa'),
+    );
+    await p.getByRole('button', { name: 'Browse channels' }).click();
+    await p.waitForTimeout(1500);
+    await shot('40-browse-channels');
+    check(
+      'browse lists the public channel with Join',
+      (await p.getByRole('button', { name: 'Join brand-tracker-qa' }).count()) === 1,
+    );
+    await p.getByText('# brand-tracker-qa').first().click();
+    await p.waitForTimeout(2000);
+    await shot('41-unjoined-channel-read-only');
+    check(
+      'unjoined channel offers Join instead of the composer',
+      (await p.getByRole('button', { name: 'Join channel' }).count()) === 1 &&
+        (await p.locator('textarea').count()) === 0,
+    );
+    await p.getByRole('button', { name: 'Join channel' }).click();
+    await p.waitForTimeout(2500);
+    const qaAfter = await api('GET', `/v1/conversations/${qa.conversationId}`, undefined, samApi);
+    check('join reached the server', qaAfter.myRole === 'member');
+    check('composer shown after joining', (await p.locator('textarea').count()) > 0);
+
+    // New group with Priya and Lena.
+    await p.goto(`${APP}/messages`);
+    await p.waitForTimeout(2000);
+    await p.getByRole('button', { name: 'New conversation' }).click();
+    await p.waitForTimeout(1200);
+    await p.getByRole('tab', { name: 'Group' }).click();
+    await p.getByLabel('Group name').fill('Wave 3 kickoff');
+    await p.getByRole('checkbox', { name: 'Priya Shah' }).click();
+    await p.getByRole('checkbox', { name: 'Lena Fischer' }).click();
+    await shot('42-new-group');
+    await p.getByRole('button', { name: 'Create group' }).click();
+    await p.waitForTimeout(2500);
+    const all = await api('GET', '/v1/conversations', undefined, samApi);
+    const group = (Array.isArray(all) ? all : all.conversations).find(
+      (c) => c.name === 'Wave 3 kickoff',
+    );
+    check(
+      'group created on the server with the picked people',
+      !!group &&
+        group.kind === 'group' &&
+        [uid('priya@northwind.test'), uid('lena@northwind.test')].every((u) =>
+          group.memberIds.includes(u),
+        ),
+    );
+    check('new group opens straight away', /Wave 3 kickoff/.test(await p.innerText('body')));
+    await p.locator('textarea').last().fill('Kickoff notes go here.');
+    await p.getByRole('button', { name: 'Send message' }).click();
+    await p.waitForTimeout(1500);
+
+    // Details: add Marco, remove Lena.
+    await p.getByRole('button', { name: 'Conversation details' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByRole('button', { name: 'Add people' }).click();
+    await p.waitForTimeout(1200);
+    await p.getByRole('checkbox', { name: 'Marco Silva' }).click();
+    await shot('43-add-people');
+    await p.getByRole('button', { name: 'Add 1' }).click();
+    await p.waitForTimeout(2000);
+    await p.getByRole('button', { name: 'Remove Lena Fischer' }).click();
+    await p.waitForTimeout(2000);
+    await shot('44-group-details');
+    const g2 = await api('GET', `/v1/conversations/${group.conversationId}`, undefined, samApi);
+    check(
+      'Marco added and Lena removed on the server',
+      g2.memberIds.includes(uid('marco@northwind.test')) &&
+        !g2.memberIds.includes(uid('lena@northwind.test')),
+    );
+    check(
+      'details list shows the new members',
+      /Marco Silva/.test(await p.innerText('body')) &&
+        !/Lena Fischer/.test(await p.innerText('body')),
+    );
+
+    // New private channel.
+    await p.goto(`${APP}/new-conversation`);
+    await p.waitForTimeout(1500);
+    await p.getByRole('tab', { name: 'Channel' }).click();
+    await p.getByLabel('Channel name').fill('-bad');
+    await p.getByRole('button', { name: 'Create channel' }).click();
+    await p.waitForTimeout(500);
+    check(
+      'invalid channel name explained',
+      /starting with a letter/.test(await p.innerText('body')),
+    );
+    await p.getByLabel('Channel name').fill('client-escalations');
+    await p.getByLabel('Channel topic').fill('Anything a client has flagged as urgent');
+    await p.getByLabel('Private channel').click();
+    await p.getByRole('checkbox', { name: 'Priya Shah' }).click();
+    await shot('45-new-private-channel');
+    await p.getByRole('button', { name: 'Create channel' }).click();
+    await p.waitForTimeout(2500);
+    const all2 = await api('GET', '/v1/conversations', undefined, samApi);
+    const priv = (Array.isArray(all2) ? all2 : all2.conversations).find(
+      (c) => c.name === 'client-escalations',
+    );
+    check('private channel created', priv?.kind === 'channel_private');
+
+    // Offline: membership changes say they need a connection.
+    await p.goto(`${APP}/conversation-info/${group.conversationId}`);
+    await p.waitForTimeout(2500);
+    await ctx.setOffline(true);
+    await p.waitForTimeout(2000);
+    await shot('45b-details-offline');
+    check(
+      'offline details explain changes need a connection',
+      /You are offline/.test(await p.innerText('body')),
+    );
+    await ctx.setOffline(false);
+    await p.waitForTimeout(3000);
+
+    // Leave the group.
+    await p.goto(`${APP}/conversation-info/${group.conversationId}`);
+    await p.waitForTimeout(2500);
+    await p.getByRole('button', { name: 'Leave group' }).click();
+    await p.waitForTimeout(2500);
+    const g3 = await api(
+      'GET',
+      `/v1/conversations/${group.conversationId}`,
+      undefined,
+      lenaApi,
+    ).catch(() => null);
+    const priyaApi = (
+      await api('POST', '/v1/auth/login', {
+        tenantSlug: 'northwind',
+        email: 'priya@northwind.test',
+        password: pw,
+        device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+      })
+    ).accessToken;
+    const g4 = await api('GET', `/v1/conversations/${group.conversationId}`, undefined, priyaApi);
+    check('left the group on the server', !g4.memberIds.includes(uid('sam@northwind.test')));
+    void g3;
+    check(
+      'group removed from this phone after leaving',
+      !(await p.innerText('body')).includes('Wave 3 kickoff'),
+    );
+
+    // Devices: Sam's iPad signs in, Sam signs it out from the phone.
+    const ipad = await api('POST', '/v1/auth/login', {
+      tenantSlug: 'northwind',
+      email: 'sam@northwind.test',
+      password: pw,
+      device: { deviceId: crypto.randomUUID(), name: "Sam's iPad", platform: 'ios' },
+    });
+    await p.goto(`${APP}/settings/devices`);
+    await p.waitForTimeout(2500);
+    await shot('46-devices');
+    check('devices list shows the iPad', /Sam's iPad/.test(await p.innerText('body')));
+    await p.getByRole('button', { name: "Sign out Sam's iPad" }).first().click();
+    await p.waitForTimeout(2500);
+    const refreshed = await fetch(`${API}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: ipad.refreshToken }),
+    });
+    check('signed-out iPad can no longer refresh', refreshed.status === 401);
+    check('iPad gone from the list', !/Sam's iPad/.test(await p.innerText('body')));
+    await shot('47-devices-after-sign-out');
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

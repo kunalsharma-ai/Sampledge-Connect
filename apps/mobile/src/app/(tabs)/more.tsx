@@ -96,6 +96,12 @@ export default function More() {
               divider
             />
             <Row
+              icon="phone-portrait-outline"
+              title="Devices"
+              onPress={() => router.push('/settings/devices')}
+              divider
+            />
+            <Row
               icon="cloud-offline-outline"
               title="Offline & storage"
               onPress={() => router.push('/settings/storage')}

@@ -72,6 +72,21 @@ export class SyncEngine {
       const users = await this.api.listUsers();
       const people = Object.fromEntries(users.map((u) => [u.userId, u.displayName]));
       await this.store.setSetting('people', JSON.stringify(people));
+      // Kept for the people picker (new conversations, adding members), so it works offline.
+      await this.store.setSetting(
+        'directory',
+        JSON.stringify(
+          users
+            .filter((u) => u.status === 'active')
+            .map(({ userId, displayName, email, role, title }) => ({
+              userId,
+              displayName,
+              email,
+              role,
+              title,
+            })),
+        ),
+      );
     } catch {
       // keep whatever names we had
     }

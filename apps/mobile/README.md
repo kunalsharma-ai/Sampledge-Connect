@@ -56,6 +56,10 @@ The calls part runs when the API has `LIVEKIT_*` set and a LiveKit server is up 
 answers with a fake camera and microphone, and checks media, raised hand, end for everyone, the
 join banner and decline. Without a media server it is skipped.
 
+The last part covers membership: browsing and joining a public channel Sam is not in, creating
+a group and a private channel from the people picker, adding and removing people from the
+details screen, leaving, and signing out another device from Settings, Devices.
+
 ## How offline-first works
 
 | Piece              | File                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -106,7 +110,14 @@ through the self-hosted LiveKit server (call buttons when the server has one con
 full-screen incoming call with accept, voice only or decline, a join banner for live calls,
 mute, camera, raise hand, leave and end for everyone, call cards in the timeline that render
 offline; media uses livekit-client, with @livekit/react-native on iOS and Android, so calls on a
-phone need a dev build, not Expo Go), on-device search, themes, offline and storage settings, sign-out with a warning
+phone need a dev build, not Expo Go), starting a direct message, group or channel (public or
+private) from a people picker that works from the cached directory, browsing and joining public
+channels (unjoined ones are read-only and stay out of your list and unread counts), a details
+screen with members, add and remove people, leave, and archive for those allowed (the same
+permission rules the server uses decide which buttons appear; these changes need a connection
+and say so offline), a Devices screen that lists where you are signed in and signs other
+devices out, server-side sign-out of this device (its refresh and push tokens stop working),
+on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
