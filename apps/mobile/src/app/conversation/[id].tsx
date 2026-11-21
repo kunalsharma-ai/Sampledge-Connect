@@ -119,6 +119,11 @@ export default function ConversationScreen() {
     [reversed],
   );
 
+  const react = useCallback(
+    (m: LocalMessage, emoji: string) => void engine.toggleReaction(m.clientId, emoji),
+    [engine],
+  );
+
   const onAction = (action: MessageAction, m: LocalMessage) => {
     switch (action) {
       case 'reply':
@@ -200,6 +205,8 @@ export default function ConversationScreen() {
                 highlighted={!!item.messageId && item.messageId === highlight}
                 onOpenActions={setSheetFor}
                 onPressReply={jumpTo}
+                onToggleReaction={react}
+                nameOf={nameOf}
               />
             );
           }}
@@ -235,6 +242,7 @@ export default function ConversationScreen() {
         message={sheetFor}
         own={sheetFor?.senderId === selfId}
         onAction={onAction}
+        onReact={react}
         onClose={() => setSheetFor(null)}
       />
     </Screen>

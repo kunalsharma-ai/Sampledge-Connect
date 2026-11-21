@@ -63,7 +63,12 @@ export async function seedDemo(store: LocalStore): Promise<void> {
   ];
   await store.upsertConversations(conversations);
 
-  const script: [string, string, string, { mentions?: string[]; replyToSeq?: number }?][] = [
+  const script: [
+    string,
+    string,
+    string,
+    { mentions?: string[]; replyToSeq?: number; reactions?: [string, string[]][] }?,
+  ][] = [
     [
       'demo-fieldwork',
       'demo-marco',
@@ -80,6 +85,12 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       'demo-fieldwork',
       'demo-ravi',
       'Data checks on the first 400 completes look clean. Two speeders removed.',
+      {
+        reactions: [
+          ['👍', ['demo-marco', DEMO_SELF]],
+          ['🎉', ['demo-lena']],
+        ],
+      },
     ],
     ['demo-aisha', 'demo-aisha', 'Do you have five minutes before the client call?'],
     ['demo-aisha', DEMO_SELF, 'Yes, calling you now.'],
@@ -118,7 +129,11 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       editedAt: null,
       deletedAt: null,
       metadata: {},
-      reactions: [],
+      reactions: (extra?.reactions ?? []).map(([emoji, userIds]) => ({
+        emoji,
+        userIds,
+        count: userIds.length,
+      })),
     };
   });
   await store.applyServerMessages(messages);

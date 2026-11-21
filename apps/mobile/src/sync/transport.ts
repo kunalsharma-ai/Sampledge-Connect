@@ -9,6 +9,7 @@ import {
   type SendMessageAck,
   type SendMessageRequest,
   type Session,
+  type SetReactionRequest,
   type SyncRequest,
   type SyncResponse,
 } from '@sampledge/contracts';
@@ -45,6 +46,7 @@ export interface ApiTransport {
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
   editMessage(messageId: string, req: EditMessageRequest): Promise<Message>;
   deleteMessage(messageId: string): Promise<Message>;
+  setReaction(req: SetReactionRequest): Promise<Message>;
   listUsers(): Promise<DirectoryUser[]>;
 }
 
@@ -103,6 +105,14 @@ export class HttpTransport implements ApiTransport {
 
   deleteMessage(messageId: string): Promise<Message> {
     return this.request('DELETE', `/v1/messages/${encodeURIComponent(messageId)}`, undefined);
+  }
+
+  setReaction(req: SetReactionRequest): Promise<Message> {
+    return this.request(
+      req.op === 'add' ? 'PUT' : 'DELETE',
+      `/v1/messages/${encodeURIComponent(req.messageId)}/reactions/${encodeURIComponent(req.emoji)}`,
+      undefined,
+    );
   }
 
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
@@ -194,5 +204,6 @@ export class NoServerTransport implements ApiTransport {
   ackReceipt = async (): Promise<Receipt> => this.fail();
   editMessage = async (): Promise<Message> => this.fail();
   deleteMessage = async (): Promise<Message> => this.fail();
+  setReaction = async (): Promise<Message> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
 }

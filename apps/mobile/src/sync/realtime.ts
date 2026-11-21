@@ -3,11 +3,13 @@ import type {
   Ack,
   AckReceiptRequest,
   ClientToServerEvents,
+  Message,
   PresenceStatus,
   Receipt,
   SendMessageAck,
   SendMessageRequest,
   ServerToClientEvents,
+  SetReactionRequest,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -108,12 +110,16 @@ export class RealtimeClient {
     return unwrap(await this.emitWithAck('receipt:ack', req));
   }
 
+  async setReaction(req: SetReactionRequest): Promise<Message> {
+    return unwrap(await this.emitWithAck('reaction:set', req));
+  }
+
   setTyping(conversationId: string, typing: boolean): void {
     if (this.socket?.connected) this.socket.emit('typing:set', { conversationId, typing });
   }
 
   private async emitWithAck<T>(
-    event: 'message:send' | 'receipt:ack',
+    event: 'message:send' | 'receipt:ack' | 'reaction:set',
     payload: unknown,
   ): Promise<Ack<T>> {
     const socket = this.socket;
