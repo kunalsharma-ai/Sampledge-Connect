@@ -38,6 +38,17 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
+import { ConnectorsController, ConnectorWebhooksController } from './connectors/connectors.controller.js';
+import { ConnectorsService } from './connectors/connectors.service.js';
+import { WebhookService } from './connectors/webhook.service.js';
+import { CredentialVault } from './connectors/credential-vault.js';
+import { ConnectorHttp } from './connectors/transport.js';
+import { InboxController } from './client-inbox/inbox.controller.js';
+import { InboxService } from './client-inbox/inbox.service.js';
+import { InboxAdminService } from './client-inbox/inbox-admin.service.js';
+import { InboxAccess } from './client-inbox/inbox-events.js';
+import { OutboundWorker } from './client-inbox/outbound.worker.js';
+import { LINKED_RECORD_RESOLVER, unverifiedResolver } from './client-inbox/linked-records.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -66,6 +77,9 @@ export class AppModule {
         CallsController,
         MeetingsController,
         GuestsController,
+        ConnectorsController,
+        ConnectorWebhooksController,
+        InboxController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -85,6 +99,15 @@ export class AppModule {
         MeetingsService,
         GuestsService,
         MailerService,
+        CredentialVault,
+        ConnectorHttp,
+        ConnectorsService,
+        WebhookService,
+        InboxAccess,
+        InboxService,
+        InboxAdminService,
+        OutboundWorker,
+        { provide: LINKED_RECORD_RESOLVER, useValue: unverifiedResolver },
         { provide: PUSH_PROVIDER, useValue: createPushProvider(cfg) },
         {
           provide: FILE_STORAGE,

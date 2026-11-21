@@ -16,6 +16,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
           ? ['error', 'fatal']
           : undefined,
     bodyParser: true,
+    // Provider webhook signatures are computed over the exact bytes (connectors).
+    rawBody: true,
   });
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
@@ -27,6 +29,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('json', { limit: '256kb' });
   // LiveKit webhooks are verified against a hash of the exact bytes, so keep them raw.
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
+  // WeChat webhooks are XML.
+  app.useBodyParser('text', { type: ['text/xml', 'application/xml'], limit: '256kb' });
   app.enableCors({
     origin: cfg.corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],

@@ -22,6 +22,9 @@ const POLICIES = {
   api_user: { points: 300, duration: 60 },
   /** Public guest join page: it polls every few seconds; allows a few guests behind one NAT. */
   guest_link: { points: 240, duration: 60 },
+  /** Inbound provider webhooks, per connector. Providers burst; this stops floods, not traffic. */
+  connector_webhook: { points: 1200, duration: 60 },
+  inbox_reply: { points: 60, duration: 60 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;
 

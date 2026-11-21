@@ -1,3 +1,4 @@
+import type { InboxChangedEvent } from './client-inbox.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
 import type { Meeting, MeetingReminderEvent } from './meetings.js';
@@ -60,6 +61,8 @@ export interface ServerToClientEvents {
   'meeting:upsert': (meeting: Meeting) => void;
   /** A meeting you're attending starts soon. */
   'meeting:reminder': (e: MeetingReminderEvent) => void;
+  /** A Client Inbox conversation you can see changed. Refetch it. */
+  'inbox:changed': (e: InboxChangedEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

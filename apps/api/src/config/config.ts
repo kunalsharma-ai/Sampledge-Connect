@@ -90,6 +90,15 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: z.string().min(1).optional(),
   /** Sender, e.g. "Sampledge Connect <meetings@example.com>". */
   SMTP_FROM: z.string().min(3).optional(),
+  /**
+   * Master key (32 bytes, base64) that seals integration credentials stored in MongoDB.
+   * Integration credentials themselves are entered in the admin screens, never in env.
+   * Required in production; development uses a fixed, insecure key and logs a warning.
+   */
+  SETTINGS_ENCRYPTION_KEY: z
+    .string()
+    .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 bytes, base64')
+    .optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
@@ -106,6 +115,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production');
     }
     if (!cfg.FILES_URL_SECRET) throw new Error('FILES_URL_SECRET is required in production');
+    if (!cfg.SETTINGS_ENCRYPTION_KEY)
+      throw new Error('SETTINGS_ENCRYPTION_KEY is required in production');
     if (cfg.RATE_LIMIT_DISABLED)
       throw new Error('RATE_LIMIT_DISABLED is not allowed in production');
   }

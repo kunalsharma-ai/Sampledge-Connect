@@ -25,6 +25,9 @@ export const TENANT_PERMISSIONS = [
   'devices.revoke.any',
   'audit.read',
   'recordings.manage', // retention settings, delete any recording, bulk export
+  'inbox.access', // work client conversations in the Client Inbox
+  'inbox.supervise', // all inbox teams, SLA and escalation settings, supervisor dashboard
+  'connectors.manage', // connect external messaging channels and manage their credentials
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',
@@ -55,6 +58,7 @@ export const TENANT_ROLE_GRANTS: Record<TenantRole, readonly TenantPermission[]>
   admin: ALL_TENANT.filter((p) => p !== 'tenant.manage'),
   member: [
     'directory.read',
+    'inbox.access',
     'conversation.dm.create',
     'conversation.group.create',
     'channel.public.create',
