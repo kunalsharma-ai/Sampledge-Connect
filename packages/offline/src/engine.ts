@@ -20,6 +20,7 @@ import {
   ServerError,
   type CallEvent,
   type MeetingEvent,
+  type WorkEvent,
   type NotificationEvent,
   type Transport,
 } from './transport.js';
@@ -86,6 +87,7 @@ export class SyncEngine {
   private callListeners = new Set<(e: CallEvent) => void>();
   private meetingListeners = new Set<(e: MeetingEvent) => void>();
   private scheduledListeners = new Set<(s: ScheduledMessage) => void>();
+  private workListeners = new Set<(e: WorkEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -136,6 +138,11 @@ export class SyncEngine {
   onMeeting(fn: (e: MeetingEvent) => void): () => void {
     this.meetingListeners.add(fn);
     return () => this.meetingListeners.delete(fn);
+  }
+  /** Live task and approval changes (lists are fetched over REST by the app). */
+  onWork(fn: (e: WorkEvent) => void): () => void {
+    this.workListeners.add(fn);
+    return () => this.workListeners.delete(fn);
   }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
@@ -252,6 +259,9 @@ export class SyncEngine {
       },
       onMeeting: (e) => {
         for (const l of this.meetingListeners) l(e);
+      },
+      onWork: (e) => {
+        for (const l of this.workListeners) l(e);
       },
     });
   }

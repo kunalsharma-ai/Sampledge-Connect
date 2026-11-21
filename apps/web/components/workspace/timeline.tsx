@@ -24,6 +24,7 @@ import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
 import { PollCard } from './polls';
+import { ModuleActionCard, ModuleCard, WorkCard } from './work-cards';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -48,6 +49,8 @@ export function Timeline({
   highlightId,
   emptyState,
   canModerate = false,
+  onCreateTask,
+  onRequestApproval,
   onTranslate,
 }: {
   messages: LocalMessage[] | undefined;
@@ -74,6 +77,8 @@ export function Timeline({
   emptyState?: React.ReactNode;
   /** Conversation owner/moderator or tenant admin: may close anyone's poll. */
   canModerate?: boolean;
+  onCreateTask?: (m: LocalMessage) => void;
+  onRequestApproval?: (m: LocalMessage) => void;
   /** AI translation of one message, when the assistant is available. */
   onTranslate?: (messageId: string) => Promise<{ text: string | null; label: string }>;
 }) {
@@ -211,6 +216,12 @@ export function Timeline({
                 />
               ) : m.messageType === 'system' && m.metadata?.recording && !m.deletedAt ? (
                 <CallRecordingCard message={m} me={me} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.module && !m.deletedAt ? (
+                <ModuleCard message={m} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.work && !m.deletedAt ? (
+                <WorkCard message={m} directory={directory} />
+              ) : m.messageType === 'system' && m.metadata?.moduleAction && !m.deletedAt ? (
+                <ModuleActionCard message={m} directory={directory} />
               ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
                 <CallCard message={m} me={me} directory={directory} offline={offline} />
               ) : (
@@ -294,6 +305,10 @@ export function Timeline({
                           }}
                           onReply={() => onReply(m)}
                           {...actions?.(m)}
+                          onCreateTask={onCreateTask ? () => onCreateTask(m) : undefined}
+                          onRequestApproval={
+                            onRequestApproval ? () => onRequestApproval(m) : undefined
+                          }
                           onTranslate={
                             onTranslate && m.content.text
                               ? () => translate(m.messageId!)

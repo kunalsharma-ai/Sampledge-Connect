@@ -28,6 +28,7 @@ import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
 import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
+import { WebhooksService } from '../integrations/webhooks.service.js';
 
 @Injectable()
 export class MessagesService {
@@ -40,6 +41,7 @@ export class MessagesService {
     private readonly realtime: RealtimePublisher,
     private readonly rateLimit: RateLimitService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly webhooks: WebhooksService,
   ) {}
 
   private lockKey(tenantId: string, conversationId: string) {
@@ -165,6 +167,10 @@ export class MessagesService {
       // The message is committed and delivered; a missed notification must not fail the send.
       this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
     }
+    // Webhook subscribers of linked (module record) conversations. Best effort, never blocks.
+    void this.webhooks
+      .onMessageCreated(ctx.tenantId, doc)
+      .catch((e) => this.log.warn(`webhook fan-out failed for ${doc._id}: ${String(e)}`));
     return { clientMessageId: req.clientMessageId, message, duplicate: false };
   }
 
