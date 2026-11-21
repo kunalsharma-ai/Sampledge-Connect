@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { LocalConversation, LocalMessage } from '../db/store';
 import { useWorkspace } from './AppProvider';
 
@@ -58,7 +58,7 @@ export function useMessages(conversationId: string): {
  * Display names by user id, cached from GET /v1/users after each sync.
  * Falls back to a short id when the directory is unavailable (e.g. guest accounts).
  */
-export function usePeople(): (userId: string) => string {
+export function usePeople(): (userId: string, opts?: { asWritten?: boolean }) => string {
   const { store, selfId } = useWorkspace();
   const [people, setPeople] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -70,7 +70,12 @@ export function usePeople(): (userId: string) => string {
     // Sync rewrites the directory after each successful pass.
     return store.events.on('settings', ({ key }) => key === 'people' && load());
   }, [store]);
-  return (id) => (id === selfId ? 'You' : (people[id] ?? `Member ${id.slice(-4)}`));
+  return useCallback(
+    // asWritten: your own directory name (as others type it in @mentions) instead of "You".
+    (id: string, opts?: { asWritten?: boolean }) =>
+      id === selfId && !opts?.asWritten ? 'You' : (people[id] ?? `Member ${id.slice(-4)}`),
+    [people, selfId],
+  );
 }
 
 export function conversationTitle(
@@ -81,4 +86,25 @@ export function conversationTitle(
   if (c.name) return c.kind.startsWith('channel') ? `# ${c.name}` : c.name;
   const others = c.memberIds.filter((m) => m !== selfId);
   return others.map(nameOf).join(', ') || 'Just you';
+}
+
+/** Messages that mention you, newest first. Refreshes whenever messages change. */
+export function useMentions(): { mentions: LocalMessage[]; loading: boolean } {
+  const { store } = useWorkspace();
+  const [state, setState] = useState<{ mentions: LocalMessage[]; loading: boolean }>({
+    mentions: [],
+    loading: true,
+  });
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void store.listMentions().then((mentions) => alive && setState({ mentions, loading: false }));
+    load();
+    const off = store.events.on('messages', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [store]);
+  return state;
 }

@@ -1,21 +1,37 @@
+import { Ionicons } from '@expo/vector-icons';
 import { memo } from 'react';
-import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
-import { radius, space } from '../theme/themes';
+import { segmentMentions, type MentionCandidate } from '../lib/mentions';
+import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
 import { Text } from './Text';
+
+export interface ReplyPreview {
+  /** Server id of the quoted message. */
+  messageId: string;
+  senderName: string;
+  /** Null when the quoted message is not on this device (evicted or never synced). */
+  text: string | null;
+  deleted: boolean;
+}
 
 interface Props {
   message: LocalMessage;
   own: boolean;
   senderName: string;
+  selfId: string;
   /** First message in a run from the same sender shows the name. */
   showSender: boolean;
   animate: boolean;
-  onRetry: (clientId: string) => void;
-  onDiscard: (clientId: string) => void;
+  /** People mentioned in this message, with display names. */
+  mentioned: MentionCandidate[];
+  reply: ReplyPreview | null;
+  highlighted: boolean;
+  onOpenActions: (message: LocalMessage) => void;
+  onPressReply: (messageId: string) => void;
 }
 
 const time = (iso: string) =>
@@ -25,48 +41,34 @@ function MessageBubbleImpl({
   message: m,
   own,
   senderName,
+  selfId,
   showSender,
   animate,
-  onRetry,
-  onDiscard,
+  mentioned,
+  reply,
+  highlighted,
+  onOpenActions,
+  onPressReply,
 }: Props) {
   const { theme, motion } = useTheme();
   const c = theme.colors;
   const unsent = m.status === 'queued' || m.status === 'sending' || m.status === 'failed';
-
-  const openActions = () => {
-    if (!own || !unsent) return;
-    const title =
-      m.status === 'failed'
-        ? `Not sent: ${m.error ?? 'unknown error'}`
-        : 'This message is queued on your device';
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title,
-          options: ['Retry now', 'Delete unsent message', 'Cancel'],
-          destructiveButtonIndex: 1,
-          cancelButtonIndex: 2,
-        },
-        (i) => (i === 0 ? onRetry(m.clientId) : i === 1 ? onDiscard(m.clientId) : undefined),
-      );
-    } else {
-      Alert.alert('Unsent message', title, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => onDiscard(m.clientId) },
-        { text: 'Retry now', onPress: () => onRetry(m.clientId) },
-      ]);
-    }
-  };
-
   const deleted = !!m.deletedAt;
   const bubbleColor = own ? c.bubbleOwn : c.bubbleOther;
   const textColor = own ? c.bubbleOwnText : c.text;
+  const mentionsMe = !own && m.mentions.includes(selfId);
+  const confirmedError = !unsent && m.error;
+
+  const segments = deleted ? [] : segmentMentions(m.text, mentioned);
 
   return (
     <Animated.View
       entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}
-      style={[styles.row, own ? styles.rowOwn : styles.rowOther]}
+      style={[
+        styles.row,
+        own ? styles.rowOwn : styles.rowOther,
+        highlighted && { backgroundColor: alpha(c.accent, 0.12) },
+      ]}
     >
       {showSender && !own ? (
         <Text variant="label" tone="muted" style={styles.sender}>
@@ -74,21 +76,54 @@ function MessageBubbleImpl({
         </Text>
       ) : null}
       <Pressable
-        onLongPress={openActions}
-        onPress={m.status === 'failed' ? openActions : undefined}
-        accessibilityHint={unsent && own ? 'Double tap and hold for retry options' : undefined}
-        accessibilityLabel={`${own ? 'You' : senderName}: ${deleted ? 'message deleted' : m.text}. ${own ? STATUS_LABEL[m.status] : ''}`}
+        onLongPress={() => onOpenActions(m)}
+        onPress={m.status === 'failed' ? () => onOpenActions(m) : undefined}
+        delayLongPress={300}
+        accessibilityHint="Double tap and hold for reply, edit and other actions"
+        accessibilityLabel={`${own ? 'You' : senderName}: ${deleted ? 'message deleted' : m.text}. ${own ? STATUS_LABEL[m.status] : ''}${m.pendingOp ? ', change not saved yet' : ''}`}
         style={[
           styles.bubble,
           own ? styles.bubbleOwn : styles.bubbleOther,
           {
             backgroundColor: bubbleColor,
-            borderColor: c.border,
+            borderColor: mentionsMe ? c.accentSecondary : c.border,
             opacity: m.status === 'queued' || m.status === 'sending' ? 0.86 : 1,
           },
+          mentionsMe && { borderWidth: 1 },
           m.status === 'failed' && { borderColor: c.danger, borderWidth: 1 },
         ]}
       >
+        {reply && !deleted ? (
+          <Pressable
+            onPress={() => onPressReply(reply.messageId)}
+            accessibilityRole="button"
+            accessibilityLabel={`Reply to ${reply.senderName}. Show original message`}
+            style={[
+              styles.quote,
+              {
+                borderLeftColor: own ? alpha(textColor, 0.7) : c.accent,
+                backgroundColor: alpha(own ? '#000000' : c.accent, own ? 0.12 : 0.08),
+              },
+            ]}
+          >
+            <Text variant="label" style={{ color: own ? textColor : c.accent }} numberOfLines={1}>
+              {reply.senderName}
+            </Text>
+            <Text
+              variant="meta"
+              numberOfLines={2}
+              style={{
+                color: textColor,
+                opacity: 0.8,
+                fontStyle: reply.text ? 'normal' : 'italic',
+              }}
+            >
+              {reply.deleted
+                ? 'Message deleted'
+                : (reply.text ?? 'Original message is not saved on this device')}
+            </Text>
+          </Pressable>
+        ) : null}
         <Text
           variant="body"
           style={{
@@ -97,12 +132,34 @@ function MessageBubbleImpl({
             opacity: deleted ? 0.7 : 1,
           }}
         >
-          {deleted ? 'This message was deleted' : m.text}
+          {deleted
+            ? 'This message was deleted'
+            : segments.map((s, i) =>
+                s.userId ? (
+                  <RNText
+                    key={i}
+                    style={{
+                      fontFamily: fonts.semibold,
+                      color: own ? textColor : c.accent,
+                      backgroundColor:
+                        s.userId === selfId ? alpha(c.accentSecondary, 0.25) : undefined,
+                      textDecorationLine: own ? 'underline' : 'none',
+                    }}
+                  >
+                    {s.text}
+                  </RNText>
+                ) : (
+                  s.text
+                ),
+              )}
         </Text>
         <View style={styles.meta}>
+          {m.pendingOp ? (
+            <Ionicons name="time-outline" size={12} color={alpha(textColor, 0.7)} />
+          ) : null}
           {m.editedAt && !deleted ? (
             <Text variant="meta" style={{ color: textColor, opacity: 0.7 }}>
-              edited
+              {m.pendingOp === 'edit' ? 'saving edit' : 'edited'}
             </Text>
           ) : null}
           <Text variant="meta" style={{ color: textColor, opacity: 0.7 }}>
@@ -116,6 +173,11 @@ function MessageBubbleImpl({
           Not sent. Tap to retry.
         </Text>
       ) : null}
+      {confirmedError ? (
+        <Text variant="meta" tone="danger" style={styles.failNote}>
+          {m.error}
+        </Text>
+      ) : null}
     </Animated.View>
   );
 }
@@ -123,7 +185,7 @@ function MessageBubbleImpl({
 export const MessageBubble = memo(MessageBubbleImpl);
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: space.lg, marginTop: 3 },
+  row: { paddingHorizontal: space.lg, paddingVertical: 1.5 },
   rowOwn: { alignItems: 'flex-end' },
   rowOther: { alignItems: 'flex-start' },
   sender: { marginTop: space.md, marginBottom: 3, marginLeft: space.xs },
@@ -137,6 +199,14 @@ const styles = StyleSheet.create({
   },
   bubbleOwn: { borderBottomRightRadius: 6 },
   bubbleOther: { borderBottomLeftRadius: 6 },
+  quote: {
+    borderLeftWidth: 3,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: 5,
+    marginBottom: 6,
+    gap: 1,
+  },
   meta: {
     flexDirection: 'row',
     alignItems: 'center',

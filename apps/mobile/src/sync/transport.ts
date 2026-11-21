@@ -1,8 +1,10 @@
 import {
   ERROR_CODES,
   type AckReceiptRequest,
+  type EditMessageRequest,
   type ErrorCode,
   type LoginRequest,
+  type Message,
   type Receipt,
   type SendMessageAck,
   type SendMessageRequest,
@@ -41,6 +43,8 @@ export interface ApiTransport {
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
+  editMessage(messageId: string, req: EditMessageRequest): Promise<Message>;
+  deleteMessage(messageId: string): Promise<Message>;
   listUsers(): Promise<DirectoryUser[]>;
 }
 
@@ -93,16 +97,23 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', '/v1/messages/receipts', req);
   }
 
+  editMessage(messageId: string, req: EditMessageRequest): Promise<Message> {
+    return this.request('PATCH', `/v1/messages/${encodeURIComponent(messageId)}`, req);
+  }
+
+  deleteMessage(messageId: string): Promise<Message> {
+    return this.request('DELETE', `/v1/messages/${encodeURIComponent(messageId)}`, undefined);
+  }
+
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
   listUsers(): Promise<DirectoryUser[]> {
     return this.request('GET', '/v1/users', undefined);
   }
 
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      accept: 'application/json',
-    };
+    const hasBody = method !== 'GET' && body !== undefined;
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (hasBody) headers['content-type'] = 'application/json';
     if (auth) {
       const token = await this.opts.getAccessToken();
       if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
@@ -115,7 +126,7 @@ export class HttpTransport implements ApiTransport {
       res = await this.fetchImpl(new URL(path, this.opts.baseUrl).toString(), {
         method,
         headers,
-        body: method === 'GET' ? undefined : JSON.stringify(body),
+        body: hasBody ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
     } catch (err) {
@@ -181,5 +192,7 @@ export class NoServerTransport implements ApiTransport {
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
   ackReceipt = async (): Promise<Receipt> => this.fail();
+  editMessage = async (): Promise<Message> => this.fail();
+  deleteMessage = async (): Promise<Message> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
 }

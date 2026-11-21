@@ -56,6 +56,8 @@ export class ConnectEngine {
     this.outbox = new OutboxProcessor({
       store,
       send: (req) => this.sendOne(req),
+      edit: (id, text, mentions) => api.editMessage(id, { content: { text, mentions } }),
+      remove: (id) => api.deleteMessage(id),
       canSend: () => this._state.networkUp && session.state === 'active',
       onAuthError: (err) => void this.handleAuthError(err),
     });
@@ -116,8 +118,24 @@ export class ConnectEngine {
     await Promise.all([this.outbox.kick(), this.runSync()]);
   }
 
-  async send(conversationId: string, text: string, replyTo?: string | null): Promise<void> {
-    await this.store.enqueueSend({ conversationId, text, replyTo });
+  async send(
+    conversationId: string,
+    text: string,
+    opts: { replyTo?: string | null; mentions?: readonly string[] } = {},
+  ): Promise<void> {
+    await this.store.enqueueSend({ conversationId, text, ...opts });
+    void this.outbox.kick();
+  }
+
+  /** Edits a sent message; works offline (queued like a send). */
+  async edit(clientId: string, text: string, mentions: readonly string[] = []): Promise<void> {
+    await this.store.enqueueEdit(clientId, text, mentions);
+    void this.outbox.kick();
+  }
+
+  /** Deletes a message for everyone (or discards it if it was never sent). */
+  async remove(clientId: string): Promise<void> {
+    await this.store.enqueueDelete(clientId);
     void this.outbox.kick();
   }
 

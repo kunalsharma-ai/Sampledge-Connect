@@ -78,7 +78,7 @@ export const MODULES: ModuleEntry[] = [
     icon: 'notifications-outline',
     status: 'planned',
     href: '/activity',
-    summary: 'Mentions, replies and push notifications.',
+    summary: 'Mentions of you are in Activity. Push notifications and reply alerts are planned.',
   },
   {
     key: 'search',

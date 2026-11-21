@@ -63,7 +63,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
   ];
   await store.upsertConversations(conversations);
 
-  const script: [string, string, string][] = [
+  const script: [string, string, string, { mentions?: string[]; replyToSeq?: number }?][] = [
     [
       'demo-fieldwork',
       'demo-marco',
@@ -73,6 +73,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       'demo-fieldwork',
       'demo-lena',
       'DE is slow because of the 35-44 cell. I can open a boost sample this afternoon.',
+      { replyToSeq: 1 },
     ],
     ['demo-fieldwork', DEMO_SELF, 'Please do. Keep the incidence assumptions from last wave.'],
     [
@@ -88,11 +89,16 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       'demo-lena',
       'Q14 routing skips the brand-awareness block for non-users. Is that intended?',
     ],
-    ['demo-qa', 'demo-ravi', 'No, that is a bug. Fixing the logic in the script now.'],
+    [
+      'demo-qa',
+      'demo-ravi',
+      'No, that is a bug. @Lena Fischer the fix is in, can you re-test Q14?',
+      { mentions: ['demo-lena'], replyToSeq: 1 },
+    ],
     ['demo-launch', 'demo-marco', 'Soft launch is live. Watching the first 50 completes.'],
   ];
   const seqByConv = new Map<string, number>();
-  const messages: Message[] = script.map(([conversationId, senderId, text], i) => {
+  const messages: Message[] = script.map(([conversationId, senderId, text, extra], i) => {
     const seq = (seqByConv.get(conversationId) ?? 0) + 1;
     seqByConv.set(conversationId, seq);
     const at = t0 + i * 1000 * 60 * 23;
@@ -103,9 +109,9 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       conversationId,
       senderId,
       messageType: 'text',
-      content: { text, mentions: [] },
+      content: { text, mentions: extra?.mentions ?? [] },
       attachmentIds: [],
-      replyToMessageId: null,
+      replyToMessageId: extra?.replyToSeq ? `demo-${conversationId}-${extra.replyToSeq}` : null,
       serverSequence: seq,
       changeSequence: seq,
       createdAt: new Date(at).toISOString(),

@@ -1,11 +1,20 @@
-import { backoffDelay, type SendMessageAck, type SendMessageRequest } from '@sampledge/contracts';
-import type { LocalStore } from '../db/store';
+import {
+  backoffDelay,
+  type Message,
+  type SendMessageAck,
+  type SendMessageRequest,
+} from '@sampledge/contracts';
+import type { LocalStore, MessageOp } from '../db/store';
 import { TransportError } from './transport';
 
 export interface OutboxOptions {
   store: LocalStore;
   /** Sends one message; the socket path is preferred and REST is the fallback (see engine). */
   send: (req: SendMessageRequest) => Promise<SendMessageAck>;
+  /** Saves an edit of a sent message (PATCH /v1/messages/:id). */
+  edit?: (messageId: string, text: string, mentions: string[]) => Promise<Message>;
+  /** Deletes a sent message for everyone (DELETE /v1/messages/:id). */
+  remove?: (messageId: string) => Promise<Message>;
   /** Whether it is worth trying right now (network up, signed in, not paused). */
   canSend: () => boolean;
   /** Called when the server says the session is no longer valid. Sending pauses until resumed. */
@@ -83,7 +92,7 @@ export class OutboxProcessor {
           conversationId: msg.conversationId,
           clientMessageId: msg.clientId,
           messageType: 'text',
-          content: { text: msg.text, mentions: [] },
+          content: { text: msg.text, mentions: msg.mentions },
           replyToMessageId: msg.replyTo,
           composedAt: msg.createdAt,
         });
@@ -113,7 +122,48 @@ export class OutboxProcessor {
         await store.markFailed(item.clientId, err.message);
       }
     }
+    await this.drainOps();
     await this.scheduleNext();
+  }
+
+  /** Edits and deletes go after new messages, with the same retry rules. */
+  private async drainOps(): Promise<void> {
+    const { store, edit, remove } = this.opts;
+    if (!edit || !remove) return;
+    while (this.opts.canSend()) {
+      const op: MessageOp | undefined = await store.nextDueOp();
+      if (!op) break;
+      try {
+        const server =
+          op.kind === 'edit'
+            ? await edit(op.messageId, op.text ?? '', op.mentions)
+            : await remove(op.messageId);
+        await store.completeOp(op, server);
+      } catch (raw) {
+        const err =
+          raw instanceof TransportError ? raw : new TransportError(String(raw), 'network');
+        const attempts = op.attempts + 1;
+        if (err.isAuth) {
+          await store.markOpRetry(op.clientId, this.now(), 'Waiting for sign-in');
+          this.opts.onAuthError(err);
+          break;
+        }
+        if (err.kind === 'network' || err.kind === 'not_configured') {
+          await store.markOpRetry(
+            op.clientId,
+            this.now() + backoffDelay(attempts, { random: this.opts.random }),
+            err.message,
+          );
+          break;
+        }
+        if (err.retryable && attempts < (this.opts.maxServerAttempts ?? 8)) {
+          const delay = err.retryAfterMs ?? backoffDelay(attempts, { random: this.opts.random });
+          await store.markOpRetry(op.clientId, this.now() + delay, err.message);
+          continue;
+        }
+        await store.failOp(op, err.message);
+      }
+    }
   }
 
   private async scheduleNext(): Promise<void> {
