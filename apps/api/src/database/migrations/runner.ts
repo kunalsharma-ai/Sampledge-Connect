@@ -1,0 +1,47 @@
+import type { Db } from 'mongodb';
+import { initialMigration } from './001-initial.js';
+
+export interface Migration {
+  id: string;
+  up(db: Db): Promise<void>;
+}
+
+/** Ordered list. Append only; never edit a migration that has shipped. */
+export const MIGRATIONS: Migration[] = [initialMigration];
+
+/**
+ * Applies pending migrations in order. A lock document prevents two API
+ * replicas from migrating concurrently; migrations themselves are idempotent.
+ */
+export async function runMigrations(
+  db: Db,
+  log: (msg: string) => void = () => {},
+): Promise<string[]> {
+  const state = db.collection<{ _id: string; appliedAt?: Date; lockedAt?: Date }>('_migrations');
+  const lockId = '__lock__';
+  const staleBefore = new Date(Date.now() - 5 * 60_000);
+  try {
+    await state.updateOne(
+      { _id: lockId, $or: [{ lockedAt: { $exists: false } }, { lockedAt: { $lt: staleBefore } }] },
+      { $set: { lockedAt: new Date() } },
+      { upsert: true },
+    );
+  } catch (e) {
+    if ((e as { code?: number }).code === 11000)
+      throw new Error('Another process is running migrations');
+    throw e;
+  }
+  const applied: string[] = [];
+  try {
+    for (const m of MIGRATIONS) {
+      if (await state.findOne({ _id: m.id })) continue;
+      log(`Applying migration ${m.id}`);
+      await m.up(db);
+      await state.insertOne({ _id: m.id, appliedAt: new Date() });
+      applied.push(m.id);
+    }
+  } finally {
+    await state.deleteOne({ _id: lockId });
+  }
+  return applied;
+}
