@@ -5,6 +5,7 @@ import {
   AckReceiptRequestSchema,
   EditMessageRequestSchema,
   ListMessagesQuerySchema,
+  MAX_PINS_PER_CONVERSATION,
   MAX_REACTIONS_PER_MESSAGE,
   RECEIPT_TRACKING_MAX_MEMBERS,
   SendMessageRequestSchema,
@@ -373,6 +374,7 @@ export class MessagesService {
           {
             $set: {
               content: { text: '', mentions: [] },
+              pinned: null,
               deletedAt: new Date(),
               changeSequence: seq,
               metadata: { deletedBy: ctx.userId },
@@ -432,6 +434,53 @@ export class MessagesService {
         const doc = await t.messages.findOneAndUpdate(
           { _id: req.messageId },
           { $set: { reactions: next, changeSequence: seq } },
+          { returnDocument: 'after' },
+        );
+        return { doc: doc!, changed: true };
+      },
+    );
+    const dto = toMessage(result.doc);
+    if (result.changed) {
+      this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    }
+    return dto;
+  }
+
+  /** Pin or unpin a message for everyone in the conversation. Idempotent. */
+  async pin(ctx: TenantContext, messageId: string, pin: boolean): Promise<Message> {
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m) throw notFound('Message');
+    await this.conversations.authorize(ctx, m.conversationId, 'message.pin');
+    if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    const result = await withLock(
+      this.redis,
+      this.lockKey(ctx.tenantId, m.conversationId),
+      async () => {
+        const cur = await t.messages.findOne({ _id: messageId });
+        if (!cur || cur.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+        if (!!cur.pinned === pin) return { doc: cur, changed: false };
+        if (pin) {
+          const pins = await t.messages.countDocuments({
+            conversationId: m.conversationId,
+            'pinned.pinnedAt': { $type: 'date' },
+          });
+          if (pins >= MAX_PINS_PER_CONVERSATION) {
+            throw new AppError(
+              'VALIDATION_FAILED',
+              `A conversation can have up to ${MAX_PINS_PER_CONVERSATION} pinned messages`,
+            );
+          }
+        }
+        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        const doc = await t.messages.findOneAndUpdate(
+          { _id: messageId },
+          {
+            $set: {
+              pinned: pin ? { pinnedBy: ctx.userId, pinnedAt: new Date() } : null,
+              changeSequence: seq,
+            },
+          },
           { returnDocument: 'after' },
         );
         return { doc: doc!, changed: true };

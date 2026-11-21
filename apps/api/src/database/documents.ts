@@ -111,6 +111,7 @@ export interface MessageDoc extends TenantOwned {
   attachments?: AttachmentSnapshot[];
   /** Absent on messages nobody reacted to. userIds in reaction order (full list). */
   reactions?: { emoji: string; userIds: string[] }[];
+  pinned?: { pinnedBy: string; pinnedAt: Date } | null;
 }
 
 export interface ReceiptDoc extends TenantOwned {
@@ -320,6 +321,13 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+export interface BookmarkDoc extends TenantOwned {
+  userId: string;
+  messageId: string;
+  conversationId: string;
+  createdAt: Date;
+}
+
 /** One embedding per message per embedding model (the vector index for semantic search). */
 export interface AiEmbeddingDoc extends TenantOwned {
   conversationId: string;
@@ -400,6 +408,7 @@ export interface TenantCollections {
   meetings: MeetingDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
+  bookmarks: BookmarkDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;
   ai_summaries: AiSummaryCacheDoc;

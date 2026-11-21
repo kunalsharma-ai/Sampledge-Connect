@@ -158,6 +158,7 @@ export async function seedDemo(store: LocalStore): Promise<void> {
       editedAt: null,
       deletedAt: null,
       metadata: extra?.system ?? {},
+      pinned: null,
       reactions: (extra?.reactions ?? []).map(([emoji, userIds]) => ({
         emoji,
         userIds,

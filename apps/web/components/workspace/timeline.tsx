@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Languages, RotateCcw, Trash2 } from 'lucide-react';
+import { Languages, MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
 import type { Conversation, Receipt } from '@sampledge/contracts';
 import {
   displayStatus,
@@ -13,7 +13,13 @@ import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/u
 import type { DirectoryEntry } from '@/lib/engine';
 import { formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
-import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
+import {
+  MessageActions,
+  MessageText,
+  ReactionChips,
+  ReplyQuote,
+  type ExtraActions,
+} from './message-parts';
 import { CallCard } from './calls';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
@@ -35,6 +41,12 @@ export function Timeline({
   onReply,
   offline = false,
   onOpenMeeting,
+  actions,
+  replyCounts,
+  onOpenThread,
+  threadRootId,
+  highlightId,
+  emptyState,
   onCreateTask,
   onRequestApproval,
   onTranslate,
@@ -51,6 +63,16 @@ export function Timeline({
   onReply?: (m: LocalMessage) => void;
   offline?: boolean;
   onOpenMeeting?: (meta: MeetingSystemMetadata) => void;
+  /** Pin, save and thread actions for a confirmed message. */
+  actions?: (m: LocalMessage) => ExtraActions;
+  /** Reply counts by message id; shows a "N replies" link that opens the thread. */
+  replyCounts?: Map<string, number>;
+  onOpenThread?: (m: LocalMessage) => void;
+  /** In a thread view: replies to the root don't repeat its quote. */
+  threadRootId?: string;
+  /** Briefly highlights a message (jump from pins or saved items). */
+  highlightId?: string | null;
+  emptyState?: React.ReactNode;
   onCreateTask?: (m: LocalMessage) => void;
   onRequestApproval?: (m: LocalMessage) => void;
   /** AI translation of one message, when the assistant is available. */
@@ -102,6 +124,14 @@ export function Timeline({
     if (el && atBottom.current) el.scrollTop = el.scrollHeight;
   }, [count, conversation.conversationId]);
 
+  React.useEffect(() => {
+    if (!highlightId) return;
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-message-id="${highlightId}"]`);
+    if (!el) return;
+    atBottom.current = false;
+    el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+  }, [highlightId, count, reduce]);
+
   if (messages === undefined) {
     return (
       <div className="flex-1 space-y-5 px-6 py-6">
@@ -116,6 +146,7 @@ export function Timeline({
   }
 
   if (messages.length === 0) {
+    if (emptyState) return <>{emptyState}</>;
     return (
       <div className="flex flex-1 items-center justify-center">
         <StateView
@@ -196,11 +227,13 @@ export function Timeline({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
                   className={cn(
-                    'group flex gap-3',
+                    'group flex gap-3 rounded-lg transition-colors duration-700',
                     own && 'flex-row-reverse',
                     grouped ? 'mt-1' : 'mt-4',
+                    highlightId && m.messageId === highlightId && 'bg-accent-soft/60',
                   )}
                   data-status={status ?? undefined}
+                  data-message-id={m.messageId ?? undefined}
                 >
                   <div className="w-9 shrink-0">
                     {!grouped ? (
@@ -226,7 +259,14 @@ export function Timeline({
                         </span>
                       </div>
                     ) : null}
-                    {m.replyToMessageId ? (
+                    {m.pinned && !m.deletedAt ? (
+                      <span className="mb-1 flex items-center gap-1 px-1 text-meta text-accent">
+                        <Pin className="size-3" aria-hidden />
+                        Pinned by{' '}
+                        {m.pinned.pinnedBy === me ? 'you' : nameOf(m.pinned.pinnedBy, directory)}
+                      </span>
+                    ) : null}
+                    {m.replyToMessageId && m.replyToMessageId !== threadRootId ? (
                       <ReplyQuote
                         parent={(() => {
                           const p = byId.get(m.replyToMessageId);
@@ -260,6 +300,7 @@ export function Timeline({
                             onReact(m, e, !mine);
                           }}
                           onReply={() => onReply(m)}
+                          {...actions?.(m)}
                           onCreateTask={onCreateTask ? () => onCreateTask(m) : undefined}
                           onRequestApproval={
                             onRequestApproval ? () => onRequestApproval(m) : undefined
@@ -325,6 +366,16 @@ export function Timeline({
                         own={own}
                         onToggle={(e, add) => onReact?.(m, e, add)}
                       />
+                    ) : null}
+                    {m.messageId && replyCounts?.get(m.messageId) && onOpenThread ? (
+                      <button
+                        onClick={() => onOpenThread(m)}
+                        className="mt-1 inline-flex items-center gap-1.5 rounded-sm px-1 text-meta font-medium text-accent hover:underline"
+                      >
+                        <MessagesSquare className="size-3.5" aria-hidden />
+                        {replyCounts.get(m.messageId)}{' '}
+                        {replyCounts.get(m.messageId) === 1 ? 'reply' : 'replies'}
+                      </button>
                     ) : null}
                     {own ? (
                       <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">

@@ -26,8 +26,10 @@ import {
   Tooltip,
   TypingIndicator,
   cn,
+  useToast,
 } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
+import { setPinned, threadCounts, useBookmarks } from '@/lib/bookmarks';
 import {
   useConversations,
   useEngine,
@@ -50,6 +52,7 @@ import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
+import { PinsMenu, SavedScreen, ThreadPanel } from './threads';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
 import { AiScreen } from './ai-screen';
@@ -64,7 +67,7 @@ import {
   type AiTaskActions,
 } from '@/lib/ai';
 import { resolveDueHint } from '@sampledge/contracts';
-import type { MeetingSystemMetadata } from '@sampledge/contracts';
+import type { MeetingSystemMetadata, Message } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
@@ -108,8 +111,10 @@ function useTick(ms: number) {
 }
 
 export function Workspace() {
-  const { session } = useAuth();
+  const { session, getAccessToken } = useAuth();
   const { engine, state, directory, signOut } = useEngine();
+  const { toast } = useToast();
+  const bookmarks = useBookmarks();
   const me = session!.user.userId;
   const isAdmin = session!.user.role === 'owner' || session!.user.role === 'admin';
   const conversations = useConversations();
@@ -171,7 +176,45 @@ export function Workspace() {
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
-  React.useEffect(() => setReplyTo(null), [activeId]);
+  const [threadRootId, setThreadRootId] = React.useState<string | null>(null);
+  const [highlightId, setHighlightId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setReplyTo(null);
+    setThreadRootId(null);
+  }, [activeId]);
+  React.useEffect(() => {
+    if (!highlightId) return;
+    const t = setTimeout(() => setHighlightId(null), 2200);
+    return () => clearTimeout(t);
+  }, [highlightId]);
+  const replyCounts = React.useMemo(() => threadCounts(messages ?? []), [messages]);
+  const threadRoot = threadRootId
+    ? (messages?.find((m) => m.messageId === threadRootId) ?? null)
+    : null;
+  const pin = async (m: LocalMessage, on: boolean) => {
+    try {
+      await setPinned(getAccessToken, m.messageId!, on);
+      toast({ title: on ? 'Pinned for everyone' : 'Unpinned', tone: 'success' });
+    } catch (e) {
+      toast({
+        title: 'Couldn’t change the pin',
+        description: (e as Error).message,
+        tone: 'danger',
+      });
+    }
+  };
+  const bookmark = async (m: LocalMessage, on: boolean) => {
+    try {
+      await bookmarks.toggle(m as unknown as Message, on);
+      toast({ title: on ? 'Saved for later' : 'Removed from saved', tone: 'success' });
+    } catch (e) {
+      toast({
+        title: 'Couldn’t update saved items',
+        description: (e as Error).message,
+        tone: 'danger',
+      });
+    }
+  };
   const ai = useAi();
   const [prefill, setPrefill] = React.useState<{ text: string; nonce: number } | null>(null);
   React.useEffect(() => setPrefill(null), [activeId]);
@@ -252,6 +295,20 @@ export function Workspace() {
     : [];
   const offline = state.connectivity === 'offline';
   const readOnly = active ? active.myRole === null || !!active.archivedAt : false;
+  const messageActions = (m: LocalMessage) => ({
+    onThread: () => setThreadRootId(m.messageId),
+    pinned: !!m.pinned,
+    onPin: readOnly || offline ? undefined : (on: boolean) => void pin(m, on),
+    saved: bookmarks.ids.has(m.messageId!),
+    onSave: offline ? undefined : (on: boolean) => void bookmark(m, on),
+  });
+  const mentionMembers = (active?.memberIds ?? [])
+    .filter((id) => id !== me && directory.has(id))
+    .map((id) => ({
+      userId: id,
+      displayName: directory.get(id)!.displayName,
+      subtitle: directory.get(id)!.title ?? undefined,
+    }));
 
   return (
     <AiContext.Provider value={ai}>
@@ -306,6 +363,18 @@ export function Workspace() {
             />
           ) : module === 'integrations' ? (
             <IntegrationsScreen online={state.connectivity === 'online'} />
+          ) : module === 'saved' ? (
+            <SavedScreen
+              api={bookmarks}
+              conversations={conversations ?? []}
+              me={me}
+              directory={directory}
+              onOpen={(b) => {
+                setModule('messages');
+                setActiveId(b.conversationId);
+                setTimeout(() => setHighlightId(b.messageId), 300);
+              }}
+            />
           ) : module === 'notifications' ? (
             <NotificationsScreen
               api={notifications}
@@ -410,6 +479,14 @@ export function Workspace() {
                         </span>
                       </Tooltip>
                       <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
+                      <PinsMenu
+                        messages={messages ?? []}
+                        me={me}
+                        directory={directory}
+                        onJump={(m) => setHighlightId(m.messageId)}
+                        canUnpin={!readOnly && !offline}
+                        onUnpin={(m) => void pin(m, false)}
+                      />
                       <NotifyLevelMenu conversation={active} offline={offline} />
                       <Tooltip content={panelOpen ? 'Hide details' : 'Show details'} side="bottom">
                         <button
@@ -454,6 +531,10 @@ export function Workspace() {
                           );
                       }}
                       onReply={(m) => setReplyTo(m)}
+                      actions={messageActions}
+                      replyCounts={replyCounts}
+                      onOpenThread={(m) => setThreadRootId(m.messageId)}
+                      highlightId={highlightId}
                       offline={offline}
                       onOpenMeeting={(meta: MeetingSystemMetadata) => {
                         setFocusMeeting({ meetingId: meta.meetingId, startsAt: meta.startsAt });
@@ -514,13 +595,7 @@ export function Workspace() {
                           attachments,
                         });
                       }}
-                      members={active.memberIds
-                        .filter((id) => id !== me && directory.has(id))
-                        .map((id) => ({
-                          userId: id,
-                          displayName: directory.get(id)!.displayName,
-                          subtitle: directory.get(id)!.title ?? undefined,
-                        }))}
+                      members={mentionMembers}
                       replyTo={
                         replyTo
                           ? {
@@ -558,8 +633,43 @@ export function Workspace() {
                 )}
               </main>
 
+              {active && threadRoot ? (
+                <ThreadPanel
+                  key={threadRoot.messageId}
+                  root={threadRoot}
+                  messages={messages ?? []}
+                  conversation={active}
+                  receipts={receipts}
+                  me={me}
+                  directory={directory}
+                  offline={offline}
+                  readOnly={readOnly}
+                  members={mentionMembers}
+                  pendingReactions={pendingReactions}
+                  onReact={(m, emoji, add) => {
+                    if (m.messageId)
+                      void engine.react(
+                        { messageId: m.messageId, conversationId: m.conversationId },
+                        emoji,
+                        add ? 'add' : 'remove',
+                      );
+                  }}
+                  actions={messageActions}
+                  onRetry={(id) => void engine.retry(id)}
+                  onDiscard={(id) => void engine.discard(id)}
+                  onSend={async (text, mentions, attachments, replyToMessageId) => {
+                    await engine.compose(active.conversationId, text, {
+                      mentions,
+                      replyToMessageId,
+                      attachments,
+                    });
+                  }}
+                  onTyping={(t) => engine.setTyping(active.conversationId, t)}
+                  onClose={() => setThreadRootId(null)}
+                />
+              ) : null}
               <AnimatePresence>
-                {active && panelOpen ? (
+                {active && panelOpen && !threadRoot ? (
                   <div key="panel" className="hidden min-[1400px]:block">
                     <ContextPanel
                       conversation={active}
