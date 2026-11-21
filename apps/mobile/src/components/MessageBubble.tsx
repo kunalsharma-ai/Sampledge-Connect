@@ -9,6 +9,7 @@ import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemM
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AttachmentList } from './Attachments';
+import { PollCard } from './PollCard';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
 import { Text } from './Text';
 
@@ -134,7 +135,9 @@ function MessageBubbleImpl({
           </Pressable>
         ) : null}
         {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
-        {deleted || m.text ? (
+        {m.poll && !deleted ? (
+          <PollCard messageId={m.messageId} poll={m.poll} own={own} nameOf={nameOf} />
+        ) : deleted || m.text ? (
           <Text
             variant="body"
             style={{

@@ -17,6 +17,7 @@ import { ConnectivityBanner } from '../../components/Connectivity';
 import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
 import { MessageActions, type MessageAction } from '../../components/MessageActions';
 import { MessageBubble, type ReplyPreview } from '../../components/MessageBubble';
+import { pollIsClosed } from '../../lib/polls';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
@@ -219,6 +220,8 @@ export default function ConversationScreen() {
       case 'pin':
       case 'unpin':
         return serverStep(engine.pinMessage(m.messageId!, action === 'pin'));
+      case 'closePoll':
+        return serverStep(engine.closePoll(m.messageId!));
       case 'save':
       case 'unsave':
         return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
@@ -465,6 +468,11 @@ export default function ConversationScreen() {
         own={sheetFor?.senderId === selfId}
         saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
         canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
+        canClosePoll={
+          !!sheetFor?.poll &&
+          !pollIsClosed(sheetFor.poll) &&
+          (sheetFor.senderId === selfId || conv?.myRole === 'owner' || conv?.myRole === 'moderator')
+        }
         onAction={onAction}
         onReact={react}
         onClose={() => setSheetFor(null)}

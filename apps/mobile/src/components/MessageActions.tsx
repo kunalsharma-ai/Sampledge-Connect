@@ -8,7 +8,16 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
 export type MessageAction =
-  'reply' | 'edit' | 'delete' | 'retry' | 'discard' | 'pin' | 'unpin' | 'save' | 'unsave';
+  | 'reply'
+  | 'edit'
+  | 'delete'
+  | 'retry'
+  | 'discard'
+  | 'pin'
+  | 'unpin'
+  | 'save'
+  | 'unsave'
+  | 'closePoll';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -18,6 +27,7 @@ export function MessageActions({
   own,
   saved = false,
   canPin = false,
+  canClosePoll = false,
   onAction,
   onReact,
   onClose,
@@ -28,6 +38,8 @@ export function MessageActions({
   saved?: boolean;
   /** You can post here, so you can pin. */
   canPin?: boolean;
+  /** Author or moderator of an open poll. */
+  canClosePoll?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -55,6 +67,8 @@ export function MessageActions({
     });
   } else if (!deleted) {
     rows.push({ key: 'reply', label: 'Reply', icon: 'arrow-undo-outline' });
+    if (canClosePoll)
+      rows.push({ key: 'closePoll', label: 'Close poll', icon: 'lock-closed-outline' });
     if (canPin)
       rows.push(
         message.pinned

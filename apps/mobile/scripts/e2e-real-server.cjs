@@ -1633,6 +1633,105 @@ function totp(secret, offset = 0) {
     );
     await api('DELETE', `/v1/messages/${id1}/pin`, undefined, samTok);
   }
+
+  // ---- Polls: Sam posts a poll from the composer, votes, sees Marco's vote arrive live,
+  // changes the vote, and closes the poll from the message sheet.
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const marcoTok = await tokenOf('marco@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const run = Date.now().toString(36).slice(-4);
+    const question = `Which day for the wave 4 kickoff? (${run})`;
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3000);
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Poll' }).click();
+    await p.waitForTimeout(1500);
+    await p.getByRole('button', { name: 'Post poll' }).click();
+    await p.waitForTimeout(400);
+    check('an empty poll is not posted', /Write a question\./.test(await p.innerText('body')));
+    await p.getByLabel('Question', { exact: true }).fill(question);
+    await p.getByLabel('Option 1', { exact: true }).fill('Monday');
+    await p.getByLabel('Option 2', { exact: true }).fill('Tuesday');
+    await p.getByRole('button', { name: 'Add option' }).click();
+    await p.getByLabel('Option 3', { exact: true }).fill('Wednesday');
+    await p.getByRole('radio', { name: '1 day' }).click();
+    await shot('86-new-poll');
+    await p.getByRole('button', { name: 'Post poll' }).click();
+    await p.waitForTimeout(3000);
+    check('the poll shows in the conversation', (await p.getByText(question).count()) > 0);
+    const findPoll = async () => {
+      const r = await api(
+        'GET',
+        `/v1/conversations/${ops.conversationId}/messages?limit=30`,
+        undefined,
+        samTok,
+      );
+      return (Array.isArray(r) ? r : (r.messages ?? r.items)).find(
+        (m) => m.poll?.question === question,
+      );
+    };
+    const created = await findPoll();
+    check(
+      'the poll is on the server with three options and a closing time',
+      created?.poll.options.length === 3 && !!created.poll.closesAt,
+    );
+    await p
+      .getByRole('radio', { name: /^Tuesday/ })
+      .last()
+      .click();
+    await p.waitForTimeout(2000);
+    check(
+      'voting shows results',
+      (await p.getByRole('radio', { name: /^Tuesday, 1 vote: you/i }).count()) > 0 ||
+        (await p.getByRole('radio', { name: /^Tuesday, 1 vote/ }).count()) > 0,
+    );
+    await api(
+      'PUT',
+      `/v1/messages/${created.messageId}/poll/vote`,
+      { optionIds: ['o1'] },
+      marcoTok,
+    );
+    await p.waitForTimeout(2500);
+    check(
+      "Marco's vote arrives live",
+      (await p.getByRole('radio', { name: /^Monday, 1 vote: Marco Silva/ }).count()) > 0 &&
+        /2 voters/.test(await p.innerText('body')),
+    );
+    await shot('87-poll-results');
+    await p
+      .getByRole('radio', { name: /^Monday/ })
+      .last()
+      .click();
+    await p.waitForTimeout(2000);
+    const after = await findPoll();
+    check(
+      'changing a single-choice vote moves it',
+      after.poll.options.find((o) => o.optionId === 'o1').count === 2 &&
+        after.poll.options.find((o) => o.optionId === 'o2').count === 0,
+    );
+    await p.getByText(question).last().click({ delay: 700 });
+    await p.waitForTimeout(500);
+    await p.getByRole('button', { name: 'Close poll' }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'closing the poll stops voting',
+      (await p.getByText('Poll · closed').count()) > 0 && !!(await findPoll()).poll.closedAt,
+    );
+    await shot('88-poll-closed');
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();
