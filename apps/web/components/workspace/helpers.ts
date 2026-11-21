@@ -1,3 +1,4 @@
+import { API_URL } from '@/lib/config';
 import { guestSenderName } from '@sampledge/contracts';
 import type { Conversation } from '@sampledge/contracts';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -16,6 +17,21 @@ export function conversationTitle(
     .filter((id) => id !== me)
     .map((id) => dir.get(id)?.displayName?.split(' ')[0] ?? 'Someone');
   return names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+}
+
+/** Absolute URL of a profile photo path from the API (`/v1/avatars/...`), or null. */
+export function avatarUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  try {
+    return new URL(path, API_URL).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** A member's profile photo, or null for initials. */
+export function avatarOf(id: string | null | undefined, dir: Map<string, DirectoryEntry>) {
+  return id ? avatarUrl(dir.get(id)?.avatarUrl) : null;
 }
 
 export function nameOf(id: string, dir: Map<string, DirectoryEntry>): string {

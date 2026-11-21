@@ -10,7 +10,7 @@ import {
 } from '@sampledge/contracts';
 import { Avatar, Badge, Input, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { nameOf } from './helpers';
+import { avatarOf, avatarUrl, nameOf } from './helpers';
 
 export const TASK_STATUS_LABEL: Record<Task['status'], string> = {
   open: 'Open',
@@ -135,7 +135,7 @@ export function PeopleStack({
     >
       <span className="flex -space-x-2">
         {ids.slice(0, max).map((id) => (
-          <Avatar key={id} name={nameOf(id, directory)} size="sm" className="ring-2 ring-surface" />
+          <Avatar key={id} name={nameOf(id, directory)} src={avatarOf(id, directory)} size="sm" className="ring-2 ring-surface" />
         ))}
       </span>
       {ids.length === 1 ? (
@@ -202,7 +202,7 @@ export function PeoplePicker({
                   on ? 'bg-accent-soft' : 'hover:bg-surface-raised',
                 )}
               >
-                <Avatar name={u.displayName} size="sm" />
+                <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-label text-text">{u.displayName}</span>
                   <span className="block truncate text-meta text-text-subtle">

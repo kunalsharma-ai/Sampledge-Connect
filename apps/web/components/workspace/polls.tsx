@@ -18,7 +18,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '@/lib/auth';
 import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { pollsApi, scheduledApi } from '@/lib/polls';
-import { nameOf } from './helpers';
+import { avatarOf, nameOf } from './helpers';
 
 const when = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
@@ -198,8 +198,7 @@ export function PollCard({
                       <span className="hidden -space-x-1.5 sm:flex" aria-hidden>
                         {o.voterIds.slice(0, 3).map((v) => (
                           <Avatar
-                            key={v}
-                            name={nameOf(v, directory)}
+                            key={v} name={nameOf(v, directory)} src={avatarOf(v, directory)}
                             size="xs"
                             className="ring-2 ring-surface"
                           />

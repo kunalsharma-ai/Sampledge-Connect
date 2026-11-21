@@ -22,6 +22,7 @@ import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
+import { AvatarsController, ProfileController } from './directory/profile.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
   ConversationsController,
@@ -112,6 +113,8 @@ export class AppModule {
         AdminController,
         RecordingsController,
         DirectoryController,
+        ProfileController,
+        AvatarsController,
         ConversationsController,
         MessagesController,
         SyncController,

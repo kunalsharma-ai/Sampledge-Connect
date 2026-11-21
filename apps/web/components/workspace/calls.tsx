@@ -35,7 +35,7 @@ import type { LocalMessage } from '@sampledge/offline';
 import { Avatar, Button, Tooltip, cn } from '@sampledge/ui';
 import { cameraTrackOf, handRaisedAt, screenTrackOf, useCalls } from '@/lib/calls';
 import type { DirectoryEntry } from '@/lib/engine';
-import { conversationTitle, formatTime, nameOf } from './helpers';
+import { avatarOf, conversationTitle, formatTime, nameOf } from './helpers';
 import { MemberCallChat, useCallChatCount } from './call-chat';
 
 const iconBtn =
@@ -121,8 +121,7 @@ export function LiveCallBanner({
       <div className="flex -space-x-2">
         {joined.slice(0, 4).map((p) => (
           <Avatar
-            key={p.userId}
-            name={nameOf(p.userId, directory)}
+            key={p.userId} name={nameOf(p.userId, directory)} src={avatarOf(p.userId, directory)}
             size="xs"
             className="ring-2 ring-bg rounded-full"
           />
@@ -213,7 +212,7 @@ export function IncomingCall({
           <div className="flex items-center gap-3 p-4">
             <span className="relative">
               <span className="absolute -inset-1 animate-ping rounded-full bg-success/30 motion-reduce:animate-none" />
-              <Avatar name={caller} size="lg" />
+              <Avatar name={caller} src={avatarOf(ring?.callerId, directory)} size="lg" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="flex items-center gap-1.5 text-meta text-success">
@@ -351,7 +350,11 @@ export function Tile({
         <TrackVideo track={cam} mirror={isLocal} />
       ) : (
         <div className="flex flex-col items-center gap-2">
-          <Avatar name={p.name || nameOf(p.identity, directory)} size="lg" />
+          <Avatar
+            name={p.name || nameOf(p.identity, directory)}
+            src={avatarOf(p.identity, directory)}
+            size="lg"
+          />
           {!compact ? <span className="text-meta text-text-subtle">Camera off</span> : null}
         </div>
       )}

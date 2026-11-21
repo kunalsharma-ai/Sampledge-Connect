@@ -16,7 +16,7 @@ import {
 } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { useMeetingsApi } from '@/lib/meetings';
-import { nameOf } from './helpers';
+import { avatarOf, avatarUrl, nameOf } from './helpers';
 
 const select =
   'h-10 w-full rounded-md border border-border bg-surface-sunken px-2 text-body text-text';
@@ -174,7 +174,7 @@ export function BookingPagesDialog({
                     key={id}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised py-0.5 pl-1 pr-2 text-meta text-text"
                   >
-                    <Avatar name={nameOf(id, directory)} size="xs" />
+                    <Avatar name={nameOf(id, directory)} src={avatarOf(id, directory)} size="xs" />
                     {id === me ? 'You' : nameOf(id, directory)}
                     {draft.hostIds.length > 1 ? (
                       <button
@@ -210,7 +210,7 @@ export function BookingPagesDialog({
                           setQ('');
                         }}
                       >
-                        <Avatar name={u.displayName} size="xs" />
+                        <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="xs" />
                         <span className="text-label text-text">{u.displayName}</span>
                       </button>
                     </li>

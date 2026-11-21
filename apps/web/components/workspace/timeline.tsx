@@ -11,7 +11,7 @@ import {
 } from '@sampledge/offline';
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { formatDay, formatTime, nameOf, senderNameOf } from './helpers';
+import { avatarOf, formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
 import {
   MessageActions,
@@ -241,7 +241,11 @@ export function Timeline({
                 >
                   <div className="w-9 shrink-0">
                     {!grouped ? (
-                      <Avatar name={own ? nameOf(me, directory) : name} size="sm" />
+                      <Avatar
+                        name={own ? nameOf(me, directory) : name}
+                        src={avatarOf(m.senderId, directory)}
+                        size="sm"
+                      />
                     ) : null}
                   </div>
                   <div
