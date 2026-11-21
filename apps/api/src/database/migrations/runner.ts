@@ -10,6 +10,7 @@ import { sampledgeModulesMigration } from './012-sampledge-modules.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
 import { bookmarksMigration } from './008-bookmarks.js';
 import { aiMigration } from './011-ai.js';
+import { aiTranscriptsMigration } from './013-ai-transcripts.js';
 
 export interface Migration {
   id: string;
@@ -28,6 +29,7 @@ export const MIGRATIONS: Migration[] = [
   integrationSettingsMigration,
   aiMigration,
   sampledgeModulesMigration,
+  aiTranscriptsMigration,
   bookmarksMigration,
 ];
 

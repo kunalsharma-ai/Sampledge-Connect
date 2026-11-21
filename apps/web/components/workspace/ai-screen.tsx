@@ -7,6 +7,7 @@ import {
   Bot,
   CopyCheck,
   ExternalLink,
+  FileText,
   Gauge,
   Lock,
   Plug,
@@ -79,6 +80,11 @@ function SourceCard({
           </span>
           in {where(conversations.get(hit.conversationId), me, directory)} ·{' '}
           {relativeShort(hit.createdAt)}
+          {hit.fromTranscript ? (
+            <span className="inline-flex items-center gap-0.5 rounded bg-accent-soft px-1 text-[10px] font-semibold text-accent">
+              <FileText className="size-2.5" /> Transcript
+            </span>
+          ) : null}
           <ExternalLink className="ml-auto size-3 opacity-0 transition-opacity group-hover:opacity-100" />
         </span>
         <span className="mt-0.5 line-clamp-2 block text-label font-normal text-text">

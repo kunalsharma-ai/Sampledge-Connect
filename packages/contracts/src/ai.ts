@@ -49,6 +49,12 @@ export const AiStatusSchema = z.object({
   canManage: z.boolean(),
   /** Set when a model server is configured but unreachable on the last call. */
   lastError: z.string().nullable(),
+  /** The organization's own speech-to-text server (Integrations › Speech-to-text). */
+  transcription: z.object({
+    configured: z.boolean(),
+    autoTranscribeCalls: z.boolean(),
+    autoTranscribeVoice: z.boolean(),
+  }),
 });
 export type AiStatus = z.infer<typeof AiStatusSchema>;
 
@@ -100,8 +106,10 @@ export const AiMeetingSummarySchema = AiSummarySchema.omit({ range: true }).exte
   meetingId: ServerIdSchema,
   title: z.string(),
   startsAt: z.string().datetime(),
-  /** Call recordings are not transcribed yet (self-hosted speech-to-text is planned). */
-  transcriptIncluded: z.literal(false),
+  /** True when at least one call recording or voice message transcript was read. */
+  transcriptIncluded: z.boolean(),
+  /** How many transcripts were read (0 without a speech-to-text server). */
+  transcriptCount: z.number().int().nonnegative(),
 });
 export type AiMeetingSummary = z.infer<typeof AiMeetingSummarySchema>;
 
@@ -113,6 +121,8 @@ export const AiSearchHitSchema = z.object({
   createdAt: z.string().datetime(),
   /** Cosine similarity, 0..1. */
   score: z.number(),
+  /** The match is in a call recording or voice message transcript (text holds the excerpt). */
+  fromTranscript: z.boolean().default(false),
 });
 export type AiSearchHit = z.infer<typeof AiSearchHitSchema>;
 
@@ -308,3 +318,49 @@ export const AI_PROPOSAL_TTL_MINUTES = 30;
 
 /** Integration id of the model server in Administration > Integrations. */
 export const AI_MODEL_INTEGRATION_ID = 'ai.model';
+/** Administration › Integrations: the organization's own speech-to-text server. */
+export const AI_TRANSCRIPTION_INTEGRATION_ID = 'ai.transcription';
+
+// ---------- transcripts (call recordings, voice messages, recorded video) ----------
+
+/**
+ * `not_configured`: no speech-to-text server. `none`: not transcribed yet.
+ * `queued` / `processing` / `done` / `failed`: a transcript job.
+ */
+export const TRANSCRIPT_STATUSES = [
+  'not_configured',
+  'none',
+  'queued',
+  'processing',
+  'done',
+  'failed',
+] as const;
+export const TranscriptStatusSchema = z.enum(TRANSCRIPT_STATUSES);
+export type TranscriptStatus = z.infer<typeof TranscriptStatusSchema>;
+
+export const TranscriptSegmentSchema = z.object({
+  startMs: z.number().int().nonnegative(),
+  endMs: z.number().int().nonnegative(),
+  text: z.string(),
+});
+export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
+
+/** GET /v1/ai/transcripts/:attachmentId and POST (queue one). */
+export const AiTranscriptSchema = z.object({
+  attachmentId: ServerIdSchema,
+  conversationId: ServerIdSchema,
+  messageId: ServerIdSchema.nullable(),
+  status: TranscriptStatusSchema,
+  text: z.string().nullable(),
+  segments: z.array(TranscriptSegmentSchema),
+  /** Detected or configured language (ISO 639-1 such as `en`), when known. */
+  language: z.string().nullable(),
+  model: z.string().nullable(),
+  /** Why the last attempt failed, in plain words. */
+  error: z.string().nullable(),
+  updatedAt: z.string().datetime().nullable(),
+});
+export type AiTranscript = z.infer<typeof AiTranscriptSchema>;
+
+/** Largest recording sent to the speech-to-text server (bytes are buffered in memory). */
+export const TRANSCRIPT_MAX_BYTES = 200 * 1024 * 1024;

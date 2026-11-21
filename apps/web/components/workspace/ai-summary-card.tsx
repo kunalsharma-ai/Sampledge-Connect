@@ -277,7 +277,7 @@ export function AiSummaryCard({
   );
 }
 
-/** Meeting details: summary of the agenda and the meeting chat (recordings are not transcribed yet). */
+/** Meeting details: summary of the agenda, the meeting chat and call recording transcripts. */
 export function MeetingAiSummary({
   meetingId,
   me,
@@ -343,13 +343,16 @@ export function MeetingAiSummary({
             </ul>
           ) : null}
           <p className="text-meta text-text-subtle">
-            From the agenda and meeting chat. Call recordings are not transcribed yet (planned:
-            self-hosted speech-to-text).
+            {s.transcriptIncluded
+              ? `From the agenda, meeting chat and ${s.transcriptCount === 1 ? 'the call recording transcript' : `${s.transcriptCount} call recording transcripts`}.`
+              : ai.status?.transcription.configured
+                ? 'From the agenda and meeting chat. No call recording transcript yet.'
+                : 'From the agenda and meeting chat. Call recordings are transcribed once an admin adds a speech-to-text server in Integrations.'}
           </p>
         </div>
       ) : (
         <p className="mt-1 text-meta text-text-subtle">
-          Decisions and action items from the agenda and meeting chat.
+          Decisions and action items from the agenda, meeting chat and call transcripts.
         </p>
       )}
     </div>
