@@ -25,6 +25,12 @@ export class BillingController {
     return this.billing.overview(ctx);
   }
 
+  /** Pricing for the public website. No sign-in needed. */
+  @Get('plans')
+  plans() {
+    return this.billing.publicPlans();
+  }
+
   @Post('checkout')
   @HttpCode(200)
   @UseGuards(AuthGuard)

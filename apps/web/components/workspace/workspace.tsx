@@ -43,7 +43,8 @@ import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
 import { ConversationList } from './conversation-list';
-import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
+import { NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
+import { AdminScreen } from './admin-screen';
 import { conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
@@ -118,7 +119,7 @@ export function Workspace() {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
-  const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings' | 'admin'>(null);
+  const [dialog, setDialog] = React.useState<null | 'new' | 'sync' | 'settings'>(null);
   const [palette, setPalette] = React.useState(false);
   const [scheduleIn, setScheduleIn] = React.useState<string | null>(null);
   const [focusMeeting, setFocusMeeting] = React.useState<{
@@ -270,7 +271,6 @@ export function Workspace() {
 
   const selectModule = (m: ModuleId) => {
     if (m === 'settings') return setDialog('settings');
-    if (m === 'admin') return setDialog('admin');
     setModule(m);
   };
 
@@ -363,6 +363,8 @@ export function Workspace() {
           <BillingScreen />
         ) : module === 'branding' ? (
           <BrandingScreen />
+        ) : module === 'admin' && isAdmin ? (
+          <AdminScreen onOpenModule={selectModule} />
         ) : module === 'saved' ? (
           <SavedScreen
             api={bookmarks}
@@ -841,12 +843,6 @@ export function Workspace() {
           open={dialog === 'settings'}
           onOpenChange={(o) => setDialog(o ? 'settings' : null)}
         />
-        {isAdmin ? (
-          <AdminDialog
-            open={dialog === 'admin'}
-            onOpenChange={(o) => setDialog(o ? 'admin' : null)}
-          />
-        ) : null}
         <CommandPalette
           open={palette}
           onOpenChange={setPalette}
@@ -895,7 +891,7 @@ export function Workspace() {
                     id: 'a:admin',
                     label: 'Administration',
                     icon: ShieldCheck,
-                    run: () => setDialog('admin'),
+                    run: () => setModule('admin'),
                   },
                   {
                     id: 'a:integrations',

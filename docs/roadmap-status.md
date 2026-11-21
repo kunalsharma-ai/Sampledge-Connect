@@ -60,4 +60,5 @@ Connector gateway and unified client inbox (in progress in its own thread).
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | Billing: plan catalog in the database (no hardcoded prices), Stripe checkout, portal and signed webhooks, invoices, member limits, invoice billing (web) | Built (see docs/billing.md)     |
 | White-label: app name, logo, colors, enforced theme, branded sign-in page and guest emails, support contacts (web)                                       | Built (see docs/white-label.md) |
+| Administration screen: overview, members, devices, audit log with filters and CSV export; marketing page with live pricing (web)                         | Built (see docs/admin.md)       |
 | Enforcing storage and recording limits, other payment providers, billing and branding on mobile, custom domains                                          | Planned                         |
