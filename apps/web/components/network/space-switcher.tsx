@@ -54,7 +54,7 @@ export function SpaceSwitcher({ expanded }: { expanded: boolean }) {
             disabled={busy}
             onClick={() => void go(it.id)}
             aria-pressed={on}
-            aria-label={`Switch to ${it.id === 'work' ? it.label : 'SampConnect Network'}`}
+            aria-label={it.id === 'work' ? `Work: ${it.label}` : 'Network: SampConnect Network'}
             className={cn(
               'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-meta transition-colors',
               on ? 'bg-accent-soft text-text shadow-sm' : 'text-text-muted hover:text-text',
