@@ -11,16 +11,17 @@ Phase 1 (product foundation) is being built in reviewable pull requests. See [`d
 ## Requirements
 
 - Node.js **26.13.1 LTS** (`nvm use` reads `.nvmrc`)
-- pnpm **12.21** (`corepack enable`)
+- pnpm **12.21** (`npm install -g pnpm@12.21.0`; Node 26 no longer bundles Corepack)
 - Docker (MongoDB 7 and Redis 8 for local development and integration tests)
 
 ## Getting started
 
 ```bash
-corepack enable
+docker compose up -d mongo redis
 pnpm install
 pnpm build
 pnpm test
+pnpm test:integration   # API against real MongoDB + Redis
 ```
 
 ## Documentation

@@ -8,10 +8,10 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | ------ | --------------------------------------------------------------------------------- | -------------------------- |
 | Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol | Built (docs)               |
 | Step 2 | Design tokens, five themes, typography, motion tokens, component library          | Built                      |
-| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation  | In progress                |
+| Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation  | Built                      |
 | Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                     | Planned                    |
-| Step 4 | MongoDB collections, validators, indexes, migrations                              | In progress                |
-| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO  | In progress                |
+| Step 4 | MongoDB collections, validators, indexes, migrations                              | Built                      |
+| Step 5 | DM, group, channels, send/edit/delete, receipts, typing, presence over Socket.IO  | Built                      |
 | Step 6 | Dexie cache, outbox, backoff, sync, gap recovery, quota, session expiry           | In progress                |
 | Step 7 | Premium three-column interface                                                    | In progress (core screens) |
 |        | Threads, reactions, pins, bookmarks, polls, voice, scheduled messages, forwarding | Planned                    |
