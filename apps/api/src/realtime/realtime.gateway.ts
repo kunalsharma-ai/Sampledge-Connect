@@ -1,4 +1,4 @@
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -53,9 +53,12 @@ async function wrap<T>(fn: () => Promise<T>): Promise<Ack<T>> {
 }
 
 @WebSocketGateway()
-export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, BeforeApplicationShutdown
+{
   private readonly logger = new Logger('RealtimeGateway');
   private server!: Server;
+  private shuttingDown = false;
 
   constructor(
     private readonly sessions: SessionService,
@@ -90,6 +93,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   async handleConnection(socket: AppSocket) {
+    if (this.shuttingDown) return void socket.disconnect(true);
     const { ctx } = socket.data;
     await socket.join([userRoom(ctx.tenantId, ctx.userId), tenantRoom(ctx.tenantId)]);
     // Join only conversations the user is a member of (public channels they haven't joined sync via REST).
@@ -104,9 +108,16 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     socket.data.timer = setInterval(() => void this.recheck(socket), RECHECK_MS);
   }
 
+  /** Drop sockets before Redis/Mongo close, so disconnect handlers don't hit closed connections. */
+  beforeApplicationShutdown() {
+    this.shuttingDown = true;
+    this.server?.disconnectSockets(true);
+  }
+
   async handleDisconnect(socket: AppSocket) {
     if (!socket.data?.ctx) return;
     clearInterval(socket.data.timer);
+    if (this.shuttingDown) return;
     const { tenantId, userId } = socket.data.ctx;
     const key = `presence:${tenantId}:${userId}`;
     try {
