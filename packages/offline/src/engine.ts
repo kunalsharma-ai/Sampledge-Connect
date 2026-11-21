@@ -561,11 +561,13 @@ export class SyncEngine {
   ) {
     const now = this.now();
     // Keep the original position when replacing a queued change, so order is preserved.
+    // New changes get a strictly increasing time, so two in the same millisecond keep order.
     const prev = await this.db.actions.get(a.key);
+    const last = (await this.db.actions.orderBy('createdAt').last())?.createdAt ?? 0;
     await this.db.actions.put({
       ...a,
       state: 'queued',
-      createdAt: prev?.state === 'queued' ? Math.max(prev.createdAt + 1e-3, now) : now,
+      createdAt: prev?.state === 'queued' ? prev.createdAt : Math.max(now, last + 1e-3),
       attempts: 0,
       nextAttemptAt: now,
       lastError: null,
