@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { AtSign, CheckCheck, CornerUpLeft } from 'lucide-react';
+import { AtSign, Bell, CheckCheck, CheckSquare, CornerUpLeft, Stamp } from 'lucide-react';
 import type { Conversation, Notification } from '@sampledge/contracts';
 import { Avatar, Button, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -10,7 +10,15 @@ import { conversationTitle, formatDay, nameOf, relativeShort } from './helpers';
 
 type Filter = 'all' | 'unread';
 
-/** The notification inbox: mentions and replies, newest first, grouped by day. */
+const KIND: Record<Notification['kind'], { icon: typeof AtSign; verb: string }> = {
+  mention: { icon: AtSign, verb: 'mentioned you in' },
+  reply: { icon: CornerUpLeft, verb: 'replied to you in' },
+  task: { icon: CheckSquare, verb: 'gave you a task in' },
+  approval: { icon: Stamp, verb: 'needs your approval in' },
+  alert: { icon: Bell, verb: 'posted an update in' },
+};
+
+/** The notification inbox: mentions, replies, tasks, approvals and module alerts, newest first. */
 export function NotificationsScreen({
   api,
   conversations,
@@ -100,7 +108,7 @@ export function NotificationsScreen({
           <StateView
             state="empty"
             title={filter === 'unread' ? 'You’re all caught up' : 'No notifications yet'}
-            description="When someone @mentions you or replies to your message, it shows up here."
+            description="When someone @mentions you, replies to you, gives you a task or asks for your approval, it shows up here."
           />
         ) : (
           <div className="mx-auto max-w-3xl px-2 py-3 sm:px-4">
@@ -110,7 +118,8 @@ export function NotificationsScreen({
                 <ul className="flex flex-col gap-0.5">
                   {g.items.map((n) => {
                     const actor = nameOf(n.actorId, directory);
-                    const Icon = n.kind === 'mention' ? AtSign : CornerUpLeft;
+                    const k = KIND[n.kind] ?? KIND.reply;
+                    const Icon = k.icon;
                     return (
                       <motion.li
                         key={n.notificationId}
@@ -135,8 +144,7 @@ export function NotificationsScreen({
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-label font-normal text-text-muted">
-                              <span className="font-semibold text-text">{actor}</span>{' '}
-                              {n.kind === 'mention' ? 'mentioned you in' : 'replied to you in'}{' '}
+                              <span className="font-semibold text-text">{actor}</span> {k.verb}{' '}
                               <span className="font-semibold text-text">
                                 {where(n.conversationId)}
                               </span>
