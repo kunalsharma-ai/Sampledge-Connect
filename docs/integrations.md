@@ -77,6 +77,7 @@ modules can encrypt their own stored secrets with `encryptSecret` / `decryptSecr
 | `smtp`              | Meeting invites, guest links | Connects and authenticates (no mail sent)  |
 | `livekit`           | Calls, meetings, recordings  | Authenticated RoomService call             |
 | `push.expo`         | Mobile push                  | Authenticated receipts request             |
+| `push.web`          | Browser notifications        | Checks the VAPID key pair                  |
 | `storage.nextcloud` | Chat files and recordings    | Writes, reads back and deletes a test file |
 
 Mobile push reads these settings today. The calls and email senders are being switched over

@@ -153,7 +153,7 @@ export interface DeviceDoc extends TenantOwned {
   revokedReason: string | null;
   /** Push token for this device session; cleared on revoke and sign-out. */
   push?: {
-    provider: 'expo' | 'fcm' | 'apns';
+    provider: 'expo' | 'fcm' | 'apns' | 'webpush';
     token: string;
     platform: string;
     updatedAt: Date;
