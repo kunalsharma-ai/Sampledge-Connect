@@ -3,12 +3,14 @@ import * as React from 'react';
 import {
   Bookmark,
   BookmarkCheck,
+  CheckSquare,
   CornerUpLeft,
   Languages,
   MessagesSquare,
   Pin,
   PinOff,
   SmilePlus,
+  Stamp,
 } from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
@@ -169,11 +171,16 @@ export function MessageActions({
   onPin,
   saved,
   onSave,
+  onCreateTask,
+  onRequestApproval,
   onTranslate,
 }: {
   own: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  /** Chat-to-task: turn this message into a task or an approval request. */
+  onCreateTask?: () => void;
+  onRequestApproval?: () => void;
   /** Present when the AI assistant is available. */
   onTranslate?: () => void;
 } & ExtraActions) {
@@ -233,6 +240,28 @@ export function MessageActions({
             >
               {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
             </button>
+          ) : null}
+          {onCreateTask ? (
+            <Tooltip content="Create task" side="top">
+              <button
+                onClick={onCreateTask}
+                aria-label="Create task from message"
+                className={ACTION_BTN}
+              >
+                <CheckSquare className="size-4" />
+              </button>
+            </Tooltip>
+          ) : null}
+          {onRequestApproval ? (
+            <Tooltip content="Request approval" side="top">
+              <button
+                onClick={onRequestApproval}
+                aria-label="Request approval for message"
+                className={ACTION_BTN}
+              >
+                <Stamp className="size-4" />
+              </button>
+            </Tooltip>
           ) : null}
           {onTranslate ? (
             <button onClick={onTranslate} aria-label="Translate" className={ACTION_BTN}>

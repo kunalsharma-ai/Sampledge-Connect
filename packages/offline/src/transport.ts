@@ -4,6 +4,8 @@ import {
   type Ack,
   type Call,
   type CallRingingEvent,
+  type Approval,
+  type Task,
   type Meeting,
   type MeetingReminderEvent,
   type AckReceiptRequest,
@@ -48,7 +50,11 @@ export interface RealtimeHandlers {
   onCall?(e: CallEvent): void;
   /** Meeting invites/changes and reminders (optional for transports that lack them). */
   onMeeting?(e: MeetingEvent): void;
+  /** Task and approval changes for the signed-in user (optional). */
+  onWork?(e: WorkEvent): void;
 }
+
+export type WorkEvent = { type: 'task'; task: Task } | { type: 'approval'; approval: Approval };
 
 export type MeetingEvent =
   { type: 'upsert'; meeting: Meeting } | { type: 'reminder'; reminder: MeetingReminderEvent };
@@ -226,6 +232,8 @@ export class HttpSocketTransport implements Transport {
     s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
     s.on('meeting:upsert', (meeting) => this.handlers?.onMeeting?.({ type: 'upsert', meeting }));
     s.on('meeting:reminder', (r) => this.handlers?.onMeeting?.({ type: 'reminder', reminder: r }));
+    s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
+    s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     this.socket = s;
     s.connect();
   }

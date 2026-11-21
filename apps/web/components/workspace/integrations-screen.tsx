@@ -21,6 +21,7 @@ import {
 import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { SampledgeModulePanel } from './sampledge-module-panel';
 
 type Draft = Record<string, string | number | boolean | null>;
 /** Secret edits: a string replaces, null clears, absent keeps what is stored. */
@@ -207,6 +208,7 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
                 online={online}
                 onBack={() => setSelected(null)}
                 onSaved={replace}
+                onReload={() => void load()}
               />
             ) : (
               <StateView state="empty" title="Choose an integration" className="h-full" />
@@ -233,12 +235,14 @@ function IntegrationDetail({
   online,
   onBack,
   onSaved,
+  onReload,
 }: {
   view: IntegrationView;
   api: ReturnType<typeof useIntegrationsApi>;
   online: boolean;
   onBack: () => void;
   onSaved: (v: IntegrationView) => void;
+  onReload: () => void;
 }) {
   const { toast } = useToast();
   const p = view.provider;
@@ -442,6 +446,9 @@ function IntegrationDetail({
               </p>
             ) : null}
           </form>
+          {p.category === 'sampledge' ? (
+            <SampledgeModulePanel providerId={p.id} online={online} onSettingsChanged={onReload} />
+          ) : null}
         </>
       )}
     </div>
