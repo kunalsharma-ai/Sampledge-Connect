@@ -86,9 +86,30 @@ How it works:
 | `GET /v1/auth/sso/callback`    | Provider returns here; redirects to web   |
 | `POST /v1/auth/sso/exchange`   | One-time code → session                   |
 
+### From the mobile app
+
+The app opens the same flow in the system browser (`expo-web-browser`
+`openAuthSessionAsync`) and gets the code back on its own URL scheme. Because another app on the
+phone could register the same scheme, the app adds its own PKCE on top:
+
+1. The app makes a random `codeVerifier` (43–128 chars, `A-Z a-z 0-9 - . _ ~`) and
+   `codeChallenge = base64url(sha256(codeVerifier))`.
+2. It opens
+   `GET /v1/auth/sso/:slug/start?returnTo=sampledge://sso&codeChallenge=…&deviceId=…&deviceName=…&platform=ios|android`.
+   `codeChallenge` is required for an app return (400 without it).
+3. After the provider, Connect redirects to `sampledge://sso#sso=<code>` or
+   `sampledge://sso#sso_error=<message>`.
+4. The app calls `POST /v1/auth/sso/exchange` with `{ code, codeVerifier }` and gets the usual
+   session. A wrong or missing verifier answers 401 and revokes the session that code was for.
+
+Allowed app schemes: `sampledge://` always; `exp://` (Expo Go) only when `NODE_ENV` isn't
+`production`. Any other scheme is treated as an unknown web origin and sent to the web login
+page. No setting is needed at your identity provider: it still only redirects to
+`/v1/auth/sso/callback`.
+
 ## Planned
 
-- SSO on the mobile app (it uses password sign-in for now).
+- The SSO button in the mobile app (the server side above is ready).
 - SAML 2.0 and SCIM provisioning.
 - Passkeys and security keys (WebAuthn).
 - An organization policy that requires two-step verification for admins or everyone.
