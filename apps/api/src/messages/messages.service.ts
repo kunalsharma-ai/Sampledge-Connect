@@ -250,6 +250,41 @@ export class MessagesService {
     return message;
   }
 
+  /**
+   * A text message from an external meeting guest (see GuestsService). The sender is the
+   * guest's identity, never a user id, and `metadata.guest` carries their name.
+   */
+  async postGuest(
+    tenantId: string,
+    conversationId: string,
+    guest: { guestId: string; name: string },
+    text: string,
+  ): Promise<Message> {
+    const t = this.db.for(tenantId);
+    const doc = await withLock(this.redis, this.lockKey(tenantId, conversationId), async () => {
+      const seq = await this.nextSequence(tenantId, conversationId, true);
+      return t.messages.insertOne({
+        conversationId,
+        clientMessageId: uuidv7(),
+        senderId: `guest:${guest.guestId}`,
+        senderDeviceId: 'guest',
+        messageType: 'text',
+        content: { text, mentions: [] },
+        attachmentIds: [],
+        replyToMessageId: null,
+        serverSequence: seq,
+        changeSequence: seq,
+        createdAt: new Date(),
+        editedAt: null,
+        deletedAt: null,
+        metadata: { guest: { guestId: guest.guestId, name: guest.name } },
+      });
+    });
+    const message = toMessage(doc);
+    this.realtime.toConversation(tenantId, conversationId, 'message:new', message);
+    return message;
+  }
+
   /** Replaces a system message's text and metadata (for example when a call ends). */
   async updateSystem(
     tenantId: string,

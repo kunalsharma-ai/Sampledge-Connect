@@ -40,7 +40,7 @@ import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
 import { ConversationList } from './conversation-list';
 import { AdminDialog, NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
-import { conversationTitle, nameOf } from './helpers';
+import { conversationTitle, nameOf, senderNameOf } from './helpers';
 import { MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
@@ -427,9 +427,7 @@ export function Workspace() {
                     replyTo
                       ? {
                           name:
-                            replyTo.senderId === me
-                              ? 'yourself'
-                              : nameOf(replyTo.senderId, directory),
+                            replyTo.senderId === me ? 'yourself' : senderNameOf(replyTo, directory),
                           text:
                             replyTo.content.text ||
                             `${replyTo.attachments?.length ?? 0} attachment(s)`,

@@ -11,7 +11,7 @@ import {
 } from '@sampledge/offline';
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { formatDay, formatTime, nameOf } from './helpers';
+import { formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
 import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
 import { CallCard } from './calls';
@@ -155,7 +155,7 @@ export function Timeline({
             prev.senderId === m.senderId &&
             Date.parse(m.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
           const status = own ? displayStatus(m, conversation, receipts) : null;
-          const name = own ? 'You' : nameOf(m.senderId, directory);
+          const name = own ? 'You' : senderNameOf(m, directory);
           return (
             <React.Fragment key={m.clientMessageId}>
               {showDay ? (

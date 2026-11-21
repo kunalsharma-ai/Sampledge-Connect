@@ -366,6 +366,19 @@ export class ConnectEngine {
     return this.serverAction(() => this.api.deleteRecording(recordingId));
   }
 
+  /** The guest's personal join link (organizer only), to share when email isn't set up. */
+  guestLink(meetingId: string, guestId: string): Promise<string> {
+    return this.serverAction(async () => (await this.api.guestLink(meetingId, guestId)).url);
+  }
+
+  /** Emails the invitation again (organizer). The server explains when email isn't set up. */
+  resendGuestInvite(meetingId: string, guestId: string): Promise<void> {
+    return this.serverAction(async () => {
+      await this.api.resendGuestInvite(meetingId, guestId);
+      await this.store.upsertMeetings([await this.api.getMeeting(meetingId)]);
+    });
+  }
+
   private async serverAction<T>(run: () => Promise<T>): Promise<T> {
     const blocked = this.serverActionBlocker();
     if (blocked) throw new Error(blocked);

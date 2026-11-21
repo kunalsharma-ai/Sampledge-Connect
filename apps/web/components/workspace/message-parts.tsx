@@ -4,7 +4,7 @@ import { CornerUpLeft, Languages, SmilePlus } from 'lucide-react';
 import type { Reaction } from '@sampledge/contracts';
 import { Tooltip, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { nameOf } from './helpers';
+import { nameOf, senderNameOf } from './helpers';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -77,7 +77,7 @@ export function ReplyQuote({
       {parent ? (
         <>
           <span className="font-semibold text-text">
-            {parent.senderId === me ? 'You' : nameOf(parent.senderId, directory)}
+            {parent.senderId === me ? 'You' : senderNameOf(parent, directory)}
           </span>
           <span className="line-clamp-1 text-text-muted">
             {parent.deleted ? 'Deleted message' : parent.text}

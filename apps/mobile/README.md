@@ -65,7 +65,10 @@ to a minute for the reminder sweep), joining the meeting's call, working hours a
 recorded with the fake microphone (sent online, and recorded offline then delivered once on
 reconnect), playback, the Recordings library with its filters, delete for everyone ("Voice
 message deleted" in the chat), and, when the API can record calls, Record and Stop in a call,
-the red indicator, the finished recording arriving in the chat and playing in the player.
+the red indicator, the finished recording arriving in the chat and playing in the player. Last, external guests:
+a guest added by email on the scheduling form (members are refused), the guest list with its
+invite status and a copied join link, and two guests waiting in a live meeting call's lobby, one
+admitted (gets a call token) and one denied.
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -147,11 +150,16 @@ in picture), "Recording deleted" in place of removed clips, call recording (Reco
 the call screen when the server allows it, a red Recording indicator with who started it for
 everyone in the call, and the finished recording delivered into the chat as a card with its
 player), a Recordings library (More, Recordings, or a conversation's details) with filters for
-voice, video, screen and calls, paging, playback and delete for those allowed, on-device search, themes, offline and storage settings, sign-out with a warning
+voice, video, screen and calls, paging, playback and delete for those allowed, external meeting
+guests (added by email when scheduling or editing, refused if they are in your organization;
+the meeting shows each guest's answer and invite email status, and the organizer can share a
+guest's personal join link or resend the invitation), the call lobby (everyone in the call sees
+guests waiting with Admit and Deny, gets a nudge when one arrives, and sees admitted guests as
+"Name (guest)"; guest messages in a meeting chat are named the same way), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, email invites with calendar files for people outside the workspace and guest join links, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
+Inbox, recurring meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
 push delivery to a device (the app registers its Expo push token and opens the conversation
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 PUSH_PROVIDER=expo on the server; Settings, Notifications shows what is missing), AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)

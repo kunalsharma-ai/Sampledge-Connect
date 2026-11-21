@@ -172,6 +172,27 @@ export class CallController {
     }
   }
 
+  /** Admits or denies a guest waiting in the lobby of the call you are in. */
+  async decideGuest(guestId: string, decision: 'admit' | 'deny'): Promise<boolean> {
+    const cur = this._state.current;
+    if (!cur) return false;
+    try {
+      this.applyCall(await this.api.lobbyDecision(cur.call.callId, guestId, decision));
+      return true;
+    } catch (err) {
+      // Someone else answered first: the next call:updated shows the outcome.
+      if (err instanceof TransportError && err.code === 'CONFLICT') {
+        void this.api.getCall(cur.call.callId).then(
+          (c) => this.applyCall(c),
+          () => undefined,
+        );
+        return false;
+      }
+      this.patch({ error: err instanceof TransportError ? err.message : describe(err) });
+      return false;
+    }
+  }
+
   dismissError(): void {
     this.patch({ error: null });
   }
