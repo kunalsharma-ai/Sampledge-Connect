@@ -23,15 +23,13 @@ export const recordingsMigration: Migration = {
         partialFilterExpression: { recording: { $type: 'string' } },
       },
     ]);
-    await db
-      .collection('calls')
-      .createIndex(
-        { 'recording.egressId': 1 },
-        {
-          name: 'by_egress',
-          partialFilterExpression: { 'recording.egressId': { $type: 'string' } },
-        },
-      );
+    await db.collection('calls').createIndex(
+      { 'recording.egressId': 1 },
+      {
+        name: 'by_egress',
+        partialFilterExpression: { 'recording.egressId': { $type: 'string' } },
+      },
+    );
     await ensureCollection(
       db,
       'tenant_settings',

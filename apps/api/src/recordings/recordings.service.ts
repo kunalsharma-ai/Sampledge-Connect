@@ -489,10 +489,19 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
       .for(call.tenantId)
       .attachments.updateOne({ _id: doc._id }, { $set: { messageId: msg.messageId } });
     await unlink(path).catch(() => undefined);
+    await this.removeManifest(rec);
     return { ...doc, messageId: msg.messageId };
   }
 
+  /** Egress writes `<egressId>.json` next to each file; it isn't needed once imported. */
+  private async removeManifest(rec: CallRecordingDoc) {
+    const dir = this.cfg.RECORDINGS_SPOOL_DIR;
+    if (dir && rec.egressId && /^EG_[A-Za-z0-9]+$/.test(rec.egressId))
+      await unlink(`${dir.replace(/\/$/, '')}/${rec.egressId}.json`).catch(() => undefined);
+  }
+
   async postFailed(call: CallDoc, rec: CallRecordingDoc) {
+    await this.removeManifest(rec);
     await this.messages
       .postSystem(call.tenantId, call.conversationId, rec.startedBy, 'Call recording failed', {
         recording: {

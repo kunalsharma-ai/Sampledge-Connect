@@ -46,6 +46,7 @@ import { useNotifications } from '@/lib/notifications';
 import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
+import { RecordingsScreen } from './recordings-screen';
 import type { MeetingSystemMetadata } from '@sampledge/contracts';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 
@@ -206,6 +207,14 @@ export function Workspace() {
           conversations={conversations ?? []}
           onOpenConversation={openConversation}
           focus={focusMeeting}
+        />
+      ) : module === 'recordings' ? (
+        <RecordingsScreen
+          me={me}
+          directory={directory}
+          isAdmin={isAdmin}
+          online={state.connectivity === 'online'}
+          onOpenConversation={openConversation}
         />
       ) : module === 'notifications' ? (
         <NotificationsScreen

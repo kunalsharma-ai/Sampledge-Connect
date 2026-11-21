@@ -295,7 +295,7 @@ describe('chat recordings', () => {
     });
     expect(del.status).toBe(200);
     const m = await updated;
-    expect(m.attachments[0].deletedAt).toBeTruthy();
+    expect(m.attachments[0]!.deletedAt).toBeTruthy();
     expect((await urlOf(ravi, attachment!.attachmentId)).status).toBe(404);
     expect((await listOf(ravi)).items.map((r) => r.recordingId)).not.toContain(
       attachment!.attachmentId,
@@ -437,7 +437,7 @@ describe('call recordings', () => {
     expect((await indicator).recording?.startedBy).toBe(ravi.user.userId);
     const req = sfu.calls.find((c) => c.method === 'StartRoomCompositeEgress')!;
     expect(req.body).toMatchObject({ layout: 'speaker', audio_only: false });
-    expect(String((req.body.file_outputs as { filepath: string }[])[0].filepath)).toMatch(
+    expect(String((req.body.file_outputs as { filepath: string }[])[0]!.filepath)).toMatch(
       new RegExp(`^${EGRESS_DIR}/.+-${call.callId}-\\d+\\.mp4$`),
     );
     // Starting again is a no-op.
@@ -494,7 +494,7 @@ describe('call recordings', () => {
       existsSync(
         join(
           spool,
-          String((req.body.file_outputs as { filepath: string }[])[0].filepath).replace(
+          String((req.body.file_outputs as { filepath: string }[])[0]!.filepath).replace(
             `${EGRESS_DIR}/`,
             '',
           ),

@@ -50,6 +50,8 @@ interface CallsContextValue {
   toggleCamera(): Promise<void>;
   toggleScreenShare(): Promise<void>;
   toggleHand(): Promise<void>;
+  /** Start or stop recording the current call (everyone sees the indicator). */
+  toggleRecording(): Promise<void>;
 }
 
 const CallsContext = React.createContext<CallsContextValue | null>(null);
@@ -362,6 +364,18 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     bump();
   }, [bump]);
 
+  const toggleRecording = React.useCallback(async () => {
+    const c = currentRef.current;
+    if (!c) return;
+    const action = c.call.recording ? 'stop' : 'start';
+    try {
+      const call = await req<Call>('POST', `/v1/calls/${c.call.callId}/recording/${action}`);
+      setCurrent((x) => (x && x.call.callId === call.callId ? { ...x, call } : x));
+    } catch (e) {
+      bump({ error: messageOf(e) });
+    }
+  }, [req, bump]);
+
   const value: CallsContextValue = {
     config,
     live,
@@ -379,6 +393,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     toggleCamera,
     toggleScreenShare,
     toggleHand,
+    toggleRecording,
   };
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

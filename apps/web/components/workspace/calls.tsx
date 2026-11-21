@@ -2,6 +2,8 @@
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  Circle,
+  CircleStop,
   Hand,
   Maximize2,
   Mic,
@@ -474,7 +476,14 @@ export function CallStage({
           aria-label="Return to call"
         >
           <p className="max-w-40 truncate text-label">{title}</p>
-          <p className="text-meta text-white/70">{statusLine}</p>
+          <p className="flex items-center gap-1.5 text-meta text-white/70">
+            {call.recording ? (
+              <span className="flex items-center gap-1 font-semibold text-[#ff6b6b]">
+                <span className="size-1.5 rounded-full bg-[#ff6b6b]" /> REC
+              </span>
+            ) : null}
+            {statusLine}
+          </p>
         </button>
         <button
           onClick={() => void calls.toggleMic()}
@@ -535,6 +544,7 @@ export function CallStage({
             ) : null}
           </p>
         </div>
+        <RecordingBadge call={call} me={me} directory={directory} />
         <span className="hidden rounded-full border border-white/15 px-2.5 py-1 text-meta text-white/70 sm:inline">
           Self-hosted media
         </span>
@@ -629,6 +639,25 @@ export function CallStage({
         >
           <Hand className={cn(handRaisedAt(lp) && 'text-warning')} />
         </ControlButton>
+        {calls.config?.recordingEnabled ? (
+          <ControlButton
+            label={
+              call.recording?.status === 'stopping'
+                ? 'Saving the recording…'
+                : call.recording
+                  ? 'Stop recording'
+                  : 'Record this call'
+            }
+            onClick={() => void calls.toggleRecording()}
+            disabled={call.recording?.status === 'stopping'}
+          >
+            {call.recording ? (
+              <CircleStop className="text-[#ff6b6b]" />
+            ) : (
+              <Circle className="fill-[#ff6b6b] text-[#ff6b6b]" />
+            )}
+          </ControlButton>
+        ) : null}
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>
@@ -651,6 +680,46 @@ export function CallStage({
       </footer>
       <RemoteAudio participants={remotes} />
     </motion.div>
+  );
+}
+
+/**
+ * Shown to everyone in the call while it is being recorded (consent indicator), with who
+ * started it. Announced to screen readers when it changes.
+ */
+function RecordingBadge({
+  call,
+  me,
+  directory,
+}: {
+  call: Call;
+  me: string;
+  directory: Map<string, DirectoryEntry>;
+}) {
+  const rec = call.recording;
+  const elapsed = useElapsed(rec?.startedAt ?? new Date().toISOString());
+  return (
+    <span aria-live="polite" className="contents">
+      {rec ? (
+        <span
+          data-testid="recording-indicator"
+          className="flex items-center gap-2 rounded-full border border-[#ff6b6b]/50 bg-[#ff6b6b]/15 px-3 py-1 text-meta font-semibold text-[#ffb4b4]"
+        >
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#ff6b6b] opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-[#ff6b6b]" />
+          </span>
+          {rec.status === 'stopping'
+            ? 'Saving recording…'
+            : rec.status === 'starting'
+              ? 'Starting recording…'
+              : `Recording · ${elapsed}`}
+          <span className="hidden font-normal text-white/70 md:inline">
+            by {rec.startedBy === me ? 'you' : nameOf(rec.startedBy, directory).split(' ')[0]}
+          </span>
+        </span>
+      ) : null}
+    </span>
   );
 }
 
