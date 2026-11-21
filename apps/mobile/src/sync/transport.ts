@@ -5,6 +5,10 @@ import {
   type CreateUploadRequest,
   type UploadTicket,
   type AckReceiptRequest,
+  type Call,
+  type CallJoinResponse,
+  type CallMedia,
+  type CallsConfig,
   type Conversation,
   type NotifyLevel,
   type PushStatus,
@@ -73,6 +77,12 @@ export interface ApiTransport {
   setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<Conversation>;
   pushStatus(): Promise<PushStatus>;
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus>;
+  callsConfig(): Promise<CallsConfig>;
+  activeCalls(): Promise<Call[]>;
+  getCall(callId: string): Promise<Call>;
+  startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
+  joinCall(callId: string): Promise<CallJoinResponse>;
+  callAction(callId: string, action: 'leave' | 'decline' | 'end'): Promise<Call>;
 }
 
 export interface DirectoryUser {
@@ -218,6 +228,36 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', '/v1/push/status', undefined);
   }
 
+  /** Whether this deployment has a media server (calls are hidden when it does not). */
+  callsConfig(): Promise<CallsConfig> {
+    return this.request('GET', '/v1/calls/config', undefined);
+  }
+
+  /** Live calls in your conversations (for join banners). */
+  async activeCalls(): Promise<Call[]> {
+    const r = await this.request<Call[] | { calls: Call[] }>('GET', '/v1/calls/active', undefined);
+    return Array.isArray(r) ? r : r.calls;
+  }
+
+  getCall(callId: string): Promise<Call> {
+    return this.request('GET', `/v1/calls/${encodeURIComponent(callId)}`, undefined);
+  }
+
+  /** Starts a call, or joins the one already live in the conversation. */
+  startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse> {
+    return this.request('POST', `/v1/conversations/${encodeURIComponent(conversationId)}/calls`, {
+      media,
+    });
+  }
+
+  joinCall(callId: string): Promise<CallJoinResponse> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/join`, {});
+  }
+
+  callAction(callId: string, action: 'leave' | 'decline' | 'end'): Promise<Call> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/${action}`, {});
+  }
+
   /** Ties a push token to this device session (idempotent; sign-out and revoke clear it). */
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus> {
     return this.request('POST', '/v1/push/token', req);
@@ -316,4 +356,10 @@ export class NoServerTransport implements ApiTransport {
   setNotifyLevel = async (): Promise<Conversation> => this.fail();
   pushStatus = async (): Promise<PushStatus> => this.fail();
   registerPushToken = async (): Promise<PushStatus> => this.fail();
+  callsConfig = async (): Promise<CallsConfig> => this.fail();
+  activeCalls = async (): Promise<Call[]> => this.fail();
+  getCall = async (): Promise<Call> => this.fail();
+  startCall = async (): Promise<CallJoinResponse> => this.fail();
+  joinCall = async (): Promise<CallJoinResponse> => this.fail();
+  callAction = async (): Promise<Call> => this.fail();
 }

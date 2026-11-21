@@ -13,6 +13,7 @@ import * as SystemUI from 'expo-system-ui';
 import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { IncomingCall } from '../calls/IncomingCall';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
 import { AppProvider, useApp } from '../state/AppProvider';
@@ -64,6 +65,10 @@ function RootStack() {
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="planned/[module]" options={{ title: '' }} />
+          <Stack.Screen
+            name="call/[id]"
+            options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false }}
+          />
         </Stack.Protected>
         <Stack.Screen
           name="sign-in"
@@ -74,6 +79,7 @@ function RootStack() {
         <>
           <NotificationBanner />
           <PushOpenHandler />
+          <IncomingCall />
         </>
       ) : null}
     </>
