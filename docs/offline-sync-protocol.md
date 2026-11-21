@@ -93,7 +93,7 @@ Bytes never travel through the sync protocol. Uploading needs a connection; send
 4. Send the message with `attachmentIds` (max 10; text may be empty when files are attached). Each upload is the sender's own, in that conversation, and usable once. The message carries `attachments: Attachment[]`, an immutable metadata snapshot.
 5. Download: `GET /v1/attachments/:id/url` returns a signed URL valid 10 minutes that needs no auth header (so `<img src>` works). Images, PDF and plain text are served inline; everything else as a download with `nosniff` and a sandbox CSP.
 
-Limits: 100 MB per file; executable and script extensions are refused. Storage sits behind a `FileStorage` interface: MongoDB GridFS is built; Nextcloud (WebDAV) is planned. Malware scanning and a sweeper for abandoned pending uploads are planned.
+Limits: 100 MB per file; executable and script extensions are refused. Storage sits behind a `FileStorage` interface: MongoDB GridFS is built, and Nextcloud (WebDAV) can hold files per organization (see storage.md). Malware scanning and a sweeper for abandoned pending uploads are planned.
 
 ## Conflict handling
 

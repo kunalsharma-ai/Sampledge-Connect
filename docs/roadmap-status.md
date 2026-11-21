@@ -32,7 +32,7 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | 1b     | Thread panel (nested replies), pins for everyone (max 50 per conversation), private saved messages with a Saved view                                                                                                                           | Built                            |
 | 1b     | Polls (single/multiple choice, anonymous, close time), scheduled messages (send later, reschedule, send now), announcement channels                                                                                                            | Built                            |
 |        | Message forwarding                                                                                                                                                                                                                             | Planned                          |
-| Step 8 | Nextcloud storage adapter (attachments use GridFS today behind the same FileStorage interface)                                                                                                                                                 | Planned (Phase 1b)               |
+| Step 8 | Nextcloud storage for chat files and recordings (WebDAV), with a safe test mode, live mode with fallback, set up from Integrations                                                                                                             | Built (see docs/storage.md)      |
 
 ## Phase 2: Sampledge modules, tasks and approvals
 
