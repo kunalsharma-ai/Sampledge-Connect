@@ -6,6 +6,7 @@ import type {
   SendMessageRequest,
   SetReactionRequest,
 } from './messages.js';
+import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 
 /**
@@ -43,6 +44,10 @@ export interface ServerToClientEvents {
   'conversation:upsert': (conversation: Conversation) => void;
   /** The caller lost access (removed / conversation deleted). Purge local copy. */
   'conversation:revoked': (e: { conversationId: string }) => void;
+  /** A new in-app notification for the caller (all of their devices). */
+  'notification:new': (notification: Notification) => void;
+  /** Notifications were marked read on another device; refetch the unread count. */
+  'notification:read': (e: { unreadCount: number }) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

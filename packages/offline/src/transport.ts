@@ -7,6 +7,7 @@ import {
   type ClientToServerEvents,
   type Conversation,
   type Message,
+  type Notification,
   type Receipt,
   type SendMessageAck,
   type SendMessageRequest,
@@ -37,7 +38,12 @@ export interface RealtimeHandlers {
   onRevoked(conversationId: string): void;
   onConnectionChange(connected: boolean): void;
   onSessionExpired(): void;
+  /** In-app notification events for the signed-in user (optional for transports that lack them). */
+  onNotification?(e: NotificationEvent): void;
 }
+
+export type NotificationEvent =
+  { type: 'new'; notification: Notification } | { type: 'read'; unreadCount: number };
 
 /** What the engine needs from the network. Implemented over Socket.IO + fetch, and faked in tests. */
 export interface Transport {
@@ -193,6 +199,12 @@ export class HttpSocketTransport implements Transport {
     s.on('conversation:upsert', (c) => this.handlers?.onConversation(c));
     s.on('conversation:revoked', (e) => this.handlers?.onRevoked(e.conversationId));
     s.on('session:expired', () => this.handlers?.onSessionExpired());
+    s.on('notification:new', (n) =>
+      this.handlers?.onNotification?.({ type: 'new', notification: n }),
+    );
+    s.on('notification:read', (e) =>
+      this.handlers?.onNotification?.({ type: 'read', unreadCount: e.unreadCount }),
+    );
     this.socket = s;
     s.connect();
   }

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
 import type { Redis } from 'ioredis';
 import {
@@ -18,6 +18,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import type { MessageDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
@@ -25,7 +26,10 @@ import { toMessage, toReceipt } from './message.mapper.js';
 
 @Injectable()
 export class MessagesService {
+  private readonly log = new Logger(MessagesService.name);
+
   constructor(
+    private readonly notifications: NotificationsService,
     private readonly db: TenantDb,
     private readonly conversations: ConversationsService,
     private readonly realtime: RealtimePublisher,
@@ -69,6 +73,7 @@ export class MessagesService {
 
     await this.rateLimit.consume('message_send', `${ctx.tenantId}:${ctx.userId}`);
     await this.conversations.authorize(ctx, req.conversationId, 'message.send');
+    let replyParentSenderId: string | null = null;
     if (req.replyToMessageId) {
       const parent = await t.messages.findOne({
         _id: req.replyToMessageId,
@@ -76,6 +81,7 @@ export class MessagesService {
       });
       if (!parent)
         throw new AppError('VALIDATION_FAILED', 'Reply target not found in this conversation');
+      replyParentSenderId = parent.deletedAt ? null : parent.senderId;
     }
 
     const attachmentIds = [...new Set(req.attachmentIds ?? [])];
@@ -146,6 +152,19 @@ export class MessagesService {
     }
     const message = toMessage(doc);
     this.realtime.toConversation(ctx.tenantId, req.conversationId, 'message:new', message);
+    if (replyParentSenderId || doc.content.mentions.length) {
+      try {
+        await this.notifications.onMessageCreated(
+          ctx.tenantId,
+          doc,
+          replyParentSenderId,
+          await this.conversations.memberIds(ctx.tenantId, req.conversationId),
+        );
+      } catch (e) {
+        // The message is committed and delivered; a missed notification must not fail the send.
+        this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
+      }
+    }
     return { clientMessageId: req.clientMessageId, message, duplicate: false };
   }
 
@@ -229,6 +248,7 @@ export class MessagesService {
     );
     const dto = toMessage(updated!);
     this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    await this.notifications.onMessageDeleted(ctx.tenantId, messageId);
     return dto;
   }
 

@@ -15,6 +15,7 @@ export function NavRail({
   userName,
   isAdmin,
   unreadTotal,
+  notificationCount = 0,
   onSignOut,
 }: {
   active: ModuleId;
@@ -25,6 +26,7 @@ export function NavRail({
   userName: string;
   isAdmin: boolean;
   unreadTotal: number;
+  notificationCount?: number;
   onSignOut: () => void;
 }) {
   const modules = MODULES.filter((m) => !m.adminOnly || isAdmin);
@@ -49,6 +51,8 @@ export function NavRail({
           {modules.map((m) => {
             const Icon = m.icon;
             const isActive = active === m.id;
+            const count =
+              m.id === 'messages' ? unreadTotal : m.id === 'notifications' ? notificationCount : 0;
             const item = (
               <button
                 onClick={() => onSelect(m.id)}
@@ -79,9 +83,9 @@ export function NavRail({
                     <span className={cn('flex-1 truncate text-left', !m.built && 'opacity-70')}>
                       {m.label}
                     </span>
-                    {m.id === 'messages' && unreadTotal > 0 ? (
+                    {count > 0 ? (
                       <span className="rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-fg">
-                        {unreadTotal}
+                        {count > 99 ? '99+' : count}
                       </span>
                     ) : !m.built ? (
                       <Badge tone="planned" className="px-1.5 text-[10px]">
@@ -89,7 +93,7 @@ export function NavRail({
                       </Badge>
                     ) : null}
                   </>
-                ) : m.id === 'messages' && unreadTotal > 0 ? (
+                ) : count > 0 ? (
                   <span className="absolute right-2 top-2 size-2 rounded-full bg-accent" />
                 ) : null}
               </button>
