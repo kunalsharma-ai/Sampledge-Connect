@@ -44,6 +44,15 @@ export const INTEGRATION_CATEGORIES = [
   'connectors',
 ] as const;
 export type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number];
+export const INTEGRATION_CATEGORY_LABELS: Record<IntegrationCategory, string> = {
+  communication: 'Email & notifications',
+  calls: 'Calls & meetings',
+  storage: 'Files & storage',
+  ai: 'AI',
+  identity: 'Sign-in & identity',
+  sampledge: 'Sampledge modules',
+  connectors: 'External messaging',
+};
 
 /** A provider is declared once (in contracts, or by the API module that owns it) and rendered generically. */
 export interface IntegrationProviderDef {

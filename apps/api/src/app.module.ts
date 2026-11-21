@@ -32,6 +32,10 @@ import { NotificationsService } from './notifications/notifications.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushProviders } from './push/push-provider.js';
 import { IntegrationSettingsModule } from './integration-settings/integration-settings.module.js';
+import {
+  PlatformIntegrationsController,
+  TenantIntegrationsController,
+} from './integration-settings/integration-settings.controller.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
@@ -67,6 +71,8 @@ export class AppModule {
       module: AppModule,
       imports: [configModule, DatabaseModule, RedisModule, IntegrationSettingsModule],
       controllers: [
+        TenantIntegrationsController,
+        PlatformIntegrationsController,
         AuthController,
         RecordingsController,
         DirectoryController,

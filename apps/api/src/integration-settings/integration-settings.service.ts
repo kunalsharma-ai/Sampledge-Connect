@@ -366,10 +366,13 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
         }
         return String(v).trim();
       }
-      case 'email':
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s>]+>?$/.test(String(v).trim()))
-          throw bad('must be an email address');
-        return String(v).trim();
+      case 'email': {
+        // Accepts "addr@host" or "Display Name <addr@host>".
+        const text = String(v).trim();
+        const addr = /<([^<>]+)>$/.exec(text)?.[1] ?? text;
+        if (!/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(addr)) throw bad('must be an email address');
+        return text.slice(0, 320);
+      }
       case 'select':
         if (!f.options?.some((o) => o.value === v)) throw bad('is not one of the options');
         return String(v);
@@ -441,7 +444,7 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
     } catch (e) {
       result = {
         ok: false,
-        message: (e as Error).message || 'Connection failed',
+        message: describeFailure(e),
         testedAt: new Date().toISOString(),
         latencyMs: null,
       };
@@ -461,4 +464,23 @@ export class IntegrationSettingsService implements OnModuleInit, OnModuleDestroy
       });
     return result;
   }
+}
+
+/** Turn low-level errors ("fetch failed") into something an admin can act on. */
+function describeFailure(e: unknown): string {
+  const err = e as Error & { cause?: { code?: string; hostname?: string; message?: string } };
+  const code = err.cause?.code ?? (err as { code?: string }).code;
+  const host = err.cause?.hostname;
+  const reason: Record<string, string> = {
+    ENOTFOUND: `Could not find the server${host ? ` ${host}` : ''}. Check the address.`,
+    ECONNREFUSED: 'The server refused the connection. Check the host and port.',
+    ETIMEDOUT: 'The server did not answer in time. Check the address and firewall.',
+    ECONNRESET: 'The connection was dropped. Check TLS settings and the port.',
+    EAI_AGAIN: 'DNS lookup failed. Check the address and the server network.',
+    CERT_HAS_EXPIRED: 'The server TLS certificate has expired.',
+  };
+  if (code && reason[code]) return reason[code];
+  if (err.message === 'fetch failed')
+    return `Could not reach the service${err.cause?.message ? `: ${err.cause.message}` : ''}`;
+  return err.message || 'Connection failed';
 }
