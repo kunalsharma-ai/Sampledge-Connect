@@ -68,6 +68,7 @@ export function ClientPanel({
   settings,
   online,
   onChanged,
+  onQueueUpdate,
 }: {
   detail: InboxConversationDetail;
   me: string;
@@ -76,6 +77,11 @@ export function ClientPanel({
   settings: InboxSettings | null;
   online: boolean;
   onChanged: (d: InboxConversationDetail) => void;
+  onQueueUpdate: (
+    conversationId: string,
+    body: Parameters<InboxApi['update']>[1],
+    label?: string,
+  ) => Promise<void>;
 }) {
   const { conversation: c, client } = detail;
   const { toast } = useToast();
@@ -98,8 +104,12 @@ export function ClientPanel({
       toast({ title: 'Could not update', description: (e as Error).message, tone: 'danger' });
     }
   };
-  const update = (body: Parameters<InboxApi['update']>[1], done?: string) =>
-    run(() => api.update(c.conversationId, body), done);
+  // Ownership changes go through this device's action queue: shown at once, sent when
+  // connected, and synced to every agent and device by the server's inbox:changed event.
+  const update = async (body: Parameters<InboxApi['update']>[1], done?: string) => {
+    await onQueueUpdate(c.conversationId, body, done ?? 'Update conversation');
+    if (done) toast({ title: done, tone: 'success' });
+  };
 
   return (
     <aside
@@ -155,7 +165,6 @@ export function ClientPanel({
             id="inbox-assignee"
             className={selectClass}
             value={c.assigneeId ?? ''}
-            disabled={!online}
             onChange={(e) => void update({ assigneeId: e.target.value || null })}
           >
             <option value="">Unassigned</option>
@@ -172,7 +181,6 @@ export function ClientPanel({
             id="inbox-team"
             className={selectClass}
             value={c.teamId ?? ''}
-            disabled={!online}
             onChange={(e) => void update({ teamId: e.target.value || null })}
           >
             <option value="">Everyone</option>
@@ -189,7 +197,6 @@ export function ClientPanel({
             id="inbox-status"
             className={selectClass}
             value={c.status}
-            disabled={!online}
             onChange={(e) => {
               const status = e.target.value as InboxStatus;
               void update(
@@ -212,7 +219,6 @@ export function ClientPanel({
             id="inbox-priority"
             className={cn(selectClass, PRIORITY_STYLE[c.priority].text)}
             value={c.priority}
-            disabled={!online}
             onChange={(e) => void update({ priority: e.target.value as InboxPriority })}
           >
             {INBOX_PRIORITIES.map((p) => (
@@ -227,7 +233,6 @@ export function ClientPanel({
             size="sm"
             variant="secondary"
             className="mt-3 w-full"
-            disabled={!online}
             onClick={() => void update({ status: 'resolved' }, 'Conversation resolved')}
           >
             <CheckCircle2 /> Resolve
@@ -310,7 +315,6 @@ export function ClientPanel({
               #{t}
               <button
                 aria-label={`Remove ${t}`}
-                disabled={!online}
                 onClick={() => void update({ tags: c.tags.filter((x) => x !== t) })}
               >
                 <X className="size-3" />
@@ -328,7 +332,6 @@ export function ClientPanel({
               onChange={(e) => setTag(e.target.value)}
               placeholder="Add tag"
               aria-label="Add tag"
-              disabled={!online}
               className="h-6 w-24 rounded-full border border-dashed border-border bg-transparent px-2 text-meta text-text placeholder:text-text-subtle"
             />
           </form>

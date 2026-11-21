@@ -69,7 +69,10 @@ export function toConversation(
   connector: Pick<ConnectorDoc, 'environment'> | null,
   client: Pick<ClientProfileDoc, '_id' | 'name' | 'company'> | null,
   settings: InboxSettings,
+  viewerId: string,
 ): InboxConversation {
+  const readAt = c.readBy?.[viewerId];
+  const lastInbound = c.lastMessage?.direction === 'inbound' ? c.lastMessage.at : null;
   return {
     conversationId: c._id,
     connectorId: c.connectorId,
@@ -97,6 +100,7 @@ export function toConversation(
     links: c.links.map(toLink),
     lastMessage: c.lastMessage ? { ...c.lastMessage, at: c.lastMessage.at.toISOString() } : null,
     awaitingReply: c.awaitingReply,
+    unread: !!lastInbound && (!readAt || readAt < lastInbound),
     snoozedUntil: iso(c.snoozedUntil),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),

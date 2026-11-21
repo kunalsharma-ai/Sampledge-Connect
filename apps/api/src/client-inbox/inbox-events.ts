@@ -78,6 +78,10 @@ export class InboxAccess {
       .map((m) => m.userId);
   }
 
+  emitTo(tenantId: string, userId: string, e: InboxChangedEvent) {
+    this.realtime.toUser(tenantId, userId, 'inbox:changed', e);
+  }
+
   async emit(tenantId: string, c: ExternalConversationDoc, reason: InboxChangedEvent['reason']) {
     try {
       for (const userId of await this.audience(tenantId, c))

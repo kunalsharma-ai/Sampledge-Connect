@@ -331,7 +331,7 @@ export class InboxService {
     let docs = await t.external_conversations
       .find({ $and: and }, { sort: { updatedAt: -1 }, limit: q.sla === 'due_soon' ? 500 : q.limit })
       .toArray();
-    const view = await this.hydrate(ctx.tenantId, docs, settings);
+    const view = await this.hydrate(ctx.tenantId, docs, settings, ctx.userId);
     let items = view;
     if (q.sla === 'due_soon')
       items = view.filter((v) => v.sla.state === 'due_soon').slice(0, q.limit);
@@ -360,6 +360,7 @@ export class InboxService {
     tenantId: string,
     docs: ExternalConversationDoc[],
     settings: InboxSettings,
+    viewerId: string,
   ) {
     const t = this.db.for(tenantId);
     const [clients, connectors] = await Promise.all([
@@ -379,7 +380,13 @@ export class InboxService {
     const cm = new Map(clients.map((c) => [c._id, c]));
     const km = new Map(connectors.map((c) => [c._id, c]));
     return docs.map((d) =>
-      toConversation(d, km.get(d.connectorId) ?? null, cm.get(d.clientId) ?? null, settings),
+      toConversation(
+        d,
+        km.get(d.connectorId) ?? null,
+        cm.get(d.clientId) ?? null,
+        settings,
+        viewerId,
+      ),
     );
   }
 
@@ -424,7 +431,7 @@ export class InboxService {
       })),
     ].sort((a, b) => a.at.localeCompare(b.at));
     return {
-      conversation: toConversation(c, connector, client, settings),
+      conversation: toConversation(c, connector, client, settings, ctx.userId),
       client: toClient(client, accounts, clientConvs),
       timeline: timeline.map(({ at: _at, ...item }) => item as InboxTimelineItem),
     };
@@ -589,6 +596,20 @@ export class InboxService {
   }
 
   // ---------- triage ----------
+
+  /**
+   * Marks the conversation read for the signed-in agent. Idempotent (the mark only moves
+   * forward), so a queued retry from an offline device is harmless. Synced to all of the
+   * agent's devices; other agents are not told, since read state is personal.
+   */
+  async markRead(ctx: TenantContext, id: string) {
+    await this.load(ctx, id);
+    await this.db.for(ctx.tenantId).external_conversations.updateOne({ _id: id }, {
+      $max: { [`readBy.${ctx.userId}`]: new Date() },
+    } as never);
+    this.access.emitTo(ctx.tenantId, ctx.userId, { conversationId: id, reason: 'read' });
+    return { conversationId: id, read: true as const };
+  }
 
   async update(ctx: TenantContext, id: string, input: unknown) {
     const req = parse(UpdateInboxConversationRequestSchema, input);

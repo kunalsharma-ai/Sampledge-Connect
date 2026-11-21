@@ -9,6 +9,7 @@ import {
   type CreateConnectorRequest,
   type CreateInboxConversationRequest,
   type InboxAnalytics,
+  type InboxConversation,
   type InboxConversationDetail,
   type InboxList,
   type InboxMessage,
@@ -25,7 +26,8 @@ import {
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useEngine, useEngineChange } from './engine';
 
 export function useInboxApi() {
   const { getAccessToken } = useAuth();
@@ -95,7 +97,7 @@ export function useInboxApi() {
 }
 export type InboxApi = ReturnType<typeof useInboxApi>;
 
-/** A reply or note written while offline (or while the API was unreachable). Sent in order on reconnect. */
+/** A reply or note waiting in this device's action queue (offline, or refused by the server). */
 export interface PendingInboxItem {
   kind: 'reply' | 'note';
   id: string;
@@ -107,14 +109,23 @@ export interface PendingInboxItem {
   error?: string;
 }
 
-const OUTBOX_KEY = 'inbox.outbox';
+/** Conversation fields an agent can change offline; queued per field so the last choice wins. */
+type QueuedUpdate = UpdateInboxConversationRequest;
+
+const LEGACY_OUTBOX_KEY = 'inbox.outbox';
 const LIST_KEY = 'inbox.list';
 const detailKey = (id: string) => `inbox.detail.${id}`;
+const isInboxKey = (key: string) => key.startsWith('inbox-');
+const replyKey = (kind: 'reply' | 'note', id: string) => `inbox-${kind}|${id}`;
+const updateKey = (id: string, fields: string[]) => `inbox-update|${id}|${fields.sort().join(',')}`;
+const readKey = (id: string) => `inbox-read|${id}`;
 
 /**
- * Inbox data for the signed-in agent: REST, kept fresh by `inbox:changed` socket events, and
- * cached in this identity's IndexedDB so the inbox still opens offline. Replies and notes
- * written offline go to a durable local queue (idempotent ids) and are sent on reconnect.
+ * Inbox data for the signed-in agent: REST, kept fresh by `inbox:changed` socket events and
+ * refetched on reconnect, and cached in this identity's IndexedDB so the inbox opens offline.
+ * Replies, notes, ownership changes and read marks go through the shared durable action queue
+ * (`engine.queueAction`): saved first, sent in order when connected, retried with backoff,
+ * coalesced by key, and listed in the Sync Center if the server refuses them.
  */
 export function useInboxData(query: ListInboxQuery) {
   const api = useInboxApi();
@@ -122,15 +133,19 @@ export function useInboxData(query: ListInboxQuery) {
   const online = state.connectivity === 'online';
   const [list, setList] = React.useState<InboxList | null>(null);
   const [error, setError] = React.useState<{ code: string; message: string } | null>(null);
-  const [outbox, setOutbox] = React.useState<PendingInboxItem[]>([]);
   const [tick, setTick] = React.useState(0);
   const key = JSON.stringify(query);
+  const bump = React.useCallback(() => setTick((t) => t + 1), []);
+
+  const actions = useLiveQuery(
+    () => db.actions.filter((a) => isInboxKey(a.key)).sortBy('createdAt'),
+    [db],
+  );
 
   React.useEffect(() => {
     void db.meta.get(LIST_KEY).then((row) => {
       if (row) setList((l) => l ?? (row.value as InboxList));
     });
-    void db.meta.get(OUTBOX_KEY).then((row) => setOutbox((row?.value as PendingInboxItem[]) ?? []));
   }, [db]);
 
   const refresh = React.useCallback(async () => {
@@ -151,67 +166,128 @@ export function useInboxData(query: ListInboxQuery) {
     if (online) void refresh();
   }, [online, refresh, tick]);
 
-  React.useEffect(() => engine.onInbox(() => setTick((t) => t + 1)), [engine]);
-
-  const saveOutbox = React.useCallback(
-    async (next: PendingInboxItem[]) => {
-      setOutbox(next);
-      await db.meta.put({ key: OUTBOX_KEY, value: next });
-    },
-    [db],
-  );
+  // Live: any inbox change this agent can see, from any device or agent.
+  React.useEffect(() => engine.onInbox(bump), [engine, bump]);
+  // A queued inbox change was confirmed or refused, or the device reconnected: refetch.
+  useEngineChange(['action'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'action' && isInboxKey(e.key))) bump();
+  });
 
   const enqueue = React.useCallback(
     async (item: Omit<PendingInboxItem, 'id' | 'createdAt'>) => {
-      const row = await db.meta.get(OUTBOX_KEY);
-      const cur = (row?.value as PendingInboxItem[]) ?? [];
-      const full = { ...item, id: uuidv7(), createdAt: new Date().toISOString() };
-      await saveOutbox([...cur, full]);
-      return full;
+      const id = uuidv7();
+      await engine.queueAction(
+        item.kind === 'reply'
+          ? {
+              key: replyKey('reply', id),
+              method: 'POST',
+              path: `/v1/inbox/conversations/${item.conversationId}/replies`,
+              body: { clientMessageId: id, text: item.text, templateId: item.templateId },
+              label: 'Reply to client',
+              conversationId: item.conversationId,
+            }
+          : {
+              key: replyKey('note', id),
+              method: 'POST',
+              path: `/v1/inbox/conversations/${item.conversationId}/notes`,
+              body: { clientNoteId: id, text: item.text, mentions: item.mentions ?? [] },
+              label: 'Internal note',
+              conversationId: item.conversationId,
+            },
+      );
+      return { ...item, id, createdAt: new Date().toISOString() };
     },
-    [db, saveOutbox],
+    [engine],
   );
 
-  const flushing = React.useRef(false);
-  const flush = React.useCallback(async () => {
-    if (flushing.current) return;
-    flushing.current = true;
-    try {
-      let cur = ((await db.meta.get(OUTBOX_KEY))?.value as PendingInboxItem[]) ?? [];
-      for (const item of [...cur]) {
-        try {
-          if (item.kind === 'reply')
-            await api.reply(item.conversationId, {
-              clientMessageId: item.id,
-              text: item.text,
-              templateId: item.templateId,
-            });
-          else
-            await api.note(item.conversationId, {
-              clientNoteId: item.id,
-              text: item.text,
-              mentions: item.mentions ?? [],
-            });
-          cur = cur.filter((x) => x.id !== item.id);
-        } catch (e) {
-          if (e instanceof ApiFailure && e.status > 0 && e.status < 500 && e.status !== 429) {
-            cur = cur.map((x) => (x.id === item.id ? { ...x, error: e.message } : x));
-          } else break; // still offline or server trouble: keep order, try again later
-        }
-      }
-      await saveOutbox(cur);
-    } finally {
-      flushing.current = false;
-    }
-  }, [api, db, saveOutbox]);
-
+  // One-time move of replies saved by the previous inbox-only outbox onto the shared queue.
   React.useEffect(() => {
-    if (online && outbox.some((x) => !x.error)) void flush();
-  }, [online, outbox, flush]);
+    void db.meta.get(LEGACY_OUTBOX_KEY).then(async (row) => {
+      const old = (row?.value as PendingInboxItem[] | undefined) ?? [];
+      if (!old.length) return;
+      for (const item of old) await enqueue(item);
+      await db.meta.delete(LEGACY_OUTBOX_KEY);
+    });
+  }, [db, enqueue]);
 
-  const discard = (id: string) => saveOutbox(outbox.filter((x) => x.id !== id));
+  const queueUpdate = React.useCallback(
+    (conversationId: string, body: QueuedUpdate, label = 'Update conversation') =>
+      engine.queueAction({
+        key: updateKey(conversationId, Object.keys(body)),
+        method: 'PATCH',
+        path: `/v1/inbox/conversations/${conversationId}`,
+        body,
+        label,
+        conversationId,
+      }),
+    [engine],
+  );
 
-  return { api, list, error, refresh, online, outbox, enqueue, flush, discard, tick };
+  const markRead = React.useCallback(
+    (conversationId: string) =>
+      engine.queueAction({
+        key: readKey(conversationId),
+        method: 'PUT',
+        path: `/v1/inbox/conversations/${conversationId}/read`,
+        label: 'Mark conversation read',
+        conversationId,
+      }),
+    [engine],
+  );
+
+  const all = actions ?? [];
+  const outbox: PendingInboxItem[] = all
+    .filter((a) => a.key.startsWith('inbox-reply|') || a.key.startsWith('inbox-note|'))
+    .map((a) => {
+      const b = a.body as { clientMessageId?: string; clientNoteId?: string; text: string };
+      return {
+        kind: a.key.startsWith('inbox-reply|') ? 'reply' : 'note',
+        id: b.clientMessageId ?? b.clientNoteId ?? a.key,
+        conversationId: a.conversationId!,
+        text: b.text,
+        createdAt: new Date(a.createdAt).toISOString(),
+        error: a.state === 'failed' ? (a.lastError?.message ?? 'Not sent') : undefined,
+      };
+    });
+
+  /** Shows queued changes right away, before the server confirms them. */
+  const overlay = React.useCallback(
+    <T extends InboxConversation>(c: T): T => {
+      let out = c;
+      for (const a of all) {
+        if (a.conversationId !== c.conversationId || a.state !== 'queued') continue;
+        if (a.key.startsWith('inbox-update|')) out = { ...out, ...(a.body as QueuedUpdate) };
+        else if (a.key.startsWith('inbox-read|')) out = { ...out, unread: false };
+      }
+      return out;
+    },
+    [all],
+  );
+
+  const discard = (id: string) => {
+    const a = all.find((x) => x.key === replyKey('reply', id) || x.key === replyKey('note', id));
+    if (a) void engine.discardAction(a.key);
+  };
+  const retry = (id: string) => {
+    const a = all.find((x) => x.key === replyKey('reply', id) || x.key === replyKey('note', id));
+    if (a) void engine.retryAction(a.key);
+  };
+
+  return {
+    api,
+    list,
+    error,
+    refresh,
+    online,
+    outbox,
+    enqueue,
+    discard,
+    retry,
+    queueUpdate,
+    markRead,
+    overlay,
+    tick,
+  };
 }
 
 export function useInboxDetail(api: InboxApi, id: string | null, online: boolean, tick: number) {

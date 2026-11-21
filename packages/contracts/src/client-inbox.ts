@@ -118,6 +118,8 @@ export const InboxConversationSchema = z.object({
     .nullable(),
   /** Inbound messages since an agent last replied. */
   awaitingReply: z.number().int(),
+  /** True when a client message arrived after the signed-in agent last read this conversation. */
+  unread: z.boolean(),
   snoozedUntil: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -420,7 +422,8 @@ export type InboxAnalytics = z.infer<typeof InboxAnalyticsSchema>;
 /** Socket event payload: an inbox conversation changed; refetch it (and the list). */
 export interface InboxChangedEvent {
   conversationId: string;
-  reason: 'message' | 'note' | 'updated' | 'delivery';
+  /** 'read' goes only to the agent who read it (all of their devices). */
+  reason: 'message' | 'note' | 'updated' | 'delivery' | 'read';
 }
 
 /** Fills {{client.name}}, {{client.firstName}}, {{client.company}} and {{agent.name}}. Unknown variables stay as typed. */

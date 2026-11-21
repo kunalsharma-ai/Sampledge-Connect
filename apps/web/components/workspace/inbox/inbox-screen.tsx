@@ -80,7 +80,19 @@ export function ClientInboxScreen({
   const data = useInboxData(query);
   const { api, online } = data;
   const [activeId, setActiveId] = React.useState<string | null>(null);
-  const { detail, setDetail, reload } = useInboxDetail(api, activeId, online, data.tick);
+  const loaded = useInboxDetail(api, activeId, online, data.tick);
+  const { setDetail, reload } = loaded;
+  // Queued (not yet confirmed) changes from this device show at once.
+  const detail = loaded.detail
+    ? { ...loaded.detail, conversation: data.overlay(loaded.detail.conversation) }
+    : null;
+  // Opening a conversation, or a new client message arriving while it is open, marks it read
+  // on every device of this agent (queued, so it also works offline).
+  const unreadOpen = loaded.detail?.conversation.unread ? loaded.detail.conversation : null;
+  React.useEffect(() => {
+    if (unreadOpen) void data.markRead(unreadOpen.conversationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unreadOpen?.conversationId, unreadOpen?.lastMessage?.at]);
   const [settings, setSettings] = React.useState<InboxSettings | null>(null);
   const [templates, setTemplates] = React.useState<InboxTemplate[]>([]);
   const [connectors, setConnectors] = React.useState<Connector[]>([]);
@@ -93,7 +105,7 @@ export function ClientInboxScreen({
     void api.connectors().then(setConnectors, () => undefined);
   }, [api, online, tab]);
 
-  const items = data.list?.items ?? null;
+  const items = data.list ? data.list.items.map(data.overlay) : null;
   React.useEffect(() => {
     if (!activeId && items?.length && typeof window !== 'undefined' && window.innerWidth >= 1024)
       setActiveId(items[0]!.conversationId);
@@ -295,7 +307,7 @@ export function ClientInboxScreen({
             </div>
             {!online ? (
               <p className="border-t border-border bg-warning/8 px-4 py-2 text-meta text-warning">
-                Offline: showing your cached inbox. Replies and notes are saved and sent on
+                Offline: showing your cached inbox. Replies, notes and changes are saved and sent on
                 reconnect.
               </p>
             ) : null}
@@ -312,7 +324,8 @@ export function ClientInboxScreen({
                 pending={data.outbox}
                 templates={templates}
                 onEnqueue={data.enqueue}
-                onDiscardPending={(id) => void data.discard(id)}
+                onDiscardPending={(id) => data.discard(id)}
+                onRetryPending={(id) => data.retry(id)}
                 onChanged={(d?: InboxConversationDetail) => (
                   d ? setDetail(d) : void reload(),
                   void data.refresh()
@@ -327,6 +340,7 @@ export function ClientInboxScreen({
                 settings={settings}
                 online={online}
                 onChanged={(d) => (setDetail(d), void data.refresh())}
+                onQueueUpdate={data.queueUpdate}
               />
             </>
           ) : (
@@ -395,7 +409,7 @@ function ConversationRow({
             <span
               className={cn(
                 'truncate text-label',
-                c.awaitingReply ? 'font-semibold text-text' : 'text-text',
+                c.unread ? 'font-semibold text-text' : 'text-text',
               )}
             >
               {c.client.name}
@@ -413,7 +427,7 @@ function ConversationRow({
           <p
             className={cn(
               'mt-0.5 line-clamp-1 text-label font-normal',
-              c.awaitingReply ? 'text-text' : 'text-text-subtle',
+              c.unread ? 'text-text' : 'text-text-subtle',
             )}
           >
             {c.lastMessage?.direction === 'outbound' ? 'You: ' : ''}

@@ -40,6 +40,13 @@ export class InboxController {
     return this.inbox.detail(ctx, id);
   }
 
+  /** Marks the conversation read for you, on all your devices. Idempotent. */
+  @Put('conversations/:id/read')
+  @HttpCode(200)
+  read(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.inbox.markRead(ctx, id);
+  }
+
   @Patch('conversations/:id')
   update(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
     return this.inbox.update(ctx, id, body);

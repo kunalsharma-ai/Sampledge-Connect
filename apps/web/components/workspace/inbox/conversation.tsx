@@ -41,6 +41,7 @@ export function InboxConversationView({
   templates,
   onEnqueue,
   onDiscardPending,
+  onRetryPending,
   onChanged,
   onBack,
 }: {
@@ -53,6 +54,7 @@ export function InboxConversationView({
   templates: InboxTemplate[];
   onEnqueue: (item: Omit<PendingInboxItem, 'id' | 'createdAt'>) => Promise<PendingInboxItem>;
   onDiscardPending: (id: string) => void;
+  onRetryPending: (id: string) => void;
   onChanged: (d?: InboxConversationDetail) => void;
   onBack: () => void;
 }) {
@@ -94,28 +96,23 @@ export function InboxConversationView({
     const body = text.trim();
     if (!body || busy) return;
     setBusy(true);
-    const item = await onEnqueue({
-      kind: mode,
-      conversationId: c.conversationId,
-      text: body,
-      ...(mode === 'reply' && templateId ? { templateId } : {}),
-    });
-    setText('');
-    setTemplateId(undefined);
+    // Saved to this device's action queue first, then sent (now, or when back online). The
+    // timeline refreshes when the server confirms it, on every device.
     try {
-      if (online) {
-        if (mode === 'reply')
-          await api.reply(c.conversationId, { clientMessageId: item.id, text: body, templateId });
-        else await api.note(c.conversationId, { clientNoteId: item.id, text: body, mentions: [] });
-        onDiscardPending(item.id);
-        onChanged();
-      }
-    } catch {
-      toast({
-        title: 'Saved on this device',
-        description: 'It will be sent when the connection is back.',
-        tone: 'info',
+      await onEnqueue({
+        kind: mode,
+        conversationId: c.conversationId,
+        text: body,
+        ...(mode === 'reply' && templateId ? { templateId } : {}),
       });
+      setText('');
+      setTemplateId(undefined);
+      if (!online)
+        toast({
+          title: 'Saved on this device',
+          description: 'It will be sent when the connection is back.',
+          tone: 'info',
+        });
     } finally {
       setBusy(false);
     }
@@ -223,6 +220,9 @@ export function InboxConversationView({
                       {p.error ? (
                         <span className="text-meta text-danger">
                           Not sent: {p.error}{' '}
+                          <button className="underline" onClick={() => onRetryPending(p.id)}>
+                            Retry
+                          </button>{' '}
                           <button className="underline" onClick={() => onDiscardPending(p.id)}>
                             Discard
                           </button>

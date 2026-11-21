@@ -32,6 +32,8 @@ Webhook verification (provider signature, token or JWT), inbound parsing, identi
 - **Dashboard** (owners and admins): open, unassigned, breached, median first reply, SLA met, volume by day and channel, and agent workload.
 - **Settings** (owners and admins): SLA minutes per priority, due-soon warning, auto-assign, auto-escalate on breach, escalation contacts and inbox teams.
 
+Every change syncs live to all of an agent's devices and to the other agents who can see the conversation. Replies, notes, ownership changes and read marks are saved on the device first and sent when it is online (see docs/sync-coverage.md). Read marks are personal to each agent.
+
 Agents see conversations with no team, those of their own teams, and those assigned to them. Owners and admins see everything.
 
 ## Not built yet

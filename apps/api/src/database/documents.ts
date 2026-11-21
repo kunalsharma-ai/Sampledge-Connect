@@ -495,6 +495,8 @@ export interface ExternalConversationDoc extends TenantOwned {
   links: LinkedRecordDoc[];
   lastMessage: { direction: 'inbound' | 'outbound'; preview: string; at: Date } | null;
   awaitingReply: number;
+  /** Per-agent read marks (userId → when they last read it); synced to all their devices. */
+  readBy?: Record<string, Date>;
   snoozedUntil: Date | null;
   resolvedAt: Date | null;
   createdAt: Date;

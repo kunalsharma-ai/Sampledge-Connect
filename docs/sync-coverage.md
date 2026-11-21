@@ -18,34 +18,40 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 - **Refused changes** (for example, the message was deleted meanwhile) are marked failed, a toast
   says so, and the Sync Center lists them with Retry and Discard.
 - **Reconnect:** cursor sync catches up messages; the engine emits `reconnected`, and every
-  cached list (saved, tasks, approvals, projects, notifications, directory, settings screens)
+  cached list (saved, tasks, approvals, projects, notifications, directory, settings screens,
+  Client Inbox)
   refetches, so a missed live event is never permanent.
 
 ## Actions
 
-| Action                                         | Live event                                          | Offline (web)                          |
-| ---------------------------------------------- | --------------------------------------------------- | -------------------------------------- |
-| Send message, reply, thread reply              | `message:new`                                       | Outbox                                 |
-| Edit own message                               | `message:updated`                                   | Queued, shown with "not synced yet"    |
-| Delete message (own, or as moderator)          | `message:updated`                                   | Queued                                 |
-| React                                          | `message:updated`                                   | Reaction queue                         |
-| Read receipts                                  | `receipt:updated`                                   | Queued watermark                       |
-| Pin / unpin                                    | `message:updated`                                   | Queued                                 |
-| Save / unsave message                          | `bookmark:updated` (own devices only)               | Queued                                 |
-| Vote in poll                                   | `message:updated`, `poll:myVote` (own devices)      | Queued                                 |
-| Create poll, schedule message                  | `message:new`, `scheduled:updated`                  | Needs a connection                     |
-| Notification level                             | `conversation:upsert` (own devices)                 | Queued                                 |
-| Mark notifications read                        | `notification:read`                                 | Queued                                 |
-| Create / change conversation, members          | `conversation:upsert`, `conversation:revoked`       | Needs a connection                     |
-| Task status and edits                          | `task:upsert`                                       | Queued (edits merge)                   |
-| Approve / reject                               | `approval:upsert`                                   | Queued                                 |
-| Create task, approval, project                 | `task:upsert`, `approval:upsert`, `project:changed` | Needs a connection                     |
-| Meeting create / change / RSVP                 | `meeting:upsert`                                    | RSVP queued; create needs a connection |
-| Calls                                          | `call:ringing`, `call:updated`, `call:ended`        | Needs a connection by nature           |
-| Invite / change member, edit profile           | `directory:updated`                                 | Needs a connection (admin)             |
-| Branding                                       | `tenant:updated` `branding`                         | Needs a connection (admin)             |
-| Billing, integrations, AI, recordings settings | `tenant:updated` with that area                     | Needs a connection (admin)             |
-| Typing, presence                               | `typing:update`, `presence:update`                  | Ephemeral, not queued                  |
+| Action                                                              | Live event                                          | Offline (web)                          |
+| ------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------- |
+| Send message, reply, thread reply                                   | `message:new`                                       | Outbox                                 |
+| Edit own message                                                    | `message:updated`                                   | Queued, shown with "not synced yet"    |
+| Delete message (own, or as moderator)                               | `message:updated`                                   | Queued                                 |
+| React                                                               | `message:updated`                                   | Reaction queue                         |
+| Read receipts                                                       | `receipt:updated`                                   | Queued watermark                       |
+| Pin / unpin                                                         | `message:updated`                                   | Queued                                 |
+| Save / unsave message                                               | `bookmark:updated` (own devices only)               | Queued                                 |
+| Vote in poll                                                        | `message:updated`, `poll:myVote` (own devices)      | Queued                                 |
+| Create poll, schedule message                                       | `message:new`, `scheduled:updated`                  | Needs a connection                     |
+| Notification level                                                  | `conversation:upsert` (own devices)                 | Queued                                 |
+| Mark notifications read                                             | `notification:read`                                 | Queued                                 |
+| Create / change conversation, members                               | `conversation:upsert`, `conversation:revoked`       | Needs a connection                     |
+| Task status and edits                                               | `task:upsert`                                       | Queued (edits merge)                   |
+| Approve / reject                                                    | `approval:upsert`                                   | Queued                                 |
+| Create task, approval, project                                      | `task:upsert`, `approval:upsert`, `project:changed` | Needs a connection                     |
+| Meeting create / change / RSVP                                      | `meeting:upsert`                                    | RSVP queued; create needs a connection |
+| Calls                                                               | `call:ringing`, `call:updated`, `call:ended`        | Needs a connection by nature           |
+| Invite / change member, edit profile                                | `directory:updated`                                 | Needs a connection (admin)             |
+| Branding                                                            | `tenant:updated` `branding`                         | Needs a connection (admin)             |
+| Billing, integrations, AI, recordings settings                      | `tenant:updated` with that area                     | Needs a connection (admin)             |
+| Client Inbox: reply to client, internal note                        | `inbox:changed` (every agent who can see it)        | Queued (idempotent ids)                |
+| Client Inbox: assign, team, status, priority, tags, snooze, resolve | `inbox:changed`                                     | Queued per field (last choice wins)    |
+| Client Inbox: mark read                                             | `inbox:changed` `read` (own devices only)           | Queued                                 |
+| Client Inbox: escalate, link records, log a handoff conversation    | `inbox:changed`                                     | Needs a connection                     |
+| Client Inbox: client messages, delivery states                      | `inbox:changed` (server-side, from providers)       | Cached list and conversations          |
+| Typing, presence                                                    | `typing:update`, `presence:update`                  | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.
 Creating things that get a server id (polls, tasks, projects, meetings) is planned for the queue
