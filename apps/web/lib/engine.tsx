@@ -15,6 +15,8 @@ import {
 } from '@sampledge/offline';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
+import { loadSession } from './auth-store';
+import Dexie from 'dexie';
 import { API_URL } from './config';
 
 export type DirectoryEntry = UserSummary & { presence?: string };
@@ -115,8 +117,17 @@ export function EngineProvider({
 
       const signOut = async () => {
         engine.stop();
+        // Both spaces (organization and Sampledge Network) live on this device: wipe them all.
+        const others = (await Promise.all([loadSession('current'), loadSession('network')]))
+          .filter((s) => !!s)
+          .flatMap((s) => [
+            dbNameFor(s.tenant.tenantId, s.user.userId),
+            `sampledge-connect:network:${s.tenant.tenantId}:${s.user.userId}`,
+          ])
+          .filter((n) => n !== db.name);
         await auth.logout();
         await wipeLocalData(db);
+        await Promise.all(others.map((n) => Dexie.delete(n).catch(() => undefined)));
       };
       setValue({ db, engine, refreshDirectory, signOut });
       cleanup = () => {

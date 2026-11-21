@@ -79,13 +79,22 @@ export class DirectoryController {
     if (await this.networkTenant.isNetwork(ctx.tenantId)) {
       // Network: only you, your connections and people you share a conversation with.
       const rows = await this.network.directory(ctx);
-      const presence = await presenceOf(this.redis, ctx.tenantId, rows.map((r) => r.userId));
+      const presence = await presenceOf(
+        this.redis,
+        ctx.tenantId,
+        rows.map((r) => r.userId),
+      );
       const conns = new Set(
-        (await this.db.for(ctx.tenantId).network_connections.find({ userId: ctx.userId }).toArray()).map((c) => c.otherUserId),
+        (
+          await this.db.for(ctx.tenantId).network_connections.find({ userId: ctx.userId }).toArray()
+        ).map((c) => c.otherUserId),
       );
       return rows.map((r) => ({
         ...r,
-        presence: r.userId === ctx.userId || conns.has(r.userId) ? (presence[r.userId] ?? 'offline') : 'offline',
+        presence:
+          r.userId === ctx.userId || conns.has(r.userId)
+            ? (presence[r.userId] ?? 'offline')
+            : 'offline',
       }));
     }
     if (!tenantCan(ctx.role, 'directory.read')) throw forbidden();

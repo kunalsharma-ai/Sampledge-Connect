@@ -35,7 +35,8 @@ export class NetworkRules {
   /** Before creating a DM in the network tenant. */
   async assertCanDm(ctx: TenantContext, otherId: string): Promise<void> {
     if (!(await this.isNetwork(ctx.tenantId))) return;
-    if (await this.blockedBetween(ctx.userId, otherId)) throw forbidden("You can't message this person");
+    if (await this.blockedBetween(ctx.userId, otherId))
+      throw forbidden("You can't message this person");
     if (!(await this.connected(ctx.userId, otherId)))
       throw new AppError('FORBIDDEN', 'Connect with this person before messaging them');
   }
@@ -46,7 +47,8 @@ export class NetworkRules {
     if (c.kind !== 'dm') return;
     const other = (await memberIds()).find((id) => id !== ctx.userId);
     if (!other) return;
-    if (await this.blockedBetween(ctx.userId, other)) throw forbidden("You can't message this person");
+    if (await this.blockedBetween(ctx.userId, other))
+      throw forbidden("You can't message this person");
     if (!(await this.connected(ctx.userId, other)))
       throw forbidden('You are no longer connected with this person');
   }

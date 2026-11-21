@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { tenantCan } from '@sampledge/contracts';
 import { forbidden, notFound } from '../common/errors.js';
@@ -236,7 +249,12 @@ export class NetworkController {
   }
   @Put('communities/:id/members/:userId/role')
   @HttpCode(204)
-  role(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('userId') userId: string, @Body() body: unknown) {
+  role(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: unknown,
+  ) {
     return this.communities.setRole(ctx, id, userId, body);
   }
   @Post('communities/:id/members/:userId/owner')
@@ -246,7 +264,12 @@ export class NetworkController {
   }
   @Delete('communities/:id/members/:userId')
   @HttpCode(204)
-  removeMember(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('userId') userId: string, @Query('ban') ban?: string) {
+  removeMember(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Query('ban') ban?: string,
+  ) {
     return this.communities.remove(ctx, id, userId, ban === 'true');
   }
   @Delete('communities/:id/bans/:userId')
@@ -273,22 +296,39 @@ export class NetworkController {
   }
   @Post('communities/:id/groups/:conversationId/join')
   @HttpCode(200)
-  joinGroup(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('conversationId') cid: string) {
+  joinGroup(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('conversationId') cid: string,
+  ) {
     return this.communities.joinGroup(ctx, id, cid);
   }
   @Post('communities/:id/groups/:conversationId/members')
   @HttpCode(200)
-  addToGroup(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('conversationId') cid: string, @Body() body: unknown) {
+  addToGroup(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('conversationId') cid: string,
+    @Body() body: unknown,
+  ) {
     return this.communities.addToGroup(ctx, id, cid, body);
   }
   @Post('communities/:id/groups/:conversationId/leave')
   @HttpCode(204)
-  leaveGroup(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('conversationId') cid: string) {
+  leaveGroup(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('conversationId') cid: string,
+  ) {
     return this.communities.leaveGroup(ctx, id, cid);
   }
   @Delete('communities/:id/groups/:conversationId')
   @HttpCode(204)
-  archiveGroup(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('conversationId') cid: string) {
+  archiveGroup(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('conversationId') cid: string,
+  ) {
     return this.communities.archiveGroup(ctx, id, cid);
   }
 }
@@ -316,7 +356,9 @@ export class NetworkPublicController {
   async profile(@Param('handle') handle: string, @Req() req: Request) {
     await this.limit(req);
     const net = await this.network.net();
-    const p = await net.network_profiles.findOne({ handle: handle.toLowerCase().replace(/^@/, '') });
+    const p = await net.network_profiles.findOne({
+      handle: handle.toLowerCase().replace(/^@/, ''),
+    });
     if (!p || p.privacy.profileVisibility !== 'public') throw notFound('Profile');
     return { profile: await this.network.toProfile(p), statuses: await this.statuses.publicOf(p) };
   }

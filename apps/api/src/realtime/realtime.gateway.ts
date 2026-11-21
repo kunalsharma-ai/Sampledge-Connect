@@ -147,7 +147,8 @@ export class RealtimeGateway
       await this.redis.hdel(key, socket.id);
       if ((await this.redis.hlen(key)) === 0) {
         const rooms = await this.presenceRooms(tenantId, userId);
-        if (rooms.length) this.server.to(rooms).emit('presence:update', { userId, status: 'offline' });
+        if (rooms.length)
+          this.server.to(rooms).emit('presence:update', { userId, status: 'offline' });
       }
     } catch (e) {
       // During shutdown Redis may already be closed; presence keys expire on their own (TTL).

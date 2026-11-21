@@ -186,7 +186,12 @@ export class NetworkService {
 
   async linkStatus(ctx: TenantContext): Promise<NetworkLinkStatus> {
     if (await this.network.isNetwork(ctx.tenantId))
-      return { allowed: true, reason: null, linked: true, handle: (await this.profileOf(ctx.userId))?.handle ?? null };
+      return {
+        allowed: true,
+        reason: null,
+        linked: true,
+        handle: (await this.profileOf(ctx.userId))?.handle ?? null,
+      };
     const p = await this.policy.get(ctx.tenantId);
     const net = await this.net();
     const linked = await net.network_profiles.findOne({
@@ -241,7 +246,12 @@ export class NetworkService {
         createdAt: now,
       });
       try {
-        await net.memberships.insertOne({ userId: netUser._id, workspaceId, role: 'guest', createdAt: now });
+        await net.memberships.insertOne({
+          userId: netUser._id,
+          workspaceId,
+          role: 'guest',
+          createdAt: now,
+        });
         const email = user.email.toLowerCase();
         profile = await net.network_profiles.insertOne({
           userId: netUser._id,
@@ -275,7 +285,12 @@ export class NetworkService {
           profile = raced;
         } else throw e;
       }
-      await this.auditBoth(profile, 'network.linked', { type: 'user', id: profile.userId }, { handle });
+      await this.auditBoth(
+        profile,
+        'network.linked',
+        { type: 'user', id: profile.userId },
+        { handle },
+      );
     }
     const issued = await this.sessions.create({
       tenantId: netId,
@@ -295,7 +310,11 @@ export class NetworkService {
     return {
       ...issued,
       user: toUserSummary(netUser, 'guest'),
-      tenant: { tenantId: netId, slug: (await this.db.tenants.findOne({ _id: netId }))!.slug, name: 'Sampledge Network' },
+      tenant: {
+        tenantId: netId,
+        slug: (await this.db.tenants.findOne({ _id: netId }))!.slug,
+        name: 'Sampledge Network',
+      },
       workspaceId,
     };
   }
@@ -323,10 +342,18 @@ export class NetworkService {
       });
     } catch (e) {
       if (e instanceof MongoServerError && e.code === 11000)
-        throw new AppError('CONFLICT', 'An account with that email already exists. Sign in instead.');
+        throw new AppError(
+          'CONFLICT',
+          'An account with that email already exists. Sign in instead.',
+        );
       throw e;
     }
-    await net.memberships.insertOne({ userId: user._id, workspaceId, role: 'guest', createdAt: now });
+    await net.memberships.insertOne({
+      userId: user._id,
+      workspaceId,
+      role: 'guest',
+      createdAt: now,
+    });
     const profile = await net.network_profiles.insertOne({
       userId: user._id,
       handle: req.handle ?? (await this.uniqueHandle(net, req.displayName)),
@@ -345,9 +372,14 @@ export class NetworkService {
       createdAt: now,
       updatedAt: now,
     });
-    await this.auditBoth(profile, 'network.signup', { type: 'user', id: user._id }, {
-      invited: !!invite,
-    });
+    await this.auditBoth(
+      profile,
+      'network.signup',
+      { type: 'user', id: user._id },
+      {
+        invited: !!invite,
+      },
+    );
     const issued = await this.sessions.create({
       tenantId: netId,
       userId: user._id,
@@ -367,7 +399,11 @@ export class NetworkService {
     return {
       ...issued,
       user: toUserSummary(user, 'guest'),
-      tenant: { tenantId: netId, slug: (await this.db.tenants.findOne({ _id: netId }))!.slug, name: 'Sampledge Network' },
+      tenant: {
+        tenantId: netId,
+        slug: (await this.db.tenants.findOne({ _id: netId }))!.slug,
+        name: 'Sampledge Network',
+      },
       workspaceId,
     };
   }
@@ -389,7 +425,12 @@ export class NetworkService {
   }
 
   async toProfile(p: NetworkProfileDoc): Promise<NetworkProfile> {
-    return { ...toPerson(p), bio: p.bio, counts: await this.counts(p.userId), publicUrl: this.publicUrl(p) };
+    return {
+      ...toPerson(p),
+      bio: p.bio,
+      counts: await this.counts(p.userId),
+      publicUrl: this.publicUrl(p),
+    };
   }
 
   async me(ctx: TenantContext): Promise<MyNetworkProfile> {
@@ -410,7 +451,8 @@ export class NetworkService {
     const net = await this.assertNetwork(ctx);
     const req = parse(UpdateNetworkProfileSchema, input);
     const p = await this.requireProfile(ctx.userId);
-    if (req.handle && req.handle !== p.handle) await this.assertHandleFree(net, req.handle, ctx.userId);
+    if (req.handle && req.handle !== p.handle)
+      await this.assertHandleFree(net, req.handle, ctx.userId);
     const $set: Record<string, unknown> = { updatedAt: new Date() };
     for (const k of ['handle', 'displayName', 'headline', 'bio', 'phone'] as const)
       if (req[k] !== undefined) $set[k] = req[k];
@@ -422,16 +464,25 @@ export class NetworkService {
         throw new AppError('CONFLICT', 'That Connect ID is taken');
       throw e;
     }
-    if (req.displayName) await net.users.updateOne({ _id: ctx.userId }, { $set: { displayName: req.displayName } });
+    if (req.displayName)
+      await net.users.updateOne({ _id: ctx.userId }, { $set: { displayName: req.displayName } });
     if (req.handle && req.handle !== p.handle)
-      await this.auditBoth(p, 'network.handle_changed', { type: 'user', id: p.userId }, { from: p.handle, to: req.handle });
+      await this.auditBoth(
+        p,
+        'network.handle_changed',
+        { type: 'user', id: p.userId },
+        { from: p.handle, to: req.handle },
+      );
     await this.changed([ctx.userId], { scope: 'profile' });
     return this.me(ctx);
   }
 
   // ─── relationships ─────────────────────────────────────────────────────────
 
-  async relationships(meId: string, others: NetworkProfileDoc[]): Promise<Map<string, Relationship>> {
+  async relationships(
+    meId: string,
+    others: NetworkProfileDoc[],
+  ): Promise<Map<string, Relationship>> {
     const net = await this.net();
     const ids = others.map((o) => o.userId);
     const [conns, reqs, iFollow, followMe, blocks, me] = await Promise.all([
@@ -439,8 +490,12 @@ export class NetworkService {
       net.network_requests
         .find({ pairKey: { $in: ids.map((id) => pairKey(meId, id)) }, status: 'pending' })
         .toArray(),
-      net.network_follows.find({ followerId: meId, targetType: 'user', targetId: { $in: ids } }).toArray(),
-      net.network_follows.find({ followerId: { $in: ids }, targetType: 'user', targetId: meId }).toArray(),
+      net.network_follows
+        .find({ followerId: meId, targetType: 'user', targetId: { $in: ids } })
+        .toArray(),
+      net.network_follows
+        .find({ followerId: { $in: ids }, targetType: 'user', targetId: meId })
+        .toArray(),
       net.network_blocks.find({ userId: meId, blockedUserId: { $in: ids } }).toArray(),
       net.network_profiles.findOne({ userId: meId }),
     ]);
@@ -450,7 +505,13 @@ export class NetworkService {
       const r = reqs.find((x) => x.pairKey === pairKey(meId, o.userId));
       const blocked = blocks.some((b) => b.blockedUserId === o.userId);
       const policyReason = me ? await this.policy.pairBlockedReason(me, o) : 'x';
-      const connection = c ? 'connected' : r ? (r.fromUserId === meId ? 'outgoing' : 'incoming') : 'none';
+      const connection = c
+        ? 'connected'
+        : r
+          ? r.fromUserId === meId
+            ? 'outgoing'
+            : 'incoming'
+          : 'none';
       out.set(o.userId, {
         connection,
         requestId: r?._id ?? null,
@@ -459,7 +520,10 @@ export class NetworkService {
         followsYou: followMe.some((f) => f.followerId === o.userId),
         blocked,
         canRequest:
-          connection === 'none' && !blocked && !policyReason && o.privacy.allowRequestsFrom === 'everyone',
+          connection === 'none' &&
+          !blocked &&
+          !policyReason &&
+          o.privacy.allowRequestsFrom === 'everyone',
         canFollow: !blocked && o.privacy.allowFollowers && o.userId !== meId,
         canMessage: connection === 'connected' && !blocked && !policyReason,
       });
@@ -467,7 +531,10 @@ export class NetworkService {
     return out;
   }
 
-  private async withRelationships(meId: string, ps: NetworkProfileDoc[]): Promise<PersonWithRelationship[]> {
+  private async withRelationships(
+    meId: string,
+    ps: NetworkProfileDoc[],
+  ): Promise<PersonWithRelationship[]> {
     const rel = await this.relationships(meId, ps);
     return ps.map((p) => ({ person: toPerson(p), relationship: rel.get(p.userId)! }));
   }
@@ -488,7 +555,8 @@ export class NetworkService {
     const hidden = await this.hiddenFor(ctx.userId);
     const term = q.replace(/^@/, '').toLowerCase();
     const or: object[] = [{ handle: term }];
-    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q)) or.push({ email: q.toLowerCase(), 'privacy.findableByEmail': true });
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q))
+      or.push({ email: q.toLowerCase(), 'privacy.findableByEmail': true });
     const digits = q.replace(/[^\d+]/g, '');
     if (/^\+?\d{7,15}$/.test(digits) && /^[\d\s+().-]+$/.test(q))
       or.push({ phone: digits, 'privacy.findableByPhone': true });
@@ -501,11 +569,18 @@ export class NetworkService {
       .find({ $or: or, userId: { $nin: [ctx.userId, ...hidden] } } as never, { limit: 25 })
       .toArray();
     // Exact Connect ID first, then by name.
-    rows.sort((a, b) => Number(b.handle === term) - Number(a.handle === term) || a.displayName.localeCompare(b.displayName));
+    rows.sort(
+      (a, b) =>
+        Number(b.handle === term) - Number(a.handle === term) ||
+        a.displayName.localeCompare(b.displayName),
+    );
     return this.withRelationships(ctx.userId, rows);
   }
 
-  async person(ctx: TenantContext, idOrHandle: string): Promise<{ profile: NetworkProfile; relationship: Relationship }> {
+  async person(
+    ctx: TenantContext,
+    idOrHandle: string,
+  ): Promise<{ profile: NetworkProfile; relationship: Relationship }> {
     const net = await this.assertNetwork(ctx);
     const p = await net.network_profiles.findOne({
       $or: [{ userId: idOrHandle }, { handle: idOrHandle.toLowerCase().replace(/^@/, '') }],
@@ -536,12 +611,19 @@ export class NetworkService {
     const net = await this.assertNetwork(ctx);
     const req = parse(SendConnectionRequestSchema, input);
     return this.once(ctx, req.clientActionId, async () => {
-      if (req.toUserId === ctx.userId) throw new AppError('VALIDATION_FAILED', "You can't connect with yourself");
-      const [me, other] = await Promise.all([this.requireProfile(ctx.userId), this.requireProfile(req.toUserId)]);
+      if (req.toUserId === ctx.userId)
+        throw new AppError('VALIDATION_FAILED', "You can't connect with yourself");
+      const [me, other] = await Promise.all([
+        this.requireProfile(ctx.userId),
+        this.requireProfile(req.toUserId),
+      ]);
       if ((await this.hiddenFor(ctx.userId)).has(other.userId)) throw notFound('Person');
       const reason = await this.policy.pairBlockedReason(me, other);
       if (reason) throw forbidden(reason);
-      const existing = await net.network_connections.findOne({ userId: ctx.userId, otherUserId: other.userId });
+      const existing = await net.network_connections.findOne({
+        userId: ctx.userId,
+        otherUserId: other.userId,
+      });
       if (existing) return this.toConnection(existing.circle, existing.connectedAt, other);
       const key = pairKey(ctx.userId, other.userId);
       const pending = await net.network_requests.findOne({ pairKey: key, status: 'pending' });
@@ -574,7 +656,11 @@ export class NetworkService {
     });
   }
 
-  private toConnection(circle: 'business' | 'friends', at: Date, other: NetworkProfileDoc): Connection {
+  private toConnection(
+    circle: 'business' | 'friends',
+    at: Date,
+    other: NetworkProfileDoc,
+  ): Connection {
     return { person: toPerson(other), circle, connectedAt: at.toISOString() };
   }
 
@@ -601,7 +687,13 @@ export class NetworkService {
   }
 
   /** Both directions; idempotent. */
-  private async connect(a: string, b: string, aCircle: 'business' | 'friends', bCircle: 'business' | 'friends', at: Date) {
+  private async connect(
+    a: string,
+    b: string,
+    aCircle: 'business' | 'friends',
+    bCircle: 'business' | 'friends',
+    at: Date,
+  ) {
     const net = await this.net();
     for (const [userId, otherUserId, circle] of [
       [a, b, aCircle],
@@ -615,7 +707,9 @@ export class NetworkService {
     }
   }
 
-  async listRequests(ctx: TenantContext): Promise<{ incoming: ConnectionRequest[]; outgoing: ConnectionRequest[] }> {
+  async listRequests(
+    ctx: TenantContext,
+  ): Promise<{ incoming: ConnectionRequest[]; outgoing: ConnectionRequest[] }> {
     const net = await this.assertNetwork(ctx);
     const rows = await net.network_requests
       .find(
@@ -631,23 +725,39 @@ export class NetworkService {
           .map((r) => this.toRequest(ctx.userId, r)),
       )
     ).filter((r): r is ConnectionRequest => !!r);
-    return { incoming: all.filter((r) => r.direction === 'incoming'), outgoing: all.filter((r) => r.direction === 'outgoing') };
+    return {
+      incoming: all.filter((r) => r.direction === 'incoming'),
+      outgoing: all.filter((r) => r.direction === 'outgoing'),
+    };
   }
 
-  async respond(ctx: TenantContext, requestId: string, input: unknown): Promise<ConnectionRequest | Connection> {
+  async respond(
+    ctx: TenantContext,
+    requestId: string,
+    input: unknown,
+  ): Promise<ConnectionRequest | Connection> {
     const net = await this.assertNetwork(ctx);
     const req = parse(RespondConnectionRequestSchema, input);
     return this.once(ctx, req.clientActionId, async () => {
       const r = await net.network_requests.findOne({ _id: requestId, toUserId: ctx.userId });
       if (!r) throw notFound('Request');
-      const [me, other] = await Promise.all([this.requireProfile(ctx.userId), this.requireProfile(r.fromUserId)]);
+      const [me, other] = await Promise.all([
+        this.requireProfile(ctx.userId),
+        this.requireProfile(r.fromUserId),
+      ]);
       if (r.status === 'accepted') {
-        const c = await net.network_connections.findOne({ userId: ctx.userId, otherUserId: other.userId });
+        const c = await net.network_connections.findOne({
+          userId: ctx.userId,
+          otherUserId: other.userId,
+        });
         if (c) return this.toConnection(c.circle, c.connectedAt, other);
       }
       if (r.status !== 'pending') return (await this.toRequest(ctx.userId, r))!;
       if (req.accept) return this.accept(ctx, me, other, r, req.circle);
-      await net.network_requests.updateOne({ _id: r._id }, { $set: { status: 'declined', respondedAt: new Date() } });
+      await net.network_requests.updateOne(
+        { _id: r._id },
+        { $set: { status: 'declined', respondedAt: new Date() } },
+      );
       await this.auditBoth(me, 'network.request_declined', { type: 'user', id: other.userId });
       // The sender only sees their request disappear: declines are not announced.
       await this.changed([ctx.userId, other.userId], { scope: 'requests', id: r._id });
@@ -660,14 +770,21 @@ export class NetworkService {
     const r = await net.network_requests.findOne({ _id: requestId, fromUserId: ctx.userId });
     if (!r) throw notFound('Request');
     if (r.status !== 'pending') return;
-    await net.network_requests.updateOne({ _id: r._id }, { $set: { status: 'cancelled', respondedAt: new Date() } });
+    await net.network_requests.updateOne(
+      { _id: r._id },
+      { $set: { status: 'cancelled', respondedAt: new Date() } },
+    );
     await this.changed([ctx.userId, r.toUserId], { scope: 'requests', id: r._id });
   }
 
   async connections(ctx: TenantContext): Promise<Connection[]> {
     const net = await this.assertNetwork(ctx);
-    const rows = await net.network_connections.find({ userId: ctx.userId }, { limit: 5000 }).toArray();
-    const profiles = await net.network_profiles.find({ userId: { $in: rows.map((r) => r.otherUserId) } }).toArray();
+    const rows = await net.network_connections
+      .find({ userId: ctx.userId }, { limit: 5000 })
+      .toArray();
+    const profiles = await net.network_profiles
+      .find({ userId: { $in: rows.map((r) => r.otherUserId) } })
+      .toArray();
     const byId = new Map(profiles.map((p) => [p.userId, p]));
     return rows
       .filter((r) => byId.has(r.otherUserId))
@@ -697,18 +814,29 @@ export class NetworkService {
       ],
     });
     if (res.deletedCount) {
-      await this.auditBoth(await this.requireProfile(ctx.userId), 'network.connection_removed', { type: 'user', id: userId });
+      await this.auditBoth(await this.requireProfile(ctx.userId), 'network.connection_removed', {
+        type: 'user',
+        id: userId,
+      });
       await this.changed([ctx.userId, userId], { scope: 'connections' });
     }
   }
 
   // ─── follows ───────────────────────────────────────────────────────────────
 
-  async follow(ctx: TenantContext, targetType: 'user' | 'community', targetId: string): Promise<void> {
+  async follow(
+    ctx: TenantContext,
+    targetType: 'user' | 'community',
+    targetId: string,
+  ): Promise<void> {
     const net = await this.assertNetwork(ctx);
     if (targetType === 'user') {
-      if (targetId === ctx.userId) throw new AppError('VALIDATION_FAILED', "You can't follow yourself");
-      const [me, other] = await Promise.all([this.requireProfile(ctx.userId), this.requireProfile(targetId)]);
+      if (targetId === ctx.userId)
+        throw new AppError('VALIDATION_FAILED', "You can't follow yourself");
+      const [me, other] = await Promise.all([
+        this.requireProfile(ctx.userId),
+        this.requireProfile(targetId),
+      ]);
       if ((await this.hiddenFor(ctx.userId)).has(targetId)) throw notFound('Person');
       if (!other.privacy.allowFollowers) throw forbidden('This person does not accept followers');
       const reason = await this.policy.pairBlockedReason(me, other);
@@ -722,31 +850,58 @@ export class NetworkService {
     }
     const res = await net.network_follows.updateOne(
       { followerId: ctx.userId, targetType, targetId },
-      { $setOnInsert: { followerId: ctx.userId, targetType, targetId, createdAt: new Date() } as never },
+      {
+        $setOnInsert: {
+          followerId: ctx.userId,
+          targetType,
+          targetId,
+          createdAt: new Date(),
+        } as never,
+      },
       { upsert: true },
     );
     if (res.upsertedCount)
-      await this.changed(targetType === 'user' ? [ctx.userId, targetId] : [ctx.userId], { scope: 'follows' });
+      await this.changed(targetType === 'user' ? [ctx.userId, targetId] : [ctx.userId], {
+        scope: 'follows',
+      });
   }
 
-  async unfollow(ctx: TenantContext, targetType: 'user' | 'community', targetId: string): Promise<void> {
+  async unfollow(
+    ctx: TenantContext,
+    targetType: 'user' | 'community',
+    targetId: string,
+  ): Promise<void> {
     const net = await this.assertNetwork(ctx);
-    const res = await net.network_follows.deleteMany({ followerId: ctx.userId, targetType, targetId });
+    const res = await net.network_follows.deleteMany({
+      followerId: ctx.userId,
+      targetType,
+      targetId,
+    });
     if (res.deletedCount)
-      await this.changed(targetType === 'user' ? [ctx.userId, targetId] : [ctx.userId], { scope: 'follows' });
+      await this.changed(targetType === 'user' ? [ctx.userId, targetId] : [ctx.userId], {
+        scope: 'follows',
+      });
   }
 
-  async follows(ctx: TenantContext): Promise<{ followers: PersonWithRelationship[]; following: PersonWithRelationship[] }> {
+  async follows(
+    ctx: TenantContext,
+  ): Promise<{ followers: PersonWithRelationship[]; following: PersonWithRelationship[] }> {
     const net = await this.assertNetwork(ctx);
     const [followers, following] = await Promise.all([
-      net.network_follows.find({ targetType: 'user', targetId: ctx.userId }, { limit: 5000 }).toArray(),
-      net.network_follows.find({ followerId: ctx.userId, targetType: 'user' }, { limit: 5000 }).toArray(),
+      net.network_follows
+        .find({ targetType: 'user', targetId: ctx.userId }, { limit: 5000 })
+        .toArray(),
+      net.network_follows
+        .find({ followerId: ctx.userId, targetType: 'user' }, { limit: 5000 })
+        .toArray(),
     ]);
     const hidden = await this.hiddenFor(ctx.userId);
     const load = async (ids: string[]) =>
       this.withRelationships(
         ctx.userId,
-        await net.network_profiles.find({ userId: { $in: ids.filter((i) => !hidden.has(i)) } }).toArray(),
+        await net.network_profiles
+          .find({ userId: { $in: ids.filter((i) => !hidden.has(i)) } })
+          .toArray(),
       );
     return {
       followers: await load(followers.map((f) => f.followerId)),
@@ -762,7 +917,9 @@ export class NetworkService {
     await this.requireProfile(userId);
     await net.network_blocks.updateOne(
       { userId: ctx.userId, blockedUserId: userId },
-      { $setOnInsert: { userId: ctx.userId, blockedUserId: userId, createdAt: new Date() } as never },
+      {
+        $setOnInsert: { userId: ctx.userId, blockedUserId: userId, createdAt: new Date() } as never,
+      },
       { upsert: true },
     );
     // Blocking ends everything between the two: connection, follows both ways, pending requests.
@@ -785,7 +942,10 @@ export class NetworkService {
         { $set: { status: 'cancelled', respondedAt: new Date() } },
       ),
     ]);
-    await this.auditBoth(await this.requireProfile(ctx.userId), 'network.blocked', { type: 'user', id: userId });
+    await this.auditBoth(await this.requireProfile(ctx.userId), 'network.blocked', {
+      type: 'user',
+      id: userId,
+    });
     await this.changed([ctx.userId], { scope: 'blocks' });
     // The other person's lists refresh without saying why.
     await this.changed([ctx.userId, userId], { scope: 'connections' });
@@ -800,7 +960,9 @@ export class NetworkService {
   async blocks(ctx: TenantContext): Promise<NetworkPerson[]> {
     const net = await this.assertNetwork(ctx);
     const rows = await net.network_blocks.find({ userId: ctx.userId }).toArray();
-    const ps = await net.network_profiles.find({ userId: { $in: rows.map((r) => r.blockedUserId) } }).toArray();
+    const ps = await net.network_profiles
+      .find({ userId: { $in: rows.map((r) => r.blockedUserId) } })
+      .toArray();
     return ps.map(toPerson);
   }
 
@@ -818,7 +980,12 @@ export class NetworkService {
         status: 'open',
         createdAt: new Date(),
       });
-      await this.auditBoth(await this.requireProfile(ctx.userId), 'network.reported', { type: req.targetType, id: req.targetId }, { reason: req.reason });
+      await this.auditBoth(
+        await this.requireProfile(ctx.userId),
+        'network.reported',
+        { type: req.targetType, id: req.targetId },
+        { reason: req.reason },
+      );
       return { reportId: doc._id };
     });
   }
@@ -871,11 +1038,21 @@ export class NetworkService {
         expiresAt: new Date(now.getTime() + INVITE_DAYS * 86_400_000),
       });
       if (req.channel === 'email' && req.email) {
-        const delivery = await this.sendInviteEmail(me, req.email, req.name ?? '', `${this.webBase}/join/n/${token}`);
+        const delivery = await this.sendInviteEmail(
+          me,
+          req.email,
+          req.name ?? '',
+          `${this.webBase}/join/n/${token}`,
+        );
         doc.delivery = delivery;
         await net.network_invites.updateOne({ _id: doc._id }, { $set: { delivery } });
       }
-      await this.auditBoth(me, 'network.invite_created', { type: 'invite', id: doc._id }, { channel: req.channel });
+      await this.auditBoth(
+        me,
+        'network.invite_created',
+        { type: 'invite', id: doc._id },
+        { channel: req.channel },
+      );
       await this.changed([ctx.userId], { scope: 'invites' });
       return this.toInvite(doc, token);
     });
@@ -899,8 +1076,13 @@ export class NetworkService {
       ...(v.username ? { auth: { user: String(v.username), pass: String(v.password ?? '') } } : {}),
       connectionTimeout: 15_000,
     });
-    const who = inviter.displayName + (inviter.organizationName && inviter.privacy.showOrganization ? ` (${inviter.organizationName})` : '');
-    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    const who =
+      inviter.displayName +
+      (inviter.organizationName && inviter.privacy.showOrganization
+        ? ` (${inviter.organizationName})`
+        : '');
+    const esc = (s: string) =>
+      s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
     try {
       await t.sendMail({
         from: String(v.from),
@@ -919,7 +1101,9 @@ export class NetworkService {
 
   async invites(ctx: TenantContext): Promise<NetworkInvite[]> {
     const net = await this.assertNetwork(ctx);
-    const rows = await net.network_invites.find({ inviterId: ctx.userId }, { sort: { createdAt: -1 }, limit: 200 }).toArray();
+    const rows = await net.network_invites
+      .find({ inviterId: ctx.userId }, { sort: { createdAt: -1 }, limit: 200 })
+      .toArray();
     return rows.map((r) => this.toInvite(r, null));
   }
 
@@ -936,15 +1120,21 @@ export class NetworkService {
     const net = await this.assertNetwork(ctx);
     const i = await net.network_invites.findOne({ tokenHash: sha256(token) });
     if (!i || i.expiresAt < new Date()) throw notFound('Invite');
-    if (i.inviterId === ctx.userId) throw new AppError('VALIDATION_FAILED', 'This is your own invite');
+    if (i.inviterId === ctx.userId)
+      throw new AppError('VALIDATION_FAILED', 'This is your own invite');
     const me = await this.requireProfile(ctx.userId);
     return this.completeInvite(ctx, me, i);
   }
 
-  private async completeInvite(ctx: TenantContext, me: NetworkProfileDoc, i: NetworkInviteDoc): Promise<Connection> {
+  private async completeInvite(
+    ctx: TenantContext,
+    me: NetworkProfileDoc,
+    i: NetworkInviteDoc,
+  ): Promise<Connection> {
     const net = await this.net();
     const inviter = await this.requireProfile(i.inviterId);
-    if (await this.hiddenFor(me.userId).then((h) => h.has(inviter.userId))) throw notFound('Invite');
+    if (await this.hiddenFor(me.userId).then((h) => h.has(inviter.userId)))
+      throw notFound('Invite');
     const reason = await this.policy.pairBlockedReason(me, inviter);
     if (reason) throw forbidden(reason);
     const now = new Date();
@@ -973,15 +1163,28 @@ export class NetworkService {
   async directory(ctx: TenantContext) {
     const net = await this.net();
     const [conns, mine] = await Promise.all([
-      net.network_connections.find({ userId: ctx.userId }, { projection: { otherUserId: 1 } }).toArray(),
-      net.conversation_members.find({ userId: ctx.userId }, { projection: { conversationId: 1 } }).toArray(),
+      net.network_connections
+        .find({ userId: ctx.userId }, { projection: { otherUserId: 1 } })
+        .toArray(),
+      net.conversation_members
+        .find({ userId: ctx.userId }, { projection: { conversationId: 1 } })
+        .toArray(),
     ]);
     const coMembers = mine.length
       ? await net.conversation_members
-          .find({ conversationId: { $in: mine.map((m) => m.conversationId) } }, { projection: { userId: 1 }, limit: 20_000 })
+          .find(
+            { conversationId: { $in: mine.map((m) => m.conversationId) } },
+            { projection: { userId: 1 }, limit: 20_000 },
+          )
           .toArray()
       : [];
-    const ids = [...new Set([ctx.userId, ...conns.map((c) => c.otherUserId), ...coMembers.map((m) => m.userId)])];
+    const ids = [
+      ...new Set([
+        ctx.userId,
+        ...conns.map((c) => c.otherUserId),
+        ...coMembers.map((m) => m.userId),
+      ]),
+    ];
     const [users, profiles] = await Promise.all([
       net.users.find({ _id: { $in: ids } }).toArray(),
       net.network_profiles.find({ userId: { $in: ids } }).toArray(),
@@ -993,15 +1196,25 @@ export class NetworkService {
         ...toUserSummary(u, 'member'),
         displayName: p?.displayName ?? u.displayName,
         email: u._id === ctx.userId ? (p?.email ?? '') : '',
-        title: p ? (p.headline || (p.privacy.showOrganization ? p.organizationName : null)) : u.title,
+        title: p ? p.headline || (p.privacy.showOrganization ? p.organizationName : null) : u.title,
         handle: p?.handle ?? null,
       };
     });
   }
 
   /** Audit a community action in the network and in the actor's organization. */
-  async audit_(ctx: TenantContext, action: string, communityId: string, metadata: Record<string, unknown>) {
-    await this.auditBoth(await this.requireProfile(ctx.userId), action, { type: 'community', id: communityId }, metadata);
+  async audit_(
+    ctx: TenantContext,
+    action: string,
+    communityId: string,
+    metadata: Record<string, unknown>,
+  ) {
+    await this.auditBoth(
+      await this.requireProfile(ctx.userId),
+      action,
+      { type: 'community', id: communityId },
+      metadata,
+    );
   }
 
   async newId() {

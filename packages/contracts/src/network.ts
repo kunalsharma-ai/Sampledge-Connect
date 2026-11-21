@@ -143,9 +143,7 @@ export const NetworkSignupRequestSchema = z.object({
   /** From an invite link: the connection completes on signup. */
   inviteToken: z.string().min(16).max(128).optional(),
   /** Follow this person or community right after signup (from a public page). */
-  follow: z
-    .object({ type: z.enum(['user', 'community']), id: ServerIdSchema })
-    .optional(),
+  follow: z.object({ type: z.enum(['user', 'community']), id: ServerIdSchema }).optional(),
   device: DeviceInfoSchema,
 });
 export type NetworkSignupRequest = z.input<typeof NetworkSignupRequestSchema>;
@@ -191,7 +189,13 @@ export interface Connection {
   connectedAt: string;
 }
 
-export const REPORT_REASONS = ['spam', 'harassment', 'impersonation', 'inappropriate', 'other'] as const;
+export const REPORT_REASONS = [
+  'spam',
+  'harassment',
+  'impersonation',
+  'inappropriate',
+  'other',
+] as const;
 export const ReportSchema = z.object({
   ...Action,
   targetType: z.enum(['user', 'status', 'community', 'message']),
@@ -260,7 +264,7 @@ export const CreateStatusSchema = z
     expiresInHours: z.number().int().min(1).max(MAX_STATUS_HOURS).default(24),
     allowReplies: z.boolean().default(true),
   })
-  .refine((s) => s.kind === 'text' ? s.text.length > 0 : !!s.attachmentId, {
+  .refine((s) => (s.kind === 'text' ? s.text.length > 0 : !!s.attachmentId), {
     message: 'a text status needs text; a photo or video status needs a file',
   })
   .refine((s) => s.audience !== 'selected' || s.userIds.length > 0, {
@@ -300,7 +304,11 @@ export const StatusReplySchema = z.object({
 export const StatusMediaUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(200),
   mimeType: z.string().regex(/^(image\/(png|jpeg|gif|webp)|video\/(mp4|webm|quicktime))$/i),
-  sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(64 * 1024 * 1024),
 });
 
 // ─── Communities ─────────────────────────────────────────────────────────────
@@ -348,7 +356,10 @@ export const CreateCommunityGroupSchema = z.object({
   announcementsOnly: z.boolean().default(false),
 });
 
-export const SetCommunityRoleSchema = z.object({ ...Action, role: z.enum(['admin', 'moderator', 'member']) });
+export const SetCommunityRoleSchema = z.object({
+  ...Action,
+  role: z.enum(['admin', 'moderator', 'member']),
+});
 
 export const CreateCommunityInviteLinkSchema = z.object({
   ...Action,
@@ -464,6 +475,14 @@ export interface NetworkAdminView {
 
 /** Realtime: something in your network changed; refetch that part. Sent to all your devices. */
 export interface NetworkChangedEvent {
-  scope: 'profile' | 'requests' | 'connections' | 'follows' | 'blocks' | 'statuses' | 'communities' | 'invites';
+  scope:
+    | 'profile'
+    | 'requests'
+    | 'connections'
+    | 'follows'
+    | 'blocks'
+    | 'statuses'
+    | 'communities'
+    | 'invites';
   id?: string;
 }

@@ -347,7 +347,10 @@ export class AttachmentsService {
     if (!a || a.status !== 'ready' || a.deletedAt) return null;
     const exp = Math.floor(Date.now() / 1000) + DOWNLOAD_URL_TTL_SECONDS;
     const path = `/v1/files/${tenantId}/${a._id}?exp=${exp}&sig=${this.sign(tenantId, a._id, exp)}`;
-    return { url: (this.cfg.PUBLIC_API_URL ?? '') + path, expiresAt: new Date(exp * 1000).toISOString() };
+    return {
+      url: (this.cfg.PUBLIC_API_URL ?? '') + path,
+      expiresAt: new Date(exp * 1000).toISOString(),
+    };
   }
 
   /** Upload ticket for status media: not tied to a conversation (`status:<userId>`). */

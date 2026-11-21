@@ -57,7 +57,9 @@ export class StatusService {
     const net = await this.network.net();
     const [conns, follows, hidden] = await Promise.all([
       net.network_connections.find({ userId }, { projection: { otherUserId: 1 } }).toArray(),
-      net.network_follows.find({ followerId: userId, targetType: 'user' }, { projection: { targetId: 1 } }).toArray(),
+      net.network_follows
+        .find({ followerId: userId, targetType: 'user' }, { projection: { targetId: 1 } })
+        .toArray(),
       this.network.hiddenFor(userId),
     ]);
     return {
@@ -68,7 +70,12 @@ export class StatusService {
     };
   }
 
-  async toDto(s: NetworkStatusDoc, author: NetworkProfileDoc, viewerId: string | null, viewed: boolean): Promise<NetworkStatus> {
+  async toDto(
+    s: NetworkStatusDoc,
+    author: NetworkProfileDoc,
+    viewerId: string | null,
+    viewed: boolean,
+  ): Promise<NetworkStatus> {
     const net = await this.network.net();
     let media: NetworkStatus['media'] = null;
     if (s.attachmentId) {
@@ -77,7 +84,13 @@ export class StatusService {
         this.attachments.signedUrlUnchecked(tenantId, s.attachmentId),
         net.attachments.findOne({ _id: s.attachmentId }, { projection: { mimeType: 1 } }),
       ]);
-      if (u && a) media = { attachmentId: s.attachmentId, mimeType: a.mimeType, url: u.url, expiresAt: u.expiresAt };
+      if (u && a)
+        media = {
+          attachmentId: s.attachmentId,
+          mimeType: a.mimeType,
+          url: u.url,
+          expiresAt: u.expiresAt,
+        };
     }
     return {
       statusId: s._id,
@@ -118,10 +131,19 @@ export class StatusService {
     await this.rateLimit.consume('network_post', `status:${ctx.userId}`);
     if (req.attachmentId) {
       const a = await net.attachments.findOne({ _id: req.attachmentId });
-      if (!a || a.uploaderId !== ctx.userId || a.conversationId !== `status:${ctx.userId}` || a.status !== 'ready')
+      if (
+        !a ||
+        a.uploaderId !== ctx.userId ||
+        a.conversationId !== `status:${ctx.userId}` ||
+        a.status !== 'ready'
+      )
         throw new AppError('VALIDATION_FAILED', 'Upload the photo or video first');
       const want = req.kind === 'image' ? /^image\// : /^video\//;
-      if (!want.test(a.mimeType)) throw new AppError('VALIDATION_FAILED', `That file is not a ${req.kind === 'image' ? 'photo' : 'video'}`);
+      if (!want.test(a.mimeType))
+        throw new AppError(
+          'VALIDATION_FAILED',
+          `That file is not a ${req.kind === 'image' ? 'photo' : 'video'}`,
+        );
     }
     const now = new Date();
     let doc: NetworkStatusDoc;
@@ -155,10 +177,14 @@ export class StatusService {
     const net = await this.network.net();
     if (s.audience === 'selected') return [s.authorId, ...s.userIds];
     const [conns, followers] = await Promise.all([
-      net.network_connections.find({ userId: s.authorId }, { projection: { otherUserId: 1 } }).toArray(),
+      net.network_connections
+        .find({ userId: s.authorId }, { projection: { otherUserId: 1 } })
+        .toArray(),
       s.audience === 'connections'
         ? Promise.resolve([])
-        : net.network_follows.find({ targetType: 'user', targetId: s.authorId }, { projection: { followerId: 1 } }).toArray(),
+        : net.network_follows
+            .find({ targetType: 'user', targetId: s.authorId }, { projection: { followerId: 1 } })
+            .toArray(),
     ]);
     return [s.authorId, ...conns.map((c) => c.otherUserId), ...followers.map((f) => f.followerId)];
   }
@@ -166,20 +192,32 @@ export class StatusService {
   async feed(ctx: TenantContext): Promise<StatusFeed> {
     const net = await this.network.assertNetwork(ctx);
     const v = await this.viewer(ctx.userId);
-    const authors = [...new Set([...v.connected, ...v.following])].filter((id) => !v.hidden.has(id));
+    const authors = [...new Set([...v.connected, ...v.following])].filter(
+      (id) => !v.hidden.has(id),
+    );
     const now = new Date();
     const [mine, theirs] = await Promise.all([
-      net.network_statuses.find({ authorId: ctx.userId, expiresAt: { $gt: now } }, { sort: { createdAt: 1 } }).toArray(),
       net.network_statuses
-        .find({ authorId: { $in: authors }, expiresAt: { $gt: now } }, { sort: { createdAt: 1 }, limit: 2000 })
+        .find({ authorId: ctx.userId, expiresAt: { $gt: now } }, { sort: { createdAt: 1 } })
+        .toArray(),
+      net.network_statuses
+        .find(
+          { authorId: { $in: authors }, expiresAt: { $gt: now } },
+          { sort: { createdAt: 1 }, limit: 2000 },
+        )
         .toArray(),
     ]);
     const visible = theirs.filter((s) => StatusService.canView(s, v));
     const views = await net.network_status_views
-      .find({ viewerId: ctx.userId, statusId: { $in: visible.map((s) => s._id) } }, { projection: { statusId: 1 } })
+      .find(
+        { viewerId: ctx.userId, statusId: { $in: visible.map((s) => s._id) } },
+        { projection: { statusId: 1 } },
+      )
       .toArray();
     const seen = new Set(views.map((x) => x.statusId));
-    const profiles = await net.network_profiles.find({ userId: { $in: [ctx.userId, ...visible.map((s) => s.authorId)] } }).toArray();
+    const profiles = await net.network_profiles
+      .find({ userId: { $in: [ctx.userId, ...visible.map((s) => s.authorId)] } })
+      .toArray();
     const byId = new Map(profiles.map((p) => [p.userId, p]));
     const me = byId.get(ctx.userId)!;
     const grouped = new Map<string, NetworkStatusDoc[]>();
@@ -189,7 +227,9 @@ export class StatusService {
         .filter(([id]) => byId.has(id))
         .map(async ([id, list]) => ({
           person: toPerson(byId.get(id)!),
-          statuses: await Promise.all(list.map((s) => this.toDto(s, byId.get(id)!, ctx.userId, seen.has(s._id)))),
+          statuses: await Promise.all(
+            list.map((s) => this.toDto(s, byId.get(id)!, ctx.userId, seen.has(s._id))),
+          ),
           unseen: list.filter((s) => !seen.has(s._id)).length,
         })),
     );
@@ -198,14 +238,20 @@ export class StatusService {
         Number(b.unseen > 0) - Number(a.unseen > 0) ||
         (b.statuses.at(-1)?.createdAt ?? '').localeCompare(a.statuses.at(-1)?.createdAt ?? ''),
     );
-    return { mine: await Promise.all(mine.map((s) => this.toDto(s, me, ctx.userId, true))), people };
+    return {
+      mine: await Promise.all(mine.map((s) => this.toDto(s, me, ctx.userId, true))),
+      people,
+    };
   }
 
   /** Public statuses of a person, for their public page (no account needed). */
   async publicOf(profile: NetworkProfileDoc): Promise<NetworkStatus[]> {
     const net = await this.network.net();
     const rows = await net.network_statuses
-      .find({ authorId: profile.userId, audience: 'public', expiresAt: { $gt: new Date() } }, { sort: { createdAt: -1 }, limit: 20 })
+      .find(
+        { authorId: profile.userId, audience: 'public', expiresAt: { $gt: new Date() } },
+        { sort: { createdAt: -1 }, limit: 20 },
+      )
       .toArray();
     return Promise.all(rows.map((s) => this.toDto(s, profile, null, false)));
   }
@@ -223,7 +269,14 @@ export class StatusService {
     const net = await this.network.net();
     const res = await net.network_status_views.updateOne(
       { statusId, viewerId: ctx.userId },
-      { $setOnInsert: { statusId, authorId: s.authorId, viewerId: ctx.userId, viewedAt: new Date() } as never },
+      {
+        $setOnInsert: {
+          statusId,
+          authorId: s.authorId,
+          viewerId: ctx.userId,
+          viewedAt: new Date(),
+        } as never,
+      },
       { upsert: true },
     );
     if (res.upsertedCount) {
@@ -236,12 +289,19 @@ export class StatusService {
     const net = await this.network.assertNetwork(ctx);
     const s = await net.network_statuses.findOne({ _id: statusId, authorId: ctx.userId });
     if (!s) throw notFound('Status');
-    const views = await net.network_status_views.find({ statusId }, { sort: { viewedAt: -1 }, limit: 1000 }).toArray();
-    const ps = await net.network_profiles.find({ userId: { $in: views.map((x) => x.viewerId) } }).toArray();
+    const views = await net.network_status_views
+      .find({ statusId }, { sort: { viewedAt: -1 }, limit: 1000 })
+      .toArray();
+    const ps = await net.network_profiles
+      .find({ userId: { $in: views.map((x) => x.viewerId) } })
+      .toArray();
     const byId = new Map(ps.map((p) => [p.userId, p]));
     return views
       .filter((x) => byId.has(x.viewerId))
-      .map((x) => ({ person: toPerson(byId.get(x.viewerId)!), viewedAt: x.viewedAt.toISOString() }));
+      .map((x) => ({
+        person: toPerson(byId.get(x.viewerId)!),
+        viewedAt: x.viewedAt.toISOString(),
+      }));
   }
 
   async remove(ctx: TenantContext, statusId: string): Promise<void> {
@@ -252,7 +312,10 @@ export class StatusService {
     await net.network_statuses.deleteMany({ _id: statusId });
     await net.network_status_views.deleteMany({ statusId });
     if (s.attachmentId)
-      await net.attachments.updateOne({ _id: s.attachmentId }, { $set: { deletedAt: new Date(), deletedBy: ctx.userId } });
+      await net.attachments.updateOne(
+        { _id: s.attachmentId },
+        { $set: { deletedAt: new Date(), deletedBy: ctx.userId } },
+      );
     await this.network.changed(audience, { scope: 'statuses', id: statusId });
   }
 
@@ -260,10 +323,16 @@ export class StatusService {
   async reply(ctx: TenantContext, statusId: string, input: unknown): Promise<SendMessageAck> {
     const req = parse(StatusReplySchema, input);
     const s = await this.loadVisible(ctx, statusId);
-    if (s.authorId === ctx.userId) throw new AppError('VALIDATION_FAILED', "You can't reply to your own status");
+    if (s.authorId === ctx.userId)
+      throw new AppError('VALIDATION_FAILED', "You can't reply to your own status");
     if (!s.allowReplies) throw forbidden('Replies are turned off for this status');
     const dm = await this.conversations.create(ctx, { kind: 'dm', memberIds: [s.authorId] });
-    const label = s.kind === 'text' ? `“${s.text.slice(0, 120)}${s.text.length > 120 ? '…' : ''}”` : s.kind === 'image' ? 'a photo' : 'a video';
+    const label =
+      s.kind === 'text'
+        ? `“${s.text.slice(0, 120)}${s.text.length > 120 ? '…' : ''}”`
+        : s.kind === 'image'
+          ? 'a photo'
+          : 'a video';
     return this.messages.send(ctx, {
       conversationId: dm.conversationId,
       clientMessageId: req.clientMessageId,

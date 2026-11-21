@@ -28,7 +28,13 @@ import {
   cn,
   useToast,
 } from '@sampledge/ui';
-import { useAuth } from '@/lib/auth';
+import { isNetworkSession, useAuth } from '@/lib/auth';
+import { apiRequest } from '@/lib/api';
+import { NetworkProvider, useNet } from '@/lib/network';
+import { NetworkHome } from '../network/home';
+import { PeopleScreen } from '../network/people';
+import { CommunitiesScreen } from '../network/communities';
+import { SpaceSwitcher } from '../network/space-switcher';
 import { setPinned, threadCounts, useBookmarks } from '@/lib/bookmarks';
 import {
   useConversations,
@@ -46,7 +52,7 @@ import { ConversationList } from './conversation-list';
 import { NewConversationDialog, SettingsDialog, SyncCenterDialog } from './dialogs';
 import { AdminScreen } from './admin-screen';
 import { conversationTitle, nameOf, senderNameOf } from './helpers';
-import { MODULES, type ModuleId } from './modules';
+import { MODULES, NETWORK_MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
 import { BillingScreen } from './billing-screen';
@@ -107,7 +113,26 @@ function useTick(ms: number) {
 }
 
 export function Workspace() {
-  const { session, getAccessToken } = useAuth();
+  const { session } = useAuth();
+  if (isNetworkSession(session))
+    return (
+      <NetworkProvider>
+        <WorkspaceInner network />
+      </NetworkProvider>
+    );
+  return <WorkspaceInner network={false} />;
+}
+
+/** Connection requests waiting in the network, for the badge (network space only). */
+function NetworkRequestCount({ onCount }: { onCount: (n: number) => void }) {
+  const { data } = useNet<{ incoming: unknown[] }>('/v1/network/requests', ['requests']);
+  const n = data?.incoming.length ?? 0;
+  React.useEffect(() => onCount(n), [n, onCount]);
+  return null;
+}
+
+function WorkspaceInner({ network }: { network: boolean }) {
+  const { session, getAccessToken, enterNetwork } = useAuth();
   const { engine, state, directory, signOut } = useEngine();
   const { toast } = useToast();
   const bookmarks = useBookmarks();
@@ -115,7 +140,9 @@ export function Workspace() {
   const isAdmin = session!.user.role === 'owner' || session!.user.role === 'admin';
   const conversations = useConversations();
   const unread = useUnreadCounts(me);
-  const [module, setModule] = React.useState<ModuleId>('messages');
+  const [module, setModule] = React.useState<ModuleId>(network ? 'network-home' : 'messages');
+  const [requestCount, setRequestCount] = React.useState(0);
+  const navModules = network ? NETWORK_MODULES : MODULES;
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
@@ -269,12 +296,41 @@ export function Workspace() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const openNetwork = async () => {
+    try {
+      await enterNetwork();
+    } catch (e) {
+      toast({
+        title: 'Couldn’t open Sampledge Network',
+        description: (e as Error).message,
+        tone: 'danger',
+      });
+    }
+  };
   const selectModule = (m: ModuleId) => {
     if (m === 'settings') return setDialog('settings');
+    if (m === 'network') return void openNetwork();
     setModule(m);
   };
+  /** Network: open (or start) the direct message with a connection. */
+  const messagePerson = async (userId: string) => {
+    const existing = conversations?.find(
+      (c) => c.kind === 'dm' && c.memberIds.includes(userId) && c.memberIds.includes(me),
+    );
+    if (existing) return openConversation(existing.conversationId);
+    try {
+      const token = await getAccessToken();
+      const c = await apiRequest<{ conversationId: string }>('POST', '/v1/conversations', {
+        token,
+        body: { kind: 'dm', memberIds: [userId] },
+      });
+      openConversation(c.conversationId);
+    } catch (e) {
+      toast({ title: 'Couldn’t open the chat', description: (e as Error).message, tone: 'danger' });
+    }
+  };
 
-  const mod = MODULES.find((m) => m.id === module)!;
+  const mod = navModules.find((m) => m.id === module) ?? MODULES.find((m) => m.id === module)!;
   const typingNames = activeId
     ? engine
         .typingIn(activeId)
@@ -321,9 +377,19 @@ export function Workspace() {
           unreadTotal={unreadTotal}
           notificationCount={notifications.unreadCount}
           onSignOut={() => void signOut()}
+          modules={network ? NETWORK_MODULES : undefined}
+          spaceSwitcher={<SpaceSwitcher expanded={railExpanded} />}
+          networkBadge={requestCount}
         />
+        {network ? <NetworkRequestCount onCount={setRequestCount} /> : null}
 
-        {module === 'meetings' ? (
+        {module === 'network-home' && network ? (
+          <NetworkHome onGo={setModule} onMessage={(id) => void messagePerson(id)} />
+        ) : module === 'people' && network ? (
+          <PeopleScreen onMessage={(id) => void messagePerson(id)} />
+        ) : module === 'communities' && network ? (
+          <CommunitiesScreen onOpenConversation={openConversation} />
+        ) : module === 'meetings' ? (
           <MeetingsScreen
             me={me}
             directory={directory}
@@ -463,23 +529,25 @@ export function Workspace() {
                         compact
                       />
                     </button>
-                    <Tooltip
-                      content={
-                        offline ? 'Scheduling needs a connection' : 'Schedule a meeting here'
-                      }
-                      side="bottom"
-                    >
-                      <span>
-                        <button
-                          className="rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40"
-                          aria-label="Schedule a meeting here"
-                          disabled={offline || readOnly}
-                          onClick={() => setScheduleIn(active.conversationId)}
-                        >
-                          <CalendarPlus className="size-4" />
-                        </button>
-                      </span>
-                    </Tooltip>
+                    {network ? null : (
+                      <Tooltip
+                        content={
+                          offline ? 'Scheduling needs a connection' : 'Schedule a meeting here'
+                        }
+                        side="bottom"
+                      >
+                        <span>
+                          <button
+                            className="rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40"
+                            aria-label="Schedule a meeting here"
+                            disabled={offline || readOnly}
+                            onClick={() => setScheduleIn(active.conversationId)}
+                          >
+                            <CalendarPlus className="size-4" />
+                          </button>
+                        </span>
+                      </Tooltip>
+                    )}
                     <CallButtons conversation={active} offline={offline} readOnly={readOnly} />
                     <PinsMenu
                       messages={messages ?? []}
@@ -544,7 +612,7 @@ export function Workspace() {
                       setModule('meetings');
                     }}
                     onCreateTask={
-                      offline || readOnly
+                      offline || readOnly || network
                         ? undefined
                         : (m) =>
                             setWorkDialog({
@@ -557,7 +625,7 @@ export function Workspace() {
                             })
                     }
                     onRequestApproval={
-                      offline || readOnly
+                      offline || readOnly || network
                         ? undefined
                         : (m) =>
                             setWorkDialog({
@@ -821,6 +889,7 @@ export function Workspace() {
         />
 
         <MobileNav
+          network={network}
           active={module}
           onSelect={selectModule}
           unreadTotal={unreadTotal}
@@ -909,25 +978,36 @@ export function Workspace() {
 }
 
 const MOBILE: ModuleId[] = ['messages', 'tasks', 'meetings', 'notifications', 'settings'];
+const MOBILE_NETWORK: ModuleId[] = [
+  'network-home',
+  'messages',
+  'people',
+  'communities',
+  'settings',
+];
 
 function MobileNav({
+  network,
   active,
   onSelect,
   unreadTotal,
   notificationCount,
 }: {
+  network: boolean;
   active: ModuleId;
   onSelect: (m: ModuleId) => void;
   unreadTotal: number;
   notificationCount: number;
 }) {
+  const ids = network ? MOBILE_NETWORK : MOBILE;
+  const all = network ? NETWORK_MODULES : MODULES;
   return (
     <nav
       aria-label="Modules"
       className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-border bg-surface-glass backdrop-blur-xl md:hidden"
     >
-      {MOBILE.map((id) => {
-        const m = MODULES.find((x) => x.id === id)!;
+      {ids.map((id) => {
+        const m = all.find((x) => x.id === id)!;
         const on = active === id;
         return (
           <button

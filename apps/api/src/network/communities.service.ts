@@ -17,7 +17,12 @@ import {
 } from '@sampledge/contracts';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
-import type { CommunityDoc, CommunityLinkDoc, CommunityMemberDoc, ConversationDoc } from '../database/documents.js';
+import type {
+  CommunityDoc,
+  CommunityLinkDoc,
+  CommunityMemberDoc,
+  ConversationDoc,
+} from '../database/documents.js';
 import type { ScopedDb } from '../database/tenant-db.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
@@ -27,7 +32,8 @@ import { NetworkService, colorFor, toPerson } from './network.service.js';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('base64url');
 const RANK: Record<CommunityRole, number> = { owner: 4, admin: 3, moderator: 2, member: 1 };
-const convRole = (r: CommunityRole) => (r === 'owner' ? 'owner' : r === 'member' ? 'member' : 'moderator');
+const convRole = (r: CommunityRole) =>
+  r === 'owner' ? 'owner' : r === 'member' ? 'member' : 'moderator';
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -56,7 +62,9 @@ export class CommunitiesService {
   }
 
   private async load(net: ScopedDb, idOrSlug: string): Promise<CommunityDoc> {
-    const c = await net.communities.findOne({ $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }] });
+    const c = await net.communities.findOne({
+      $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }],
+    });
     if (!c) throw notFound('Community');
     return c;
   }
@@ -80,15 +88,29 @@ export class CommunitiesService {
     return m;
   }
 
-  private async groups(net: ScopedDb, c: CommunityDoc, m: CommunityMemberDoc | null): Promise<CommunityGroup[]> {
+  private async groups(
+    net: ScopedDb,
+    c: CommunityDoc,
+    m: CommunityMemberDoc | null,
+  ): Promise<CommunityGroup[]> {
     if (!m || m.status !== 'active') return [];
-    const convs = await net.conversations.find({ communityId: c._id, archivedAt: null }, { sort: { createdAt: 1 } }).toArray();
+    const convs = await net.conversations
+      .find({ communityId: c._id, archivedAt: null }, { sort: { createdAt: 1 } })
+      .toArray();
     const ids = convs.map((x) => x._id);
     const [members, mine] = await Promise.all([
       net.conversation_members
-        .aggregate<{ _id: string; n: number }>([{ $match: { conversationId: { $in: ids } } }, { $group: { _id: '$conversationId', n: { $sum: 1 } } }])
+        .aggregate<{ _id: string; n: number }>([
+          { $match: { conversationId: { $in: ids } } },
+          { $group: { _id: '$conversationId', n: { $sum: 1 } } },
+        ])
         .toArray(),
-      net.conversation_members.find({ conversationId: { $in: ids }, userId: m.userId }, { projection: { conversationId: 1 } }).toArray(),
+      net.conversation_members
+        .find(
+          { conversationId: { $in: ids }, userId: m.userId },
+          { projection: { conversationId: 1 } },
+        )
+        .toArray(),
     ]);
     const joined = new Set(mine.map((x) => x.conversationId));
     const count = new Map(members.map((x) => [x._id, x.n]));
@@ -112,7 +134,13 @@ export class CommunitiesService {
     const [memberCount, followerCount, following] = await Promise.all([
       net.community_members.countDocuments({ communityId: c._id, status: 'active' }),
       net.network_follows.countDocuments({ targetType: 'community', targetId: c._id }),
-      userId ? net.network_follows.findOne({ followerId: userId, targetType: 'community', targetId: c._id }) : null,
+      userId
+        ? net.network_follows.findOne({
+            followerId: userId,
+            targetType: 'community',
+            targetId: c._id,
+          })
+        : null,
     ]);
     return {
       communityId: c._id,
@@ -127,7 +155,14 @@ export class CommunitiesService {
       avatarColor: c.avatarColor,
       createdAt: c.createdAt.toISOString(),
       myRole: m?.status === 'active' ? m.role : null,
-      myStatus: m?.status === 'active' ? 'member' : m?.status === 'pending' ? 'pending' : m?.status === 'invited' ? 'invited' : null,
+      myStatus:
+        m?.status === 'active'
+          ? 'member'
+          : m?.status === 'pending'
+            ? 'pending'
+            : m?.status === 'invited'
+              ? 'invited'
+              : null,
       following: !!following,
       groups: await this.groups(net, c, m),
       publicUrl: this.publicUrl(c),
@@ -136,17 +171,23 @@ export class CommunitiesService {
 
   private async admins(net: ScopedDb, communityId: string): Promise<string[]> {
     const rows = await net.community_members
-      .find({ communityId, status: 'active', role: { $in: ['owner', 'admin', 'moderator'] } }, { projection: { userId: 1 } })
+      .find(
+        { communityId, status: 'active', role: { $in: ['owner', 'admin', 'moderator'] } },
+        { projection: { userId: 1 } },
+      )
       .toArray();
     return rows.map((r) => r.userId);
   }
 
   private async notify(net: ScopedDb, communityId: string, extra: string[] = []) {
     void net;
-    await this.network.changed([...(await this.admins(await this.network.net(), communityId)), ...extra], {
-      scope: 'communities',
-      id: communityId,
-    });
+    await this.network.changed(
+      [...(await this.admins(await this.network.net(), communityId)), ...extra],
+      {
+        scope: 'communities',
+        id: communityId,
+      },
+    );
   }
 
   /** Inserts a group conversation directly: network members are 'guest' and can't create channels. */
@@ -154,7 +195,13 @@ export class CommunitiesService {
     ctx: TenantContext,
     net: ScopedDb,
     c: Pick<CommunityDoc, '_id'>,
-    g: { name: string; topic: string; access: 'open' | 'private'; announcementsOnly: boolean; role: 'announcements' | 'group' },
+    g: {
+      name: string;
+      topic: string;
+      access: 'open' | 'private';
+      announcementsOnly: boolean;
+      role: 'announcements' | 'group';
+    },
     members: { userId: string; role: CommunityRole }[],
   ): Promise<ConversationDoc> {
     const now = new Date();
@@ -174,24 +221,58 @@ export class CommunitiesService {
     });
     if (members.length)
       await net.conversation_members.insertMany(
-        members.map((m) => ({ conversationId: conv._id, userId: m.userId, role: convRole(m.role), joinedAt: now })),
+        members.map((m) => ({
+          conversationId: conv._id,
+          userId: m.userId,
+          role: convRole(m.role),
+          joinedAt: now,
+        })),
       );
-    await this.conversations.announce(ctx, conv, members.map((m) => m.userId));
+    await this.conversations.announce(
+      ctx,
+      conv,
+      members.map((m) => m.userId),
+    );
     return conv;
   }
 
-  private async addToConversation(ctx: TenantContext, net: ScopedDb, conversationId: string, userId: string, role: CommunityRole) {
+  private async addToConversation(
+    ctx: TenantContext,
+    net: ScopedDb,
+    conversationId: string,
+    userId: string,
+    role: CommunityRole,
+  ) {
     await net.conversation_members.updateOne(
       { conversationId, userId },
-      { $setOnInsert: { conversationId, userId, role: convRole(role), joinedAt: new Date() } as never },
+      {
+        $setOnInsert: {
+          conversationId,
+          userId,
+          role: convRole(role),
+          joinedAt: new Date(),
+        } as never,
+      },
       { upsert: true },
     );
     const conv = await net.conversations.findOne({ _id: conversationId });
-    if (conv) await this.conversations.announce({ ...ctx, userId }, conv, await this.conversations.memberIds(ctx.tenantId, conversationId));
+    if (conv)
+      await this.conversations.announce(
+        { ...ctx, userId },
+        conv,
+        await this.conversations.memberIds(ctx.tenantId, conversationId),
+      );
   }
 
-  private async removeFromCommunityConversations(ctx: TenantContext, net: ScopedDb, communityId: string, userId: string) {
-    const convs = await net.conversations.find({ communityId }, { projection: { _id: 1 } }).toArray();
+  private async removeFromCommunityConversations(
+    ctx: TenantContext,
+    net: ScopedDb,
+    communityId: string,
+    userId: string,
+  ) {
+    const convs = await net.conversations
+      .find({ communityId }, { projection: { _id: 1 } })
+      .toArray();
     const ids = convs.map((x) => x._id);
     await net.conversation_members.deleteMany({ conversationId: { $in: ids }, userId });
     for (const id of ids) {
@@ -201,7 +282,14 @@ export class CommunitiesService {
   }
 
   /** Makes someone an active member: announcements and the default group. */
-  private async activate(ctx: TenantContext, net: ScopedDb, c: CommunityDoc, userId: string, role: CommunityRole, invitedBy: string | null) {
+  private async activate(
+    ctx: TenantContext,
+    net: ScopedDb,
+    c: CommunityDoc,
+    userId: string,
+    role: CommunityRole,
+    invitedBy: string | null,
+  ) {
     await net.community_members.updateOne(
       { communityId: c._id, userId },
       {
@@ -224,7 +312,13 @@ export class CommunitiesService {
       await this.rateLimit.consume('network_post', `community:${ctx.userId}`);
       const base =
         req.slug ??
-        (req.name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 34) || 'community');
+        (req.name
+          .toLowerCase()
+          .normalize('NFKD')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 34) ||
+          'community');
       let slug = base.length >= 3 ? base : `${base}-hub`;
       if (await net.communities.findOne({ slug })) {
         if (req.slug) throw new AppError('CONFLICT', 'That community address is taken');
@@ -250,14 +344,49 @@ export class CommunitiesService {
           updatedAt: now,
         });
       } catch (e) {
-        if (e instanceof MongoServerError && e.code === 11000) throw new AppError('CONFLICT', 'That community address is taken');
+        if (e instanceof MongoServerError && e.code === 11000)
+          throw new AppError('CONFLICT', 'That community address is taken');
         throw e;
       }
-      await net.community_members.insertOne({ communityId: c._id, userId: ctx.userId, role: 'owner', status: 'active', invitedBy: null, joinedAt: now });
+      await net.community_members.insertOne({
+        communityId: c._id,
+        userId: ctx.userId,
+        role: 'owner',
+        status: 'active',
+        invitedBy: null,
+        joinedAt: now,
+      });
       const owner = [{ userId: ctx.userId, role: 'owner' as const }];
-      const ann = await this.createGroup(ctx, net, c, { name: 'Announcements', topic: `News from ${req.name}`, access: 'open', announcementsOnly: true, role: 'announcements' }, owner);
-      const general = await this.createGroup(ctx, net, c, { name: 'General', topic: 'Introduce yourself and talk with the community', access: 'open', announcementsOnly: false, role: 'group' }, owner);
-      await net.communities.updateOne({ _id: c._id }, { $set: { announcementsConversationId: ann._id, defaultGroupId: general._id } });
+      const ann = await this.createGroup(
+        ctx,
+        net,
+        c,
+        {
+          name: 'Announcements',
+          topic: `News from ${req.name}`,
+          access: 'open',
+          announcementsOnly: true,
+          role: 'announcements',
+        },
+        owner,
+      );
+      const general = await this.createGroup(
+        ctx,
+        net,
+        c,
+        {
+          name: 'General',
+          topic: 'Introduce yourself and talk with the community',
+          access: 'open',
+          announcementsOnly: false,
+          role: 'group',
+        },
+        owner,
+      );
+      await net.communities.updateOne(
+        { _id: c._id },
+        { $set: { announcementsConversationId: ann._id, defaultGroupId: general._id } },
+      );
       c = { ...c, announcementsConversationId: ann._id, defaultGroupId: general._id };
       await this.network.changed([ctx.userId], { scope: 'communities', id: c._id });
       return this.toDto(net, c, ctx.userId);
@@ -271,16 +400,26 @@ export class CommunitiesService {
 
   async mine(ctx: TenantContext): Promise<Community[]> {
     const net = await this.network.assertNetwork(ctx);
-    const rows = await net.community_members.find({ userId: ctx.userId, status: { $in: ['active', 'pending', 'invited'] } }).toArray();
-    const cs = await net.communities.find({ _id: { $in: rows.map((r) => r.communityId) } }, { sort: { name: 1 } }).toArray();
+    const rows = await net.community_members
+      .find({ userId: ctx.userId, status: { $in: ['active', 'pending', 'invited'] } })
+      .toArray();
+    const cs = await net.communities
+      .find({ _id: { $in: rows.map((r) => r.communityId) } }, { sort: { name: 1 } })
+      .toArray();
     return Promise.all(cs.map((c) => this.toDto(net, c, ctx.userId)));
   }
 
   async discover(ctx: TenantContext, q: string | undefined): Promise<Community[]> {
     const net = await this.network.assertNetwork(ctx);
     const filter: Record<string, unknown> = { visibility: 'public' };
-    if (q?.trim()) filter.$or = [{ name: new RegExp(escapeRe(q.trim()), 'i') }, { slug: q.trim().toLowerCase() }];
-    const cs = await net.communities.find(filter as never, { sort: { createdAt: -1 }, limit: 50 }).toArray();
+    if (q?.trim())
+      filter.$or = [
+        { name: new RegExp(escapeRe(q.trim()), 'i') },
+        { slug: q.trim().toLowerCase() },
+      ];
+    const cs = await net.communities
+      .find(filter as never, { sort: { createdAt: -1 }, limit: 50 })
+      .toArray();
     return Promise.all(cs.map((c) => this.toDto(net, c, ctx.userId)));
   }
 
@@ -289,7 +428,8 @@ export class CommunitiesService {
     const req = parse(UpdateCommunitySchema, input);
     this.requireRole(m, 'admin');
     const $set: Record<string, unknown> = { updatedAt: new Date() };
-    for (const k of ['name', 'description', 'visibility', 'joinPolicy', 'rules'] as const) if (req[k] !== undefined) $set[k] = req[k];
+    for (const k of ['name', 'description', 'visibility', 'joinPolicy', 'rules'] as const)
+      if (req[k] !== undefined) $set[k] = req[k];
     await net.communities.updateOne({ _id: c._id }, { $set });
     await this.network.audit_(ctx, 'community.updated', c._id, { fields: Object.keys($set) });
     await this.notifyMembers(net, c._id);
@@ -297,8 +437,16 @@ export class CommunitiesService {
   }
 
   private async notifyMembers(net: ScopedDb, communityId: string, extra: string[] = []) {
-    const rows = await net.community_members.find({ communityId, status: { $in: ['active', 'pending', 'invited'] } }, { projection: { userId: 1 } }).toArray();
-    await this.network.changed([...rows.map((r) => r.userId), ...extra], { scope: 'communities', id: communityId });
+    const rows = await net.community_members
+      .find(
+        { communityId, status: { $in: ['active', 'pending', 'invited'] } },
+        { projection: { userId: 1 } },
+      )
+      .toArray();
+    await this.network.changed([...rows.map((r) => r.userId), ...extra], {
+      scope: 'communities',
+      id: communityId,
+    });
   }
 
   // ─── joining ──────────────────────────────────────────────────────────────
@@ -313,7 +461,14 @@ export class CommunitiesService {
       return this.toDto(net, c, ctx.userId);
     }
     if (!m)
-      await net.community_members.insertOne({ communityId: c._id, userId: ctx.userId, role: 'member', status: 'pending', invitedBy: null, joinedAt: new Date() });
+      await net.community_members.insertOne({
+        communityId: c._id,
+        userId: ctx.userId,
+        role: 'member',
+        status: 'pending',
+        invitedBy: null,
+        joinedAt: new Date(),
+      });
     await this.notify(net, c._id, [ctx.userId]);
     return this.toDto(net, c, ctx.userId);
   }
@@ -321,7 +476,8 @@ export class CommunitiesService {
   async leave(ctx: TenantContext, id: string): Promise<void> {
     const { net, c, m } = await this.visible(ctx, id);
     if (!m) return;
-    if (m.role === 'owner' && m.status === 'active') throw new AppError('VALIDATION_FAILED', 'Make someone else the owner before you leave');
+    if (m.role === 'owner' && m.status === 'active')
+      throw new AppError('VALIDATION_FAILED', 'Make someone else the owner before you leave');
     await net.community_members.deleteMany({ communityId: c._id, userId: ctx.userId });
     await this.removeFromCommunityConversations(ctx, net, c._id, ctx.userId);
     await this.notify(net, c._id, [ctx.userId]);
@@ -334,7 +490,12 @@ export class CommunitiesService {
     if (!target || target.status !== 'pending') throw notFound('Join request');
     if (approve) await this.activate(ctx, net, c, userId, 'member', ctx.userId);
     else await net.community_members.deleteMany({ communityId: c._id, userId, status: 'pending' });
-    await this.network.audit_(ctx, approve ? 'community.request_approved' : 'community.request_denied', c._id, { userId });
+    await this.network.audit_(
+      ctx,
+      approve ? 'community.request_approved' : 'community.request_denied',
+      c._id,
+      { userId },
+    );
     await this.notify(net, c._id, [userId]);
   }
 
@@ -345,7 +506,9 @@ export class CommunitiesService {
     this.requireRole(m, 'member');
     if (c.joinPolicy === 'approval' && RANK[m!.role] < RANK.moderator)
       throw forbidden('Only moderators can invite people to this community');
-    const conns = await net.network_connections.find({ userId: ctx.userId, otherUserId: { $in: req.userIds } }).toArray();
+    const conns = await net.network_connections
+      .find({ userId: ctx.userId, otherUserId: { $in: req.userIds } })
+      .toArray();
     const ok = new Set(conns.map((x) => x.otherUserId));
     const invited: string[] = [];
     for (const userId of req.userIds) {
@@ -357,7 +520,16 @@ export class CommunitiesService {
       } else {
         await net.community_members.updateOne(
           { communityId: c._id, userId },
-          { $setOnInsert: { communityId: c._id, userId, role: 'member', status: 'invited', invitedBy: ctx.userId, joinedAt: new Date() } as never },
+          {
+            $setOnInsert: {
+              communityId: c._id,
+              userId,
+              role: 'member',
+              status: 'invited',
+              invitedBy: ctx.userId,
+              joinedAt: new Date(),
+            } as never,
+          },
           { upsert: true },
         );
       }
@@ -371,7 +543,11 @@ export class CommunitiesService {
 
   async declineInvite(ctx: TenantContext, id: string): Promise<void> {
     const net = await this.network.assertNetwork(ctx);
-    await net.community_members.deleteMany({ communityId: id, userId: ctx.userId, status: 'invited' });
+    await net.community_members.deleteMany({
+      communityId: id,
+      userId: ctx.userId,
+      status: 'invited',
+    });
     await this.network.changed([ctx.userId], { scope: 'communities', id });
   }
 
@@ -414,14 +590,19 @@ export class CommunitiesService {
   async links(ctx: TenantContext, id: string): Promise<CommunityInviteLink[]> {
     const { net, c, m } = await this.visible(ctx, id);
     this.requireRole(m, 'moderator');
-    const rows = await net.community_links.find({ communityId: c._id }, { sort: { createdAt: -1 }, limit: 100 }).toArray();
+    const rows = await net.community_links
+      .find({ communityId: c._id }, { sort: { createdAt: -1 }, limit: 100 })
+      .toArray();
     return rows.map((l) => this.toLink(l));
   }
 
   async revokeLink(ctx: TenantContext, id: string, linkId: string): Promise<void> {
     const { net, c, m } = await this.visible(ctx, id);
     this.requireRole(m, 'moderator');
-    await net.community_links.updateOne({ _id: linkId, communityId: c._id }, { $set: { revokedAt: new Date() } });
+    await net.community_links.updateOne(
+      { _id: linkId, communityId: c._id },
+      { $set: { revokedAt: new Date() } },
+    );
     await this.notify(net, c._id);
   }
 
@@ -431,12 +612,22 @@ export class CommunitiesService {
     if (!l) throw notFound('Invite link');
     const c = await net.communities.findOne({ _id: l.communityId });
     if (!c) throw notFound('Invite link');
-    const { groups: _g, myRole: _r, myStatus: _s, following: _f, ...pub } = await this.toDto(net, c, null);
+    const {
+      groups: _g,
+      myRole: _r,
+      myStatus: _s,
+      following: _f,
+      ...pub
+    } = await this.toDto(net, c, null);
     return { ...pub, valid: this.linkValid(l) };
   }
 
   private linkValid(l: CommunityLinkDoc) {
-    return !l.revokedAt && (!l.expiresAt || l.expiresAt > new Date()) && (l.maxUses === null || l.uses < l.maxUses);
+    return (
+      !l.revokedAt &&
+      (!l.expiresAt || l.expiresAt > new Date()) &&
+      (l.maxUses === null || l.uses < l.maxUses)
+    );
   }
 
   async joinByLink(ctx: TenantContext, token: string): Promise<Community> {
@@ -450,7 +641,11 @@ export class CommunitiesService {
     if (m?.status === 'banned') throw forbidden('You were removed from this community');
     if (m?.status !== 'active') {
       const used = await net.community_links.findOneAndUpdate(
-        { _id: l._id, revokedAt: null, ...(l.maxUses !== null ? { uses: { $lt: l.maxUses } } : {}) },
+        {
+          _id: l._id,
+          revokedAt: null,
+          ...(l.maxUses !== null ? { uses: { $lt: l.maxUses } } : {}),
+        },
         { $inc: { uses: 1 } },
       );
       if (!used) throw new AppError('NOT_FOUND', 'This invite link has expired');
@@ -468,15 +663,31 @@ export class CommunitiesService {
     this.requireRole(m, 'member');
     const isMod = RANK[m!.role] >= RANK.moderator;
     const rows = await net.community_members
-      .find({ communityId: c._id, status: isMod ? { $in: ['active', 'pending', 'invited', 'banned'] } : 'active' }, { limit: 5000 })
+      .find(
+        {
+          communityId: c._id,
+          status: isMod ? { $in: ['active', 'pending', 'invited', 'banned'] } : 'active',
+        },
+        { limit: 5000 },
+      )
       .toArray();
     const hidden = await this.network.hiddenFor(ctx.userId);
-    const ps = await net.network_profiles.find({ userId: { $in: rows.map((r) => r.userId) } }).toArray();
+    const ps = await net.network_profiles
+      .find({ userId: { $in: rows.map((r) => r.userId) } })
+      .toArray();
     const byId = new Map(ps.map((p) => [p.userId, p]));
     return rows
       .filter((r) => byId.has(r.userId) && !hidden.has(r.userId))
-      .map((r) => ({ person: toPerson(byId.get(r.userId)!), role: r.role, status: r.status, joinedAt: r.joinedAt.toISOString() }))
-      .sort((a, b) => RANK[b.role] - RANK[a.role] || a.person.displayName.localeCompare(b.person.displayName));
+      .map((r) => ({
+        person: toPerson(byId.get(r.userId)!),
+        role: r.role,
+        status: r.status,
+        joinedAt: r.joinedAt.toISOString(),
+      }))
+      .sort(
+        (a, b) =>
+          RANK[b.role] - RANK[a.role] || a.person.displayName.localeCompare(b.person.displayName),
+      );
   }
 
   async setRole(ctx: TenantContext, id: string, userId: string, input: unknown): Promise<void> {
@@ -486,10 +697,16 @@ export class CommunitiesService {
     const target = await this.membership(net, c._id, userId);
     if (!target || target.status !== 'active') throw notFound('Member');
     if (target.role === 'owner') throw forbidden("The owner's role can't be changed");
-    if (me.role !== 'owner' && (RANK[target.role] >= RANK.admin || role === 'admin')) throw forbidden('Only the owner can manage admins');
+    if (me.role !== 'owner' && (RANK[target.role] >= RANK.admin || role === 'admin'))
+      throw forbidden('Only the owner can manage admins');
     await net.community_members.updateOne({ _id: target._id }, { $set: { role } });
-    const convs = await net.conversations.find({ communityId: c._id }, { projection: { _id: 1 } }).toArray();
-    await net.conversation_members.updateMany({ conversationId: { $in: convs.map((x) => x._id) }, userId }, { $set: { role: convRole(role) } });
+    const convs = await net.conversations
+      .find({ communityId: c._id }, { projection: { _id: 1 } })
+      .toArray();
+    await net.conversation_members.updateMany(
+      { conversationId: { $in: convs.map((x) => x._id) }, userId },
+      { $set: { role: convRole(role) } },
+    );
     await this.network.audit_(ctx, 'community.role_changed', c._id, { userId, role });
     await this.notifyMembers(net, c._id);
   }
@@ -502,10 +719,18 @@ export class CommunitiesService {
     await net.community_members.updateOne({ _id: target._id }, { $set: { role: 'owner' } });
     await net.community_members.updateOne({ _id: m._id }, { $set: { role: 'admin' } });
     await net.communities.updateOne({ _id: c._id }, { $set: { ownerId: userId } });
-    const convs = await net.conversations.find({ communityId: c._id }, { projection: { _id: 1 } }).toArray();
+    const convs = await net.conversations
+      .find({ communityId: c._id }, { projection: { _id: 1 } })
+      .toArray();
     const ids = convs.map((x) => x._id);
-    await net.conversation_members.updateMany({ conversationId: { $in: ids }, userId }, { $set: { role: 'owner' } });
-    await net.conversation_members.updateMany({ conversationId: { $in: ids }, userId: ctx.userId }, { $set: { role: 'moderator' } });
+    await net.conversation_members.updateMany(
+      { conversationId: { $in: ids }, userId },
+      { $set: { role: 'owner' } },
+    );
+    await net.conversation_members.updateMany(
+      { conversationId: { $in: ids }, userId: ctx.userId },
+      { $set: { role: 'moderator' } },
+    );
     await this.network.audit_(ctx, 'community.ownership_transferred', c._id, { userId });
     await this.notifyMembers(net, c._id);
   }
@@ -516,11 +741,21 @@ export class CommunitiesService {
     const me = this.requireRole(m, 'moderator');
     const target = await this.membership(net, c._id, userId);
     if (!target) throw notFound('Member');
-    if (target.role === 'owner' || (RANK[target.role] >= RANK[me.role] && me.role !== 'owner')) throw forbidden();
-    if (ban) await net.community_members.updateOne({ _id: target._id }, { $set: { status: 'banned', role: 'member' } });
+    if (target.role === 'owner' || (RANK[target.role] >= RANK[me.role] && me.role !== 'owner'))
+      throw forbidden();
+    if (ban)
+      await net.community_members.updateOne(
+        { _id: target._id },
+        { $set: { status: 'banned', role: 'member' } },
+      );
     else await net.community_members.deleteMany({ _id: target._id });
     await this.removeFromCommunityConversations(ctx, net, c._id, userId);
-    await this.network.audit_(ctx, ban ? 'community.member_banned' : 'community.member_removed', c._id, { userId });
+    await this.network.audit_(
+      ctx,
+      ban ? 'community.member_banned' : 'community.member_removed',
+      c._id,
+      { userId },
+    );
     await this.notifyMembers(net, c._id, [userId]);
   }
 
@@ -538,9 +773,25 @@ export class CommunitiesService {
     const req = parse(CreateCommunityGroupSchema, input);
     const me = this.requireRole(m, 'moderator');
     return this.network.once(ctx, req.clientActionId, async () => {
-      const clash = await net.conversations.findOne({ communityId: c._id, name: req.name, archivedAt: null });
+      const clash = await net.conversations.findOne({
+        communityId: c._id,
+        name: req.name,
+        archivedAt: null,
+      });
       if (clash) throw new AppError('CONFLICT', 'A group with that name already exists');
-      await this.createGroup(ctx, net, c, { name: req.name, topic: req.topic, access: req.access, announcementsOnly: req.announcementsOnly, role: 'group' }, [{ userId: ctx.userId, role: me.role }]);
+      await this.createGroup(
+        ctx,
+        net,
+        c,
+        {
+          name: req.name,
+          topic: req.topic,
+          access: req.access,
+          announcementsOnly: req.announcementsOnly,
+          role: 'group',
+        },
+        [{ userId: ctx.userId, role: me.role }],
+      );
       await this.network.audit_(ctx, 'community.group_created', c._id, { name: req.name });
       await this.notifyMembers(net, c._id);
       return this.toDto(net, c, ctx.userId);
@@ -557,18 +808,26 @@ export class CommunitiesService {
     const { net, c, m } = await this.visible(ctx, id);
     const me = this.requireRole(m, 'member');
     const g = await this.group(net, c, conversationId);
-    if (g.kind === 'channel_private' && RANK[me.role] < RANK.admin) throw forbidden('This group is private. Ask an admin to add you.');
+    if (g.kind === 'channel_private' && RANK[me.role] < RANK.admin)
+      throw forbidden('This group is private. Ask an admin to add you.');
     await this.addToConversation(ctx, net, g._id, ctx.userId, me.role);
     await this.network.changed([ctx.userId], { scope: 'communities', id: c._id });
     return this.toDto(net, c, ctx.userId);
   }
 
-  async addToGroup(ctx: TenantContext, id: string, conversationId: string, input: unknown): Promise<Community> {
+  async addToGroup(
+    ctx: TenantContext,
+    id: string,
+    conversationId: string,
+    input: unknown,
+  ): Promise<Community> {
     const { net, c, m } = await this.visible(ctx, id);
     this.requireRole(m, 'admin');
     const g = await this.group(net, c, conversationId);
     const { userIds } = parse(InviteToCommunitySchema, input);
-    const active = await net.community_members.find({ communityId: c._id, userId: { $in: userIds }, status: 'active' }).toArray();
+    const active = await net.community_members
+      .find({ communityId: c._id, userId: { $in: userIds }, status: 'active' })
+      .toArray();
     for (const a of active) await this.addToConversation(ctx, net, g._id, a.userId, a.role);
     await this.notifyMembers(net, c._id);
     return this.toDto(net, c, ctx.userId);
@@ -577,7 +836,11 @@ export class CommunitiesService {
   async leaveGroup(ctx: TenantContext, id: string, conversationId: string): Promise<void> {
     const { net, c } = await this.visible(ctx, id);
     const g = await this.group(net, c, conversationId);
-    if (g._id === c.announcementsConversationId) throw new AppError('VALIDATION_FAILED', 'Leave the community to stop announcements, or mute the channel');
+    if (g._id === c.announcementsConversationId)
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Leave the community to stop announcements, or mute the channel',
+      );
     await this.conversations.removeMember(ctx, g._id, ctx.userId);
     await this.network.changed([ctx.userId], { scope: 'communities', id: c._id });
   }
@@ -586,7 +849,8 @@ export class CommunitiesService {
     const { net, c, m } = await this.visible(ctx, id);
     this.requireRole(m, 'admin');
     const g = await this.group(net, c, conversationId);
-    if (g._id === c.announcementsConversationId) throw new AppError('VALIDATION_FAILED', 'The announcements channel cannot be removed');
+    if (g._id === c.announcementsConversationId)
+      throw new AppError('VALIDATION_FAILED', 'The announcements channel cannot be removed');
     await net.conversations.updateOne({ _id: g._id }, { $set: { archivedAt: new Date() } });
     const members = await this.conversations.memberIds(ctx.tenantId, g._id);
     await this.conversations.announce(ctx, { ...g, archivedAt: new Date() }, members);
@@ -599,15 +863,30 @@ export class CommunitiesService {
     const net = await this.network.net();
     const c = await net.communities.findOne({ slug: slug.toLowerCase(), visibility: 'public' });
     if (!c) throw notFound('Community');
-    const { groups: _g, myRole: _r, myStatus: _s, following: _f, ...community } = await this.toDto(net, c, null);
+    const {
+      groups: _g,
+      myRole: _r,
+      myStatus: _s,
+      following: _f,
+      ...community
+    } = await this.toDto(net, c, null);
     const msgs = await net.messages
-      .find({ conversationId: c.announcementsConversationId, deletedAt: null, messageType: 'text' }, { sort: { serverSequence: -1 }, limit: 20 })
+      .find(
+        { conversationId: c.announcementsConversationId, deletedAt: null, messageType: 'text' },
+        { sort: { serverSequence: -1 }, limit: 20 },
+      )
       .toArray();
-    const ps = await net.network_profiles.find({ userId: { $in: msgs.map((x) => x.senderId) } }).toArray();
+    const ps = await net.network_profiles
+      .find({ userId: { $in: msgs.map((x) => x.senderId) } })
+      .toArray();
     const byId = new Map(ps.map((p) => [p.userId, p.displayName]));
     return {
       community,
-      announcements: msgs.map((x) => ({ text: x.content.text, at: x.createdAt.toISOString(), author: byId.get(x.senderId) ?? 'Admin' })),
+      announcements: msgs.map((x) => ({
+        text: x.content.text,
+        at: x.createdAt.toISOString(),
+        author: byId.get(x.senderId) ?? 'Admin',
+      })),
     };
   }
 }

@@ -10,7 +10,9 @@ const int = { bsonType: ['int', 'long'] };
  * Creates the reserved Sampledge Network tenant (idempotent) and returns its id.
  * Also called at boot, so a database restored without it still works.
  */
-export async function ensureNetworkTenant(db: Db): Promise<{ tenantId: string; workspaceId: string }> {
+export async function ensureNetworkTenant(
+  db: Db,
+): Promise<{ tenantId: string; workspaceId: string }> {
   const tenants = db.collection<{ _id: string; slug: string; kind?: string }>('tenants');
   await tenants.updateOne(
     { slug: NETWORK_TENANT_SLUG },

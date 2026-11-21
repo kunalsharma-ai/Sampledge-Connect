@@ -14,6 +14,7 @@ import {
   type ScheduledMessage,
   type SyncResponse,
 } from '@sampledge/contracts';
+import type { NetworkChangedEvent } from '@sampledge/contracts';
 import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
 import {
   NetworkError,
@@ -88,6 +89,7 @@ export class SyncEngine {
   private meetingListeners = new Set<(e: MeetingEvent) => void>();
   private scheduledListeners = new Set<(s: ScheduledMessage) => void>();
   private workListeners = new Set<(e: WorkEvent) => void>();
+  private networkListeners = new Set<(e: NetworkChangedEvent) => void>();
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -143,6 +145,11 @@ export class SyncEngine {
   onWork(fn: (e: WorkEvent) => void): () => void {
     this.workListeners.add(fn);
     return () => this.workListeners.delete(fn);
+  }
+  /** Live Sampledge Network changes; the app refetches the named scope. */
+  onNetwork(fn: (e: NetworkChangedEvent) => void): () => void {
+    this.networkListeners.add(fn);
+    return () => this.networkListeners.delete(fn);
   }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
@@ -262,6 +269,9 @@ export class SyncEngine {
       },
       onWork: (e) => {
         for (const l of this.workListeners) l(e);
+      },
+      onNetwork: (e) => {
+        for (const l of this.networkListeners) l(e);
       },
     });
   }

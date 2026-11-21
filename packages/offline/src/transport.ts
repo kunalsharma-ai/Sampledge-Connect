@@ -23,6 +23,7 @@ import {
   type SyncRequest,
   type SyncResponse,
 } from '@sampledge/contracts';
+import type { NetworkChangedEvent } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
 export class NetworkError extends Error {
@@ -55,6 +56,8 @@ export interface RealtimeHandlers {
   onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
+  /** Sampledge Network changes (requests, follows, statuses, communities) for the signed-in user. */
+  onNetwork?(e: NetworkChangedEvent): void;
 }
 
 export type WorkEvent = { type: 'task'; task: Task } | { type: 'approval'; approval: Approval };
@@ -238,6 +241,7 @@ export class HttpSocketTransport implements Transport {
     s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
+    s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
     this.socket = s;
     s.connect();
   }

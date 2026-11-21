@@ -26,8 +26,9 @@ import { useAuth } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
 import { relativeShort } from './helpers';
 import type { ModuleId } from './modules';
+import { NetworkPolicyTab } from '../network/admin-policy';
 
-type Tab = 'overview' | 'members' | 'devices' | 'audit';
+type Tab = 'overview' | 'members' | 'devices' | 'audit' | 'network';
 interface Device {
   sessionId: string;
   userId: string;
@@ -95,6 +96,7 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     { id: 'members', label: 'Members' },
     { id: 'devices', label: 'Devices' },
     { id: 'audit', label: 'Audit log' },
+    { id: 'network', label: 'Sampledge Network' },
   ];
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="admin-screen">
@@ -132,6 +134,8 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
             />
           ) : tab === 'devices' ? (
             <DevicesTab />
+          ) : tab === 'network' ? (
+            <NetworkPolicyTab />
           ) : (
             <AuditTab actorId={auditActor} onClearActor={() => setAuditActor(null)} />
           )}
