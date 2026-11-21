@@ -20,7 +20,7 @@ function closesLabel(p: Poll): string | null {
 /**
  * A poll inside its message bubble. Tapping an option votes (one choice replaces the last;
  * multiple-choice polls toggle). Results show as bars once you voted or the poll closed.
- * Voting needs a connection; counts update live for everyone.
+ * Voting works offline: your choice shows at once and is sent on reconnect; counts update live.
  */
 export function PollCard({
   messageId,

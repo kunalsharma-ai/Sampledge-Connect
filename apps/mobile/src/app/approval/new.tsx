@@ -19,7 +19,7 @@ import { useMessages, usePeopleChoices } from '../../state/hooks';
 import { radius, space, type as typeScale } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
-/** Ask people to approve something, from a message or on its own. Needs a connection. */
+/** Ask people to approve something, from a message or on its own. Works offline (sent on reconnect). */
 export default function NewApproval() {
   const { conversationId, messageId } = useLocalSearchParams<{
     conversationId?: string;
@@ -43,7 +43,7 @@ export default function NewApproval() {
   const [dueKey, setDueKey] = useState('none');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
   const shownTitle = title ?? titleFrom(source?.text);
 
   const input = [

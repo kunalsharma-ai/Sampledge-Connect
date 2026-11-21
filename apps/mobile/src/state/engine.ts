@@ -20,7 +20,6 @@ import {
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
-  type Bookmark,
   type CreatePollRequest,
   type Poll,
   type PostingPolicy,
@@ -53,9 +52,23 @@ import {
   type UpdateTaskRequest,
   type CreateApprovalRequest,
   type DecideApprovalRequest,
+  SCHEDULE_MIN_LEAD_MS,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
+import {
+  approvalMatches,
+  isLocalId,
+  LOCAL_PREFIX,
+  taskMatches,
+  type ActionInput,
+  type ActionKind,
+  type LocalApproval,
+  type LocalBookmark,
+  type LocalScheduled,
+  type LocalTask,
+  type QueuedAction,
+} from '../db/work';
 import { Emitter } from '../lib/emitter';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
 import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
@@ -109,15 +122,13 @@ export class ConnectEngine {
     /** One of your scheduled messages changed here, on another device or by being sent. */
     scheduled: ScheduledMessage | null;
     /** A task or approval you are involved in was created or changed (here or live). */
-    work: { kind: 'task'; task: Task } | { kind: 'approval'; approval: Approval };
+    work: { kind: 'task' | 'approval' } | null;
+    /** The server refused a change made on this device (shown briefly; server state wins). */
+    actionRefused: { kind: ActionKind; reason: string };
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
   }>();
-  /** Your choices in polls, as far as this device knows (anonymous polls hide voter ids). */
-  private myVotes = new Map<string, string[]>();
-  /** Message ids you saved, as of the last list or change on this device. */
-  private saved = new Set<string>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
   readonly calls: CallController;
@@ -140,6 +151,7 @@ export class ConnectEngine {
   private levelsRun: Promise<void> | null = null;
   private rsvpRun: Promise<void> | null = null;
   private meetingsRun: Promise<void> | null = null;
+  private workRun: Promise<void> | null = null;
 
   constructor(
     readonly store: LocalStore,
@@ -171,6 +183,8 @@ export class ConnectEngine {
             f.localUri,
           )
         ).attachmentId,
+      runAction: (a) => this.runAction(a),
+      refuseAction: (a, err) => this.refuseAction(a, err),
       canSend: () => this._state.networkUp && session.state === 'active',
       onAuthError: (err) => void this.handleAuthError(err),
     });
@@ -182,6 +196,7 @@ export class ConnectEngine {
 
   async start(): Promise<void> {
     await this.store.requeueInflight();
+    await this.store.work.requeueInflight();
     // Copies of files whose message was discarded or evicted.
     pruneLocalFiles(await this.store.liveFileUris());
     this.patch({ lastSyncAt: (await this.store.getSetting('sync.lastSuccessAt')) ?? null });
@@ -203,8 +218,25 @@ export class ConnectEngine {
         this.realtime.events.on('needsSync', () => void this.resume()),
         this.realtime.events.on('state', (s) => s === 'connected' && void this.calls.refresh()),
         this.realtime.events.on('notification', (n) => void this.receiveNotification(n)),
-        this.realtime.events.on('scheduledUpdated', (m) => this.events.emit('scheduled', m)),
-        this.realtime.events.on('work', (w) => this.events.emit('work', w)),
+        this.realtime.events.on('scheduledUpdated', (m) => {
+          void this.store.work
+            .upsert('scheduled', [m])
+            .then(() => this.events.emit('scheduled', m));
+        }),
+        this.realtime.events.on('work', (w) => {
+          void (
+            w.kind === 'task'
+              ? this.store.work.upsert('task', [w.task])
+              : this.store.work.upsert('approval', [w.approval])
+          ).then(() => this.events.emit('work', { kind: w.kind }));
+        }),
+        this.realtime.events.on('bookmark', (b) => void this.receiveBookmark(b)),
+        this.realtime.events.on('myVote', (v) => {
+          void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
+            const m = await this.store.getMessageByServerId(v.messageId);
+            if (m) this.store.notifyMessages(m.conversationId);
+          });
+        }),
         this.realtime.events.on('meetingReminder', (e) => {
           const mine = e.meeting.attendees.find((a) => a.userId === this.store.selfUserId);
           if (e.meeting.status === 'scheduled' && mine?.response !== 'declined')
@@ -256,7 +288,8 @@ export class ConnectEngine {
   async resume(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
     await Promise.all([
-      this.outbox.kick(),
+      // Queued changes go first, then the lists are re-read so they reflect them.
+      this.outbox.kick().then(() => this.refreshWork()),
       this.runSync(),
       this.refreshNotifications(),
       this.flushNotifyLevels(),
@@ -393,6 +426,29 @@ export class ConnectEngine {
     }
   }
 
+  /** A save or unsave from another of your devices (or the echo of one made here). */
+  private async receiveBookmark(b: {
+    messageId: string;
+    conversationId: string;
+    saved: boolean;
+  }): Promise<void> {
+    if (!b.saved) await this.store.work.removeBookmark(b.messageId);
+    else if (!(await this.store.work.hasBookmark(b.messageId))) {
+      const message = await this.localServerMessage(b.messageId);
+      if (message)
+        await this.store.work.upsert('bookmark', [
+          {
+            messageId: b.messageId,
+            conversationId: b.conversationId,
+            createdAt: new Date().toISOString(),
+            message,
+          },
+        ]);
+      else void this.listBookmarks().catch(() => undefined);
+    }
+    await this.emitSaved();
+  }
+
   private async receiveNotification(n: LocalNotification): Promise<void> {
     if ((await this.store.addNotification(n)) && !n.readAt) this.events.emit('notification', n);
   }
@@ -434,190 +490,483 @@ export class ConnectEngine {
     });
   }
 
-  /** Pins or unpins for everyone; the change syncs to other devices like an edit. */
-  pinMessage(messageId: string, pinned: boolean): Promise<void> {
-    return this.serverAction(async () => {
-      await this.store.applyServerMessages([await this.api.pinMessage(messageId, pinned)]);
-    });
+  // ------------------------------------------------ queued actions (work offline, sync everywhere)
+  //
+  // Pins, saved messages, polls, scheduled messages, tasks and approvals are written to the
+  // device first and queued (db/work.ts), then sent in order when a connection allows. Lists are
+  // cached so they open offline, refreshed from the server on reconnect, and updated live from
+  // your other devices. The server's copy wins once a change is confirmed or refused.
+
+  /** Why a queued action cannot even be recorded (only the demo workspace, which has no server). */
+  queueBlocker(): string | null {
+    return this.session.state === 'demo'
+      ? 'The demo workspace has no server. Sign in to a server to do this.'
+      : null;
   }
 
-  /** Saved messages, newest first (needs a connection; the list lives on the server). */
-  listBookmarks(): Promise<Bookmark[]> {
-    return this.serverAction(async () => {
+  private async queue(input: ActionInput): Promise<void> {
+    const blocked = this.queueBlocker();
+    if (blocked) throw new Error(blocked);
+    const r = await this.store.work.enqueue(input);
+    if (r.sendNow)
+      await this.store.enqueueSend({
+        conversationId: r.sendNow.conversationId,
+        text: r.sendNow.content.text,
+        mentions: r.sendNow.content.mentions ?? [],
+        replyTo: r.sendNow.replyToMessageId ?? null,
+      });
+    if ('conversationId' in input) this.store.notifyMessages(input.conversationId);
+    void this.outbox.kick();
+  }
+
+  private get online(): boolean {
+    return this._state.networkUp && this.session.state === 'active';
+  }
+
+  /** Runs a read against the server when online; network trouble keeps the cached copy. */
+  private async refreshFrom(run: () => Promise<void>, fresh = true): Promise<void> {
+    if (!fresh || !this.online) return;
+    try {
+      await run();
+    } catch (err) {
+      if (err instanceof TransportError) {
+        if (err.isAuth) void this.handleAuthError(err);
+        if (err.kind === 'network' || err.retryable) return;
+        if (err.code === 'NOT_FOUND') return;
+      }
+      throw err;
+    }
+  }
+
+  /** Pins or unpins for everyone. Works offline; other devices see it through sync. */
+  async pinMessage(messageId: string, pinned: boolean): Promise<void> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m) throw new Error('This message is not on this device.');
+    await this.queue({ kind: 'pin', messageId, conversationId: m.conversationId, pinned });
+  }
+
+  /** Saved messages, newest first: the cached list, refreshed from the server when online. */
+  async listBookmarks(opts: { fresh?: boolean } = {}): Promise<LocalBookmark[]> {
+    await this.refreshFrom(async () => {
       const list = await this.api.listBookmarks();
-      this.saved = new Set(list.map((b) => b.messageId));
-      this.events.emit('bookmarks', this.saved);
-      return list;
-    });
+      await this.store.work.replace('bookmark', list, () => true);
+      void this.emitSaved();
+    }, opts.fresh ?? true);
+    return this.store.work.listBookmarks((id) => this.localServerMessage(id));
   }
 
-  /** Whether you saved this message, as far as this device knows. */
-  isSaved(messageId: string): boolean {
-    return this.saved.has(messageId);
+  /** Message ids you saved, as far as this device knows (queued changes included). */
+  savedIds(): Promise<Set<string>> {
+    return this.store.work.savedIds();
+  }
+
+  private async emitSaved(): Promise<void> {
+    this.events.emit('bookmarks', await this.store.work.savedIds());
   }
 
   setBookmark(messageId: string, saved: boolean): Promise<void> {
-    return this.serverAction(async () => {
-      await this.api.setBookmark(messageId, saved);
-      this.saved = new Set(this.saved);
-      if (saved) this.saved.add(messageId);
-      else this.saved.delete(messageId);
-      this.events.emit('bookmarks', this.saved);
-    });
+    return (async () => {
+      const m = await this.store.getMessageByServerId(messageId);
+      if (!m) throw new Error('This message is not on this device.');
+      await this.queue({ kind: 'bookmark', messageId, conversationId: m.conversationId, saved });
+    })();
   }
 
-  /** Posts a poll (online; idempotent on its clientMessageId, so a retry never doubles it). */
-  createPoll(
+  /** A server-shaped copy of a message on this device (for a message saved offline). */
+  private async localServerMessage(messageId: string): Promise<Message | undefined> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m?.messageId) return undefined;
+    return {
+      messageId: m.messageId,
+      clientMessageId: m.clientId,
+      tenantId: this.session.current?.tenant.tenantId ?? '',
+      conversationId: m.conversationId,
+      senderId: m.senderId,
+      messageType: m.messageType as Message['messageType'],
+      content: { text: m.text, mentions: m.mentions },
+      attachmentIds: [],
+      attachments: [],
+      replyToMessageId: m.replyTo,
+      serverSequence: m.serverSeq ?? 1,
+      changeSequence: m.changeSeq ?? 1,
+      createdAt: m.createdAt,
+      editedAt: m.editedAt,
+      deletedAt: m.deletedAt,
+      metadata: m.metadata,
+      reactions: [],
+      pinned: m.pinned,
+      poll: m.poll,
+    };
+  }
+
+  /** Posts a poll. Shows at once and is posted when possible (idempotent on its client id). */
+  async createPoll(
     conversationId: string,
     poll: Omit<CreatePollRequest, 'clientMessageId'>,
   ): Promise<void> {
-    const clientMessageId = uuidv7();
-    return this.serverAction(async () => {
-      const m = await this.api.createPoll(conversationId, { ...poll, clientMessageId });
-      this.myVotes.set(m.messageId, []);
-      await this.store.applyServerMessages([m]);
-    });
+    const blocked = this.queueBlocker();
+    if (blocked) throw new Error(blocked);
+    await this.store.enqueuePoll(conversationId, { ...poll, clientMessageId: uuidv7() });
+    void this.outbox.kick();
   }
 
-  /** Your current choice in a poll; asks the server once when the poll hides voters. */
+  /** Your current choice in a poll: queued, else cached, else asked once (anonymous polls). */
   async myPollVote(messageId: string, poll: Poll): Promise<string[] | null> {
-    const known = this.myVotes.get(messageId);
-    if (known) return known;
+    const pending = await this.store.work.pendingVote(messageId);
+    if (pending) return pending;
     if (!poll.anonymous) {
-      const self = this.session.current?.user.userId;
-      return poll.options.filter((o) => self && o.voterIds.includes(self)).map((o) => o.optionId);
+      const self = this.store.selfUserId;
+      return poll.options.filter((o) => o.voterIds.includes(self)).map((o) => o.optionId);
     }
-    if (this.serverActionBlocker()) return null;
+    const cached = await this.store.work.cachedVote(messageId);
+    if (cached) return cached;
+    if (!this.online) return null;
     try {
       const v = await this.api.myPollVote(messageId);
-      this.myVotes.set(messageId, v.optionIds);
+      await this.store.work.setVote(messageId, v.optionIds);
       return v.optionIds;
     } catch {
       return null;
     }
   }
 
-  votePoll(messageId: string, optionIds: string[]): Promise<void> {
-    return this.serverAction(async () => {
-      const m = await this.api.votePoll(messageId, optionIds);
-      this.myVotes.set(messageId, optionIds);
-      await this.store.applyServerMessages([m]);
-    });
+  async votePoll(messageId: string, optionIds: string[]): Promise<void> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m) throw new Error('This poll is not on this device.');
+    if (m.poll?.anonymous && !(await this.store.work.cachedVote(messageId))) {
+      // Remember what the server counted for you so the queued change adjusts counts correctly.
+      const before = await this.myPollVote(messageId, m.poll);
+      if (before) await this.store.work.setVote(messageId, before);
+    }
+    await this.queue({ kind: 'poll.vote', messageId, conversationId: m.conversationId, optionIds });
   }
 
-  closePoll(messageId: string): Promise<void> {
-    return this.serverAction(async () => {
-      await this.store.applyServerMessages([await this.api.closePoll(messageId)]);
-    });
+  async closePoll(messageId: string): Promise<void> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m) throw new Error('This poll is not on this device.');
+    await this.queue({ kind: 'poll.close', messageId, conversationId: m.conversationId });
   }
 
-  /** Your scheduled messages (scheduled and failed), soonest first. Kept on the server. */
-  listScheduled(conversationId?: string): Promise<ScheduledMessage[]> {
-    return this.serverAction(async () =>
-      (await this.api.listScheduled(conversationId)).sort((a, b) => (a.sendAt < b.sendAt ? -1 : 1)),
-    );
+  /** Your scheduled messages (scheduled and failed), soonest first: cached, refreshed online. */
+  async listScheduled(
+    conversationId?: string,
+    opts: { fresh?: boolean } = {},
+  ): Promise<LocalScheduled[]> {
+    await this.refreshFrom(async () => {
+      const list = await this.api.listScheduled(conversationId);
+      await this.store.work.replace<ScheduledMessage>(
+        'scheduled',
+        list,
+        (s) =>
+          (!conversationId || s.conversationId === conversationId) &&
+          (s.status === 'scheduled' || s.status === 'failed'),
+      );
+    }, opts.fresh ?? true);
+    return this.store.work.listScheduled(conversationId);
   }
 
-  /** The server holds it and sends it as you at `sendAt`, even with this phone off. */
-  scheduleMessage(
+  /**
+   * The server holds it and sends it as you at `sendAt`, even with this phone off. Scheduling
+   * works offline too: it reaches the server when you reconnect (sent at once if the time passed).
+   */
+  async scheduleMessage(
     conversationId: string,
     text: string,
     sendAt: Date,
     opts: { mentions?: string[]; replyTo?: string | null } = {},
-  ): Promise<ScheduledMessage> {
+  ): Promise<LocalScheduled> {
     const clientMessageId = uuidv7();
-    return this.serverAction(async () => {
-      const m = await this.api.scheduleMessage(conversationId, {
+    const localId = `${LOCAL_PREFIX}${clientMessageId}`;
+    await this.queue({
+      kind: 'scheduled.create',
+      localId,
+      conversationId,
+      request: {
         clientMessageId,
         content: { text, mentions: opts.mentions ?? [] },
         replyToMessageId: opts.replyTo ?? null,
         sendAt: sendAt.toISOString(),
-      });
-      this.events.emit('scheduled', m);
-      return m;
+      },
     });
+    this.events.emit('scheduled', null);
+    return (await this.store.work.listScheduled(conversationId)).find(
+      (s) => s.scheduledId === localId,
+    )!;
   }
 
-  rescheduleMessage(id: string, sendAt: Date): Promise<ScheduledMessage> {
-    return this.serverAction(async () => {
-      const m = await this.api.updateScheduled(id, { sendAt: sendAt.toISOString() });
-      this.events.emit('scheduled', m);
-      return m;
-    });
+  async rescheduleMessage(id: string, sendAt: Date): Promise<void> {
+    await this.queue({ kind: 'scheduled.update', scheduledId: id, sendAt: sendAt.toISOString() });
+    this.events.emit('scheduled', null);
   }
 
-  cancelScheduled(id: string): Promise<void> {
-    return this.serverAction(async () => {
-      this.events.emit('scheduled', await this.api.cancelScheduled(id));
-    });
+  async cancelScheduled(id: string): Promise<void> {
+    await this.queue({ kind: 'scheduled.cancel', scheduledId: id });
+    this.events.emit('scheduled', null);
   }
 
-  sendScheduledNow(id: string): Promise<void> {
-    return this.serverAction(async () => {
-      this.events.emit('scheduled', await this.api.sendScheduledNow(id));
-      void this.resume();
-    });
+  async sendScheduledNow(id: string): Promise<void> {
+    await this.queue({ kind: 'scheduled.sendNow', scheduledId: id });
+    this.events.emit('scheduled', null);
   }
 
-  // ------------------------------------------------ tasks and approvals (online; kept on the server)
+  // ------------------------------------------------ tasks and approvals (cached, queued offline)
 
-  listTasks(q: TaskQuery): Promise<Task[]> {
-    return this.serverAction(() => this.api.listTasks(q));
+  async listTasks(q: TaskQuery, opts: { fresh?: boolean } = {}): Promise<LocalTask[]> {
+    await this.refreshFrom(async () => {
+      const list = await this.api.listTasks(q);
+      await this.store.work.replace<Task>('task', list, (t) =>
+        taskMatches(t, q, this.store.selfUserId),
+      );
+    }, opts.fresh ?? true);
+    return this.store.work.listTasks(q);
   }
 
-  getTask(taskId: string): Promise<Task> {
-    return this.serverAction(() => this.api.getTask(taskId));
+  async getTask(taskId: string, opts: { fresh?: boolean } = {}): Promise<LocalTask> {
+    const id = await this.store.work.resolveId(taskId);
+    if (id && !isLocalId(id))
+      await this.refreshFrom(
+        async () => this.store.work.upsert('task', [await this.api.getTask(id)]),
+        opts.fresh ?? true,
+      );
+    const t = await this.store.work.getTask(taskId);
+    if (!t)
+      throw new Error(this.online ? 'Task not found.' : 'This task is not on this device yet.');
+    return t;
   }
 
-  /** Creates a task (its card is posted in the conversation). Retry-safe. */
-  createTask(req: Omit<CreateTaskRequest, 'clientRequestId'>): Promise<Task> {
+  /** Creates a task (its card is posted in the conversation). Works offline; retry-safe. */
+  async createTask(req: Omit<CreateTaskRequest, 'clientRequestId'>): Promise<LocalTask> {
     const clientRequestId = uuidv7();
-    return this.serverAction(async () => {
-      const task = await this.api.createTask({ ...req, clientRequestId });
-      this.events.emit('work', { kind: 'task', task });
-      return task;
-    });
+    const localId = `${LOCAL_PREFIX}${clientRequestId}`;
+    await this.queue({ kind: 'task.create', localId, request: { ...req, clientRequestId } });
+    this.events.emit('work', { kind: 'task' });
+    return (await this.store.work.getTask(localId))!;
   }
 
-  updateTask(taskId: string, req: UpdateTaskRequest): Promise<Task> {
-    return this.serverAction(async () => {
-      const task = await this.api.updateTask(taskId, req);
-      this.events.emit('work', { kind: 'task', task });
-      return task;
-    });
+  async updateTask(taskId: string, req: UpdateTaskRequest): Promise<LocalTask | undefined> {
+    await this.queue({ kind: 'task.update', taskId, patch: req });
+    this.events.emit('work', { kind: 'task' });
+    return this.store.work.getTask(taskId);
   }
 
-  listApprovals(q: ApprovalQuery): Promise<Approval[]> {
-    return this.serverAction(() => this.api.listApprovals(q));
+  async listApprovals(q: ApprovalQuery, opts: { fresh?: boolean } = {}): Promise<LocalApproval[]> {
+    await this.refreshFrom(async () => {
+      const list = await this.api.listApprovals(q);
+      await this.store.work.replace<Approval>('approval', list, (a) =>
+        approvalMatches(a, q, this.store.selfUserId),
+      );
+    }, opts.fresh ?? true);
+    return this.store.work.listApprovals(q);
   }
 
-  getApproval(approvalId: string): Promise<Approval> {
-    return this.serverAction(() => this.api.getApproval(approvalId));
+  async getApproval(approvalId: string, opts: { fresh?: boolean } = {}): Promise<LocalApproval> {
+    const id = await this.store.work.resolveId(approvalId);
+    if (id && !isLocalId(id))
+      await this.refreshFrom(
+        async () => this.store.work.upsert('approval', [await this.api.getApproval(id)]),
+        opts.fresh ?? true,
+      );
+    const a = await this.store.work.getApproval(approvalId);
+    if (!a)
+      throw new Error(
+        this.online ? 'Approval not found.' : 'This approval is not on this device yet.',
+      );
+    return a;
   }
 
-  createApproval(req: Omit<CreateApprovalRequest, 'clientRequestId'>): Promise<Approval> {
+  async createApproval(
+    req: Omit<CreateApprovalRequest, 'clientRequestId'>,
+  ): Promise<LocalApproval> {
     const clientRequestId = uuidv7();
-    return this.serverAction(async () => {
-      const approval = await this.api.createApproval({ ...req, clientRequestId });
-      this.events.emit('work', { kind: 'approval', approval });
-      return approval;
-    });
+    const localId = `${LOCAL_PREFIX}${clientRequestId}`;
+    await this.queue({ kind: 'approval.create', localId, request: { ...req, clientRequestId } });
+    this.events.emit('work', { kind: 'approval' });
+    return (await this.store.work.getApproval(localId))!;
   }
 
-  decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval> {
-    return this.serverAction(async () => {
-      const approval = await this.api.decideApproval(approvalId, req);
-      this.events.emit('work', { kind: 'approval', approval });
-      return approval;
-    });
+  async decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<void> {
+    await this.queue({ kind: 'approval.decide', approvalId, request: req });
+    this.events.emit('work', { kind: 'approval' });
   }
 
-  cancelApproval(approvalId: string): Promise<Approval> {
-    return this.serverAction(async () => {
-      const approval = await this.api.cancelApproval(approvalId);
-      this.events.emit('work', { kind: 'approval', approval });
-      return approval;
-    });
+  async cancelApproval(approvalId: string): Promise<void> {
+    await this.queue({ kind: 'approval.cancel', approvalId });
+    this.events.emit('work', { kind: 'approval' });
+  }
+
+  /** Try again something created here that the server refused. */
+  async retryLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+    await this.store.work.retry(localId, kind);
+    void this.outbox.kick();
+  }
+
+  /** Forget something created here that the server refused. */
+  async discardLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+    await this.store.work.discard(localId, kind);
+    this.events.emit(kind === 'scheduled' ? 'scheduled' : 'work', null as never);
+  }
+
+  /** Sends one queued action and applies the server's answer (called by the outbox). */
+  private async runAction(a: QueuedAction): Promise<void> {
+    const w = this.store.work;
+    const i = a.input;
+    const need = async (id: string): Promise<string> => {
+      const r = await w.resolveId(id);
+      if (!r) throw new TransportError('Waiting for it to be created', 'api', 'CONFLICT');
+      return r;
+    };
+    switch (i.kind) {
+      case 'pin':
+        await this.store.applyServerMessages([await this.api.pinMessage(i.messageId, i.pinned)]);
+        break;
+      case 'bookmark':
+        await this.api.setBookmark(i.messageId, i.saved);
+        if (!i.saved) await w.removeBookmark(i.messageId);
+        else if (!(await w.hasBookmark(i.messageId))) {
+          const message = await this.localServerMessage(i.messageId);
+          if (message)
+            await w.upsert('bookmark', [
+              {
+                messageId: i.messageId,
+                conversationId: i.conversationId,
+                createdAt: new Date(a.enqueuedAt).toISOString(),
+                message,
+              },
+            ]);
+        }
+        break;
+      case 'poll.create': {
+        const m = await this.api.createPoll(i.conversationId, i.request);
+        await w.setVote(m.messageId, []);
+        await w.complete(a);
+        await this.store.applyServerMessages([m]);
+        return;
+      }
+      case 'poll.vote': {
+        const m = await this.api.votePoll(i.messageId, i.optionIds);
+        await w.setVote(i.messageId, i.optionIds);
+        await w.complete(a);
+        await this.store.applyServerMessages([m]);
+        return;
+      }
+      case 'poll.close':
+        await this.store.applyServerMessages([await this.api.closePoll(i.messageId)]);
+        break;
+      case 'task.create':
+        await w.settleCreate(a, { kind: 'task', data: await this.api.createTask(i.request) });
+        this.events.emit('work', { kind: 'task' });
+        return;
+      case 'task.update':
+        await w.upsert('task', [await this.api.updateTask(await need(i.taskId), i.patch)]);
+        break;
+      case 'approval.create':
+        await w.settleCreate(a, {
+          kind: 'approval',
+          data: await this.api.createApproval(i.request),
+        });
+        this.events.emit('work', { kind: 'approval' });
+        return;
+      case 'approval.decide':
+        await w.upsert('approval', [
+          await this.api.decideApproval(await need(i.approvalId), i.request),
+        ]);
+        break;
+      case 'approval.cancel':
+        await w.upsert('approval', [await this.api.cancelApproval(await need(i.approvalId))]);
+        break;
+      case 'scheduled.create':
+        try {
+          const m = await this.api.scheduleMessage(i.conversationId, i.request);
+          await w.settleCreate(a, { kind: 'scheduled', data: m });
+        } catch (err) {
+          // Made offline and the time passed before it reached the server: send it now instead.
+          if (
+            err instanceof TransportError &&
+            err.code === 'VALIDATION_FAILED' &&
+            Date.parse(i.request.sendAt) < Date.now() + SCHEDULE_MIN_LEAD_MS
+          ) {
+            await w.discard(i.localId, 'scheduled');
+            await this.store.enqueueSend({
+              conversationId: i.conversationId,
+              text: i.request.content.text,
+              mentions: i.request.content.mentions ?? [],
+              replyTo: i.request.replyToMessageId ?? null,
+            });
+          } else throw err;
+        }
+        this.events.emit('scheduled', null);
+        return;
+      case 'scheduled.update':
+        await w.upsert('scheduled', [
+          await this.api.updateScheduled(await need(i.scheduledId), { sendAt: i.sendAt }),
+        ]);
+        break;
+      case 'scheduled.cancel':
+        await w.upsert('scheduled', [await this.api.cancelScheduled(await need(i.scheduledId))]);
+        break;
+      case 'scheduled.sendNow':
+        await w.upsert('scheduled', [await this.api.sendScheduledNow(await need(i.scheduledId))]);
+        void this.runSync();
+        break;
+    }
+    await w.complete(a);
+    this.afterAction(a);
+  }
+
+  /**
+   * The server refused an action for good. Creates stay, marked as not sent, so nothing you
+   * wrote is lost; other changes are dropped and the server's copy shows again.
+   */
+  private async refuseAction(a: QueuedAction, err: TransportError): Promise<void> {
+    const reason =
+      err.code === 'FORBIDDEN' ? 'You do not have permission to do that.' : err.message;
+    const i = a.input;
+    if (i.kind === 'poll.create') {
+      await this.store.work.fail(a, reason);
+      await this.store.markPollFailed(i.request.clientMessageId, reason);
+    } else if (i.kind.endsWith('.create')) await this.store.work.fail(a, reason);
+    else {
+      await this.store.work.complete(a);
+      // Re-read what the server has now (cancelled, decided elsewhere, no longer allowed...).
+      void this.refreshWork().catch(() => undefined);
+    }
+    this.afterAction(a);
+    this.events.emit('actionRefused', { kind: i.kind, reason });
+  }
+
+  private afterAction(a: QueuedAction): void {
+    const i = a.input;
+    if ('conversationId' in i) this.store.notifyMessages(i.conversationId);
+    if (i.kind === 'bookmark') void this.emitSaved();
+    if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
+    if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
+    if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
+  }
+
+  /**
+   * Reconciles the cached lists with the server after a reconnect, once queued changes are
+   * sent, so a phone that was offline shows what changed elsewhere. One run at a time.
+   */
+  refreshWork(): Promise<void> {
+    if (!this.online) return Promise.resolve();
+    this.workRun ??= (async () => {
+      try {
+        await Promise.allSettled([
+          this.listTasks({ scope: 'mine', status: 'active' }),
+          this.listTasks({ scope: 'created', status: 'active' }),
+          this.listApprovals({ scope: 'to_decide', status: 'pending' }),
+          this.listApprovals({ scope: 'requested', status: 'pending' }),
+          this.listScheduled(),
+          this.listBookmarks(),
+        ]);
+        this.events.emit('work', { kind: 'task' });
+        this.events.emit('work', { kind: 'approval' });
+        this.events.emit('scheduled', null);
+      } finally {
+        this.workRun = null;
+      }
+    })();
+    return this.workRun;
   }
 
   // ------------------------------------------------------------ administration (owners, admins)
@@ -980,10 +1329,17 @@ export class ConnectEngine {
 
   async retry(clientId: string): Promise<void> {
     await this.store.retry(clientId);
+    if (await this.store.work.pollCreate(clientId)) await this.store.work.retry(clientId, 'poll');
     void this.outbox.kick();
   }
 
   async discard(clientId: string): Promise<void> {
+    if (await this.store.work.pollCreate(clientId)) {
+      const m = await this.store.getMessage(clientId);
+      await this.store.work.discard(clientId, 'poll');
+      if (m) this.store.notifyMessages(m.conversationId);
+      return;
+    }
     const files = await this.store.pendingFiles(clientId);
     await this.store.discardUnsent(clientId);
     files.forEach((f) => deleteLocalFile(f.localUri));
