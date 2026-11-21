@@ -15,7 +15,7 @@ import type {
   CallRingingEvent,
   CallsConfig,
 } from '@sampledge/contracts';
-import { ApiFailure, apiRequest } from './api';
+import { ApiFailure, apiRequest, postCaptionClip } from './api';
 import { useAuth } from './auth';
 import { useEngine, useEngineChange } from './engine';
 import { deviceOptions } from './call-devices';
@@ -55,6 +55,8 @@ interface CallsContextValue {
   toggleRecording(): Promise<void>;
   /** Let an external guest in from the lobby, or turn them away. */
   decideGuest(guestId: string, allow: boolean): Promise<void>;
+  /** Live captions: one clip of my own speech, transcribed by the organization's server. */
+  transcribeCaption(clip: Blob): Promise<string>;
 }
 
 const CallsContext = React.createContext<CallsContextValue | null>(null);
@@ -409,6 +411,15 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     [req, bump],
   );
 
+  const transcribeCaption = React.useCallback(
+    async (clip: Blob) => {
+      const c = currentRef.current;
+      if (!c) return '';
+      return postCaptionClip(`/v1/calls/${c.call.callId}/captions`, clip, await getAccessToken());
+    },
+    [getAccessToken],
+  );
+
   const value: CallsContextValue = {
     config,
     live,
@@ -428,6 +439,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     toggleHand,
     toggleRecording,
     decideGuest,
+    transcribeCaption,
   };
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

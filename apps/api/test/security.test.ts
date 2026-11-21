@@ -45,6 +45,7 @@ const PUBLIC = new Set([
   'GET /v1/guest/:token/calendar.ics',
   'GET /v1/guest/:token/chat',
   'POST /v1/guest/:token/chat',
+  'POST /v1/guest/:token/captions',
   'GET /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby/leave',

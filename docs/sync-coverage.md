@@ -47,6 +47,7 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Booking page create / change / delete          | `meetings:changed` `booking_pages` (every host)         | Needs a connection                     |
 | Book a slot (public page)                      | `meeting:upsert` to the hosts                           | Needs a connection by nature           |
 | Call recording added, any recording deleted    | `recording:changed` (conversation members)              | Delete needs a connection              |
+| Live captions on/off, caption lines            | LiveKit attribute `captions` and data topic `captions`  | Live only (not stored)                 |
 | Calls                                          | `call:ringing`, `call:updated`, `call:ended`            | Needs a connection by nature           |
 | Invite / change member, edit profile           | `directory:updated`                                     | Needs a connection (admin)             |
 | Branding                                       | `tenant:updated` `branding`                             | Needs a connection (admin)             |

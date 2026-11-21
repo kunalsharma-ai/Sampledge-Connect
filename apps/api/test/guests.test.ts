@@ -18,6 +18,7 @@ import type {
 } from '@sampledge/contracts';
 import { CallsService } from '../src/calls/calls.service.js';
 import { GuestsService } from '../src/meetings/guests.service.js';
+import { TranscriptsService } from '../src/ai/transcripts.service.js';
 import {
   api,
   connect,
@@ -446,6 +447,63 @@ describe('the lobby', () => {
     expect((await guestGet(tokens.eli!, '/chat')).status).toBe(403);
     expect((await guestPost(tokens.eli!, '/chat', { text: 'let me in' })).status).toBe(403);
     expect((await guestPost(tokens.dana!, '/chat', { text: '' })).status).toBe(400);
+
+    // Live captions: off until the organization has a speech-to-text server.
+    const clip = (path: string, opts: { token?: string; type?: string } = {}) =>
+      fetch(h.url + path, {
+        method: 'POST',
+        headers: {
+          'content-type': opts.type ?? 'audio/webm;codecs=opus',
+          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        },
+        body: new Uint8Array(Buffer.from('fake opus audio')),
+      });
+    const cfgOf = async () =>
+      (await api<CallsConfig>(h, 'GET', '/v1/calls/config', { token: owner.accessToken })).body;
+    expect((await cfgOf()).captionsEnabled).toBe(false);
+    expect(
+      (await clip(`/v1/calls/${call.callId}/captions`, { token: owner.accessToken })).status,
+    ).toBe(503);
+    const transcripts = h.app.get(TranscriptsService);
+    const clips: string[] = [];
+    transcripts.fetchImpl = (async (_url: string, init: RequestInit) => {
+      const form = init.body as FormData;
+      const file = form.get('file') as File;
+      clips.push(`${file.name} ${file.type}`);
+      return new Response(JSON.stringify({ text: ' Quotas look good. ', segments: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const stt = await api(h, 'PUT', '/v1/admin/integrations/ai.transcription', {
+      token: owner.accessToken,
+      body: { enabled: true, values: { baseUrl: 'http://stt.acme.test', model: 'whisper-small' } },
+    });
+    expect(stt.status).toBe(200);
+    expect((await cfgOf()).captionsEnabled).toBe(true);
+    expect((await guestGet<GuestJoinState>(tokens.dana!, '/lobby')).body.captions).toBe(true);
+    const mine = await clip(`/v1/calls/${call.callId}/captions`, { token: owner.accessToken });
+    expect(mine.status).toBe(200);
+    expect(await mine.json()).toEqual({ text: 'Quotas look good.' });
+    const hers = await clip(`/v1/guest/${tokens.dana!}/captions`, { type: 'audio/mp4' });
+    expect(await hers.json()).toEqual({ text: 'Quotas look good.' });
+    expect(clips).toEqual(['clip.webm audio/webm', 'clip.m4a audio/mp4']);
+    // Not in the call, not audio, or a denied guest: refused.
+    expect(
+      (await clip(`/v1/calls/${call.callId}/captions`, { token: mia.accessToken })).status,
+    ).toBe(403);
+    expect(
+      (
+        await clip(`/v1/calls/${call.callId}/captions`, {
+          token: owner.accessToken,
+          type: 'text/plain',
+        })
+      ).status,
+    ).toBe(400);
+    expect((await clip(`/v1/guest/${tokens.eli!}/captions`)).status).toBe(403);
+    await api(h, 'PUT', '/v1/admin/integrations/ai.transcription', {
+      token: owner.accessToken,
+      body: { enabled: false, values: {} },
+    });
 
     // The SFU reports Dana connecting: she shows as joined, and keeps the call alive.
     const calls = h.app.get(CallsService);
