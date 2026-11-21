@@ -88,11 +88,13 @@ retry and discard of unsent messages, draft autosave, typing indicators (when on
 receipts, replies (quoted, tap to jump to the original), @mentions with a member picker and
 a Mentions list in Activity, offline edits and deletes of your own messages (queued like sends,
 rolled back with the reason if the server refuses), reactions (chips under messages and a
-quick row in the long-press sheet; offline toggles collapse into the last intent), on-device search, themes, offline and storage settings, sign-out with a warning
+quick row in the long-press sheet; offline toggles collapse into the last intent), photo and
+file attachments (copied into app storage when picked, uploaded with the message when online,
+opened through short-lived signed links), on-device search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
 Planned (shown in the app with a "Planned" label and no sample data): Projects, Client
-Inbox, Meetings, Files and attachments (with resumable upload), Tasks and Approvals,
+Inbox, Meetings, a Files library, resumable uploads, offline image caching, Tasks and Approvals,
 push notifications, AI Assistant, Analytics, Integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, voice messages, polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 

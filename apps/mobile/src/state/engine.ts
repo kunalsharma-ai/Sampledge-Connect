@@ -6,8 +6,9 @@ import {
   type SetReactionRequest,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
-import type { LocalStore } from '../db/store';
+import type { LocalStore, PendingFileInput } from '../db/store';
 import { Emitter } from '../lib/emitter';
+import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
 import { OutboxProcessor } from '../sync/outbox';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
@@ -65,6 +66,20 @@ export class ConnectEngine {
       edit: (id, text, mentions) => api.editMessage(id, { content: { text, mentions } }),
       remove: (id) => api.deleteMessage(id),
       react: (req) => this.reactOne(req),
+      upload: async (f, conversationId) =>
+        (
+          await api.uploadFile(
+            {
+              conversationId,
+              fileName: f.fileName,
+              mimeType: f.mimeType,
+              sizeBytes: f.sizeBytes,
+              ...(f.width ? { width: f.width } : {}),
+              ...(f.height ? { height: f.height } : {}),
+            },
+            f.localUri,
+          )
+        ).attachmentId,
       canSend: () => this._state.networkUp && session.state === 'active',
       onAuthError: (err) => void this.handleAuthError(err),
     });
@@ -76,6 +91,8 @@ export class ConnectEngine {
 
   async start(): Promise<void> {
     await this.store.requeueInflight();
+    // Copies of files whose message was discarded or evicted.
+    pruneLocalFiles(await this.store.liveFileUris());
     this.patch({ lastSyncAt: (await this.store.getSetting('sync.lastSuccessAt')) ?? null });
     await this.refreshPending();
     this.unsubs.push(
@@ -128,7 +145,11 @@ export class ConnectEngine {
   async send(
     conversationId: string,
     text: string,
-    opts: { replyTo?: string | null; mentions?: readonly string[] } = {},
+    opts: {
+      replyTo?: string | null;
+      mentions?: readonly string[];
+      files?: readonly PendingFileInput[];
+    } = {},
   ): Promise<void> {
     await this.store.enqueueSend({ conversationId, text, ...opts });
     void this.outbox.kick();
@@ -151,8 +172,15 @@ export class ConnectEngine {
     void this.outbox.kick();
   }
 
-  discard(clientId: string): Promise<void> {
-    return this.store.discardUnsent(clientId);
+  async discard(clientId: string): Promise<void> {
+    const files = await this.store.pendingFiles(clientId);
+    await this.store.discardUnsent(clientId);
+    files.forEach((f) => deleteLocalFile(f.localUri));
+  }
+
+  /** Signed link to view or download an attachment (valid for a few minutes). */
+  attachmentUrl(attachmentId: string): Promise<string> {
+    return this.api.attachmentUrl(attachmentId).then((r) => r.url);
   }
 
   /** Records reading locally right away, then acknowledges to the server when possible. */
