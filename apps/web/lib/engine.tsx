@@ -26,6 +26,11 @@ interface EngineContextValue {
   state: EngineState;
   directory: Map<string, DirectoryEntry>;
   refreshDirectory(): Promise<void>;
+  /**
+   * Shows a change to someone's directory entry straight away (e.g. your own status while it
+   * waits in the offline queue). The next directory fetch replaces it with the server's copy.
+   */
+  patchDirectory(userId: string, patch: Partial<DirectoryEntry>): void;
   /** Signs out and wipes this identity's local data. */
   signOut(): Promise<void>;
 }
@@ -126,7 +131,15 @@ export function EngineProvider({
         await auth.logout();
         await wipeLocalData(db);
       };
-      setValue({ db, engine, refreshDirectory, signOut });
+      const patchDirectory = (userId: string, patch: Partial<DirectoryEntry>) =>
+        setDirectory((cur) => {
+          const u = cur.get(userId);
+          if (!u) return cur;
+          const next = new Map(cur).set(userId, { ...u, ...patch });
+          void db.meta.put({ key: 'directory', value: [...next.values()] });
+          return next;
+        });
+      setValue({ db, engine, refreshDirectory, patchDirectory, signOut });
       cleanup = () => {
         unsub();
         unsubChange();

@@ -44,6 +44,21 @@ export interface UserDoc extends TenantOwned {
   timeZone?: string | null;
   /** Key of the current row in `user_avatars`; a new key per photo. */
   avatarKey?: string | null;
+  /** Availability and custom status (PUT /v1/me/status). */
+  userStatus?: {
+    availability: 'auto' | 'busy' | 'away' | 'dnd';
+    emoji: string | null;
+    text: string | null;
+    expiresAt: Date | null;
+  } | null;
+  /** Do-not-disturb quiet hours (PUT /v1/me/dnd-schedule). */
+  dndSchedule?: {
+    enabled: boolean;
+    timeZone: string;
+    days: number[];
+    start: string;
+    end: string;
+  } | null;
   /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
   mfa?: UserMfaDoc | null;
 }
@@ -88,6 +103,8 @@ export interface ConversationDoc extends TenantOwned {
   lastMessageAt: Date | null;
   /** Channels only; absent = everyone may post. */
   postingPolicy?: 'everyone' | 'moderators';
+  /** Private channels and groups; absent = members may forward messages out. */
+  allowForwarding?: boolean;
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -220,6 +237,8 @@ export interface AttachmentDoc extends TenantOwned {
   /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  /** A forwarded copy: shares the original's bytes (storageKey), which stay until the last row is erased. */
+  copyOf?: string | null;
   /** Where the bytes live. Absent on older rows (GridFS). */
   storage?: {
     backend: 'gridfs' | 'nextcloud';

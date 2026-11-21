@@ -322,7 +322,13 @@ export class AttachmentsService {
         { returnDocument: 'after' },
       );
     if (!res) return false;
-    if (a.storageKey) await this.storage.delete(a.storageKey).catch(() => undefined);
+    // Forwarded copies share bytes: delete them only when no live row still points at them.
+    if (a.storageKey) {
+      const shared = await this.db
+        .for(tenantId)
+        .attachments.countDocuments({ storageKey: a.storageKey, deletedAt: null });
+      if (!shared) await this.storage.delete(a.storageKey).catch(() => undefined);
+    }
     return true;
   }
 

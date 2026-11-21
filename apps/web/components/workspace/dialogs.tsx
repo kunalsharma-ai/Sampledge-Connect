@@ -1,4 +1,5 @@
 'use client';
+import { QuietHoursCard, StatusCard } from './status';
 import * as React from 'react';
 import { ProfileCard } from './profile-card';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -434,6 +435,8 @@ export function SettingsDialog({
           <ThemePicker />
         </div>
         <BrowserNotificationsCard />
+        <StatusCard />
+        <QuietHoursCard />
         <TwoStepCard />
         {branding?.supportEmail || branding?.supportUrl ? (
           <p className="mt-6 text-meta text-text-muted" data-testid="support-contact">

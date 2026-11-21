@@ -56,6 +56,7 @@ import { BookmarksService } from './bookmarks/bookmarks.service.js';
 import { SearchController } from './search/search.controller.js';
 import { SearchService } from './search/search.service.js';
 import { FilesController, FilesService } from './files/files.controller.js';
+import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
@@ -129,6 +130,7 @@ export class AppModule {
         BookmarksController,
         SearchController,
         FilesController,
+        StatusController,
         ScheduledMessagesController,
         CallsController,
         MeetingsController,

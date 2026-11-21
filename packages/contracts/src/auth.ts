@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DndScheduleSchema, UserStatusSchema } from './status.js';
 import { ClientIdSchema, ServerIdSchema } from './ids.js';
 import { TenantRoleSchema } from './permissions.js';
 
@@ -69,6 +70,10 @@ export const UserSummarySchema = z.object({
   bio: z.string().nullable().optional(),
   /** IANA time zone, e.g. "Asia/Kolkata". */
   timeZone: z.string().nullable().optional(),
+  /** Availability and custom status (clients treat an expired one as cleared: effectiveStatus). */
+  userStatus: UserStatusSchema.optional(),
+  /** Quiet hours, so every client can tell live whether the person is in do-not-disturb. */
+  dndSchedule: DndScheduleSchema.nullable().optional(),
 });
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 

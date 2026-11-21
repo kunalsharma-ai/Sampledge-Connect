@@ -13,6 +13,7 @@ import {
   type Receipt,
   type ScheduledMessage,
   type SyncResponse,
+  type ForwardedSnapshot,
 } from '@sampledge/contracts';
 import type {
   ConnectDb,
@@ -323,6 +324,8 @@ export class SyncEngine {
       mentions?: string[];
       replyToMessageId?: string | null;
       attachments?: Attachment[];
+      forwardOf?: string;
+      forwarded?: ForwardedSnapshot;
     } = {},
   ): Promise<LocalMessage> {
     const now = this.now();
@@ -336,6 +339,7 @@ export class SyncEngine {
         replyToMessageId: opts.replyToMessageId ?? null,
         composedAt: new Date(now).toISOString(),
         attachments: opts.attachments ?? [],
+        ...(opts.forwardOf ? { forwardOf: opts.forwardOf, forwarded: opts.forwarded } : {}),
       },
       state: 'queued',
       attempts: 0,
@@ -370,7 +374,7 @@ export class SyncEngine {
       createdAt: it.payload.composedAt,
       editedAt: null,
       deletedAt: null,
-      metadata: {},
+      metadata: it.payload.forwarded ? { forwarded: it.payload.forwarded } : {},
       reactions: [],
       pinned: null,
       status,
@@ -672,6 +676,7 @@ export class SyncEngine {
         replyToMessageId: item.payload.replyToMessageId,
         composedAt: item.payload.composedAt,
         attachmentIds: (item.payload.attachments ?? []).map((a) => a.attachmentId),
+        ...(item.payload.forwardOf ? { forwardOf: item.payload.forwardOf } : {}),
       });
       await this.db.transaction('rw', this.db.outbox, this.db.messages, async () => {
         await this.db.outbox.delete(item.clientMessageId);

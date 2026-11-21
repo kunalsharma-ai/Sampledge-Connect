@@ -6,6 +6,7 @@ import type {
   Message,
   MessageStatus,
   Receipt,
+  ForwardedSnapshot,
 } from '@sampledge/contracts';
 
 /** A message as stored locally: either server-confirmed or still pending on this device. */
@@ -39,6 +40,10 @@ export interface OutboxItem {
     composedAt: string;
     /** Completed uploads to attach (uploading needs a connection; sending can wait). */
     attachments?: Attachment[];
+    /** Forwarding: the source message id the server copies from. */
+    forwardOf?: string;
+    /** Forwarding: what the optimistic copy shows until the server confirms it. */
+    forwarded?: ForwardedSnapshot;
   };
   state: OutboxState;
   attempts: number;

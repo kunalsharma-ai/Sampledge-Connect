@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import argon2 from 'argon2';
 import { MongoServerError } from 'mongodb';
 import {
+  dndActive,
+  type UserStatus,
   LoginRequestSchema,
   MfaVerifyRequestSchema,
   RegisterTenantRequestSchema,
@@ -45,7 +47,21 @@ export function toUserSummary(u: UserDoc, role: UserSummary['role']): UserSummar
     phone: u.phone ?? null,
     bio: u.bio ?? null,
     timeZone: u.timeZone ?? null,
+    ...(u.userStatus ? { userStatus: statusOf(u)! } : {}),
+    ...(u.dndSchedule ? { dndSchedule: u.dndSchedule } : {}),
   };
+}
+
+/** The stored status in contract shape, or null when cleared or expired. */
+export function statusOf(u: Pick<UserDoc, 'userStatus'>, at = new Date()): UserStatus | null {
+  const s = u.userStatus;
+  if (!s || (s.expiresAt && s.expiresAt.getTime() <= at.getTime())) return null;
+  return { ...s, expiresAt: s.expiresAt?.toISOString() ?? null };
+}
+
+/** Do-not-disturb right now: no push notifications or call rings by push. */
+export function isDnd(u: Pick<UserDoc, 'userStatus' | 'dndSchedule'>, at = new Date()): boolean {
+  return dndActive(statusOf(u, at), u.dndSchedule ?? null, at);
 }
 
 @Injectable()

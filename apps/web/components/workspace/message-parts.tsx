@@ -5,6 +5,7 @@ import {
   BookmarkCheck,
   CheckSquare,
   CornerUpLeft,
+  Forward,
   Languages,
   MessagesSquare,
   Pencil,
@@ -162,6 +163,8 @@ export interface ExtraActions {
   /** Your own messages: change the text or delete for everyone. */
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Absent when the conversation turned forwarding off. */
+  onForward?: () => void;
 }
 
 const ACTION_BTN =
@@ -178,6 +181,7 @@ export function MessageActions({
   onSave,
   onEdit,
   onDelete,
+  onForward,
   onCreateTask,
   onRequestApproval,
   onTranslate,
@@ -226,6 +230,11 @@ export function MessageActions({
           {onThread ? (
             <button onClick={onThread} aria-label="Reply in thread" className={ACTION_BTN}>
               <MessagesSquare className="size-4" />
+            </button>
+          ) : null}
+          {onForward ? (
+            <button onClick={onForward} aria-label="Forward" className={ACTION_BTN}>
+              <Forward className="size-4" />
             </button>
           ) : null}
           {onPin ? (

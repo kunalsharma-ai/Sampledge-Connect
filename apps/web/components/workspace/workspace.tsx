@@ -68,7 +68,15 @@ import { RecordingsScreen } from './recordings-screen';
 import { AiScreen } from './ai-screen';
 import { AiSummaryCard } from './ai-summary-card';
 import { AiContext, languageName, preferredLanguage, useAi } from '@/lib/ai';
-import type { Conversation, MeetingSystemMetadata, Message } from '@sampledge/contracts';
+import type {
+  Conversation,
+  PresenceStatus,
+  ForwardedSnapshot,
+  MeetingSystemMetadata,
+  Message,
+} from '@sampledge/contracts';
+import { ForwardDialog, forwardPreview } from './forward';
+import { presenceOf } from '@/lib/status';
 import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
@@ -163,6 +171,7 @@ export function Workspace() {
   }, [rawMessages, pendingMessageActions, me]);
   const [editing, setEditing] = React.useState<LocalMessage | null>(null);
   const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
+  const [forwarding, setForwarding] = React.useState<LocalMessage | null>(null);
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
@@ -255,11 +264,21 @@ export function Workspace() {
     if (activeId && module !== 'notifications' && unreadNotifIn.has(activeId))
       void markNotificationsRead({ conversationId: activeId });
   }, [activeId, module, unreadNotifIn, markNotificationsRead]);
+  /** A DM header: their status message, or availability when it isn't the default. */
+  const dmSubtitle = (other: string | undefined) => {
+    const u = other ? directory.get(other) : undefined;
+    const p = presenceOf(u, !!other && engine.presence.get(other) === 'online', new Date());
+    if (p.status.text) return `${p.status.emoji ?? ''} ${p.status.text}`.trim() + ` · ${p.label}`;
+    if (p.dot !== 'online' && p.dot !== 'offline') return p.label;
+    return u?.title ?? 'Direct message';
+  };
   const directoryWithPresence = (() => {
+    // Connection presence, refined by each person's chosen availability and quiet hours.
     const m = new Map(directory);
-    for (const [id, p] of engine.presence) {
-      const u = m.get(id);
-      if (u) m.set(id, { ...u, presence: p });
+    const at = new Date();
+    for (const [id, u] of m) {
+      const connected = id === me || engine.presence.get(id) === 'online';
+      m.set(id, { ...u, presence: presenceOf(u, connected, at).dot });
     }
     return m;
   })();
@@ -386,7 +405,37 @@ export function Workspace() {
         (own || canModerate) && m.messageType !== 'system' && !m.deletedAt && !readOnly
           ? () => setDeleting(m)
           : undefined,
+      onForward:
+        m.messageType === 'text' && !m.poll && active?.allowForwarding !== false
+          ? () => setForwarding(m)
+          : undefined,
     };
+  };
+  const forwardMessage = async (targets: string[], comment: string) => {
+    const m = forwarding;
+    if (!m?.messageId) return;
+    const forwarded = forwardPreview(m, active, me, directory);
+    for (const target of targets)
+      await engine.compose(target, comment, { mentions: [], forwardOf: m.messageId, forwarded });
+    toast({
+      title:
+        targets.length === 1
+          ? `Forwarded to ${conversationTitle(
+              conversations!.find((c) => c.conversationId === targets[0])!,
+              me,
+              directory,
+            )}`
+          : `Forwarded to ${targets.length} conversations`,
+      description: offline ? 'It goes when you are back online.' : undefined,
+      tone: 'success',
+    });
+  };
+  const openForwarded = (s: ForwardedSnapshot) => {
+    if (!conversations?.some((c) => c.conversationId === s.conversationId && c.myRole !== null))
+      return toast({ title: 'You are not in the conversation it came from', tone: 'info' });
+    setThreadRootId(null);
+    openConversation(s.conversationId);
+    setTimeout(() => setHighlightId(s.messageId), 300);
   };
   const mentionMembers = (active?.memberIds ?? [])
     .filter((id) => id !== me && directory.has(id))
@@ -581,6 +630,10 @@ export function Workspace() {
                           directory,
                         )}
                         size="sm"
+                        presence={
+                          directoryWithPresence.get(active.memberIds.find((id) => id !== me) ?? '')
+                            ?.presence as PresenceStatus | undefined
+                        }
                       />
                     ) : (
                       <span className="flex size-8 items-center justify-center rounded-md bg-accent-soft text-accent">
@@ -603,8 +656,7 @@ export function Workspace() {
                         ) : (
                           <span className="block truncate">
                             {active.kind === 'dm'
-                              ? (directory.get(active.memberIds.find((id) => id !== me) ?? '')
-                                  ?.title ?? 'Direct message')
+                              ? dmSubtitle(active.memberIds.find((id) => id !== me))
                               : (active.topic ?? `${active.memberIds.length} members`)}
                           </span>
                         )}
@@ -688,6 +740,7 @@ export function Workspace() {
                     }}
                     onReply={(m) => setReplyTo(m)}
                     actions={messageActions}
+                    onOpenForwarded={openForwarded}
                     replyCounts={replyCounts}
                     onOpenThread={(m) => setThreadRootId(m.messageId)}
                     highlightId={highlightId}
@@ -895,6 +948,23 @@ export function Workspace() {
                           }),
                         )
                     }
+                    onSetForwarding={(allowed) =>
+                      void pollsApi
+                        .setForwarding(getAccessToken, active.conversationId, allowed)
+                        .then(() =>
+                          toast({
+                            title: allowed ? 'Forwarding is on' : 'Forwarding is off',
+                            tone: 'success',
+                          }),
+                        )
+                        .catch((e: Error) =>
+                          toast({
+                            title: 'Couldn’t change that',
+                            description: e.message,
+                            tone: 'danger',
+                          }),
+                        )
+                    }
                     aiCard={
                       ai.status?.enabled !== false ? (
                         <AiSummaryCard
@@ -994,6 +1064,15 @@ export function Workspace() {
           message={editing}
           onOpenChange={(o) => !o && setEditing(null)}
           onSave={editMessage}
+        />
+        <ForwardDialog
+          message={forwarding}
+          source={active}
+          conversations={conversations ?? []}
+          me={me}
+          directory={directory}
+          onOpenChange={(o) => !o && setForwarding(null)}
+          onForward={(t, c) => void forwardMessage(t, c)}
         />
         <DeleteMessageDialog
           message={deleting}
