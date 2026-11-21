@@ -82,11 +82,25 @@ export interface ServerToClientEvents {
   'directory:updated': (e: { userId: string }) => void;
   /** An organization-wide setting changed; refetch that area. */
   'tenant:updated': (e: { area: TenantArea }) => void;
+  /**
+   * Your working hours or one of your booking pages changed (sent to all of your devices, and
+   * to every host of a booking page). Refetch that area.
+   */
+  'meetings:changed': (e: { area: MeetingsArea }) => void;
+  /** A recording in one of your conversations was added or deleted; refetch the library. */
+  'recording:changed': (e: {
+    recordingId: string;
+    conversationId: string;
+    deleted: boolean;
+  }) => void;
   /** A project was created or changed; refetch it (the list endpoint applies visibility). */
   'project:changed': (e: { projectId: string }) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
+
+export const MEETINGS_AREAS = ['working_hours', 'booking_pages'] as const;
+export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
 
 export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];

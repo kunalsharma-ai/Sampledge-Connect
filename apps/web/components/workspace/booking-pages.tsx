@@ -14,7 +14,7 @@ import {
   Textarea,
   cn,
 } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { useMeetingsApi } from '@/lib/meetings';
 import { nameOf } from './helpers';
 
@@ -78,10 +78,13 @@ export function BookingPagesDialog({
     setDraft(null);
     setError(null);
     void load();
-    // Other hosts may change a shared page: stay current while the dialog is open.
-    const t = setInterval(() => void load(), 20_000);
-    return () => clearInterval(t);
   }, [open, load]);
+  // Changes by any host, on any device, arrive live (and everything refetches after a reconnect).
+  useEngineChange(['meetings'], (e) => {
+    if (!open) return;
+    if (e.type === 'reconnected' || (e.type === 'meetings' && e.area === 'booking_pages'))
+      void load();
+  });
 
   const startNew = () =>
     setDraft({

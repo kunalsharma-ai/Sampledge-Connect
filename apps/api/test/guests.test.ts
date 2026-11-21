@@ -7,6 +7,7 @@ import { uuidv7 } from '@sampledge/contracts';
 import type {
   Call,
   CallJoinResponse,
+  CallsConfig,
   GuestChatResponse,
   Message,
   GuestJoinState,
@@ -575,5 +576,74 @@ describe('without SMTP configured', () => {
       `/v1/guest/${link.body.url.split('/join/')[1]}`,
     );
     expect(view.body.title).toBe('No mail here');
+  });
+
+  it('uses email and call servers saved in Integrations, with no restart and no env', async () => {
+    const t = await registerTenant(bare);
+    const token = t.session.accessToken;
+    const cfg = async () =>
+      (await api<CallsConfig>(bare, 'GET', '/v1/calls/config', { token })).body;
+    expect((await cfg()).enabled).toBe(false);
+    const saveSmtp = await api(bare, 'PUT', '/v1/admin/integrations/smtp', {
+      token,
+      body: {
+        enabled: true,
+        values: {
+          host: '127.0.0.1',
+          port: (smtp.server.server.address() as AddressInfo).port,
+          security: 'none',
+          from: 'Northwind <meet@northwind.test>',
+        },
+      },
+    });
+    expect(saveSmtp.status).toBe(200);
+    const saveLk = await api(bare, 'PUT', '/v1/admin/integrations/livekit', {
+      token,
+      body: {
+        enabled: true,
+        values: {
+          publicUrl: 'ws://rtc.northwind.test',
+          apiUrl: `http://127.0.0.1:${(sfu.server.address() as AddressInfo).port}`,
+          apiKey: KEY,
+          apiSecret: SECRET,
+        },
+      },
+    });
+    expect(saveLk.status).toBe(200);
+    // The organization's own server: calls work, recording stays off (it needs the shared spool).
+    expect(await cfg()).toMatchObject({
+      enabled: true,
+      provider: 'livekit',
+      recordingEnabled: false,
+    });
+
+    const before = smtp.inbox.length;
+    const res = await api<Meeting>(bare, 'POST', '/v1/meetings', {
+      token,
+      body: {
+        title: 'Mail from the database',
+        startsAt: inMinutes(60),
+        endsAt: inMinutes(90),
+        guests: [{ email: 'db@client.example', name: 'Dee' }],
+      },
+    });
+    expect(res.body.guests![0]!.invite.status).toBe('sending');
+    await flush(bare);
+    const got = smtp.inbox.slice(before).find((m) => m.to.includes('db@client.example'));
+    expect(got?.raw).toMatch(/From: Northwind <meet@northwind\.test>/);
+
+    // Another organization on the same server still has neither.
+    const other = await registerTenant(bare, 'Other Co');
+    const otherCfg = await api<CallsConfig>(bare, 'GET', '/v1/calls/config', {
+      token: other.session.accessToken,
+    });
+    expect(otherCfg.body.enabled).toBe(false);
+
+    // Turning it off applies at once.
+    await api(bare, 'PUT', '/v1/admin/integrations/livekit', {
+      token,
+      body: { enabled: false, values: {} },
+    });
+    expect((await cfg()).enabled).toBe(false);
   });
 });

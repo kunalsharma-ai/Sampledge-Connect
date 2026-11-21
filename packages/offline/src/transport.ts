@@ -22,6 +22,7 @@ import {
   type ServerToClientEvents,
   type SyncRequest,
   type SyncResponse,
+  type MeetingsArea,
   type TenantArea,
 } from '@sampledge/contracts';
 
@@ -70,6 +71,8 @@ export type ChangeEvent =
   | { type: 'directory'; userId: string }
   | { type: 'tenant'; area: TenantArea }
   | { type: 'project'; projectId: string }
+  | { type: 'meetings'; area: MeetingsArea }
+  | { type: 'recording'; recordingId: string; conversationId: string; deleted: boolean }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
@@ -261,6 +264,8 @@ export class HttpSocketTransport implements Transport {
     s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
     s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));
     s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
+    s.on('meetings:changed', (e) => this.handlers?.onChange?.({ type: 'meetings', ...e }));
+    s.on('recording:changed', (e) => this.handlers?.onChange?.({ type: 'recording', ...e }));
     this.socket = s;
     s.connect();
   }

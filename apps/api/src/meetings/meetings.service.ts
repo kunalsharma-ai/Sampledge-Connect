@@ -263,11 +263,12 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       (req.title !== undefined && req.title !== m.title) ||
       (req.agenda !== undefined && req.agenda !== m.agenda);
     const sequence = (m.sequence ?? 0) + (changed || removed.length ? 1 : 0);
+    const status = changed ? await this.sendingStatus(ctx.tenantId) : null;
     const guests: MeetingGuestDoc[] = [
       ...kept.map((g) => ({
         ...g,
         response: moved ? ('pending' as const) : g.response,
-        ...(changed ? { invite: { ...g.invite, status: this.sendingStatus() } } : {}),
+        ...(status ? { invite: { ...g.invite, status } } : {}),
       })),
       ...newGuests,
     ];
@@ -395,7 +396,7 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     if (m.status === 'cancelled') throw new AppError('CONFLICT', 'This meeting was cancelled');
     const g = m.guests?.find((x) => x.guestId === guestId);
     if (!g) throw notFound('Guest');
-    if (!this.guests.emailEnabled)
+    if (!(await this.guests.emailEnabled(ctx.tenantId)))
       throw new AppError(
         'UNAVAILABLE',
         "Email isn't set up on this server yet. Copy the guest's link and send it yourself.",
@@ -417,8 +418,8 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
     return this.guests.rsvp(token, input, toMeeting);
   }
 
-  private sendingStatus(): MeetingGuestDoc['invite']['status'] {
-    return this.guests.emailEnabled ? 'sending' : 'not_configured';
+  private async sendingStatus(tenantId: string): Promise<MeetingGuestDoc['invite']['status']> {
+    return (await this.guests.emailEnabled(tenantId)) ? 'sending' : 'not_configured';
   }
 
   private emailGuests(
@@ -496,6 +497,8 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
         { $set: { workingHours: wh, updatedAt: new Date() } },
         { upsert: true },
       );
+    // Free times on booking pages change too, so every device refetches.
+    this.realtime.toUser(ctx.tenantId, ctx.userId, 'meetings:changed', { area: 'working_hours' });
     return wh;
   }
 
@@ -859,13 +862,14 @@ export class MeetingsService implements OnModuleInit, OnApplicationShutdown {
       ...s.attendees.map((a) => reset(a, a.userId === s.organizerId)),
       ...add.map((userId) => ({ userId, response: 'pending' as const, optional: false })),
     ];
+    const inviteStatus = contentChanged ? await this.sendingStatus(ctx.tenantId) : 'sending';
     const invite = (g: MeetingGuestDoc): MeetingGuestDoc =>
       contentChanged
         ? {
             ...g,
             invite: {
               ...g.invite,
-              status: this.guests.emailEnabled ? 'sending' : 'not_configured',
+              status: inviteStatus,
             },
           }
         : g;

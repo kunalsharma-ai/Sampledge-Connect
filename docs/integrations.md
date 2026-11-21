@@ -80,5 +80,9 @@ modules can encrypt their own stored secrets with `encryptSecret` / `decryptSecr
 | `push.web`          | Browser notifications        | Checks the VAPID key pair                  |
 | `storage.nextcloud` | Chat files and recordings    | Writes, reads back and deletes a test file |
 
-Mobile push reads these settings today. The calls and email senders are being switched over
-from env in the meetings work; until then they keep using env.
+Mobile push, meeting email and calls all read these settings. Email and calls resolve per
+organization (its own, then the platform default, then env) and hot reload on save. Call
+recording is available only on the platform's media server (platform settings or env),
+because its Egress must write into the API's recordings spool; an organization's own LiveKit
+server gets calls and meetings without recording. LiveKit webhooks are verified with the
+secret of the organization named in the room (`sc_<tenantId>_<callId>`).

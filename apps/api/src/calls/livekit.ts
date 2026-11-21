@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { SignJWT, jwtVerify } from 'jose';
-import type { AppConfig } from '../config/config.js';
+import type { IntegrationValues } from '@sampledge/contracts';
 
 /**
  * Minimal client for a self-hosted LiveKit server: join tokens, webhook verification and the
@@ -15,17 +15,19 @@ export interface LiveKitSettings {
   apiSecret: string;
 }
 
-export function liveKitSettings(cfg: AppConfig): LiveKitSettings | null {
-  if (!cfg.LIVEKIT_PUBLIC_URL || !cfg.LIVEKIT_API_KEY || !cfg.LIVEKIT_API_SECRET) return null;
-  const apiUrl =
-    cfg.LIVEKIT_API_URL ??
-    cfg.LIVEKIT_PUBLIC_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-  return {
-    publicUrl: cfg.LIVEKIT_PUBLIC_URL,
-    apiUrl: apiUrl.replace(/\/$/, ''),
-    apiKey: cfg.LIVEKIT_API_KEY,
-    apiSecret: cfg.LIVEKIT_API_SECRET,
-  };
+/**
+ * Connection settings from Integrations → Calls (organization, platform default, or legacy
+ * LIVEKIT_* env through the settings fallback). null when incomplete.
+ */
+export function liveKitFromValues(v: IntegrationValues): LiveKitSettings | null {
+  const publicUrl = v.publicUrl ? String(v.publicUrl) : '';
+  const apiKey = v.apiKey ? String(v.apiKey) : '';
+  const apiSecret = v.apiSecret ? String(v.apiSecret) : '';
+  if (!publicUrl || !apiKey || !apiSecret) return null;
+  const apiUrl = v.apiUrl
+    ? String(v.apiUrl)
+    : publicUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+  return { publicUrl, apiUrl: apiUrl.replace(/\/$/, ''), apiKey, apiSecret };
 }
 
 export interface VideoGrant {
