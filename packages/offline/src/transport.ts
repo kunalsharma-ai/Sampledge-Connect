@@ -22,6 +22,7 @@ import {
   type ServerToClientEvents,
   type SyncRequest,
   type SyncResponse,
+  type TenantArea,
 } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
@@ -55,17 +56,31 @@ export interface RealtimeHandlers {
   onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
+  /** Saved messages, people, organization settings and projects changed (optional). */
+  onChange?(e: ChangeEvent): void;
 }
 
-export type WorkEvent =
-  | { type: 'task'; task: Task }
-  | { type: 'approval'; approval: Approval }
+/**
+ * Something changed that the app keeps outside the message store. Screens refetch the
+ * affected data. `reconnected` means live events may have been missed: refetch everything shown.
+ */
+export type ChangeEvent =
+  | { type: 'bookmark'; messageId: string; conversationId: string; saved: boolean }
+  | { type: 'pollVote'; messageId: string; optionIds: string[] }
+  | { type: 'directory'; userId: string }
+  | { type: 'tenant'; area: TenantArea }
+  | { type: 'project'; projectId: string }
+  /** A module record in this conversation was linked or updated, or a record action ran. */
   | {
       type: 'records';
       conversationId: string;
       linkId: string;
       reason: 'linked' | 'updated' | 'action';
-    };
+    }
+  | { type: 'reconnected' }
+  | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
+
+export type WorkEvent = { type: 'task'; task: Task } | { type: 'approval'; approval: Approval };
 
 export type MeetingEvent =
   { type: 'upsert'; meeting: Meeting } | { type: 'reminder'; reminder: MeetingReminderEvent };
@@ -85,6 +100,8 @@ export interface Transport {
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
   react?(req: SetReactionRequest): Promise<Message>;
   setTyping?(conversationId: string, typing: boolean): void;
+  /** Any authenticated REST call (used by the action queue). */
+  request?<T>(method: string, path: string, body?: unknown): Promise<T>;
   connect?(handlers: RealtimeHandlers): void;
   disconnect?(): void;
   readonly connected?: boolean;
@@ -114,7 +131,7 @@ export class HttpSocketTransport implements Transport {
     return this.socket?.connected ?? false;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let token: string | null;
     try {
       token = await this.opts.getAccessToken();
@@ -246,7 +263,12 @@ export class HttpSocketTransport implements Transport {
     s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
-    s.on('record:changed', (e) => this.handlers?.onWork?.({ type: 'records', ...e }));
+    s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
+    s.on('poll:myVote', (e) => this.handlers?.onChange?.({ type: 'pollVote', ...e }));
+    s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
+    s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));
+    s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
+    s.on('record:changed', (e) => this.handlers?.onChange?.({ type: 'records', ...e }));
     this.socket = s;
     s.connect();
   }

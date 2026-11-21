@@ -13,6 +13,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import type { TenantDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const DEFAULTS: Branding = BrandingInputSchema.parse({});
 
@@ -22,6 +23,7 @@ export class BrandingService {
   constructor(
     private readonly db: TenantDb,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   /** The organization's branding with defaults filled in (older tenants have none or a partial one). */
@@ -91,6 +93,7 @@ export class BrandingService {
       action: 'tenant.branding_updated',
       metadata: { changed },
     });
+    this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'branding' });
     return this.get(ctx);
   }
 

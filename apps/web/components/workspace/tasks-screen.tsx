@@ -281,7 +281,7 @@ function TaskList({
   const setStatus = async (t: Task, status: Task['status']) => {
     setBusy(t.taskId);
     try {
-      onChanged(await api.updateTask(t.taskId, { status }));
+      onChanged(await api.queueTaskUpdate(t, { status }));
     } catch (e) {
       toast({
         title: 'Couldn’t update the task',
@@ -317,7 +317,7 @@ function TaskList({
               <li key={t.taskId} className="flex gap-3 px-4 py-3.5 sm:px-6">
                 <button
                   aria-label={t.status === 'done' ? `Reopen ${t.title}` : `Mark ${t.title} done`}
-                  disabled={!online || !canEdit || busy === t.taskId || t.status === 'cancelled'}
+                  disabled={!canEdit || busy === t.taskId || t.status === 'cancelled'}
                   onClick={() => void setStatus(t, t.status === 'done' ? 'open' : 'done')}
                   className={cn(
                     'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-40',
@@ -389,7 +389,7 @@ function TaskList({
                     <select
                       aria-label={`Status of ${t.title}`}
                       value={t.status}
-                      disabled={!online || busy === t.taskId}
+                      disabled={busy === t.taskId}
                       onChange={(e) => void setStatus(t, e.target.value as Task['status'])}
                       className="h-8 rounded-sm border border-border bg-surface px-2 text-meta text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
                     >
@@ -555,16 +555,11 @@ function ApprovalList({
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled={!online}
                             onClick={() => setDeciding({ a, d: 'reject' })}
                           >
                             <X /> Reject
                           </Button>
-                          <Button
-                            size="sm"
-                            disabled={!online}
-                            onClick={() => setDeciding({ a, d: 'approve' })}
-                          >
+                          <Button size="sm" onClick={() => setDeciding({ a, d: 'approve' })}>
                             <Check /> Approve
                           </Button>
                         </>

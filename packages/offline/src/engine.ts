@@ -14,11 +14,19 @@ import {
   type ScheduledMessage,
   type SyncResponse,
 } from '@sampledge/contracts';
-import type { ConnectDb, LocalMessage, OutboxItem, PendingReaction } from './db.js';
+import type {
+  ConnectDb,
+  LocalMessage,
+  MessageIntent,
+  OutboxItem,
+  PendingAction,
+  PendingReaction,
+} from './db.js';
 import {
   NetworkError,
   ServerError,
   type CallEvent,
+  type ChangeEvent,
   type MeetingEvent,
   type WorkEvent,
   type NotificationEvent,
@@ -32,6 +40,9 @@ export interface EngineState {
   /** Messages waiting locally (queued or sending). */
   queued: number;
   failed: number;
+  /** Other changes (edits, pins, votes, settings, …) waiting to be sent, and ones refused. */
+  pendingActions: number;
+  failedActions: number;
   lastSyncAt: number | null;
   /** Paused because the session must be refreshed or re-established. */
   authPaused: boolean;
@@ -78,6 +89,8 @@ export class SyncEngine {
   private state: EngineState = {
     connectivity: 'offline',
     queued: 0,
+    pendingActions: 0,
+    failedActions: 0,
     failed: 0,
     lastSyncAt: null,
     authPaused: false,
@@ -88,6 +101,8 @@ export class SyncEngine {
   private meetingListeners = new Set<(e: MeetingEvent) => void>();
   private scheduledListeners = new Set<(s: ScheduledMessage) => void>();
   private workListeners = new Set<(e: WorkEvent) => void>();
+  private changeListeners = new Set<(e: ChangeEvent) => void>();
+  private wasConnected = false;
   private networkAvailable = false;
   private flushing: Promise<void> | null = null;
   private flushAgain = false;
@@ -144,6 +159,17 @@ export class SyncEngine {
     this.workListeners.add(fn);
     return () => this.workListeners.delete(fn);
   }
+  /**
+   * Saved messages, people, organization settings, projects, queued action results, and
+   * `reconnected` (refetch what you show: live events may have been missed while away).
+   */
+  onChange(fn: (e: ChangeEvent) => void): () => void {
+    this.changeListeners.add(fn);
+    return () => this.changeListeners.delete(fn);
+  }
+  private emitChange(e: ChangeEvent) {
+    for (const l of this.changeListeners) l(e);
+  }
   private patch(p: Partial<EngineState>) {
     this.state = { ...this.state, ...p };
     for (const l of this.listeners) l(this.state);
@@ -153,7 +179,11 @@ export class SyncEngine {
       this.db.outbox.where('state').anyOf('queued', 'sending').count(),
       this.db.outbox.where('state').equals('failed').count(),
     ]).catch(() => [this.state.queued, this.state.failed]);
-    this.patch({ queued, failed });
+    const [pendingActions, failedActions] = await Promise.all([
+      this.db.actions.where('state').equals('queued').count(),
+      this.db.actions.where('state').equals('failed').count(),
+    ]).catch(() => [this.state.pendingActions, this.state.failedActions]);
+    this.patch({ queued, failed, pendingActions, failedActions });
   }
 
   // ---------- lifecycle ----------
@@ -224,6 +254,9 @@ export class SyncEngine {
       this.patch({ connectivity: 'online' });
       void this.syncNow();
       void this.flush();
+      // The first connection loads screens normally; later ones may follow missed events.
+      if (this.wasConnected) this.emitChange({ type: 'reconnected' });
+      this.wasConnected = true;
     } else {
       if (!this.networkAvailable) return this.patch({ connectivity: 'offline' });
       this.patch({ connectivity: 'connecting' });
@@ -263,6 +296,7 @@ export class SyncEngine {
       onWork: (e) => {
         for (const l of this.workListeners) l(e);
       },
+      onChange: (e) => this.emitChange(e),
     });
   }
 
@@ -395,9 +429,10 @@ export class SyncEngine {
     const a = await this.flushMessages();
     if (a === 'paused') return;
     const b = await this.flushReactions();
+    const c = await this.flushActions();
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    const at = Math.min(a, b);
+    const at = Math.min(a, b, c);
     if (at !== Infinity) {
       this.flushTimer = setTimeout(
         () => {
@@ -511,6 +546,106 @@ export class SyncEngine {
     }
     const later = await this.db.reactionQueue.orderBy('nextAttemptAt').first();
     if (later) nextWake = Math.min(nextWake, later.nextAttemptAt);
+    return nextWake;
+  }
+
+  // ---------- other actions ----------
+
+  /**
+   * Queue any change for the server. Saved locally first, so it survives reloads and works
+   * offline; sent in order when connected, retried with backoff, and coalesced by `key`.
+   * Use `intent` for message changes so `overlayMessage` shows them right away.
+   */
+  async queueAction(
+    a: Omit<PendingAction, 'state' | 'createdAt' | 'attempts' | 'nextAttemptAt' | 'lastError'>,
+  ) {
+    const now = this.now();
+    // Keep the original position when replacing a queued change, so order is preserved.
+    const prev = await this.db.actions.get(a.key);
+    await this.db.actions.put({
+      ...a,
+      state: 'queued',
+      createdAt: prev?.state === 'queued' ? Math.max(prev.createdAt + 1e-3, now) : now,
+      attempts: 0,
+      nextAttemptAt: now,
+      lastError: null,
+    });
+    await this.refreshCounts();
+    void this.flush();
+  }
+
+  /** Queued and refused actions, oldest first (Sync Center). */
+  listActions(): Promise<PendingAction[]> {
+    return this.db.actions.orderBy('createdAt').toArray();
+  }
+
+  async retryAction(key: string) {
+    await this.db.actions.update(key, {
+      state: 'queued',
+      attempts: 0,
+      nextAttemptAt: this.now(),
+      lastError: null,
+    });
+    await this.refreshCounts();
+    void this.flush();
+  }
+
+  async discardAction(key: string) {
+    await this.db.actions.delete(key);
+    await this.refreshCounts();
+    this.emitChange({ type: 'action', key, ok: false });
+  }
+
+  /** Sends due actions oldest first; returns when the next one is due. */
+  private async flushActions(): Promise<number> {
+    if (!this.transport.request) return Infinity;
+    const queued = await this.db.actions.where('state').equals('queued').sortBy('createdAt');
+    let nextWake = Infinity;
+    for (const a of queued) {
+      if (a.nextAttemptAt > this.now()) {
+        // Later actions may depend on this one (edit after pin, vote after unvote): wait.
+        nextWake = Math.min(nextWake, a.nextAttemptAt);
+        break;
+      }
+      try {
+        const result = await this.transport.request<unknown>(a.method, a.path, a.body);
+        await this.db.transaction(
+          'rw',
+          this.db.actions,
+          this.db.messages,
+          this.db.outbox,
+          async () => {
+            const cur = await this.db.actions.get(a.key);
+            if (cur && cur.createdAt === a.createdAt) await this.db.actions.delete(a.key);
+            if (isMessage(result)) await this.upsertServerMessage(result);
+          },
+        );
+        this.emitChange({ type: 'action', key: a.key, ok: true, result });
+      } catch (e) {
+        const error = toError(e);
+        if (error.code === 'SESSION_EXPIRED' || error.code === 'UNAUTHENTICATED') {
+          this.handleSessionExpired();
+          return Infinity;
+        }
+        const attempts = a.attempts + 1;
+        const retryable = e instanceof NetworkError || isRetryable(error.code);
+        if (retryable && attempts < this.maxAttempts) {
+          const at =
+            this.now() +
+            Math.max(
+              error.retryAfterMs ?? 0,
+              backoffDelay(attempts - 1, { ...this.opts.backoff, random: this.random }),
+            );
+          await this.db.actions.update(a.key, { attempts, nextAttemptAt: at, lastError: error });
+          nextWake = Math.min(nextWake, at);
+          break;
+        }
+        // Refused (no permission, message gone, poll closed): keep it visible for a decision.
+        await this.db.actions.update(a.key, { state: 'failed', attempts, lastError: error });
+        this.emitChange({ type: 'action', key: a.key, ok: false, error });
+      }
+    }
+    await this.refreshCounts();
     return nextWake;
   }
 
@@ -885,6 +1020,47 @@ export function overlayReactions(
     }
   }
   return out.filter((r) => r.count > 0);
+}
+
+const isMessage = (x: unknown): x is Message =>
+  !!x &&
+  typeof x === 'object' &&
+  typeof (x as Message).messageId === 'string' &&
+  typeof (x as Message).serverSequence === 'number' &&
+  typeof (x as Message).conversationId === 'string';
+
+/**
+ * A message with this device's queued edits, deletes and pins applied, so changes show
+ * immediately (and offline) and don't flicker back while they're on their way.
+ */
+export function overlayMessage<
+  M extends Pick<LocalMessage, 'content' | 'editedAt' | 'deletedAt' | 'pinned'>,
+>(
+  m: M,
+  pending: Pick<PendingAction, 'intent' | 'createdAt' | 'state'>[],
+  me: string,
+): M & { pendingChange: boolean } {
+  let out = { ...m, pendingChange: false };
+  for (const p of [...pending].sort((a, b) => a.createdAt - b.createdAt)) {
+    if (!p.intent || p.state !== 'queued') continue;
+    const at = new Date(p.createdAt).toISOString();
+    const i: MessageIntent = p.intent;
+    if (i.kind === 'edit')
+      out = {
+        ...out,
+        content: { ...out.content, text: i.text },
+        editedAt: at,
+        pendingChange: true,
+      };
+    else if (i.kind === 'delete') out = { ...out, deletedAt: at, pendingChange: true };
+    else
+      out = {
+        ...out,
+        pinned: i.pinned ? (out.pinned ?? { pinnedBy: me, pinnedAt: at }) : null,
+        pendingChange: true,
+      };
+  }
+  return out;
 }
 
 export async function wipeLocalData(db: ConnectDb) {

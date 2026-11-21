@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { Conversation, UserSummary } from '@sampledge/contracts';
+import type { Conversation, TenantArea, UserSummary } from '@sampledge/contracts';
 import {
   HttpSocketTransport,
   SyncEngine,
@@ -9,6 +9,7 @@ import {
   listConversationMessages,
   openConnectDb,
   wipeLocalData,
+  type ChangeEvent,
   type ConnectDb,
   type EngineState,
   type LocalMessage,
@@ -112,6 +113,13 @@ export function EngineProvider({
         }
       };
       void refreshDirectory();
+      // People list, roles and profiles follow other devices and other admins live.
+      let dirTimer: ReturnType<typeof setTimeout> | null = null;
+      const unsubChange = engine.onChange((e) => {
+        if (e.type !== 'directory' && e.type !== 'reconnected') return;
+        if (dirTimer) clearTimeout(dirTimer);
+        dirTimer = setTimeout(() => void refreshDirectory(), 300);
+      });
 
       const signOut = async () => {
         engine.stop();
@@ -121,6 +129,8 @@ export function EngineProvider({
       setValue({ db, engine, refreshDirectory, signOut });
       cleanup = () => {
         unsub();
+        unsubChange();
+        if (dirTimer) clearTimeout(dirTimer);
         clearInterval(quota);
         window.removeEventListener('online', online);
         window.removeEventListener('offline', offline);
@@ -175,6 +185,48 @@ export function usePendingReactions(conversationId: string | null) {
       () =>
         conversationId
           ? db.reactionQueue.filter((r) => r.conversationId === conversationId).toArray()
+          : [],
+      [db, conversationId],
+    ) ?? []
+  );
+}
+
+/**
+ * Run `fn` when something outside the message store changes: pass the change types a screen
+ * shows. `reconnected` is always included, because live events may have been missed.
+ */
+export function useEngineChange(types: ChangeEvent['type'][], fn: (e: ChangeEvent) => void) {
+  const { engine } = useEngine();
+  const ref = React.useRef(fn);
+  ref.current = fn;
+  const key = types.join(',');
+  React.useEffect(
+    () =>
+      engine.onChange((e) => {
+        if (e.type === 'reconnected' || key.split(',').includes(e.type)) ref.current(e);
+      }),
+    [engine, key],
+  );
+}
+
+/**
+ * Refetch an organization-wide setting screen when an admin changes it on any device
+ * (`tenant:updated`), and after a reconnect.
+ */
+export function useTenantChange(area: TenantArea, fn: () => void) {
+  useEngineChange(['tenant'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'tenant' && e.area === area)) fn();
+  });
+}
+
+/** This device's queued changes to messages in a conversation (edits, deletes, pins). */
+export function usePendingMessageActions(conversationId: string | null) {
+  const { db } = useEngine();
+  return (
+    useLiveQuery(
+      () =>
+        conversationId
+          ? db.actions.filter((a) => a.conversationId === conversationId && !!a.intent).toArray()
           : [],
       [db, conversationId],
     ) ?? []

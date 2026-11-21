@@ -21,7 +21,7 @@ import {
 } from '@sampledge/contracts';
 import type { LocalMessage } from '@sampledge/offline';
 import { Badge, Button, cn, useToast } from '@sampledge/ui';
-import { useEngine, type DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { dueLabel, useApprovals, useTasks, useWorkApi, type RecordWithActions } from '@/lib/work';
 import { formatTime, nameOf } from './helpers';
 import { DecideDialog } from './work-dialogs';
@@ -79,15 +79,12 @@ export function ConversationWorkProvider({
     setRecords(null);
     if (online) refreshRecords();
   }, [online, refreshRecords]);
-  // Live: another member's event, action or new link refreshes this panel on every device.
-  const { engine } = useEngine();
-  React.useEffect(
-    () =>
-      engine.onWork((e) => {
-        if (e.type === 'records' && e.conversationId === conversationId) refreshRecords();
-      }),
-    [engine, conversationId, refreshRecords],
-  );
+  // Live: another member's event, action or new link refreshes this panel on every device;
+  // after a reconnect (events may have been missed) it refetches too.
+  useEngineChange(['records'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'records' && e.conversationId === conversationId))
+      refreshRecords();
+  });
 
   const { setItems: setTasks } = tasks;
   const { setItems: setApprovals } = approvals;
@@ -366,7 +363,7 @@ function TaskLine({
     setBusy(true);
     try {
       work?.setTask(
-        await api.updateTask(t.taskId, { status: t.status === 'done' ? 'open' : 'done' }),
+        await api.queueTaskUpdate(t, { status: t.status === 'done' ? 'open' : 'done' }),
       );
     } catch (e) {
       toast({
@@ -400,7 +397,7 @@ function TaskLine({
           size="sm"
           variant="secondary"
           onClick={() => void toggle()}
-          disabled={busy || !work?.online}
+          disabled={busy}
           loading={busy}
         >
           {t.status === 'done' ? (
@@ -458,15 +455,10 @@ function ApprovalLine({
         <div className="flex-1" />
         {canDecide ? (
           <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!work?.online}
-              onClick={() => work?.decide(a, 'reject')}
-            >
+            <Button size="sm" variant="secondary" onClick={() => work?.decide(a, 'reject')}>
               <X /> Reject
             </Button>
-            <Button size="sm" disabled={!work?.online} onClick={() => work?.decide(a, 'approve')}>
+            <Button size="sm" onClick={() => work?.decide(a, 'approve')}>
               <Check /> Approve
             </Button>
           </div>

@@ -4,8 +4,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AtSign, Bell, BellOff, Check } from 'lucide-react';
 import type { Conversation, NotifyLevel } from '@sampledge/contracts';
 import { Tooltip, cn, useToast } from '@sampledge/ui';
-import { apiRequest } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
 import { useEngine } from '@/lib/engine';
 
 const OPTIONS: { level: NotifyLevel; label: string; hint: string; icon: typeof Bell }[] = [
@@ -26,16 +24,15 @@ const OPTIONS: { level: NotifyLevel; label: string; hint: string; icon: typeof B
 
 export const notifyIcon = (l: NotifyLevel) => OPTIONS.find((o) => o.level === l)!.icon;
 
-/** The caller's notification level for one conversation. Needs a connection to change. */
+/** The caller's notification level for one conversation. Works offline (queued). */
 export function NotifyLevelMenu({
   conversation,
-  offline,
 }: {
   conversation: Conversation;
-  offline: boolean;
+  /** Kept for callers; changing works offline now. */
+  offline?: boolean;
 }) {
-  const { db } = useEngine();
-  const { getAccessToken } = useAuth();
+  const { db, engine } = useEngine();
   const { toast } = useToast();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -55,23 +52,23 @@ export function NotifyLevelMenu({
     };
   }, [open]);
 
+  // Saved on this device first and queued, so it works offline and reaches every device.
   const choose = async (next: NotifyLevel) => {
     setOpen(false);
     if (next === level) return;
     setSaving(true);
     try {
-      const updated = await apiRequest<Conversation>(
-        'PUT',
-        `/v1/conversations/${conversation.conversationId}/notify-level`,
-        { token: await getAccessToken(), body: { level: next } },
-      );
-      await db.conversations.put(updated);
-    } catch {
-      toast({
-        title: 'Couldn’t change notifications',
-        description: 'Check your connection and try again.',
-        tone: 'danger',
+      await db.conversations.update(conversation.conversationId, { myNotifyLevel: next });
+      await engine.queueAction({
+        key: `notify|${conversation.conversationId}`,
+        method: 'PUT',
+        path: `/v1/conversations/${conversation.conversationId}/notify-level`,
+        body: { level: next },
+        label: 'Change notifications',
+        conversationId: conversation.conversationId,
       });
+    } catch {
+      toast({ title: 'Couldn’t change notifications', tone: 'danger' });
     } finally {
       setSaving(false);
     }
@@ -80,14 +77,11 @@ export function NotifyLevelMenu({
   if (conversation.myRole === null) return null;
   return (
     <div ref={ref} className="relative">
-      <Tooltip
-        content={offline ? 'Changing notifications needs a connection' : 'Notifications'}
-        side="bottom"
-      >
+      <Tooltip content="Notifications" side="bottom">
         <span>
           <button
             onClick={() => setOpen((o) => !o)}
-            disabled={offline || saving}
+            disabled={saving}
             aria-label={`Notifications: ${OPTIONS.find((o) => o.level === level)!.label}`}
             aria-expanded={open}
             className={cn(

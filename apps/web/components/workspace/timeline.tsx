@@ -353,6 +353,9 @@ export function Timeline({
                           {m.editedAt && !m.deletedAt ? (
                             <span className="ml-1.5 text-meta opacity-70">(edited)</span>
                           ) : null}
+                          {(m as { pendingChange?: boolean }).pendingChange ? (
+                            <span className="ml-1.5 text-meta opacity-70">· not synced yet</span>
+                          ) : null}
                         </div>
                       ) : null}
                       {m.messageId && translations.has(m.messageId) && !m.deletedAt ? (

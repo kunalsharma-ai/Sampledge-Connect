@@ -15,8 +15,7 @@ import type {
 } from '@sampledge/contracts';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
-import type { WorkEvent } from '@sampledge/offline';
+import { useEngine, useEngineChange } from './engine';
 
 export type RecordWithActions = LinkedRecord & {
   actions: Pick<ModuleActionDef, 'type' | 'label' | 'description'>[];
@@ -24,6 +23,7 @@ export type RecordWithActions = LinkedRecord & {
 
 export function useWorkApi() {
   const { getAccessToken } = useAuth();
+  const { db, engine } = useEngine();
   return React.useMemo(() => {
     const req = async <T>(method: string, path: string, body?: unknown) =>
       apiRequest<T>(method, path, { token: await getAccessToken(), body });
@@ -31,6 +31,34 @@ export function useWorkApi() {
       tasks: (q: string) => req<Task[]>('GET', `/v1/tasks?${q}`),
       createTask: (b: CreateTaskRequest) => req<Task>('POST', '/v1/tasks', b),
       updateTask: (id: string, b: UpdateTaskRequest) => req<Task>('PATCH', `/v1/tasks/${id}`, b),
+      /**
+       * Change a task through the device's action queue: works offline, and edits made
+       * before it is sent merge into one request. Returns the task as it will be.
+       */
+      queueTaskUpdate: async (t: Task, b: UpdateTaskRequest): Promise<Task> => {
+        const key = `task|${t.taskId}`;
+        const prev = await db.actions.get(key);
+        const body = { ...(prev?.state === 'queued' ? (prev.body as object) : {}), ...b };
+        await engine.queueAction({
+          key,
+          method: 'PATCH',
+          path: `/v1/tasks/${t.taskId}`,
+          body,
+          label: `Update task “${t.title}”`,
+          conversationId: t.conversationId ?? undefined,
+        });
+        return { ...t, ...b, updatedAt: new Date().toISOString() } as Task;
+      },
+      /** Decide while offline: sent on reconnect. The list updates when the server confirms. */
+      queueDecision: (a: Approval, b: DecideApprovalRequest) =>
+        engine.queueAction({
+          key: `decide|${a.approvalId}`,
+          method: 'POST',
+          path: `/v1/approvals/${a.approvalId}/decision`,
+          body: b,
+          label: `${b.decision === 'approve' ? 'Approve' : 'Reject'} “${a.title}”`,
+          conversationId: a.conversationId ?? undefined,
+        }),
       approvals: (q: string) => req<Approval[]>('GET', `/v1/approvals?${q}`),
       createApproval: (b: CreateApprovalRequest) => req<Approval>('POST', '/v1/approvals', b),
       decide: (id: string, b: DecideApprovalRequest) =>
@@ -50,7 +78,7 @@ export function useWorkApi() {
           messageId,
         }),
     };
-  }, [getAccessToken]);
+  }, [getAccessToken, db, engine]);
 }
 
 /**
@@ -60,7 +88,12 @@ export function useWorkApi() {
 function useCachedList<T>(
   cacheKey: string,
   fetcher: () => Promise<T[]>,
-  live: (prev: T[], e: WorkEvent) => T[] | null,
+  live: (
+    prev: T[],
+    e: { type: 'task'; task: Task } | { type: 'approval'; approval: Approval },
+  ) => T[] | null,
+  /** Other live changes that mean "fetch again". */
+  refetchOn: 'project'[] = [],
 ) {
   const { db, engine, state } = useEngine();
   const [items, setItems] = React.useState<T[] | null>(null);
@@ -96,6 +129,11 @@ function useCachedList<T>(
   React.useEffect(() => {
     if (online) void refresh();
   }, [online, refresh]);
+  // Live events may have been missed while disconnected, and a queued change was refused.
+  useEngineChange(['action', ...refetchOn], (e) => {
+    if (e.type === 'reconnected' || e.type === 'project' || (e.type === 'action' && !e.ok))
+      void refresh();
+  });
   React.useEffect(
     () =>
       engine.onWork((e) => {
@@ -175,6 +213,7 @@ export function useProjects() {
     'work.projects',
     () => api.projects(),
     () => null,
+    ['project'],
   );
 }
 
