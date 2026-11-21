@@ -53,6 +53,7 @@ import {
   type CreateApprovalRequest,
   type DecideApprovalRequest,
   SCHEDULE_MIN_LEAD_MS,
+  type TenantArea,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
@@ -128,6 +129,10 @@ export class ConnectEngine {
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
+    /** An admin changed an organization setting elsewhere; screens showing it reload. */
+    tenant: { area: TenantArea };
+    /** A project changed (for the projects screen when it ships on mobile). */
+    project: { projectId: string };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -231,6 +236,10 @@ export class ConnectEngine {
           ).then(() => this.events.emit('work', { kind: w.kind }));
         }),
         this.realtime.events.on('bookmark', (b) => void this.receiveBookmark(b)),
+        // Names and the people picker follow profile and membership changes made anywhere.
+        this.realtime.events.on('directory', () => void this.sync.refreshDirectory()),
+        this.realtime.events.on('tenant', (e) => void this.receiveTenant(e.area)),
+        this.realtime.events.on('project', (e) => this.events.emit('project', e)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -424,6 +433,18 @@ export class ConnectEngine {
         await this.store.settleNotificationRead(next.id);
       }
     }
+  }
+
+  /** An admin changed an organization setting on another device: pick it up here. */
+  private async receiveTenant(area: TenantArea): Promise<void> {
+    if (area === 'branding' && this.online) {
+      try {
+        this.events.emit('branding', await this.api.getBranding());
+      } catch {
+        // keep the current look; the next start reloads it
+      }
+    }
+    this.events.emit('tenant', { area });
   }
 
   /** A save or unsave from another of your devices (or the echo of one made here). */
