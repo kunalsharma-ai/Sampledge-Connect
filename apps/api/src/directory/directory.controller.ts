@@ -20,6 +20,7 @@ import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { ARGON2_OPTIONS, toUserSummary } from '../auth/auth.service.js';
+import { MfaService } from '../auth/mfa.service.js';
 import { SessionService } from '../auth/session.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantDb } from '../database/tenant-db.js';
@@ -41,6 +42,7 @@ export class DirectoryController {
     private readonly audit: AuditService,
     private readonly realtime: RealtimePublisher,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly mfa: MfaService,
   ) {}
 
   @Get('me')
@@ -167,6 +169,19 @@ export class DirectoryController {
     });
     const user = await t.users.findOne({ _id: id });
     return toUserSummary(user!, req.role ?? membership.role);
+  }
+
+  /** For someone who lost their authenticator and recovery codes: they set it up again. */
+  @Post('users/:id/mfa/reset')
+  @HttpCode(204)
+  async resetMfa(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+    if (id === ctx.userId)
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Turn off your own two-step verification in Settings',
+      );
+    await this.mfa.adminReset(ctx, id);
   }
 
   /** Device management: own devices, or everyone's for admins (?all=true). */

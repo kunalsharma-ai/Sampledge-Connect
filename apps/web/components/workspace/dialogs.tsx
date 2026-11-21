@@ -23,6 +23,7 @@ import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useEngine } from '@/lib/engine';
 import { BrowserNotificationsCard } from './browser-notifications';
+import { TwoStepCard } from './two-step-card';
 import { relativeShort } from './helpers';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
@@ -368,10 +369,11 @@ export function SettingsDialog({
       <DialogContent
         className="w-[min(880px,calc(100vw-2rem))]"
         title="Settings"
-        description="Appearance and notifications for this device."
+        description="Appearance, notifications and sign-in security."
       >
         <ThemePicker />
         <BrowserNotificationsCard />
+        <TwoStepCard />
         <div className="mt-6 rounded-xl border border-border p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-label text-text">Organization brand theme</p>
@@ -466,7 +468,24 @@ export function AdminDialog({
   const [devices, setDevices] = React.useState<Device[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
+  const [confirmReset, setConfirmReset] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
+  const { session } = useAuth();
+
+  async function resetTwoStep(userId: string, name: string) {
+    if (confirmReset !== userId) return setConfirmReset(userId);
+    setConfirmReset(null);
+    try {
+      await apiRequest('POST', `/v1/users/${userId}/mfa/reset`, { token: await getAccessToken() });
+      toast({
+        title: `Two-step verification reset for ${name}`,
+        description: 'They can sign in with their password and set it up again.',
+        tone: 'success',
+      });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
 
   const loadDevices = React.useCallback(async () => {
     try {
@@ -552,6 +571,18 @@ export function AdminDialog({
                   >
                     {u.role.replace('_', ' ')}
                   </Badge>
+                  {u.userId !== session?.user.userId ? (
+                    <Button
+                      size="sm"
+                      variant={confirmReset === u.userId ? 'danger' : 'ghost'}
+                      onClick={() => void resetTwoStep(u.userId, u.displayName)}
+                      onBlur={() => setConfirmReset(null)}
+                      aria-label={`Reset two-step verification for ${u.displayName}`}
+                      title="For someone who lost their authenticator app and recovery codes"
+                    >
+                      {confirmReset === u.userId ? 'Confirm reset' : 'Reset 2-step'}
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ul>

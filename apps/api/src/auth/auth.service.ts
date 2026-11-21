@@ -3,7 +3,9 @@ import argon2 from 'argon2';
 import { MongoServerError } from 'mongodb';
 import {
   LoginRequestSchema,
+  MfaVerifyRequestSchema,
   RegisterTenantRequestSchema,
+  type LoginResponse,
   type Session,
   type UserSummary,
 } from '@sampledge/contracts';
@@ -12,6 +14,7 @@ import { TenantDb, newId } from '../database/tenant-db.js';
 import type { UserDoc, TenantDoc } from '../database/documents.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
+import { MfaService } from './mfa.service.js';
 import { SessionService } from './session.service.js';
 
 /** OWASP-recommended argon2id parameters (m=19 MiB, t=2, p=1). */
@@ -51,6 +54,7 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly audit: AuditService,
     private readonly rateLimit: RateLimitService,
+    private readonly mfa: MfaService,
   ) {}
 
   async registerTenant(input: unknown, meta: RequestMeta): Promise<Session> {
@@ -152,7 +156,7 @@ export class AuthService {
     }
   }
 
-  async login(input: unknown, meta: RequestMeta): Promise<Session> {
+  async login(input: unknown, meta: RequestMeta): Promise<LoginResponse> {
     const req = parse(LoginRequestSchema, input);
     await this.rateLimit.consume('login_ip', meta.ip ?? 'unknown');
     await this.rateLimit.consume('login_account', `${req.tenantSlug}:${req.email}`);
@@ -178,23 +182,66 @@ export class AuthService {
     const membership = await t.memberships.findOne({ userId: user._id });
     if (!membership) throw invalid;
 
+    if (this.mfa.enabled(user)) {
+      await this.audit.record({
+        tenantId: tenant._id,
+        actorId: user._id,
+        action: 'auth.mfa_challenge',
+        ...meta,
+      });
+      return this.mfa.challenge({
+        tenantId: tenant._id,
+        userId: user._id,
+        role: membership.role,
+        workspaceId: membership.workspaceId,
+        device: req.device,
+      });
+    }
+    return this.finishLogin(tenant._id, user._id, req.device, meta, 'password');
+  }
+
+  /** Second step of a login with two-step verification. */
+  async verifyMfa(input: unknown, meta: RequestMeta): Promise<Session> {
+    const req = parse(MfaVerifyRequestSchema, input);
+    await this.rateLimit.consume('login_ip', meta.ip ?? 'unknown');
+    const p = await this.mfa.verifyChallenge(req.challengeId, req.code);
+    return this.finishLogin(p.tenantId, p.userId, p.device, meta, 'password+totp');
+  }
+
+  /** Issues the device session once every required factor has been checked. */
+  async finishLogin(
+    tenantId: string,
+    userId: string,
+    device: { deviceId: string; name: string; platform: string },
+    meta: RequestMeta,
+    method: string,
+  ): Promise<Session> {
+    const t = this.db.for(tenantId);
+    const [tenant, user, membership] = await Promise.all([
+      this.db.tenants.findOne({ _id: tenantId, status: 'active' }),
+      t.users.findOne({ _id: userId }),
+      t.memberships.findOne({ userId }),
+    ]);
+    if (!tenant || !user || user.status !== 'active' || !membership)
+      throw new AppError('UNAUTHENTICATED', 'Incorrect workspace, email or password');
     const issued = await this.sessions.create({
-      tenantId: tenant._id,
-      userId: user._id,
+      tenantId,
+      userId,
       role: membership.role,
-      device: req.device,
+      device,
     });
     await this.audit.record({
-      tenantId: tenant._id,
-      actorId: user._id,
+      tenantId,
+      actorId: userId,
       action: 'auth.login',
       target: { type: 'device', id: issued.sessionId },
+      metadata: { method },
       ...meta,
     });
     return {
       ...issued,
       user: toUserSummary(user, membership.role),
-      tenant: { tenantId: tenant._id, slug: tenant.slug, name: tenant.name },
+      tenant: { tenantId, slug: tenant.slug, name: tenant.name },
       workspaceId: membership.workspaceId,
     };
   }
