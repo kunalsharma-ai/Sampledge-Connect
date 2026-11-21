@@ -129,3 +129,15 @@ export const MfaDisableRequestSchema = z.object({
 export interface RecoveryCodes {
   recoveryCodes: string[];
 }
+
+/** GET /v1/auth/sso/:slug — what the login page offers for a workspace. */
+export interface SsoInfo {
+  enabled: boolean;
+  /** Button text the admin chose. */
+  label: string | null;
+  /** False when the workspace is SSO-only (the owner can still use a password). */
+  passwordLogin: boolean;
+}
+
+/** POST /v1/auth/sso/exchange — swaps the one-time code from `#sso=` for the session. */
+export const SsoExchangeRequestSchema = z.object({ code: z.string().min(10).max(200) });

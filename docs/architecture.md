@@ -64,21 +64,21 @@ Tooling: pnpm 12 workspaces, Turborepo, TypeScript 7, Node.js **26.13.1 LTS** (p
 
 ## 4. Backend modules (apps/api)
 
-| Module          | Responsibility                                                                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config`        | Typed env parsing with zod; refuses to boot on missing secrets                                                                                                  |
-| `database`      | Mongo client, migrations runner, `TenantScoped` collection wrapper                                                                                              |
-| `redis`         | ioredis clients (command + pub/sub), rate limiter                                                                                                               |
-| `auth`          | Password login (argon2id), short-lived access JWT (EdDSA), rotating refresh tokens with reuse detection, device sessions, revocation. OIDC/SSO and MFA: Planned |
-| `tenancy`       | Tenant registration (tenant + owner + default workspace + #general), membership lookups, tenant context guard                                                   |
-| `directory`     | Users list, invite member (admin)                                                                                                                               |
-| `conversations` | DM (deduplicated per pair), group, public/private channels, membership, archive                                                                                 |
-| `messages`      | Idempotent send, edit, soft delete, history pagination, sequence allocation                                                                                     |
-| `receipts`      | Delivered/read watermarks                                                                                                                                       |
-| `sync`          | Cursor sync over all readable conversations                                                                                                                     |
-| `realtime`      | Socket.IO gateway, room management, Redis adapter, typing and presence                                                                                          |
-| `audit`         | Append-only audit log for security-relevant actions                                                                                                             |
-| `health`        | Liveness / readiness (Mongo + Redis ping)                                                                                                                       |
+| Module          | Responsibility                                                                                                                                                                                             |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`        | Typed env parsing with zod; refuses to boot on missing secrets                                                                                                                                             |
+| `database`      | Mongo client, migrations runner, `TenantScoped` collection wrapper                                                                                                                                         |
+| `redis`         | ioredis clients (command + pub/sub), rate limiter                                                                                                                                                          |
+| `auth`          | Password login (argon2id), short-lived access JWT (EdDSA), rotating refresh tokens with reuse detection, device sessions, revocation. OIDC single sign-on and TOTP two-step verification (docs/sign-in.md) |
+| `tenancy`       | Tenant registration (tenant + owner + default workspace + #general), membership lookups, tenant context guard                                                                                              |
+| `directory`     | Users list, invite member (admin)                                                                                                                                                                          |
+| `conversations` | DM (deduplicated per pair), group, public/private channels, membership, archive                                                                                                                            |
+| `messages`      | Idempotent send, edit, soft delete, history pagination, sequence allocation                                                                                                                                |
+| `receipts`      | Delivered/read watermarks                                                                                                                                                                                  |
+| `sync`          | Cursor sync over all readable conversations                                                                                                                                                                |
+| `realtime`      | Socket.IO gateway, room management, Redis adapter, typing and presence                                                                                                                                     |
+| `audit`         | Append-only audit log for security-relevant actions                                                                                                                                                        |
+| `health`        | Liveness / readiness (Mongo + Redis ping)                                                                                                                                                                  |
 
 ## 5. Message write path
 
