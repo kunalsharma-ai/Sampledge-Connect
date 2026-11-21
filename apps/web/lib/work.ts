@@ -16,6 +16,7 @@ import type {
 import { apiRequest } from './api';
 import { useAuth } from './auth';
 import { useEngine } from './engine';
+import type { WorkEvent } from '@sampledge/offline';
 
 export type RecordWithActions = LinkedRecord & {
   actions: Pick<ModuleActionDef, 'type' | 'label' | 'description'>[];
@@ -59,10 +60,7 @@ export function useWorkApi() {
 function useCachedList<T>(
   cacheKey: string,
   fetcher: () => Promise<T[]>,
-  live: (
-    prev: T[],
-    e: { type: 'task'; task: Task } | { type: 'approval'; approval: Approval },
-  ) => T[] | null,
+  live: (prev: T[], e: WorkEvent) => T[] | null,
 ) {
   const { db, engine, state } = useEngine();
   const [items, setItems] = React.useState<T[] | null>(null);

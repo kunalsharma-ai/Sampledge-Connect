@@ -57,7 +57,15 @@ export interface RealtimeHandlers {
   onWork?(e: WorkEvent): void;
 }
 
-export type WorkEvent = { type: 'task'; task: Task } | { type: 'approval'; approval: Approval };
+export type WorkEvent =
+  | { type: 'task'; task: Task }
+  | { type: 'approval'; approval: Approval }
+  | {
+      type: 'records';
+      conversationId: string;
+      linkId: string;
+      reason: 'linked' | 'updated' | 'action';
+    };
 
 export type MeetingEvent =
   { type: 'upsert'; meeting: Meeting } | { type: 'reminder'; reminder: MeetingReminderEvent };
@@ -238,6 +246,7 @@ export class HttpSocketTransport implements Transport {
     s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
+    s.on('record:changed', (e) => this.handlers?.onWork?.({ type: 'records', ...e }));
     this.socket = s;
     s.connect();
   }
