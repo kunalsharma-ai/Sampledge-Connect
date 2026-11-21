@@ -43,13 +43,13 @@ is updated in place when the call ends, so it syncs like any edit.
 
 ## Configuration you must provide
 
-| Variable              | Where                            | Example                                                                         |
-| --------------------- | -------------------------------- | ------------------------------------------------------------------------------- |
-| `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                           |
-| `LIVEKIT_API_KEY`     | compose `.env`                   | `sampledge` (default)                                                           |
-| `LIVEKIT_PUBLIC_URL`  | API                              | `wss://rtc.example.com` (what browsers and phones connect to)                   |
-| `LIVEKIT_NODE_IP`     | LiveKit                          | The server's public IP (VPS) or LAN IP (on-premises)                            |
-| `NEXT_PUBLIC_RTC_URL` | web build                        | Same as `LIVEKIT_PUBLIC_URL`; it is added to the page's Content-Security-Policy |
+| Variable              | Where                            | Example                                                                                                                |
+| --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                                                                  |
+| `LIVEKIT_API_KEY`     | compose `.env`                   | `sampledge` (default)                                                                                                  |
+| `LIVEKIT_PUBLIC_URL`  | API                              | `wss://rtc.example.com` (what browsers and phones connect to)                                                          |
+| `LIVEKIT_NODE_IP`     | LiveKit                          | The server's public IP (VPS) or LAN IP (on-premises). Never `127.0.0.1`: egress fails with "Start signal not received" |
+| `NEXT_PUBLIC_RTC_URL` | web build                        | Same as `LIVEKIT_PUBLIC_URL`; it is added to the page's Content-Security-Policy                                        |
 
 Open these ports on the server: TCP 7880 (signalling, put it behind your TLS reverse proxy as `wss://`),
 TCP 7881, UDP 3478 (TURN), UDP 50000–50200 (media and TURN relay).

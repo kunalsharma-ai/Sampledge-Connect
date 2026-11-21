@@ -85,6 +85,8 @@ services:
           port_range_start: 50000
           port_range_end: 50100
           use_external_ip: false
+          # Set LIVEKIT_NODE_IP to the host's real LAN/public IP. 127.0.0.1 only works for a
+          # browser on this machine and breaks call recording (egress can't connect).
           node_ip: ${LIVEKIT_NODE_IP:-127.0.0.1}
         room:
           auto_create: false
@@ -115,6 +117,7 @@ services:
     restart: unless-stopped
     depends_on: [livekit, redis, recordings-init]
     cap_add: [SYS_ADMIN] # Chrome sandbox
+    shm_size: 1g # Chrome needs more than Docker's default 64 MB /dev/shm
     environment:
       EGRESS_CONFIG_BODY: |
         api_key: ${LIVEKIT_API_KEY:-sampledge}
