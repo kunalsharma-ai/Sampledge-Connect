@@ -13,6 +13,7 @@ import type {
   SendMessageRequest,
   ServerToClientEvents,
   SetReactionRequest,
+  ScheduledMessage,
 } from '@sampledge/contracts';
 import type { LocalStore } from '../db/store';
 import { Emitter } from '../lib/emitter';
@@ -38,6 +39,8 @@ type RealtimeEvents = {
   callUpdated: Call;
   /** A meeting you attend starts soon. */
   meetingReminder: MeetingReminderEvent;
+  /** One of your scheduled messages changed (sent, failed, edited on another device). */
+  scheduledUpdated: ScheduledMessage;
 };
 
 /**
@@ -105,6 +108,7 @@ export class RealtimeClient {
       void this.store.upsertMeetings([e.meeting]);
       this.events.emit('meetingReminder', e);
     });
+    socket.on('scheduled:updated', (m) => this.events.emit('scheduledUpdated', m));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

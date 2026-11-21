@@ -3,6 +3,10 @@ import {
   type Attachment,
   type Bookmark,
   type CreatePollRequest,
+  type CreateScheduledMessageRequest,
+  type PostingPolicy,
+  type ScheduledMessage,
+  type UpdateScheduledMessageRequest,
   type MyPollVote,
   type AttachmentUrl,
   type CreateUploadRequest,
@@ -139,6 +143,16 @@ export interface ApiTransport {
   votePoll(messageId: string, optionIds: string[]): Promise<Message>;
   myPollVote(messageId: string): Promise<MyPollVote>;
   closePoll(messageId: string): Promise<Message>;
+  /** Your own scheduled messages (scheduled and failed unless a status is given). */
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]>;
+  scheduleMessage(
+    conversationId: string,
+    req: CreateScheduledMessageRequest,
+  ): Promise<ScheduledMessage>;
+  updateScheduled(id: string, req: UpdateScheduledMessageRequest): Promise<ScheduledMessage>;
+  cancelScheduled(id: string): Promise<ScheduledMessage>;
+  sendScheduledNow(id: string): Promise<ScheduledMessage>;
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -496,6 +510,42 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/messages/${encodeURIComponent(messageId)}/poll/close`, {});
   }
 
+  listScheduled(conversationId?: string): Promise<ScheduledMessage[]> {
+    const q = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : '';
+    return this.request('GET', `/v1/scheduled-messages${q}`, undefined);
+  }
+
+  scheduleMessage(
+    conversationId: string,
+    req: CreateScheduledMessageRequest,
+  ): Promise<ScheduledMessage> {
+    return this.request(
+      'POST',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/scheduled-messages`,
+      req,
+    );
+  }
+
+  updateScheduled(id: string, req: UpdateScheduledMessageRequest): Promise<ScheduledMessage> {
+    return this.request('PATCH', `/v1/scheduled-messages/${encodeURIComponent(id)}`, req);
+  }
+
+  cancelScheduled(id: string): Promise<ScheduledMessage> {
+    return this.request('DELETE', `/v1/scheduled-messages/${encodeURIComponent(id)}`, undefined);
+  }
+
+  sendScheduledNow(id: string): Promise<ScheduledMessage> {
+    return this.request('POST', `/v1/scheduled-messages/${encodeURIComponent(id)}/send-now`, {});
+  }
+
+  setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
+    return this.request(
+      'PUT',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/posting-policy`,
+      { policy },
+    );
+  }
+
   async setBookmark(messageId: string, saved: boolean): Promise<void> {
     await this.request(
       saved ? 'PUT' : 'DELETE',
@@ -695,6 +745,12 @@ export class NoServerTransport implements ApiTransport {
   votePoll = async (): Promise<Message> => this.fail();
   myPollVote = async (): Promise<MyPollVote> => this.fail();
   closePoll = async (): Promise<Message> => this.fail();
+  listScheduled = async (): Promise<ScheduledMessage[]> => this.fail();
+  scheduleMessage = async (): Promise<ScheduledMessage> => this.fail();
+  updateScheduled = async (): Promise<ScheduledMessage> => this.fail();
+  cancelScheduled = async (): Promise<ScheduledMessage> => this.fail();
+  sendScheduledNow = async (): Promise<ScheduledMessage> => this.fail();
+  setPostingPolicy = async (): Promise<Conversation> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();

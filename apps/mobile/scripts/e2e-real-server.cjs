@@ -1732,6 +1732,162 @@ function totp(secret, offset = 0) {
     );
     await shot('88-poll-closed');
   }
+
+  // ---- Scheduled messages and announcement channels: Sam schedules a message from the
+  // composer, sees it in the conversation's scheduled list, changes the time, sends one now
+  // and deletes another; then Priya makes the channel announcement-only and Sam's composer
+  // turns read-only (and back).
+  {
+    const tokenOf = async (email) =>
+      (
+        await api('POST', '/v1/auth/login', {
+          tenantSlug: 'northwind',
+          email,
+          password: pw,
+          device: { deviceId: crypto.randomUUID(), name: 'e2e', platform: 'web' },
+        })
+      ).accessToken;
+    const samTok = await tokenOf('sam@northwind.test');
+    const priyaTok = await tokenOf('priya@northwind.test');
+    const convs = await api('GET', '/v1/conversations', undefined, samTok);
+    const ops = (Array.isArray(convs) ? convs : convs.conversations).find(
+      (c) => c.name === 'fieldwork-ops',
+    );
+    const mine = async () => {
+      const r = await api(
+        'GET',
+        `/v1/scheduled-messages?conversationId=${ops.conversationId}`,
+        undefined,
+        samTok,
+      );
+      return Array.isArray(r) ? r : r.items;
+    };
+    for (const m of await mine())
+      await api('DELETE', `/v1/scheduled-messages/${m.scheduledId}`, undefined, samTok);
+    const run = Date.now().toString(36).slice(-4);
+    const later = `Reminder: upload the wave 3 data files (${run}).`;
+    const other = `Draft I will not send (${run}).`;
+
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3000);
+    const schedule = async (text, preset) => {
+      await p.locator('textarea').last().fill(text);
+      await p.getByRole('button', { name: 'Attach' }).click();
+      await p.getByRole('button', { name: 'Send later' }).click();
+      await p.waitForTimeout(600);
+      await p.getByRole('button', { name: preset }).click();
+      await p.waitForTimeout(2000);
+    };
+    await p.locator('textarea').last().fill(later);
+    await p.getByRole('button', { name: 'Attach' }).click();
+    await p.getByRole('button', { name: 'Send later' }).click();
+    await p.waitForTimeout(800);
+    await shot('89-send-later');
+    await p.getByRole('button', { name: /^In 1 hour/ }).click();
+    await p.waitForTimeout(2000);
+    check(
+      'scheduling confirms the time and clears the composer',
+      /Scheduled for /.test(await p.innerText('body')) &&
+        (await p.locator('textarea').last().inputValue()) === '',
+    );
+    const s1 = (await mine()).find((m) => m.content.text === later);
+    check('the server holds the scheduled message', s1?.status === 'scheduled');
+    await schedule(other, /^Tomorrow, 9 AM/);
+    check(
+      'the conversation shows what is scheduled',
+      (await p.getByRole('button', { name: /^2 scheduled messages/ }).count()) > 0,
+    );
+    await p.getByRole('button', { name: /^2 scheduled messages/ }).click();
+    await p.waitForTimeout(2000);
+    await p.getByRole('button', { name: 'Change time' }).first().click();
+    await p.waitForTimeout(600);
+    await p.getByRole('button', { name: /^Tomorrow, 9 AM/ }).click();
+    await p.waitForTimeout(2000);
+    const moved = (await mine()).find((m) => m.scheduledId === s1.scheduledId);
+    check(
+      'changing the time reaches the server',
+      Date.parse(moved.sendAt) > Date.parse(s1.sendAt) + 3_600_000,
+    );
+    await shot('90-scheduled-list');
+    const cards = async () => p.innerText('body');
+    // Delete the draft, send the reminder now.
+    const draftIdx = (await mine()).findIndex((m) => m.content.text === other);
+    await p.getByRole('button', { name: 'Delete' }).nth(draftIdx).click();
+    await p.waitForTimeout(2000);
+    check(
+      'deleting removes it',
+      !(await cards()).includes(other) &&
+        !(await mine()).some((m) => m.content.text === other && m.status === 'scheduled'),
+    );
+    await p.getByRole('button', { name: 'Send now' }).first().click();
+    await p.waitForTimeout(3000);
+    const sent = await api(
+      'GET',
+      `/v1/conversations/${ops.conversationId}/messages?limit=10`,
+      undefined,
+      samTok,
+    );
+    check(
+      'Send now posts it as Sam',
+      (Array.isArray(sent) ? sent : (sent.messages ?? sent.items)).some((m) =>
+        m.content.text === later && m.senderId === s1.senderId ? true : m.content.text === later,
+      ) && /Nothing scheduled/.test(await cards()),
+    );
+
+    await api(
+      'PUT',
+      `/v1/conversations/${ops.conversationId}/posting-policy`,
+      { policy: 'moderators' },
+      priyaTok,
+    );
+    await p.goto(`${APP}/conversation/${ops.conversationId}`);
+    await p.waitForTimeout(3500);
+    check(
+      'members see a read-only bar in an announcement channel',
+      /Announcement channel\. Only owners and moderators post here\./.test(
+        await p.innerText('body'),
+      ) && (await p.locator('textarea').count()) === 0,
+    );
+    await shot('91-announcement-channel');
+    await api(
+      'PUT',
+      `/v1/conversations/${ops.conversationId}/posting-policy`,
+      { policy: 'everyone' },
+      priyaTok,
+    );
+    await p.waitForTimeout(3000);
+    check('turning it off gives the composer back', (await p.locator('textarea').count()) > 0);
+
+    // Priya turns it on from the details screen on her phone.
+    const ctx5 = await b.newContext({ ...devices['iPhone 13'], colorScheme: 'dark' });
+    const p5 = await ctx5.newPage();
+    await p5.goto(`${APP}/`, { waitUntil: 'networkidle' });
+    await p5.waitForTimeout(1500);
+    const f5 = p5.locator('input');
+    await f5.nth(0).fill(API);
+    await f5.nth(1).fill('northwind');
+    await f5.nth(2).fill('priya@northwind.test');
+    await f5.nth(3).fill(pw);
+    await p5.getByRole('button', { name: 'Sign in' }).click();
+    await p5.waitForTimeout(4000);
+    await p5.goto(`${APP}/conversation-info/${ops.conversationId}`);
+    await p5.waitForTimeout(2500);
+    await p5.getByRole('switch', { name: 'Announcement channel' }).click();
+    await p5.waitForTimeout(2000);
+    const list = await api('GET', '/v1/conversations', undefined, priyaTok);
+    check(
+      'the owner turns on announcement-only from details',
+      (Array.isArray(list) ? list : list.conversations).find(
+        (c) => c.conversationId === ops.conversationId,
+      ).postingPolicy === 'moderators',
+    );
+    await p5.waitForTimeout(800);
+    await p5.screenshot({ path: `${out}/92-announcement-switch.png` });
+    console.log('shot 92-announcement-switch');
+    await p5.getByRole('switch', { name: 'Announcement channel' }).click();
+    await p5.waitForTimeout(1500);
+    await ctx5.close();
+  }
   await b.close();
   if (failures.length) process.exit(1);
 })();

@@ -9,6 +9,7 @@ import {
   type Message,
   type MessageStatus,
   type Poll,
+  type PostingPolicy,
   type RsvpResponse,
   type NotifyLevel,
   type Reaction,
@@ -199,6 +200,8 @@ export interface LocalConversation {
   notifyLevel: NotifyLevel;
   /** True while a level set on this device has not reached the server. */
   notifyLevelPending: boolean;
+  /** 'moderators' makes a channel an announcement channel. */
+  postingPolicy: PostingPolicy;
 }
 
 export interface OutboxItem {
@@ -1074,11 +1077,12 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const c of conversations) {
         await tx.run(
-          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id) DO UPDATE SET
              kind = excluded.kind, name = excluded.name, topic = excluded.topic, member_ids = excluded.member_ids,
              archived_at = excluded.archived_at, my_role = excluded.my_role, notify_level = excluded.notify_level,
+             posting_policy = excluded.posting_policy,
              last_change_seq = MAX(conversations.last_change_seq, excluded.last_change_seq),
              last_message_at = COALESCE(MAX(conversations.last_message_at, excluded.last_message_at), excluded.last_message_at, conversations.last_message_at)`,
           [
@@ -1092,6 +1096,7 @@ export class LocalStore {
             c.lastChangeSequence,
             c.lastMessageAt,
             c.myNotifyLevel ?? 'all',
+            c.postingPolicy ?? 'everyone',
           ],
         );
       }
@@ -1257,6 +1262,7 @@ export class LocalStore {
       pending: number;
       notify_level: NotifyLevel;
       pending_notify_level: NotifyLevel | null;
+      posting_policy: PostingPolicy | null;
     }>(
       `SELECT c.*,
          CASE WHEN c.kind = 'channel_public' AND c.my_role IS NULL THEN 0 ELSE
@@ -1283,6 +1289,7 @@ export class LocalStore {
       pending: r.pending,
       notifyLevel: r.pending_notify_level ?? r.notify_level,
       notifyLevelPending: r.pending_notify_level != null,
+      postingPolicy: r.posting_policy ?? 'everyone',
     }));
   }
 

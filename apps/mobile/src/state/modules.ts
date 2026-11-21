@@ -70,6 +70,15 @@ export const MODULES: ModuleEntry[] = [
       'Messages you saved for later from any conversation. Pinned messages show at the top of each conversation.',
   },
   {
+    key: 'scheduled',
+    title: 'Scheduled messages',
+    icon: 'time-outline',
+    status: 'available',
+    href: '/scheduled',
+    summary:
+      'Messages you wrote to send later. The server sends them as you at the time you picked; send now, change the time or delete.',
+  },
+  {
     key: 'recordings',
     title: 'Recordings',
     icon: 'recording-outline',

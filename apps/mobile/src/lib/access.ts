@@ -45,3 +45,23 @@ export function channelNameError(name: string): string | null {
     return 'Use letters, numbers, spaces, and - _ . only, starting with a letter or number.';
   return null;
 }
+
+/** Announcement channels: only conversation owners and moderators (and workspace admins) post. */
+export function canPostIn(c: LocalConversation, tenantRole: TenantRole): boolean {
+  if (!canInConversation(c, tenantRole, 'message.send')) return false;
+  if (c.postingPolicy !== 'moderators') return true;
+  return (
+    c.myRole === 'owner' ||
+    c.myRole === 'moderator' ||
+    tenantRole === 'owner' ||
+    tenantRole === 'admin'
+  );
+}
+
+/** Who may turn a channel into an announcement channel (same rule as renaming). */
+export function canSetPostingPolicy(c: LocalConversation, tenantRole: TenantRole): boolean {
+  return (
+    (c.kind === 'channel_public' || c.kind === 'channel_private') &&
+    canInConversation(c, tenantRole, 'conversation.rename')
+  );
+}

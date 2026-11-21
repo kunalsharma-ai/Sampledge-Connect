@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
 import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
-import type { TenantRole } from '@sampledge/contracts';
+import type { ScheduledMessage, TenantRole } from '@sampledge/contracts';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -281,4 +281,38 @@ export function useSavedIds(): ReadonlySet<string> {
     return off;
   }, [engine]);
   return ids;
+}
+
+/** Your scheduled messages (optionally for one conversation), kept fresh from the server. */
+export function useScheduled(conversationId?: string): {
+  items: ScheduledMessage[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<ScheduledMessage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      if (engine.serverActionBlocker()) return;
+      void engine
+        .listScheduled(conversationId)
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load();
+    const off = engine.events.on('scheduled', load);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [engine, conversationId, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
 }

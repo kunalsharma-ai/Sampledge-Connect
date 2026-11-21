@@ -74,7 +74,10 @@ member is told only admins can change them, and the owner saves SMTP settings wi
 that the server keeps encrypted and never returns, then runs Test connection. Then two-step
 sign-in (code step, wrong code, recovery-code option, a real authenticator code), and pins and
 saved messages (pin from the message sheet, another member's pin arriving live, the pinned
-list with Unpin, Save for later and the Saved messages screen).
+list with Unpin, Save for later and the Saved messages screen), polls (post, vote, a vote
+arriving live, change a vote, close), and scheduled messages and announcement channels (Send
+later, the scheduled list with Change time, Delete and Send now, the read-only composer for
+members, and the owner's switch in details).
 
 Call recording needs the LiveKit egress worker next to the SFU, sharing its Redis, with
 `RECORDINGS_SPOOL_DIR` on the API pointing at the folder egress writes to. Locally:
@@ -167,7 +170,12 @@ Integrations: email, calls, push and AI connections stored encrypted in the serv
 and applied at once, with Test connection; secrets can be replaced or removed but are never
 shown), two-step sign-in (authenticator or recovery code), pins (a bar under the conversation
 header with the newest pin, a pinned list, pin and unpin from the message sheet, kept on the
-device so they show offline) and saved messages (Save for later, More, Saved messages), on-device
+device so they show offline) and saved messages (Save for later, More, Saved messages), polls
+(+ menu, Poll: multiple choice, anonymous, closing time; vote on the card with live results;
+Close poll for the author and moderators), scheduled messages (+ menu, Send later, or hold the
+send button; quick times or a day and time; the server sends them as you; a banner in the
+conversation and More, Scheduled messages to send now, change the time or delete), announcement
+channels (members get a read-only bar; owners and moderators switch it in details), on-device
 search, themes, offline and storage settings, sign-out with a warning
 when queued messages would be lost.
 
@@ -177,7 +185,7 @@ push delivery to a device (the app registers its Expo push token and opens the c
 when a push is tapped, but it needs an EAS project ID, APNs and FCM credentials, and
 Mobile push (Expo) turned on in More, Integrations; Settings, Notifications shows what is missing), AI Assistant, Analytics, the Sampledge module integrations, Administration, SSO (OIDC)
 on mobile, a separate thread pane, screen recording from the phone, recording retention and export
-settings (admin, on the web), polls, and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
+settings (admin, on the web), and queued read receipts. Display names come from `GET /v1/users` after each sync (guests without directory access see short ids).
 
 Not yet verified on a device or simulator. This cloud environment has no KVM (so no Android
 emulator) and no macOS (so no iOS simulator). A device build needs either a local machine with
