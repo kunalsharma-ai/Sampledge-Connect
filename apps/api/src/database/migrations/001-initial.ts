@@ -99,17 +99,15 @@ export const initialMigration: Migration = {
         lastMessageAt: nullable(date),
       }),
     );
-    await db
-      .collection('conversations')
-      .createIndexes([
-        {
-          key: { tenantId: 1, dmKey: 1 },
-          unique: true,
-          partialFilterExpression: { dmKey: { $type: 'string' } },
-        },
-        { key: { tenantId: 1, workspaceId: 1, kind: 1, name: 1 } },
-        { key: { tenantId: 1, lastMessageAt: -1 } },
-      ]);
+    await db.collection('conversations').createIndexes([
+      {
+        key: { tenantId: 1, dmKey: 1 },
+        unique: true,
+        partialFilterExpression: { dmKey: { $type: 'string' } },
+      },
+      { key: { tenantId: 1, workspaceId: 1, kind: 1, name: 1 } },
+      { key: { tenantId: 1, lastMessageAt: -1 } },
+    ]);
 
     await ensureCollection(
       db,

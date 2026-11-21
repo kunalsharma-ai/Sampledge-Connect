@@ -266,20 +266,18 @@ export class ConversationsService {
     if (membership) return this.toDto(ctx, conversation, undefined, membership.role);
     if (conversation.kind !== 'channel_public' || !tenantCan(ctx.role, 'channel.public.join'))
       throw forbidden();
-    await this.db
-      .for(ctx.tenantId)
-      .conversation_members.updateOne(
-        { conversationId, userId: ctx.userId },
-        {
-          $setOnInsert: {
-            conversationId,
-            userId: ctx.userId,
-            role: 'member',
-            joinedAt: new Date(),
-          } as never,
-        },
-        { upsert: true },
-      );
+    await this.db.for(ctx.tenantId).conversation_members.updateOne(
+      { conversationId, userId: ctx.userId },
+      {
+        $setOnInsert: {
+          conversationId,
+          userId: ctx.userId,
+          role: 'member',
+          joinedAt: new Date(),
+        } as never,
+      },
+      { upsert: true },
+    );
     const members = await this.memberIds(ctx.tenantId, conversationId);
     return this.announce(ctx, conversation, members);
   }

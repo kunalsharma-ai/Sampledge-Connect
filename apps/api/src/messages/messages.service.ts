@@ -42,16 +42,14 @@ export class MessagesService {
     touchLastMessage: boolean,
   ): Promise<number> {
     const now = new Date();
-    const c = await this.db
-      .for(tenantId)
-      .conversations.findOneAndUpdate(
-        { _id: conversationId },
-        {
-          $inc: { lastChangeSequence: 1 },
-          ...(touchLastMessage ? { $set: { lastMessageAt: now } } : {}),
-        },
-        { returnDocument: 'after', projection: { lastChangeSequence: 1 } },
-      );
+    const c = await this.db.for(tenantId).conversations.findOneAndUpdate(
+      { _id: conversationId },
+      {
+        $inc: { lastChangeSequence: 1 },
+        ...(touchLastMessage ? { $set: { lastMessageAt: now } } : {}),
+      },
+      { returnDocument: 'after', projection: { lastChangeSequence: 1 } },
+    );
     if (!c) throw notFound('Conversation');
     return c.lastChangeSequence;
   }
