@@ -1,16 +1,7 @@
 'use client';
+import type * as React from 'react';
 import { motion } from 'motion/react';
-import {
-  Bot,
-  Briefcase,
-  CheckSquare,
-  FileText,
-  Hash,
-  Lock,
-  Megaphone,
-  Users,
-  X,
-} from 'lucide-react';
+import { Briefcase, CheckSquare, FileText, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -43,7 +34,6 @@ const PLANNED = [
     body: 'Files shared here, stored in Nextcloud.',
     phase: 'Phase 1b',
   },
-  { icon: Bot, title: 'AI summary', body: 'Catch-up summary and action items.', phase: 'Phase 4' },
 ];
 
 export function ContextPanel({
@@ -55,7 +45,10 @@ export function ContextPanel({
   className,
   canManage = false,
   onSetPostingPolicy,
+  aiCard,
 }: {
+  /** The AI summary card (right-panel AI), rendered above members. */
+  aiCard?: React.ReactNode;
   conversation: Conversation;
   me: string;
   directory: Map<string, DirectoryEntry>;
@@ -175,6 +168,7 @@ export function ContextPanel({
             </div>
           </section>
         ) : null}
+        {aiCard}
 
         <section>
           <p className="mb-2 text-overline uppercase text-text-subtle">Members</p>

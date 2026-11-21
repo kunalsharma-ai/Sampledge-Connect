@@ -4,6 +4,7 @@ import {
   Bookmark,
   BookmarkCheck,
   CornerUpLeft,
+  Languages,
   MessagesSquare,
   Pin,
   PinOff,
@@ -168,10 +169,13 @@ export function MessageActions({
   onPin,
   saved,
   onSave,
+  onTranslate,
 }: {
   own: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  /** Present when the AI assistant is available. */
+  onTranslate?: () => void;
 } & ExtraActions) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -228,6 +232,11 @@ export function MessageActions({
               className={cn(ACTION_BTN, saved && 'text-accent')}
             >
               {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+            </button>
+          ) : null}
+          {onTranslate ? (
+            <button onClick={onTranslate} aria-label="Translate" className={ACTION_BTN}>
+              <Languages className="size-4" />
             </button>
           ) : null}
         </>

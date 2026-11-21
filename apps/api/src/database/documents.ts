@@ -280,6 +280,8 @@ export interface CallRecordingDoc {
 export interface TenantSettingsDoc extends TenantOwned {
   recordingRetentionDays: number | null;
   callRecordingEnabled: boolean;
+  /** Private AI assistant on/off for the organization. Absent means on. */
+  aiEnabled?: boolean;
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -358,6 +360,50 @@ export interface ScheduledMessageDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+/** One embedding per message per embedding model (the vector index for semantic search). */
+export interface AiEmbeddingDoc extends TenantOwned {
+  conversationId: string;
+  messageId: string;
+  senderId: string;
+  /** Embedding model id, e.g. "basic-hash-512" or "model:nomic-embed-text". */
+  model: string;
+  vector: number[];
+  changeSequence: number;
+  createdAt: Date;
+}
+
+/** How far each conversation is indexed, per embedding model. */
+export interface AiIndexStateDoc extends TenantOwned {
+  conversationId: string;
+  model: string;
+  indexedUpTo: number;
+  updatedAt: Date;
+}
+
+/** Cached summaries, keyed by conversation, message range and engine. Expire after a week. */
+export interface AiSummaryCacheDoc extends TenantOwned {
+  conversationId: string;
+  key: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+}
+
+/** A drafted action waiting for the person to confirm. Nothing happens until they do. */
+export interface AiProposalDoc extends TenantOwned {
+  userId: string;
+  kind: 'send_message';
+  conversationId: string;
+  text: string;
+  risk: { level: 'normal' | 'sensitive'; categories: string[] };
+  status: 'pending' | 'confirmed' | 'dismissed';
+  /** Idempotency key for the message sent on confirm. */
+  clientMessageId: string;
+  messageId: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  confirmedAt: Date | null;
+}
+
 export interface TenantCollections {
   users: UserDoc;
   memberships: MembershipDoc;
@@ -377,4 +423,8 @@ export interface TenantCollections {
   tenant_settings: TenantSettingsDoc;
   bookmarks: BookmarkDoc;
   scheduled_messages: ScheduledMessageDoc;
+  ai_embeddings: AiEmbeddingDoc;
+  ai_index_state: AiIndexStateDoc;
+  ai_summaries: AiSummaryCacheDoc;
+  ai_proposals: AiProposalDoc;
 }
