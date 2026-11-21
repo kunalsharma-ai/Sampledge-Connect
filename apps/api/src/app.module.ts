@@ -39,6 +39,19 @@ import { GuestsController } from './meetings/guests.controller.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
+import { WorkStore } from './integrations/collections.js';
+import { ModuleSettingsService } from './integrations/module-settings.service.js';
+import { RecordsService } from './integrations/records.service.js';
+import { WebhooksService } from './integrations/webhooks.service.js';
+import { ModuleActionsService } from './integrations/module-actions.service.js';
+import { ModuleEventsService } from './integrations/module-events.service.js';
+import { ModuleKeyGuard, ModuleKeysService } from './integrations/module-keys.service.js';
+import { IntegrationApiController } from './integrations/integration-api.controller.js';
+import { IntegrationsController } from './integrations/integrations.controller.js';
+import { TasksService } from './work/tasks.service.js';
+import { ApprovalsService } from './work/approvals.service.js';
+import { ProjectsService } from './work/projects.service.js';
+import { WorkController } from './work/work.controller.js';
 import type { Db } from 'mongodb';
 
 @Module({})
@@ -67,6 +80,9 @@ export class AppModule {
         CallsController,
         MeetingsController,
         GuestsController,
+        IntegrationApiController,
+        IntegrationsController,
+        WorkController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -86,6 +102,17 @@ export class AppModule {
         MeetingsService,
         GuestsService,
         MailerService,
+        WorkStore,
+        ModuleSettingsService,
+        RecordsService,
+        WebhooksService,
+        ModuleActionsService,
+        ModuleEventsService,
+        ModuleKeysService,
+        ModuleKeyGuard,
+        TasksService,
+        ApprovalsService,
+        ProjectsService,
         PushProviders,
         {
           provide: FILE_STORAGE,

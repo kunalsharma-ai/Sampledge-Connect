@@ -15,3 +15,6 @@ export * from './meetings.js';
 export * from './recordings.js';
 export * from './guests.js';
 export * from './integration-settings.js';
+export * from './integrations.js';
+export * from './work.js';
+export * from './modules-catalog.js';

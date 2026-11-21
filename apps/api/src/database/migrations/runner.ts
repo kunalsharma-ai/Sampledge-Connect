@@ -6,6 +6,7 @@ import { callsMigration } from './004-calls.js';
 import { meetingsMigration } from './005-meetings.js';
 import { recordingsMigration } from './006-recordings.js';
 import { guestsMigration } from './007-guests.js';
+import { sampledgeModulesMigration } from './011-sampledge-modules.js';
 import { integrationSettingsMigration } from './010-integration-settings.js';
 
 export interface Migration {
@@ -23,6 +24,7 @@ export const MIGRATIONS: Migration[] = [
   recordingsMigration,
   guestsMigration,
   integrationSettingsMigration,
+  sampledgeModulesMigration,
 ];
 
 /**

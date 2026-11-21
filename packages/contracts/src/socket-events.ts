@@ -10,6 +10,7 @@ import type {
 } from './messages.js';
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
+import type { Approval, Task } from './work.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -60,6 +61,10 @@ export interface ServerToClientEvents {
   'meeting:upsert': (meeting: Meeting) => void;
   /** A meeting you're attending starts soon. */
   'meeting:reminder': (e: MeetingReminderEvent) => void;
+  /** A task you're assigned to or created was created or changed. */
+  'task:upsert': (task: Task) => void;
+  /** An approval you requested or must decide was created or decided. */
+  'approval:upsert': (approval: Approval) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }

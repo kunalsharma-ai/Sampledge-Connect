@@ -314,6 +314,70 @@ export class NotificationsService {
       );
   }
 
+  /**
+   * Notifies chosen people about a server-posted card (module alerts, task assignments,
+   * approval requests): in-app notification, live event and push. Respects each person's
+   * notify level ('none' mutes, 'mentions' still gets these since they're addressed to them).
+   * Idempotent per user and message.
+   */
+  async notifyAbout(
+    tenantId: string,
+    message: Pick<MessageDoc, '_id' | 'conversationId' | 'senderId' | 'content' | 'attachments'>,
+    userIds: string[],
+    kind: 'alert' | 'task' | 'approval',
+    pushTitle: string,
+  ): Promise<void> {
+    const t = this.db.for(tenantId);
+    const members = await t.conversation_members
+      .find(
+        { conversationId: message.conversationId, userId: { $in: userIds } },
+        { projection: { userId: 1, notifyLevel: 1 } },
+      )
+      .toArray();
+    const targets = members
+      .filter((m) => m.userId !== message.senderId && (m.notifyLevel ?? 'all') !== 'none')
+      .map((m) => m.userId);
+    if (!targets.length) return;
+    const preview = previewOf(message);
+    const now = new Date();
+    const created: NotificationDoc[] = [];
+    for (const userId of targets) {
+      try {
+        created.push(
+          await t.notifications.insertOne({
+            userId,
+            kind,
+            conversationId: message.conversationId,
+            messageId: message._id,
+            actorId: message.senderId,
+            preview,
+            createdAt: now,
+            readAt: null,
+          }),
+        );
+      } catch (e) {
+        if (e instanceof MongoServerError && e.code === 11000) continue;
+        throw e;
+      }
+    }
+    for (const d of created)
+      this.realtime.toUser(tenantId, d.userId, 'notification:new', toNotification(d));
+    void (async () => {
+      for (const d of created) {
+        const unreadCount = await t.notifications.countDocuments({ userId: d.userId, readAt: null });
+        const data: PushData = {
+          type: 'message',
+          conversationId: message.conversationId,
+          messageId: message._id,
+          kind,
+          notificationId: d._id,
+          unreadCount,
+        };
+        await this.pushToUsers(tenantId, [d.userId], pushTitle, preview, { ...data });
+      }
+    })().catch((e) => this.log.warn(`push failed for ${message._id}: ${String(e)}`));
+  }
+
   /** A deleted message no longer notifies anyone. */
   async onMessageDeleted(tenantId: string, messageId: string): Promise<void> {
     await this.db.for(tenantId).notifications.deleteMany({ messageId });
