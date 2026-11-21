@@ -59,6 +59,22 @@ export class MeetingsController {
     return this.meetings.rsvp(ctx, id, body);
   }
 
+  /** A guest's personal join link (organizer only). */
+  @Get('meetings/:id/guests/:guestId/link')
+  guestLink(@Ctx() ctx: TenantContext, @Param('id') id: string, @Param('guestId') guestId: string) {
+    return this.meetings.guestLink(ctx, id, guestId);
+  }
+
+  @Post('meetings/:id/guests/:guestId/resend')
+  @HttpCode(200)
+  resendGuest(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('guestId') guestId: string,
+  ) {
+    return this.meetings.resendGuestInvite(ctx, id, guestId);
+  }
+
   @Get('me/working-hours')
   workingHours(@Ctx() ctx: TenantContext) {
     return this.meetings.getWorkingHours(ctx);

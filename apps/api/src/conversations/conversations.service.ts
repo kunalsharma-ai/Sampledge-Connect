@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
+import type { z } from 'zod';
 import {
   AddMembersRequestSchema,
   CreateConversationRequestSchema,
@@ -129,7 +130,26 @@ export class ConversationsService {
   }
 
   async create(ctx: TenantContext, input: unknown): Promise<Conversation> {
-    const req = parse(CreateConversationRequestSchema, input);
+    return this.createParsed(ctx, parse(CreateConversationRequestSchema, input));
+  }
+
+  /**
+   * The chat a new meeting lives in: a DM for one other person, otherwise a group named after
+   * the meeting. A meeting with only external guests gets a group with just the organizer.
+   */
+  async createMeetingChat(
+    ctx: TenantContext,
+    name: string,
+    memberIds: string[],
+  ): Promise<Conversation> {
+    if (memberIds.length === 1) return this.create(ctx, { kind: 'dm', memberIds });
+    return this.createParsed(ctx, { kind: 'group', name: name.slice(0, 80), memberIds });
+  }
+
+  private async createParsed(
+    ctx: TenantContext,
+    req: z.infer<typeof CreateConversationRequestSchema>,
+  ): Promise<Conversation> {
     const t = this.db.for(ctx.tenantId);
     const now = new Date();
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ServerIdSchema } from './ids.js';
+import { CallGuestSchema, CallLobbyEntrySchema } from './guests.js';
 import { CallRecordingStateSchema } from './recordings.js';
 
 /**
@@ -50,6 +51,10 @@ export const CallSchema = z.object({
   participants: z.array(CallParticipantSchema),
   /** Non-null while the call is being recorded: every client shows a "Recording" indicator. */
   recording: CallRecordingStateSchema.nullable().optional(),
+  /** External guests waiting to be let in (everyone in the call can admit or deny them). */
+  lobby: z.array(CallLobbyEntrySchema).optional(),
+  /** External guests who were admitted or denied. */
+  guests: z.array(CallGuestSchema).optional(),
 });
 export type Call = z.infer<typeof CallSchema>;
 

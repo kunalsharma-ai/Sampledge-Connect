@@ -9,8 +9,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Copy,
   HelpCircle,
+  Mail,
+  MailWarning,
   MessagesSquare,
+  RotateCw,
+  UserPlus,
   Settings2,
   Sparkles,
   Video,
@@ -19,7 +24,9 @@ import {
 import type {
   Conversation,
   FindTimesResponse,
+  GuestInput,
   Meeting,
+  MeetingGuest,
   MeetingSystemMetadata,
   RsvpResponse,
   WorkingHours,
@@ -600,6 +607,8 @@ function MeetingDetails({
           </ul>
         </div>
 
+        <GuestsSection meeting={m} organizer={organizer} online={online} onChanged={onChanged} />
+
         <p className="flex items-center gap-1.5 text-meta text-text-subtle">
           <BellRing className="size-3.5" />
           {m.remindMinutes.length
@@ -666,6 +675,7 @@ export function NewMeetingDialog({
   const [duration, setDuration] = React.useState(30);
   const [remind, setRemind] = React.useState(10);
   const [picked, setPicked] = React.useState<string[]>([]);
+  const [guests, setGuests] = React.useState<GuestInput[]>([]);
   const [q, setQ] = React.useState('');
   const [slots, setSlots] = React.useState<FindTimesResponse | null>(null);
   const [finding, setFinding] = React.useState(false);
@@ -682,6 +692,7 @@ export function NewMeetingDialog({
     setDuration(30);
     setRemind(10);
     setPicked(presetAttendees ?? []);
+    setGuests([]);
     setQ('');
     setSlots(null);
     setError(null);
@@ -734,7 +745,7 @@ export function NewMeetingDialog({
     title.trim().length > 0 &&
     !Number.isNaN(start.getTime()) &&
     end.getTime() > Date.now() &&
-    (picked.length > 0 || !!conversationId);
+    (picked.length > 0 || guests.length > 0 || !!conversationId);
 
   async function submit() {
     setPending(true);
@@ -747,6 +758,7 @@ export function NewMeetingDialog({
         endsAt: end.toISOString(),
         timeZone: LOCAL_TZ,
         attendeeIds: picked,
+        guests,
         remindMinutes: remind < 0 ? [] : [remind],
         ...(conversationId ? { conversationId } : {}),
       });
@@ -831,6 +843,8 @@ export function NewMeetingDialog({
               </ul>
             ) : null}
           </div>
+
+          <GuestPicker guests={guests} onChange={setGuests} />
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Date" htmlFor="mt-date">
@@ -953,6 +967,285 @@ export function NewMeetingDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// External guests
+// ---------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Splits "Anna Schmidt <anna@x.com>, bo@y.com" into guests. Returns what couldn't be read. */
+function parseGuests(text: string): { found: GuestInput[]; bad: string[] } {
+  const found: GuestInput[] = [];
+  const bad: string[] = [];
+  for (const raw of text
+    .split(/[,;\n]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)) {
+    const m = /^(.*?)\s*<([^>]+)>$/.exec(raw);
+    const email = (m ? m[2]! : raw).trim().toLowerCase();
+    const name = m?.[1]?.replace(/^"|"$/g, '').trim();
+    if (EMAIL_RE.test(email)) found.push(name ? { email, name } : { email });
+    else bad.push(raw);
+  }
+  return { found, bad };
+}
+
+/** Email entry for people outside the organization (paste a list, press Enter or comma). */
+function GuestPicker({
+  guests,
+  onChange,
+  label = 'Guests from outside your organization',
+}: {
+  guests: GuestInput[];
+  onChange: (g: GuestInput[]) => void;
+  label?: string;
+}) {
+  const [text, setText] = React.useState('');
+  const [bad, setBad] = React.useState<string[]>([]);
+  const commit = (value = text) => {
+    const { found, bad } = parseGuests(value);
+    const known = new Set(guests.map((g) => g.email));
+    onChange([...guests, ...found.filter((g) => !known.has(g.email))]);
+    setBad(bad);
+    setText(bad.join(', '));
+  };
+  return (
+    <div>
+      <label htmlFor="mt-guests" className="text-label text-text">
+        {label}
+      </label>
+      <p className="text-meta text-text-subtle">
+        They get an email with a calendar invite and a join link. No account needed; they wait in
+        the lobby until someone lets them in.
+      </p>
+      {guests.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid="guest-chips">
+          {guests.map((g) => (
+            <span
+              key={g.email}
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border-strong bg-surface-raised py-0.5 pl-2 pr-2 text-meta text-text"
+            >
+              <Mail className="size-3 text-text-subtle" />
+              {g.name ? `${g.name} · ` : ''}
+              {g.email}
+              <button
+                aria-label={`Remove ${g.email}`}
+                onClick={() => onChange(guests.filter((x) => x.email !== g.email))}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-2 flex gap-2">
+        <Input
+          id="mt-guests"
+          value={text}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (/[,;\n]$/.test(v)) commit(v);
+            else setText(v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          onPaste={(e) => {
+            const v = e.clipboardData.getData('text');
+            if (/[,;\n]/.test(v)) {
+              e.preventDefault();
+              commit(`${text}${v}`);
+            }
+          }}
+          onBlur={() => text.trim() && commit()}
+          placeholder="name@company.com"
+          inputMode="email"
+          autoComplete="off"
+        />
+        <Button variant="secondary" onClick={() => commit()} disabled={!text.trim()}>
+          <UserPlus /> Add
+        </Button>
+      </div>
+      {bad.length ? (
+        <p className="mt-1 text-meta text-danger">
+          {bad.length === 1 ? 'This isn’t' : 'These aren’t'} an email address: {bad.join(', ')}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+const inviteLabel: Record<MeetingGuest['invite']['status'], string> = {
+  sending: 'Sending invite…',
+  sent: 'Invite emailed',
+  failed: 'Email failed',
+  not_configured: 'Not emailed (email isn’t set up)',
+};
+
+function GuestsSection({
+  meeting: m,
+  organizer,
+  online,
+  onChanged,
+}: {
+  meeting: Meeting;
+  organizer: boolean;
+  online: boolean;
+  onChanged: (m: Meeting) => void;
+}) {
+  const api = useMeetingsApi();
+  const [adding, setAdding] = React.useState<GuestInput[]>([]);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState<string | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+  const guests = m.guests ?? [];
+  if (!guests.length && !organizer) return null;
+  const cancelled = m.status === 'cancelled';
+
+  const act = async (key: string, fn: () => Promise<Meeting | void>) => {
+    setBusy(key);
+    setErr(null);
+    try {
+      const r = await fn();
+      if (r) onChanged(r);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const copy = (g: MeetingGuest) =>
+    act(`copy:${g.guestId}`, async () => {
+      const { url } = await api.guestLink(m.meetingId, g.guestId);
+      await navigator.clipboard.writeText(url);
+      setCopied(g.guestId);
+      setTimeout(() => setCopied((c) => (c === g.guestId ? null : c)), 2000);
+    });
+
+  return (
+    <div data-testid="meeting-guests">
+      <p className="mb-2 text-label text-text">
+        {guests.length} {guests.length === 1 ? 'guest' : 'guests'}
+        <span className="font-normal text-text-subtle"> · outside your organization</span>
+      </p>
+      <ul className="space-y-2.5">
+        {guests.map((g) => (
+          <li key={g.guestId} className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border-strong text-text-subtle">
+              <Mail className="size-3.5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-label text-text">{g.name}</span>
+              <span className="block truncate text-meta text-text-subtle">{g.email}</span>
+              <span
+                className={cn(
+                  'mt-0.5 flex items-center gap-1 text-meta',
+                  g.invite.status === 'failed'
+                    ? 'text-danger'
+                    : g.invite.status === 'not_configured'
+                      ? 'text-warning'
+                      : 'text-text-subtle',
+                )}
+                title={g.invite.error ?? undefined}
+              >
+                {g.invite.status === 'failed' || g.invite.status === 'not_configured' ? (
+                  <MailWarning className="size-3" />
+                ) : null}
+                {inviteLabel[g.invite.status]}
+                {g.invite.status === 'failed' && g.invite.error ? `: ${g.invite.error}` : ''}
+              </span>
+              {organizer && !cancelled ? (
+                <span className="mt-1 flex flex-wrap gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2"
+                    disabled={!online}
+                    loading={busy === `copy:${g.guestId}`}
+                    onClick={() => void copy(g)}
+                  >
+                    {copied === g.guestId ? <Check /> : <Copy />}
+                    {copied === g.guestId ? 'Copied' : 'Copy link'}
+                  </Button>
+                  {g.invite.status === 'failed' || g.invite.status === 'sent' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2"
+                      disabled={!online}
+                      loading={busy === `resend:${g.guestId}`}
+                      onClick={() =>
+                        void act(`resend:${g.guestId}`, () =>
+                          api.resendGuest(m.meetingId, g.guestId),
+                        )
+                      }
+                    >
+                      <RotateCw /> Resend
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-danger hover:bg-danger/10 hover:text-danger"
+                    disabled={!online}
+                    loading={busy === `remove:${g.guestId}`}
+                    onClick={() =>
+                      void act(`remove:${g.guestId}`, () =>
+                        api.update(m.meetingId, { removeGuestIds: [g.guestId] }),
+                      )
+                    }
+                  >
+                    <X /> Remove
+                  </Button>
+                </span>
+              ) : null}
+            </span>
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-meta',
+                g.response === 'accepted'
+                  ? 'bg-success/15 text-success'
+                  : g.response === 'declined'
+                    ? 'bg-danger/10 text-danger'
+                    : g.response === 'tentative'
+                      ? 'bg-warning/15 text-warning'
+                      : 'bg-surface-raised text-text-subtle',
+              )}
+            >
+              {responseLabel[g.response]}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {organizer && !cancelled ? (
+        <div className="mt-3 space-y-2">
+          <GuestPicker guests={adding} onChange={setAdding} label="Invite more guests" />
+          {adding.length ? (
+            <Button
+              size="sm"
+              disabled={!online}
+              loading={busy === 'add'}
+              onClick={() =>
+                void act('add', async () => {
+                  const r = await api.update(m.meetingId, { addGuests: adding });
+                  setAdding([]);
+                  return r;
+                })
+              }
+            >
+              <Mail /> Send {adding.length === 1 ? 'invite' : `${adding.length} invites`}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {err ? <p className="mt-2 text-meta text-danger">{err}</p> : null}
+    </div>
   );
 }
 

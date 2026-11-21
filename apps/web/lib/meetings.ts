@@ -45,6 +45,10 @@ export function useMeetingsApi() {
       cancel: (id: string) => req<Meeting>('POST', `/v1/meetings/${id}/cancel`),
       rsvp: (id: string, response: 'accepted' | 'tentative' | 'declined') =>
         req<Meeting>('POST', `/v1/meetings/${id}/rsvp`, { response }),
+      guestLink: (id: string, guestId: string) =>
+        req<{ url: string }>('GET', `/v1/meetings/${id}/guests/${guestId}/link`),
+      resendGuest: (id: string, guestId: string) =>
+        req<Meeting>('POST', `/v1/meetings/${id}/guests/${guestId}/resend`),
       findTimes: (body: FindTimesRequest) =>
         req<FindTimesResponse>('POST', '/v1/meetings/find-times', body),
       getWorkingHours: () => req<WorkingHours>('GET', '/v1/me/working-hours'),

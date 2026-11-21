@@ -34,6 +34,9 @@ import { PUSH_PROVIDER, createPushProvider } from './push/push-provider.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
+import { GuestsController } from './meetings/guests.controller.js';
+import { GuestsService } from './meetings/guests.service.js';
+import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
 import type { Db } from 'mongodb';
 
@@ -62,6 +65,7 @@ export class AppModule {
         PushController,
         CallsController,
         MeetingsController,
+        GuestsController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -79,6 +83,8 @@ export class AppModule {
         NotificationsService,
         CallsService,
         MeetingsService,
+        GuestsService,
+        MailerService,
         { provide: PUSH_PROVIDER, useValue: createPushProvider(cfg) },
         {
           provide: FILE_STORAGE,
