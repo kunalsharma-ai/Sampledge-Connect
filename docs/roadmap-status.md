@@ -7,7 +7,7 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | Area   | Item                                                                              | Status                     |
 | ------ | --------------------------------------------------------------------------------- | -------------------------- |
 | Step 1 | Architecture, journeys, permission model, data model, threat model, sync protocol | Built (docs)               |
-| Step 2 | Design tokens, five themes, typography, motion tokens, component library          | In progress                |
+| Step 2 | Design tokens, five themes, typography, motion tokens, component library          | Built                      |
 | Step 3 | Tenant registration, password login, JWT + rotating refresh, devices, revocation  | In progress                |
 | Step 3 | OIDC/SSO, MFA (TOTP/WebAuthn)                                                     | Planned                    |
 | Step 4 | MongoDB collections, validators, indexes, migrations                              | In progress                |

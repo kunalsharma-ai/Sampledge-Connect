@@ -1,0 +1,102 @@
+/*
+ * Base styles and keyframes for @sampledge/ui.
+ * Import after tailwindcss and the design-token stylesheets.
+ * Apps must add `@source "../node_modules/@sampledge/ui/dist";` (or equivalent) so Tailwind sees class names.
+ */
+@layer base {
+  html {
+    font-family: var(--sc-font-sans);
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background: var(--sc-color-bg);
+    color: var(--sc-color-text);
+  }
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--sc-font-display);
+  }
+  ::selection {
+    background: var(--sc-color-accent-soft);
+  }
+  :focus-visible {
+    outline-color: var(--sc-color-accent);
+  }
+}
+
+.sc-theme-transition,
+.sc-theme-transition *,
+.sc-theme-transition *::before,
+.sc-theme-transition *::after {
+  transition:
+    background-color var(--sc-duration-slow) var(--sc-ease-standard),
+    border-color var(--sc-duration-slow) var(--sc-ease-standard),
+    color var(--sc-duration-slow) var(--sc-ease-standard),
+    fill var(--sc-duration-slow) var(--sc-ease-standard) !important;
+}
+
+@keyframes sc-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes sc-typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@keyframes sc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sc-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes sc-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes sc-dialog-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -49%) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
