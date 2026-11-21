@@ -12,6 +12,7 @@ import {
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { formatDay, formatTime, nameOf } from './helpers';
+import { MessageAttachments } from './attachments';
 import { MessageActions, MessageText, ReactionChips, ReplyQuote } from './message-parts';
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -151,7 +152,15 @@ export function Timeline({
                       parent={(() => {
                         const p = byId.get(m.replyToMessageId);
                         return p
-                          ? { senderId: p.senderId, text: p.content.text, deleted: !!p.deletedAt }
+                          ? {
+                              senderId: p.senderId,
+                              text:
+                                p.content.text ||
+                                (p.attachments?.length
+                                  ? `${p.attachments.length} attachment${p.attachments.length > 1 ? 's' : ''}`
+                                  : ''),
+                              deleted: !!p.deletedAt,
+                            }
                           : null;
                       })()}
                       directory={directory}
@@ -174,33 +183,44 @@ export function Timeline({
                         onReply={() => onReply(m)}
                       />
                     ) : null}
-                    <div
-                      className={cn(
-                        'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
-                        own
-                          ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
-                          : 'rounded-tl-sm border border-border bg-bubble-other text-text',
-                        grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
-                        m.deletedAt && 'italic opacity-60',
-                        (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                        m.status === 'failed' && 'ring-1 ring-danger',
-                      )}
-                    >
-                      {m.deletedAt ? (
-                        'This message was deleted'
-                      ) : (
-                        <MessageText
-                          text={m.content.text}
-                          mentions={m.content.mentions}
-                          directory={directory}
-                          me={me}
-                          own={own}
-                        />
-                      )}
-                      {m.editedAt && !m.deletedAt ? (
-                        <span className="ml-1.5 text-meta opacity-70">(edited)</span>
-                      ) : null}
-                    </div>
+                    {m.deletedAt || m.content.text ? (
+                      <div
+                        className={cn(
+                          'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
+                          own
+                            ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
+                            : 'rounded-tl-sm border border-border bg-bubble-other text-text',
+                          grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
+                          m.deletedAt && 'italic opacity-60',
+                          (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                          m.status === 'failed' && 'ring-1 ring-danger',
+                        )}
+                      >
+                        {m.deletedAt ? (
+                          'This message was deleted'
+                        ) : (
+                          <MessageText
+                            text={m.content.text}
+                            mentions={m.content.mentions}
+                            directory={directory}
+                            me={me}
+                            own={own}
+                          />
+                        )}
+                        {m.editedAt && !m.deletedAt ? (
+                          <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {!m.deletedAt && m.attachments?.length ? (
+                      <div
+                        className={cn(
+                          (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                        )}
+                      >
+                        <MessageAttachments attachments={m.attachments} own={own} />
+                      </div>
+                    ) : null}
                   </div>
                   {m.messageId && !m.deletedAt ? (
                     <ReactionChips

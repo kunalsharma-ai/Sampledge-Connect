@@ -88,7 +88,11 @@ export const UploadTicketSchema = z.object({
 });
 export type UploadTicket = z.infer<typeof UploadTicketSchema>;
 
-/** GET /v1/attachments/:id/url: a signed, short-lived download URL (no auth header needed). */
+/**
+ * GET /v1/attachments/:id/url: a signed, short-lived download URL (no auth header needed).
+ * `url` is absolute when the API has PUBLIC_API_URL set, otherwise a path: resolve it with
+ * `new URL(url, apiBaseUrl)`, which handles both.
+ */
 export const AttachmentUrlSchema = z.object({
   url: z.string(),
   expiresAt: z.string().datetime(),
