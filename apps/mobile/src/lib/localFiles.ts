@@ -78,8 +78,7 @@ export async function downloadDocument(
   fileName: string,
 ): Promise<string> {
   const res = await expoFetch(url, init);
-  if (!res.ok)
-    throw Object.assign(new Error(await documentError(res)), { status: res.status });
+  if (!res.ok) throw Object.assign(new Error(await documentError(res)), { status: res.status });
   const dir = new Directory(Paths.cache, 'documents');
   if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
   const file = new File(dir, fileName.replace(/[\\/:*?"<>|]+/g, ' '));
@@ -101,6 +100,7 @@ async function documentError(res: { status: number; text(): Promise<string> }): 
 
 /** Opens the share sheet for a downloaded document (save to Files, send, open in another app). */
 export async function shareDocument(uri: string, mimeType: string, title: string): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing isn’t available on this device');
+  if (!(await Sharing.isAvailableAsync()))
+    throw new Error('Sharing isn’t available on this device');
   await Sharing.shareAsync(uri, { mimeType, dialogTitle: title });
 }

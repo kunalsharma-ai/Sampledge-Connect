@@ -485,7 +485,10 @@ export class WorkStore {
             (a) => a.input.kind === 'minutes.update' && a.state === 'pending',
           );
           if (prior?.input.kind === 'minutes.update')
-            await rewrite(prior, { ...prior.input, patch: { ...prior.input.patch, ...input.patch } });
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
           else await insert(input);
           break;
         }
@@ -990,8 +993,7 @@ export class WorkStore {
       )
     ).map(toAction);
     let out: MinutesPatch | undefined;
-    for (const a of rows)
-      if (a.input.kind === 'minutes.update') out = { ...out, ...a.input.patch };
+    for (const a of rows) if (a.input.kind === 'minutes.update') out = { ...out, ...a.input.patch };
     return out;
   }
 
