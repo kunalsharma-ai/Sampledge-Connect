@@ -73,6 +73,22 @@ import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
+import {
+  ConnectorsController,
+  ConnectorWebhooksController,
+} from './connectors/connectors.controller.js';
+import { ConnectorsService } from './connectors/connectors.service.js';
+import { WebhookService } from './connectors/webhook.service.js';
+import { CredentialVault } from './connectors/credential-vault.js';
+import { ConnectorHttp } from './connectors/transport.js';
+import { InboxController } from './client-inbox/inbox.controller.js';
+import { InboxService } from './client-inbox/inbox.service.js';
+import { InboxAdminService } from './client-inbox/inbox-admin.service.js';
+import { InboxAccess } from './client-inbox/inbox-events.js';
+import { OutboundWorker } from './client-inbox/outbound.worker.js';
+import { OutboxSignal } from './client-inbox/outbox-signal.js';
+import { LINKED_RECORD_RESOLVER } from './client-inbox/linked-records.js';
+import { ModuleRecordsResolver } from './client-inbox/records-resolver.js';
 import { WorkStore } from './integrations/collections.js';
 import { ModuleSettingsService } from './integrations/module-settings.service.js';
 import { RecordsService } from './integrations/records.service.js';
@@ -156,6 +172,9 @@ export class AppModule {
         CallBackgroundsController,
         MeetingsController,
         GuestsController,
+        ConnectorsController,
+        ConnectorWebhooksController,
+        InboxController,
         BookingPagesController,
         PublicBookingController,
         IntegrationApiController,
@@ -200,6 +219,16 @@ export class AppModule {
         CaptionsService,
         CallBackgroundsService,
         MailerService,
+        CredentialVault,
+        ConnectorHttp,
+        ConnectorsService,
+        WebhookService,
+        InboxAccess,
+        InboxService,
+        InboxAdminService,
+        OutboxSignal,
+        OutboundWorker,
+        { provide: LINKED_RECORD_RESOLVER, useClass: ModuleRecordsResolver },
         WorkStore,
         ModuleSettingsService,
         RecordsService,

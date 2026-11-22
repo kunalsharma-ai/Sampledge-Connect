@@ -18,7 +18,7 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
           ? ['error', 'fatal']
           : undefined,
     bodyParser: true,
-    // Signed module events are verified against the exact bytes received (req.rawBody).
+    // Connector webhooks and signed module events are verified against the exact bytes (req.rawBody).
     rawBody: true,
   });
   app.set('trust proxy', 1);
@@ -32,6 +32,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('json', { limit: '256kb' });
   // LiveKit webhooks are verified against a hash of the exact bytes, so keep them raw.
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
+  // WeChat webhooks are XML.
+  app.useBodyParser('text', { type: ['text/xml', 'application/xml'], limit: '256kb' });
   // Caption clips and call background images are read per route (common/raw-body.ts): a global
   // audio/* or image/* parser would swallow attachment uploads, which stream their body.
   // Chat widget origins are configured per module in the database (Integrations), not env.

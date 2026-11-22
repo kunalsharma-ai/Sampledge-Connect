@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   uuidv7,
   type Conversation,
+  type InboxChangedEvent,
+  type InboxList,
   type Message,
   type SendMessageAck,
   type Session,
@@ -268,3 +270,75 @@ describe('organization changes', () => {
     await changed;
   });
 });
+
+describe('client inbox', () => {
+  it('inbound messages, assignment, replies and read marks sync live', async () => {
+    const connector = await api<{ connectorId: string }>(h, 'POST', '/v1/connectors', {
+      ...as(owner),
+      body: { provider: 'telegram', name: 'Sync bot', environment: 'test' },
+    });
+    expect(connector.status, JSON.stringify(connector.body)).toBe(201);
+    const isMsg = (e: InboxChangedEvent) => e.reason === 'message';
+
+    // A client writes: every agent who can see the conversation hears about it.
+    let wait = [b, r].map((s) => nextEvent(s, 'inbox:changed', isMsg));
+    const sim = await api<{ conversationIds: string[] }>(
+      h,
+      'POST',
+      `/v1/connectors/${connector.body.connectorId}/simulate-inbound`,
+      { ...as(owner), body: { fromName: 'Mia Chen', fromHandle: '@mia', text: 'Any update?' } },
+    );
+    const id = sim.body.conversationIds[0]!;
+    for (const e of await Promise.all(wait)) expect(e.conversationId).toBe(id);
+
+    // Assigning from the laptop reaches the phone and the new assignee.
+    wait = [b, r].map((s) => nextEvent(s, 'inbox:changed', (e) => e.reason === 'updated'));
+    await api(h, 'PATCH', `/v1/inbox/conversations/${id}`, {
+      ...as(owner),
+      body: { assigneeId: ravi.user.userId },
+    });
+    await Promise.all(wait);
+
+    // The assignee's reply reaches both of the owner's devices.
+    wait = [a, b].map((s) => nextEvent(s, 'inbox:changed', isMsg));
+    await api(h, 'POST', `/v1/inbox/conversations/${id}/replies`, {
+      ...as(ravi),
+      body: { clientMessageId: uuidv7(), text: 'Results land Wednesday.' },
+    });
+    await Promise.all(wait);
+
+    // Read marks are personal: my phone hears, Ravi does not, and it is idempotent.
+    const list = async (s: Session) =>
+      (await api<InboxList>(h, 'GET', '/v1/inbox/conversations', as(s))).body.items.find(
+        (c) => c.conversationId === id,
+      )!;
+    await simulateAgain(connector.body.connectorId);
+    expect((await list(owner)).unread).toBe(true);
+    const onB = nextEvent(
+      b,
+      'inbox:changed',
+      (e) => e.reason === 'read' && e.conversationId === id,
+    );
+    const notR = new Promise<void>((resolve, reject) => {
+      const fail = (e: InboxChangedEvent) =>
+        e.reason === 'read' ? reject(new Error('read mark leaked to another agent')) : undefined;
+      r.on('inbox:changed', fail);
+      setTimeout(() => (r.off('inbox:changed', fail), resolve()), 400);
+    });
+    for (let i = 0; i < 2; i++) {
+      const res = await api(h, 'PUT', `/v1/inbox/conversations/${id}/read`, as(owner));
+      expect(res.status).toBe(200);
+    }
+    await Promise.all([onB, notR]);
+    expect((await list(owner)).unread).toBe(false);
+    expect((await list(ravi)).unread).toBe(true);
+  });
+});
+
+async function simulateAgain(connectorId: string) {
+  const res = await api(h, 'POST', `/v1/connectors/${connectorId}/simulate-inbound`, {
+    ...as(owner),
+    body: { fromName: 'Mia Chen', fromHandle: '@mia', text: 'One more thing' },
+  });
+  expect(res.status).toBeLessThan(300);
+}

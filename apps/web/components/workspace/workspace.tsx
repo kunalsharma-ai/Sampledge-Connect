@@ -70,6 +70,7 @@ import { CreatePollDialog, ScheduledBar } from './polls';
 import { pollsApi, scheduledApi, useScheduled } from '@/lib/polls';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
+import { ClientInboxScreen } from './inbox/inbox-screen';
 import { AiScreen } from './ai-screen';
 import { AiSummaryCard } from './ai-summary-card';
 import {
@@ -602,6 +603,8 @@ function WorkspaceInner({ network }: { network: boolean }) {
               online={state.connectivity === 'online'}
               onOpenConversation={openConversation}
             />
+          ) : module === 'client-inbox' ? (
+            <ClientInboxScreen me={me} directory={directory} role={session!.user.role} />
           ) : module === 'tasks' ? (
             <TasksScreen
               me={me}

@@ -1,4 +1,5 @@
 import type {
+  ConnectorProvider,
   ConversationKind,
   ConversationRole,
   MessageContent,
@@ -451,6 +452,183 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+// ---- External messaging gateway and Client Inbox (Phase 3) ----
+
+export interface ConnectorDoc extends TenantOwned {
+  provider: ConnectorProvider;
+  name: string;
+  environment: 'test' | 'live';
+  status: 'active' | 'paused' | 'error';
+  /** AES-256-GCM sealed JSON of all credential values (see connectors/credential-vault.ts). */
+  credentials: string | null;
+  /** Previous credentials, still accepted for webhook verification until previousValidUntil. */
+  previousCredentials: string | null;
+  previousValidUntil: Date | null;
+  credentialHints: Record<string, string>;
+  credentialsRotatedAt: Date | null;
+  /** Random public path segment for the webhook URL; globally unique. Rotating it changes the URL. */
+  webhookKey: string;
+  teamId: string | null;
+  health: {
+    lastInboundAt: Date | null;
+    lastOutboundAt: Date | null;
+    lastError: string | null;
+    lastErrorAt: Date | null;
+    consecutiveFailures: number;
+    circuitOpenUntil: Date | null;
+    rejectedWebhooks: number;
+  };
+  /** Cached provider access token (WeChat, QQ, Teams, Google), sealed. */
+  accessToken?: string | null;
+  accessTokenExpiresAt?: Date | null;
+  createdBy: string;
+  createdAt: Date;
+  deletedAt: Date | null;
+}
+
+/** One external identity (a Telegram user, a Slack user...) mapped to a client profile. */
+export interface ExternalAccountDoc extends TenantOwned {
+  connectorId: string;
+  provider: ConnectorProvider;
+  externalUserId: string;
+  displayName: string;
+  handle: string | null;
+  clientId: string;
+  createdAt: Date;
+}
+
+export interface ClientProfileDoc extends TenantOwned {
+  name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  tags: string[];
+  ownerId: string | null;
+  /** Set when merged into another profile; the profile is then hidden. */
+  mergedInto: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LinkedRecordDoc {
+  linkId: string;
+  module: 'sampforce' | 'samptrek';
+  recordType: string;
+  externalId: string;
+  label: string;
+  url: string | null;
+  verified: boolean;
+  linkedBy: string;
+  linkedAt: Date;
+}
+
+export interface ExternalConversationDoc extends TenantOwned {
+  connectorId: string;
+  provider: ConnectorProvider;
+  /** Provider thread key (chat id, channel id + thread...). Unique per connector. */
+  externalThreadId: string;
+  /** Provider routing data needed to reply (serviceUrl, replyToken, msg_id...). */
+  replyContext: Record<string, string>;
+  clientId: string;
+  accountId: string | null;
+  subject: string;
+  status: 'open' | 'pending' | 'snoozed' | 'resolved';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  assigneeId: string | null;
+  teamId: string | null;
+  tags: string[];
+  /** When the client is owed a reply (null when nothing is waiting). */
+  slaDueAt: Date | null;
+  /** When the current wait started (oldest unanswered inbound). */
+  waitingSince: Date | null;
+  firstResponseAt: Date | null;
+  firstResponseMet: boolean | null;
+  slaBreachedAt: Date | null;
+  escalation: { level: number; reason: string; at: Date; by: string | null } | null;
+  links: LinkedRecordDoc[];
+  lastMessage: { direction: 'inbound' | 'outbound'; preview: string; at: Date } | null;
+  awaitingReply: number;
+  /** Per-agent read marks (userId → when they last read it); synced to all their devices. */
+  readBy?: Record<string, Date>;
+  snoozedUntil: Date | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ExternalMessageDoc extends TenantOwned {
+  conversationId: string;
+  connectorId: string;
+  direction: 'inbound' | 'outbound';
+  text: string;
+  attachments: {
+    name: string;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    externalRef: string | null;
+  }[];
+  authorId: string | null;
+  accountId: string | null;
+  /** Provider message id; unique per connector (provider redeliveries are ignored). */
+  externalMessageId: string | null;
+  /** Agent idempotency key for replies; unique per tenant. */
+  clientMessageId: string | null;
+  deliveryState:
+    'queued' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'handoff' | 'test';
+  error: string | null;
+  attempts: number;
+  nextAttemptAt: Date | null;
+  lockedUntil: Date | null;
+  handoffUrl: string | null;
+  sandboxRequest: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: unknown;
+    at: Date;
+  } | null;
+  createdAt: Date;
+  sentAt: Date | null;
+}
+
+/** Internal notes. A separate collection on purpose: the outbound worker never reads it. */
+export interface InboxNoteDoc extends TenantOwned {
+  conversationId: string;
+  authorId: string;
+  text: string;
+  mentions: string[];
+  clientNoteId: string;
+  createdAt: Date;
+}
+
+export interface InboxActivityDoc extends TenantOwned {
+  conversationId: string;
+  kind: string;
+  actorId: string | null;
+  summary: string;
+  createdAt: Date;
+}
+
+export interface InboxTemplateDoc extends TenantOwned {
+  name: string;
+  shortcut: string | null;
+  body: string;
+  createdBy: string;
+  updatedAt: Date;
+}
+
+export interface InboxSettingsDoc extends TenantOwned {
+  sla: { low: number; normal: number; high: number; urgent: number };
+  dueSoonRatio: number;
+  autoEscalateOnBreach: boolean;
+  escalationContactIds: string[];
+  autoAssign: boolean;
+  teams: { teamId: string; name: string; memberIds: string[] }[];
+  updatedAt: Date;
+  updatedBy: string | null;
+}
+
 /** A person's recent searches, newest first (synced to all of their devices). */
 export interface SearchHistoryDoc extends TenantOwned {
   userId: string;
@@ -700,6 +878,15 @@ export interface TenantCollections {
   booking_pages: BookingPageDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
+  connectors: ConnectorDoc;
+  external_accounts: ExternalAccountDoc;
+  client_profiles: ClientProfileDoc;
+  external_conversations: ExternalConversationDoc;
+  external_messages: ExternalMessageDoc;
+  inbox_notes: InboxNoteDoc;
+  inbox_activity: InboxActivityDoc;
+  inbox_templates: InboxTemplateDoc;
+  inbox_settings: InboxSettingsDoc;
   bookmarks: BookmarkDoc;
   search_history: SearchHistoryDoc;
   user_avatars: UserAvatarDoc;

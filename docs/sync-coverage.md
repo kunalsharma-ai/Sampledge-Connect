@@ -18,7 +18,8 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 - **Refused changes** (for example, the message was deleted meanwhile) are marked failed, a toast
   says so, and the Sync Center lists them with Retry and Discard.
 - **Reconnect:** cursor sync catches up messages; the engine emits `reconnected`, and every
-  cached list (saved, tasks, approvals, projects, notifications, directory, settings screens)
+  cached list (saved, tasks, approvals, projects, notifications, directory, settings screens,
+  Client Inbox)
   refetches, so a missed live event is never permanent.
 
 ## Actions
@@ -69,6 +70,11 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Chat theme (your choice)                                                                  | `chat-theme:changed` to your other devices                  | Queued; shows at once on this device      |
 | Chat theme rules (owners and admins)                                                      | `tenant:updated` area `chat_themes`                         | Needs a connection                        |
 | Chat background picture (your own)                                                        | Kept on this device only, by design (Kunal, 2026-11-22)     | Works offline; nothing is sent            |
+| Client Inbox: reply to client, internal note                                              | `inbox:changed` (every agent who can see it)                | Queued (idempotent ids)                   |
+| Client Inbox: assign, team, status, priority, tags, snooze, resolve                       | `inbox:changed`                                             | Queued per field (last choice wins)       |
+| Client Inbox: mark read                                                                   | `inbox:changed` `read` (own devices only)                   | Queued                                    |
+| Client Inbox: escalate, link records, log a handoff conversation                          | `inbox:changed`                                             | Needs a connection                        |
+| Client Inbox: client messages, delivery states                                            | `inbox:changed` (server-side, from providers)               | Cached list and conversations             |
 | Typing, presence                                                                          | `typing:update`, `presence:update`                          | Ephemeral, not queued                     |
 | SampConnect Network: connection request, accept, decline, withdraw, change circle, remove | `network:changed` `requests` / `connections` to both people | Network outbox (`clientActionId`)         |
 | Follow / unfollow a person or community, block, unblock                                   | `network:changed` `follows` / `blocks`                      | Network outbox                            |
