@@ -302,6 +302,12 @@ export default function More() {
               />
             ) : null}
             <Row
+              icon="book-outline"
+              title="Feature guides"
+              onPress={() => router.push('/help')}
+              divider
+            />
+            <Row
               icon="cloud-offline-outline"
               title="Offline & storage"
               onPress={() => router.push('/settings/storage')}

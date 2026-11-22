@@ -22,6 +22,7 @@ import { useNow, usePeople, useTenantRole } from '../../state/hooks';
 import { useInboxChannels, useInboxList } from '../../state/useInbox';
 import { alpha, radius, space, type as typeScale } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { FeatureHelp } from '../../components/FeatureHelp';
 
 /**
  * The Client Inbox: every client conversation from every connected channel (Telegram, Teams,
@@ -80,7 +81,10 @@ export default function Inbox() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Text variant="title">Client Inbox</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <Text variant="title">Client Inbox</Text>
+          <FeatureHelp id="client-inbox" />
+        </View>
         <View style={{ flexDirection: 'row', gap: space.xs }}>
           {supervisor ? (
             <Pressable

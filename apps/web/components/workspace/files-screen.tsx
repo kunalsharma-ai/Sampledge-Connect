@@ -24,6 +24,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { ALL_FILES, useFiles, type FileFilters } from '@/lib/files';
 import { attachmentUrl, formatBytes, useAttachmentUrl } from '@/lib/uploads';
 import { conversationTitle, formatDay, nameOf } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 const KINDS: { id: FileKind | null; label: string }[] = [
   { id: null, label: 'All files' },
@@ -110,7 +111,10 @@ export function FilesScreen({
               <FolderOpen className="size-[18px]" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <h1 className="font-display text-h3 text-text">Files</h1>
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="font-display text-h3 text-text">Files</h1>
+                <FeatureHelp id="files" />
+              </div>
               <p className="text-meta text-text-subtle">
                 Everything shared in your conversations and channels
                 {files.items

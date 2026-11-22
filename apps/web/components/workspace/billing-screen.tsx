@@ -17,6 +17,7 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useTenantChange } from '@/lib/engine';
+import { FeatureHelp } from '../feature-help';
 
 type Tab = 'plan' | 'catalog' | 'organizations' | 'payments';
 interface OrgRow {
@@ -157,7 +158,10 @@ export function BillingScreen() {
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="billing-screen">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <CreditCard className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Billing</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Billing</h1>
+          <FeatureHelp id="billing" />
+        </div>
         {tabs.length > 1 ? (
           <nav className="ml-4 flex gap-1" aria-label="Billing sections">
             {tabs.map((t) => (

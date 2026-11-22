@@ -35,6 +35,7 @@ import { useApp, useWorkspace } from '../../state/AppProvider';
 import { useNet, useNetPending } from '../../state/useNetwork';
 import { fonts, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { FeatureHelp } from '../../components/FeatureHelp';
 
 type Tab = 'find' | 'requests' | 'connections' | 'followers';
 type Requests = { incoming: ConnectionRequest[]; outgoing: ConnectionRequest[] };
@@ -56,7 +57,10 @@ export default function People() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ gap: space.xs }}>
-          <Text variant="display">People</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Text variant="display">People</Text>
+            <FeatureHelp id="network-people" size={24} />
+          </View>
           <Text tone="muted">Connect with anyone on SampConnect, in any organization.</Text>
         </View>
         <Chips

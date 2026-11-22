@@ -1,10 +1,11 @@
 'use client';
 import * as React from 'react';
 import { Building2, CloudOff, User } from 'lucide-react';
-import type { NetworkPerson } from '@sampledge/contracts';
+import type { FeatureHelpId, NetworkPerson } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import { ApiFailure } from '@/lib/api';
 import { useNetworkOutbox } from '@/lib/network';
+import { FeatureHelp } from '../feature-help';
 
 export function errorText(e: unknown): string {
   if (e instanceof ApiFailure) return e.error.message;
@@ -14,16 +15,22 @@ export function errorText(e: unknown): string {
 export function ScreenHeader({
   title,
   subtitle,
+  help,
   children,
 }: {
   title: string;
   subtitle?: string;
+  /** Feature guide shown beside the title. */
+  help?: FeatureHelpId;
   children?: React.ReactNode;
 }) {
   return (
     <header className="flex min-h-[60px] shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2 sm:px-6">
       <div className="min-w-0">
-        <h1 className="font-display text-h3 text-text">{title}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-h3 text-text">{title}</h1>
+          {help ? <FeatureHelp id={help} /> : null}
+        </div>
         {subtitle ? <p className="text-meta text-text-subtle">{subtitle}</p> : null}
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
