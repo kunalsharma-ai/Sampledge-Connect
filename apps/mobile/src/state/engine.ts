@@ -109,7 +109,13 @@ import {
   type LocalTask,
   type QueuedAction,
   type MinutesPatch,
+  type TranscriptPatch,
 } from '../db/work';
+import {
+  transcriptRequest,
+  withPendingTranscript,
+  type TranscriptionSettings,
+} from '../lib/transcript';
 import { Emitter } from '../lib/emitter';
 import { forwardSnapshot } from '../lib/forward';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
@@ -163,6 +169,8 @@ const RECENT_KEY = 'search.recent';
 const CALL_BG_KEY = 'callBackground';
 /** Settings keys for minutes: the organization's options, and the minutes of each call. */
 const MINUTES_CONFIG_KEY = 'minutes.config';
+const TRANSCRIPTION_KEY = 'ai.transcription';
+const transcriptKey = (attachmentId: string) => `transcript.${attachmentId}`;
 const minutesKey = (callId: string) => `minutes.call.${callId}`;
 const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
 
@@ -326,9 +334,7 @@ export class ConnectEngine {
             void this.refreshCallBackground().catch(() => undefined);
         }),
         this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
-        this.realtime.events.on('transcript', (e) =>
-          this.events.emit('transcript', { attachmentId: e.attachmentId }),
-        ),
+        this.realtime.events.on('transcript', (e) => void this.receiveTranscript(e.attachmentId)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -528,6 +534,7 @@ export class ConnectEngine {
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
+    if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
     if (area === 'calls' || area === 'branding')
       void this.refreshCallBackground().catch(() => undefined);
     if (area === 'branding' && this.online) {
@@ -1294,6 +1301,14 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setChatTheme(i.themeId)),
         );
         break;
+      case 'transcript.update':
+        await this.saveTranscript(
+          await this.api.updateTranscript(
+            i.attachmentId,
+            transcriptRequest(i.language, i.baseRevision, i.patch),
+          ),
+        );
+        break;
       case 'minutes.update': {
         const m = await this.api.updateMinutes(i.minutesId, {
           baseRevision: i.baseRevision,
@@ -1370,6 +1385,11 @@ export class ConnectEngine {
     if (i.kind === 'search.recent') void this.emitRecent();
     if (i.kind === 'theme.set') void this.emitChatTheme();
     if (i.kind.startsWith('callbg.')) void this.emitCallBackground();
+    if (i.kind === 'transcript.update')
+      // Saved or refused (someone corrected the same line): show the server's copy either way.
+      void this.refreshTranscript(i.attachmentId).catch(() =>
+        this.events.emit('transcript', { attachmentId: i.attachmentId }),
+      );
     if (i.kind === 'minutes.update')
       // Saved or refused (someone changed the same part): show the server's copy either way.
       void this.refreshCallMinutes(i.callId).catch(() => this.emitMinutesFor(i.callId));
@@ -1987,6 +2007,113 @@ export class ConnectEngine {
   private async emitMinutesFor(callId: string): Promise<void> {
     const r = await this.getCallMinutes(callId);
     this.events.emit('minutes', { callId, conversationId: r?.minutes?.conversationId ?? '' });
+  }
+
+  // ------------------------------------------------------------ recording transcripts
+
+  /**
+   * The organization's speech-to-text setup (null: never loaded). Refreshed when online and kept
+   * for offline use, so the Transcript button shows on clips you can already read offline.
+   */
+  async transcriptionSettings(): Promise<TranscriptionSettings | null> {
+    // Every clip on screen asks, so ask the server at most once a minute.
+    if (this.online && Date.now() - this.transcriptionCheckedAt > 60_000) {
+      this.transcriptionCheckedAt = Date.now();
+      this.transcriptionFetch = this.api
+        .aiStatus()
+        .then((s) =>
+          this.store.setSetting(
+            TRANSCRIPTION_KEY,
+            JSON.stringify(s.enabled ? s.transcription : { ...s.transcription, configured: false }),
+          ),
+        )
+        .catch(() => undefined); // keep the copy on this phone
+    }
+    await this.transcriptionFetch;
+    const raw = await this.store.getSetting(TRANSCRIPTION_KEY);
+    return raw ? (JSON.parse(raw) as TranscriptionSettings) : null;
+  }
+
+  private transcriptionCheckedAt = 0;
+  private transcriptionFetch: Promise<void> = Promise.resolve();
+
+  /** A transcript as last seen on this phone, with corrections not sent yet laid over it. */
+  async getTranscript(attachmentId: string): Promise<AiTranscript | null> {
+    const raw = await this.store.getSetting(transcriptKey(attachmentId));
+    if (!raw) return null;
+    const t = JSON.parse(raw) as AiTranscript;
+    const original = await this.store.work.pendingTranscript(attachmentId, null);
+    const translations: Record<string, TranscriptPatch> = {};
+    for (const x of t.translations) {
+      const p = await this.store.work.pendingTranscript(attachmentId, x.language);
+      if (p) translations[x.language] = p;
+    }
+    if (!original && !Object.keys(translations).length) return t;
+    return withPendingTranscript(
+      t,
+      { original, translations },
+      this.store.selfUserId,
+      new Date().toISOString(),
+    );
+  }
+
+  /**
+   * Fetches the transcript when online (and asks for one when `request` and there is none yet
+   * or the last try failed), then returns what this phone has.
+   */
+  async loadTranscript(attachmentId: string, request = false): Promise<AiTranscript | null> {
+    if (this.online) {
+      let t = await this.api.aiTranscript(attachmentId);
+      if (request && (t.status === 'none' || t.status === 'failed'))
+        t = await this.api.aiTranscript(attachmentId, true);
+      await this.saveTranscript(t);
+    }
+    return this.getTranscript(attachmentId);
+  }
+
+  /**
+   * Corrects lines of the transcript (`language` null) or a translation, or marks it checked.
+   * Shows at once and waits in the queue when offline; a line someone else corrected meanwhile
+   * is refused and their version shown.
+   */
+  async correctTranscript(
+    attachmentId: string,
+    language: string | null,
+    patch: TranscriptPatch,
+  ): Promise<void> {
+    const raw = await this.store.getSetting(transcriptKey(attachmentId));
+    const base = raw ? (JSON.parse(raw) as AiTranscript).revision : 0;
+    await this.queue({
+      kind: 'transcript.update',
+      attachmentId,
+      language,
+      baseRevision: base,
+      patch,
+    });
+    this.events.emit('transcript', { attachmentId });
+  }
+
+  /** Asks for a translation (or a new one). Needs a connection. */
+  async translateTranscript(attachmentId: string, language: string): Promise<void> {
+    await this.saveTranscript(
+      await this.serverAction(() => this.api.translateTranscript(attachmentId, language)),
+    );
+  }
+
+  private async refreshTranscript(attachmentId: string): Promise<void> {
+    await this.saveTranscript(await this.api.aiTranscript(attachmentId));
+  }
+
+  private async receiveTranscript(attachmentId: string): Promise<void> {
+    // Only transcripts this phone has opened are kept; others load when opened.
+    if (await this.store.getSetting(transcriptKey(attachmentId)))
+      await this.refreshTranscript(attachmentId).catch(() => undefined);
+    else this.events.emit('transcript', { attachmentId });
+  }
+
+  private async saveTranscript(t: AiTranscript): Promise<void> {
+    await this.store.setSetting(transcriptKey(t.attachmentId), JSON.stringify(t));
+    this.events.emit('transcript', { attachmentId: t.attachmentId });
   }
 
   // ------------------------------------------------------------ call background

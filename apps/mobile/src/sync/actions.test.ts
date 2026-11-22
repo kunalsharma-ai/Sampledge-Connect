@@ -9,6 +9,7 @@ import type {
   ChatThemePolicy,
   CallBackgroundChoice,
   CallBackgroundState,
+  AiTranscript,
   MeetingMinutes,
   Approval,
   BookingPage,
@@ -118,6 +119,8 @@ async function setup() {
     },
     minutes: null as MeetingMinutes | null,
     minutesFieldRevs: {} as Record<string, number>,
+    transcript: null as AiTranscript | null,
+    transcriptLineRevs: [] as number[],
     callbg: {
       choice: null as CallBackgroundChoice | null,
       imageKey: null as string | null,
@@ -278,6 +281,52 @@ async function setup() {
       for (const f of Object.keys(patch)) server.minutesFieldRevs[f] = revision;
       server.minutes = { ...cur, ...patch, revision } as MeetingMinutes;
       return server.minutes;
+    },
+    aiTranscript: async (id: string) => {
+      step(`listTranscript ${id}`);
+      return server.transcript!;
+    },
+    updateTranscript: async (
+      id: string,
+      req: {
+        baseRevision: number;
+        language?: string;
+        segments?: { index: number; text: string }[];
+        reviewed?: boolean;
+      },
+    ) => {
+      step(
+        `updateTranscript ${id} ${req.language ?? 'original'} base ${req.baseRevision} lines ${(req.segments ?? []).map((x) => x.index).join(',')}${req.reviewed !== undefined ? ` reviewed ${req.reviewed}` : ''}`,
+      );
+      const cur = server.transcript!;
+      const segments = cur.segments.map((x) => ({ ...x }));
+      const conflicts: number[] = [];
+      for (const e of req.segments ?? []) {
+        if (e.text === segments[e.index]!.text) continue;
+        if ((server.transcriptLineRevs[e.index] ?? 0) > req.baseRevision) conflicts.push(e.index);
+        segments[e.index]!.text = e.text;
+      }
+      if (conflicts.length)
+        throw new TransportError(
+          'Someone else corrected the same lines. Reload to see their version.',
+          'api',
+          'CONFLICT',
+        );
+      const revision = cur.revision + 1;
+      for (const e of req.segments ?? []) server.transcriptLineRevs[e.index] = revision;
+      server.transcript = {
+        ...cur,
+        segments,
+        text: segments.map((x) => x.text).join(' '),
+        edited: cur.edited || !!req.segments?.length,
+        ...(req.reviewed === undefined
+          ? {}
+          : req.reviewed
+            ? { reviewedBy: SELF, reviewedAt: '2026-11-20T11:00:00.000Z' }
+            : { reviewedBy: null, reviewedAt: null }),
+        revision,
+      };
+      return server.transcript;
     },
     getCallBackground: async () => {
       step('listCallBackground');
@@ -1347,5 +1396,93 @@ describe('minutes of meeting offline and together', () => {
       'minutes.update: Someone else changed the same part of these minutes. Reload to see their version.',
     ]);
     expect((await t.engine.getCallMinutes('call1'))!.minutes!.summary).toBe('Theirs');
+  });
+});
+
+describe('transcript corrections offline and together', () => {
+  const transcript = (): AiTranscript => ({
+    attachmentId: 'rec1',
+    conversationId: 'c1',
+    messageId: 'm1',
+    status: 'done',
+    text: 'hello there we ship on friday thanks',
+    segments: [
+      { startMs: 0, endMs: 2000, text: 'hello there' },
+      { startMs: 2000, endMs: 5000, text: 'we ship on friday' },
+      { startMs: 5000, endMs: 6000, text: 'thanks' },
+    ],
+    language: 'en',
+    model: 'whisper',
+    error: null,
+    updatedAt: '2026-11-20T10:50:00.000Z',
+    translations: [],
+    revision: 2,
+    edited: false,
+    reviewedBy: null,
+    reviewedAt: null,
+    canEdit: true,
+  });
+
+  it('corrections offline show at once, merge per line and go up once', async () => {
+    const t = await setup();
+    t.server.transcript = transcript();
+    await t.online();
+    await t.engine.loadTranscript('rec1');
+    t.engine.setNetworkUp(false);
+    await t.engine.correctTranscript('rec1', null, { segments: { 1: 'We ship on Friday.' } });
+    await t.engine.correctTranscript('rec1', null, { segments: { 0: 'Hello there.' } });
+    await t.engine.correctTranscript('rec1', null, { reviewed: true });
+    const shown = (await t.engine.getTranscript('rec1'))!;
+    expect(shown.segments.map((x) => x.text)).toEqual([
+      'Hello there.',
+      'We ship on Friday.',
+      'thanks',
+    ]);
+    expect(shown.edited).toBe(true);
+    expect(shown.reviewedBy).toBe(SELF);
+    // Someone else corrects another line meanwhile: both apply.
+    t.server.transcript = {
+      ...t.server.transcript!,
+      segments: t.server.transcript!.segments.map((x, i) =>
+        i === 2 ? { ...x, text: 'Thanks all.' } : x,
+      ),
+      revision: 3,
+    };
+    t.server.transcriptLineRevs[2] = 3;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('updateTranscript'))).toEqual([
+      'updateTranscript rec1 original base 2 lines 0,1 reviewed true',
+    ]);
+    const after = (await t.engine.getTranscript('rec1'))!;
+    expect(after.segments.map((x) => x.text)).toEqual([
+      'Hello there.',
+      'We ship on Friday.',
+      'Thanks all.',
+    ]);
+    expect(after.reviewedAt).not.toBeNull();
+    expect(t.refused).toEqual([]);
+  });
+
+  it('a line someone else corrected meanwhile is refused and their version shows', async () => {
+    const t = await setup();
+    t.server.transcript = transcript();
+    await t.online();
+    await t.engine.loadTranscript('rec1');
+    t.engine.setNetworkUp(false);
+    await t.engine.correctTranscript('rec1', null, { segments: { 1: 'Mine' } });
+    t.server.transcript = {
+      ...t.server.transcript!,
+      segments: t.server.transcript!.segments.map((x, i) =>
+        i === 1 ? { ...x, text: 'Theirs' } : x,
+      ),
+      revision: 3,
+    };
+    t.server.transcriptLineRevs[1] = 3;
+    await t.online();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.refused).toEqual([
+      'transcript.update: Someone else corrected the same lines. Reload to see their version.',
+    ]);
+    expect((await t.engine.getTranscript('rec1'))!.segments[1]!.text).toBe('Theirs');
   });
 });

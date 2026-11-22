@@ -41,6 +41,7 @@ const WHAT: Record<ActionKind, string> = {
   'callbg.image': 'Uploading your call background',
   'callbg.imageRemove': 'Removing your call background',
   'minutes.update': 'Saving the minutes',
+  'transcript.update': 'Correcting the transcript',
 };
 
 /**

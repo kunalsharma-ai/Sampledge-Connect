@@ -16,6 +16,7 @@ import { Glass } from '../components/Glass';
 import { AudioClip, ClipPlayerModal, RECORDING_LABEL } from '../components/MediaClips';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
+import { TranscriptButton } from '../components/TranscriptButton';
 import { confirmThen } from '../lib/confirm';
 import { useApp, useWorkspace } from '../state/AppProvider';
 import { usePeople } from '../state/hooks';
@@ -179,6 +180,7 @@ export default function Recordings() {
             </Text>
           </Pressable>
         )}
+        <TranscriptButton attachmentId={r.recordingId} title={RECORDING_LABEL[r.kind]} />
       </Glass>
     );
   };
