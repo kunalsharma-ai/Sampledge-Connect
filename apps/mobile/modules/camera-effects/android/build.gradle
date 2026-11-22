@@ -1,0 +1,27 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.sampconnect.cameraeffects'
+version = '0.1.0'
+
+android {
+  namespace "com.sampconnect.cameraeffects"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  // The MediaPipe models are read straight from the APK.
+  androidResources {
+    noCompress += ['tflite', 'task']
+  }
+}
+
+dependencies {
+  // The camera track and its frame-processor hook (ProcessorProvider).
+  implementation project(':livekit_react-native-webrtc')
+  // On-device person segmentation and face landmarks, the same models as the web app.
+  implementation 'com.google.mediapipe:tasks-vision:0.10.14'
+  testImplementation 'junit:junit:4.13.2'
+}

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CallVideo } from '../../calls/CallVideo';
+import { CameraEffects } from '../../calls/CameraEffects';
 import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
 import { useLiveCaptions } from '../../calls/useLiveCaptions';
 import { Avatar, PersonAvatar } from '../../components/Avatar';
@@ -181,6 +182,7 @@ export default function CallScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: '#05070D', paddingTop: insets.top }]}>
+      <CameraEffects room={media.room} />
       <View style={styles.header}>
         <Text variant="heading" numberOfLines={1} style={{ color: '#FFFFFF' }}>
           {title}

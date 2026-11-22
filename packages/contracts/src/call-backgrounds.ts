@@ -218,3 +218,40 @@ export function isNeutralAppearance(a: CallAppearance): boolean {
 
 /** True when face shaping is on (the device then also finds the face in each frame). */
 export const usesFaceShaping = (a: CallAppearance) => !!(a.faceSlim || a.eyes || a.nose);
+
+/**
+ * Shader numbers for a look: the filter's mix plus the person's sliders. The web app's shader
+ * and the phone apps' native camera processors all read these, so a look is the same everywhere.
+ */
+export interface LookParams {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  warmth: number;
+  grayscale: number;
+  sepia: number;
+  glow: number;
+  vignette: number;
+  lowLight: number;
+  sharpness: number;
+  smoothing: number;
+}
+
+const clampLook = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+export function lookParams(a: CallAppearance): LookParams {
+  const mix: Partial<LookParams> = CALL_LOOK_FILTERS.find((f) => f.id === a.filter)?.mix ?? {};
+  return {
+    brightness: clampLook(a.brightness / 100 + (mix.brightness ?? 0), -1, 1),
+    contrast: clampLook(a.contrast / 100 + (mix.contrast ?? 0), -1, 1),
+    saturation: clampLook(a.saturation / 100 + (mix.saturation ?? 0), -1, 1),
+    warmth: clampLook(a.warmth / 100 + (mix.warmth ?? 0), -1, 1),
+    grayscale: mix.grayscale ?? 0,
+    sepia: mix.sepia ?? 0,
+    glow: mix.glow ?? 0,
+    vignette: mix.vignette ?? 0,
+    lowLight: a.lowLight / 100,
+    sharpness: a.sharpness / 100,
+    smoothing: a.smoothing / 100,
+  };
+}
