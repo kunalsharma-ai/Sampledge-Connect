@@ -22,6 +22,7 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
   type CallBackgroundState,
@@ -124,7 +125,12 @@ import { OutboxProcessor } from '../sync/outbox';
 import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
-import { UNKNOWN_CALL_BACKGROUND, withPendingCallBackground } from '../lib/callBackground';
+import {
+  isLocalUpload,
+  localUploadUri,
+  UNKNOWN_CALL_BACKGROUND,
+  withPendingCallBackground,
+} from '../lib/callBackground';
 import {
   TransportError,
   type ApiTransport,
@@ -1321,11 +1327,14 @@ export class ConnectEngine {
         await this.saveCallBackground(await this.api.setCallBackground(i.choice));
         break;
       case 'callbg.image':
-        await this.saveCallBackground(await this.api.uploadCallBackground(i.localUri));
+        await this.saveCallBackground(await this.api.uploadCallBackground(i.localUri, i.name));
         deleteLocalFile(i.localUri);
         break;
       case 'callbg.imageRemove':
-        await this.saveCallBackground(await this.api.removeCallBackgroundImage());
+        await this.saveCallBackground(await this.api.removeCallBackgroundImage(i.imageId));
+        break;
+      case 'callbg.appearance':
+        await this.saveCallBackground(await this.api.setCallAppearance(i.appearance));
         break;
       case 'hours.set':
         await this.store.setSetting(
@@ -2125,11 +2134,17 @@ export class ConnectEngine {
   async getCallBackground(): Promise<CallBackgroundState> {
     const raw = await this.store.getSetting(CALL_BG_KEY);
     const saved = raw ? (JSON.parse(raw) as CallBackgroundState) : UNKNOWN_CALL_BACKGROUND;
-    return withPendingCallBackground(saved, await this.store.work.pendingCallBackground());
+    return withPendingCallBackground(
+      saved,
+      await this.store.work.pendingCallBackground(),
+      await this.store.work.pendingCallAppearance(),
+    );
   }
 
   /** Picks a background. Works offline and follows you to every device. */
   async setCallBackground(choice: CallBackgroundChoice): Promise<void> {
+    // An image still on its way is selected by its upload; nothing to send for it.
+    if (choice.kind === 'upload' && isLocalUpload(choice.imageId)) return;
     if (this.session.state === 'demo')
       await this.saveCallBackground(
         withPendingCallBackground(await this.getCallBackground(), [{ kind: 'callbg.set', choice }]),
@@ -2138,9 +2153,12 @@ export class ConnectEngine {
     await this.emitCallBackground();
   }
 
-  /** Your own image (a JPEG already in app storage, see prepareCallBackground). Selects it. */
-  async setCallBackgroundImage(localUri: string): Promise<void> {
-    const input = { kind: 'callbg.image' as const, localUri };
+  /**
+   * Adds one of your own backgrounds (a JPEG already in app storage, see prepareCallBackground)
+   * and selects it. Works offline: it uploads when you are back online.
+   */
+  async addCallBackgroundImage(localUri: string, name?: string): Promise<void> {
+    const input = { kind: 'callbg.image' as const, localUri, ...(name ? { name } : {}) };
     if (this.session.state === 'demo')
       await this.saveCallBackground(
         withPendingCallBackground(await this.getCallBackground(), [input]),
@@ -2149,13 +2167,47 @@ export class ConnectEngine {
     await this.emitCallBackground();
   }
 
-  async removeCallBackgroundImage(): Promise<void> {
-    const input = { kind: 'callbg.imageRemove' as const };
+  /** Removes one of your backgrounds (one picked offline that hasn't uploaded is just dropped). */
+  async removeCallBackgroundImage(imageId: string): Promise<void> {
+    if (isLocalUpload(imageId)) {
+      const uri = localUploadUri(imageId);
+      if (await this.store.work.dropPendingCallBackgroundImage(uri)) deleteLocalFile(uri);
+      await this.emitCallBackground();
+      return;
+    }
+    const input = { kind: 'callbg.imageRemove' as const, imageId };
     if (this.session.state === 'demo')
       await this.saveCallBackground(
         withPendingCallBackground(await this.getCallBackground(), [input]),
       );
     else await this.queue(input);
+    await this.emitCallBackground();
+  }
+
+  /** How you look on camera. Works offline and follows you to every device. */
+  async setCallAppearance(appearance: CallAppearance): Promise<void> {
+    if (this.session.state === 'demo')
+      await this.saveCallBackground({ ...(await this.getCallBackground()), appearance });
+    else await this.queue({ kind: 'callbg.appearance', appearance });
+    await this.emitCallBackground();
+  }
+
+  /** Owners and admins: adds a background everyone can pick. Needs a connection. */
+  async addOrganizationCallBackground(localUri: string, name?: string): Promise<void> {
+    try {
+      await this.saveCallBackground(
+        await this.serverAction(() => this.api.addOrganizationCallBackground(localUri, name)),
+      );
+    } finally {
+      deleteLocalFile(localUri);
+    }
+    await this.emitCallBackground();
+  }
+
+  async removeOrganizationCallBackground(imageId: string): Promise<void> {
+    await this.saveCallBackground(
+      await this.serverAction(() => this.api.removeOrganizationCallBackground(imageId)),
+    );
     await this.emitCallBackground();
   }
 

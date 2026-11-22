@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { CallBackgroundChoice, CallBackgroundPolicy } from '@sampledge/contracts';
+import {
+  CALL_BACKGROUND_MAX_ORGANIZATION,
+  CALL_BACKGROUND_MAX_PERSONAL,
+  isNeutralAppearance,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicy,
+  type CallBackgroundUpload,
+} from '@sampledge/contracts';
 import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Button } from '../../components/Button';
@@ -8,7 +16,12 @@ import { CallBackgroundPreview } from '../../components/CallBackgroundPreview';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
-import { callBackgroundLabel, PRESET_GROUPS, sameChoice } from '../../lib/callBackground';
+import {
+  callBackgroundLabel,
+  isLocalUpload,
+  PRESET_GROUPS,
+  sameChoice,
+} from '../../lib/callBackground';
 import { prepareCallBackground } from '../../lib/callBackgroundImage';
 import { confirmThen } from '../../lib/confirm';
 import { useWorkspace } from '../../state/AppProvider';
@@ -69,24 +82,44 @@ export default function CallBackgroundScreen() {
       if (choice.kind !== 'custom') setDraft({ ...draft, defaultChoice: choice });
       return;
     }
+    if (choice.kind === 'upload' && isLocalUpload(choice.imageId)) return;
     if (locked) return;
     void engine.setCallBackground(choice);
   };
+  const mine = state.uploads.filter((u) => u.owner === 'mine');
+  const library = state.uploads.filter((u) => u.owner === 'organization');
+  const pickImage = async (): Promise<{ uri: string; name: string } | null> => {
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+    if (r.canceled || !r.assets[0]) return null;
+    const a = r.assets[0];
+    const name = (a.fileName ?? '').replace(/\.[a-z0-9]+$/i, '').slice(0, 60) || 'My background';
+    return { uri: await prepareCallBackground(a.uri, a.width, a.height), name };
+  };
   const upload = () =>
     run(async () => {
-      const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
-      if (r.canceled || !r.assets[0]) return;
-      const a = r.assets[0];
-      await engine.setCallBackgroundImage(await prepareCallBackground(a.uri, a.width, a.height));
-    }, 'Saved. Your other devices use it too.');
-  const removeImage = () =>
+      const img = await pickImage();
+      if (img) await engine.addCallBackgroundImage(img.uri, img.name);
+    }, 'Added and selected. Your other devices have it too.');
+  const addToLibrary = () =>
+    run(async () => {
+      const img = await pickImage();
+      if (img) await engine.addOrganizationCallBackground(img.uri, img.name);
+    }, 'Added for everyone in your organization.');
+  const removeImage = (u: CallBackgroundUpload) =>
     confirmThen(
-      'Remove your image?',
-      state.choice?.kind === 'custom'
+      u.owner === 'organization' ? `Remove “${u.name}” for everyone?` : `Remove “${u.name}”?`,
+      state.choice?.kind === 'upload' && state.choice.imageId === u.imageId
         ? 'Calls go back to your organization’s default background.'
-        : 'It is removed from all your devices.',
+        : u.owner === 'organization'
+          ? 'People using it go back to the default background.'
+          : 'It is removed from all your devices.',
       'Remove',
-      () => engine.removeCallBackgroundImage(),
+      () =>
+        void run(() =>
+          u.owner === 'organization'
+            ? engine.removeOrganizationCallBackground(u.imageId)
+            : engine.removeCallBackgroundImage(u.imageId),
+        ),
     );
   const saveRules = () =>
     run(async () => {
@@ -104,16 +137,29 @@ export default function CallBackgroundScreen() {
     });
   const disabled = !managing && locked;
 
-  const tile = (ch: CallBackgroundChoice, label: string, key: string) => (
+  const tile = (
+    ch: CallBackgroundChoice,
+    label: string,
+    key: string,
+    extra: { onRemove?: () => void; uploading?: boolean; off?: boolean } = {},
+  ) => (
     <Tile
       key={key}
-      label={label}
+      label={extra.uploading ? `${label} · uploading` : label}
       selected={selected(ch)}
       isDefault={sameChoice(draft.defaultChoice, ch)}
-      disabled={disabled && ch.kind !== 'logo'}
+      disabled={(disabled && ch.kind !== 'logo') || extra.off}
       onPress={() => pick(ch)}
+      onRemove={extra.onRemove}
     >
       <CallBackgroundPreview choice={ch} state={state} />
+    </Tile>
+  );
+  const addTile = (label: string, onPress: () => void, off: boolean) => (
+    <Tile key={`add-${label}`} label={label} selected={false} disabled={off} onPress={onPress}>
+      <View style={[styles.add, { borderColor: c.border, backgroundColor: alpha(c.accent, 0.08) }]}>
+        <Ionicons name="add-circle-outline" size={24} color={c.accent} />
+      </View>
     </Tile>
   );
 
@@ -128,7 +174,11 @@ export default function CallBackgroundScreen() {
             testID="call-background-preview"
           />
           <Text variant="bodyStrong" accessibilityLiveRegion="polite">
-            {callBackgroundLabel(state.effective)}
+            {state.effective.kind === 'upload'
+              ? (state.uploads.find(
+                  (u) => state.effective.kind === 'upload' && u.imageId === state.effective.imageId,
+                )?.name ?? callBackgroundLabel(state.effective))
+              : callBackgroundLabel(state.effective)}
             {state.choice ? '' : ' (organization default)'}
           </Text>
           <Text variant="meta" tone="muted">
@@ -146,6 +196,26 @@ export default function CallBackgroundScreen() {
               camera as it is.
             </Text>
           </View>
+        </Glass>
+
+        <Glass>
+          <Pressable
+            onPress={() => router.push('/settings/call-appearance')}
+            accessibilityRole="button"
+            accessibilityLabel="How you look on camera"
+            style={styles.linkRow}
+          >
+            <Ionicons name="color-wand-outline" size={20} color={c.accent} />
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong">How you look</Text>
+              <Text variant="meta" tone="muted">
+                {isNeutralAppearance(state.appearance)
+                  ? 'As the camera sees you'
+                  : 'Your look and touch-up are on'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+          </Pressable>
         </Glass>
 
         {locked && !managing ? (
@@ -221,39 +291,49 @@ export default function CallBackgroundScreen() {
             {tile({ kind: 'none' }, 'No background', 'none')}
             {tile({ kind: 'blur' }, 'Blur', 'blur')}
             {tile({ kind: 'logo' }, 'Company background', 'logo')}
-            {managing ? null : state.customImageUrl ? (
-              tile({ kind: 'custom' }, 'Your image', 'custom')
-            ) : (
-              <Tile
-                key="upload"
-                label="Add your image"
-                selected={false}
-                disabled={locked || busy}
-                onPress={() => void upload()}
-              >
-                <View
-                  style={[
-                    styles.add,
-                    { borderColor: c.border, backgroundColor: alpha(c.accent, 0.08) },
-                  ]}
-                >
-                  <Ionicons name="add-circle-outline" size={24} color={c.accent} />
-                </View>
-              </Tile>
-            )}
           </View>
-          {!managing && state.customImageUrl ? (
-            <View style={styles.actions}>
-              <Button
-                title="Replace image"
-                kind="quiet"
-                onPress={() => void upload()}
-                disabled={locked || busy}
-              />
-              <Button title="Remove image" kind="quiet" onPress={removeImage} disabled={busy} />
-            </View>
-          ) : null}
         </View>
+
+        {managing ? null : (
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="muted">
+              Your backgrounds ({mine.length} of {CALL_BACKGROUND_MAX_PERSONAL})
+            </Text>
+            <View style={styles.grid}>
+              {mine.map((u) =>
+                tile({ kind: 'upload', imageId: u.imageId }, u.name, u.imageId, {
+                  uploading: isLocalUpload(u.imageId),
+                  onRemove: busy ? undefined : () => removeImage(u),
+                }),
+              )}
+              {mine.length < CALL_BACKGROUND_MAX_PERSONAL
+                ? addTile('Add your image', () => void upload(), locked || busy)
+                : null}
+            </View>
+          </View>
+        )}
+
+        {library.length || (managing && state.policy.canManage) ? (
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="muted">
+              From your organization
+            </Text>
+            <View style={styles.grid}>
+              {library.map((u) =>
+                tile({ kind: 'upload', imageId: u.imageId }, u.name, u.imageId, {
+                  onRemove: managing && !blocked && !busy ? () => removeImage(u) : undefined,
+                }),
+              )}
+              {managing && library.length < CALL_BACKGROUND_MAX_ORGANIZATION
+                ? addTile(
+                    blocked ? 'Add (needs a connection)' : 'Add for everyone',
+                    () => void addToLibrary(),
+                    !!blocked || busy,
+                  )
+                : null}
+            </View>
+          </View>
+        ) : null}
 
         {PRESET_GROUPS.map((g) => (
           <View key={g.group} style={{ gap: space.sm }}>
@@ -276,6 +356,7 @@ function Tile({
   isDefault,
   disabled,
   onPress,
+  onRemove,
   children,
 }: {
   label: string;
@@ -283,6 +364,7 @@ function Tile({
   isDefault?: boolean;
   disabled?: boolean;
   onPress: () => void;
+  onRemove?: () => void;
   children: React.ReactNode;
 }) {
   const { theme } = useTheme();
@@ -303,6 +385,17 @@ function Tile({
           <View style={[styles.check, { backgroundColor: c.accent }]}>
             <Ionicons name="checkmark" size={12} color={c.onAccent} />
           </View>
+        ) : null}
+        {onRemove ? (
+          <Pressable
+            onPress={onRemove}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${label}`}
+            hitSlop={8}
+            style={[styles.remove, { backgroundColor: alpha('#000000', 0.55) }]}
+          >
+            <Ionicons name="close" size={14} color="#ffffff" />
+          </Pressable>
         ) : null}
       </View>
       <Text variant="meta" numberOfLines={1} style={{ marginTop: 4 }}>
@@ -341,7 +434,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actions: { flexDirection: 'row', gap: space.sm },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
+  remove: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   check: {
     position: 'absolute',
     top: 5,

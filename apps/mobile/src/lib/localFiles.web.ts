@@ -18,9 +18,10 @@ export async function putFileBytes(
   url: string,
   localUri: string,
   headers: Record<string, string>,
+  method: 'PUT' | 'POST' = 'PUT',
 ): Promise<{ status: number; body: string }> {
   const blob = await (await fetch(localUri)).blob();
-  const r = await fetch(url, { method: 'PUT', headers, body: blob });
+  const r = await fetch(url, { method, headers, body: blob });
   return { status: r.status, body: await r.text() };
 }
 

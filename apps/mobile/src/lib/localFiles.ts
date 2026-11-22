@@ -49,9 +49,10 @@ export async function putFileBytes(
   url: string,
   localUri: string,
   headers: Record<string, string>,
+  method: 'PUT' | 'POST' = 'PUT',
 ): Promise<{ status: number; body: string }> {
   const r = await new File(localUri).upload(url, {
-    httpMethod: 'PUT',
+    httpMethod: method,
     uploadType: UploadType.BINARY_CONTENT,
     headers,
   });

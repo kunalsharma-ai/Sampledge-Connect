@@ -1,6 +1,7 @@
 import {
   CALL_BACKGROUND_PRESETS,
   DEFAULT_CALL_APPEARANCE,
+  type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicy,
   type CallBackgroundPresetId,
@@ -8,13 +9,22 @@ import {
 } from '@sampledge/contracts';
 import type { ActionInput } from '../db/work';
 
-export type PendingCallBackground = Extract<ActionInput, { kind: `callbg.${string}` }>;
+export type PendingCallBackground = Extract<
+  ActionInput,
+  { kind: 'callbg.set' | 'callbg.image' | 'callbg.imageRemove' }
+>;
+
+/** An image picked on this phone that hasn't reached the server shows under this id. */
+export const LOCAL_UPLOAD_PREFIX = 'local:';
+export const isLocalUpload = (imageId: string) => imageId.startsWith(LOCAL_UPLOAD_PREFIX);
+export const localUploadUri = (imageId: string) => imageId.slice(LOCAL_UPLOAD_PREFIX.length);
 
 export const sameChoice = (a: CallBackgroundChoice | null, b: CallBackgroundChoice | null) =>
   !!a &&
   !!b &&
   a.kind === b.kind &&
-  (a.kind !== 'preset' || (b.kind === 'preset' && a.presetId === b.presetId));
+  (a.kind !== 'preset' || (b.kind === 'preset' && a.presetId === b.presetId)) &&
+  (a.kind !== 'upload' || (b.kind === 'upload' && a.imageId === b.imageId));
 
 /** What applies in calls: the company background when required, else my pick or the default. */
 export function effectiveCallBackground(
@@ -24,29 +34,72 @@ export function effectiveCallBackground(
   return policy.enforceLogo ? { kind: 'logo' } : (choice ?? policy.defaultChoice);
 }
 
+/** The picture behind an upload choice (or the older "my image"), if it is still there. */
+export function uploadUrl(
+  state: Pick<CallBackgroundState, 'uploads' | 'customImageUrl'>,
+  choice: CallBackgroundChoice,
+): string | null {
+  if (choice.kind === 'custom') return state.customImageUrl;
+  if (choice.kind !== 'upload') return null;
+  return state.uploads.find((u) => u.imageId === choice.imageId)?.url ?? null;
+}
+
 /**
  * The server's copy with changes made on this device laid over it, in the order they were made,
- * the same way the server applies them: an upload selects the image, and removing the image
- * while it is in use goes back to the default.
+ * the same way the server applies them: an upload adds the image and selects it, and removing an
+ * image while it is in use goes back to the default.
  */
 export function withPendingCallBackground(
   state: CallBackgroundState,
   pending: readonly PendingCallBackground[],
+  appearance?: CallAppearance | null,
+  now = new Date().toISOString(),
 ): CallBackgroundState {
   let { choice, customImageUrl } = state;
+  let uploads = [...(state.uploads ?? [])];
+  const mineFirst = () => uploads.find((u) => u.owner === 'mine')?.url ?? null;
   for (const p of pending) {
     if (p.kind === 'callbg.image') {
+      const imageId = `${LOCAL_UPLOAD_PREFIX}${p.localUri}`;
+      const org = uploads.filter((u) => u.owner === 'organization');
+      const mine = uploads.filter((u) => u.owner === 'mine');
+      uploads = [
+        ...org,
+        {
+          imageId,
+          url: p.localUri,
+          name: p.name ?? 'My background',
+          owner: 'mine',
+          createdAt: now,
+        },
+        ...mine,
+      ];
       customImageUrl = p.localUri;
-      choice = { kind: 'custom' };
+      choice = { kind: 'upload', imageId };
     } else if (p.kind === 'callbg.imageRemove') {
-      customImageUrl = null;
-      if (choice?.kind === 'custom') choice = null;
-    } else if (p.choice.kind !== 'custom' || customImageUrl) choice = p.choice;
+      if (p.imageId) {
+        uploads = uploads.filter((u) => u.imageId !== p.imageId);
+        if (choice?.kind === 'upload' && choice.imageId === p.imageId) choice = null;
+      } else {
+        const latest = uploads.find((u) => u.owner === 'mine');
+        if (latest) uploads = uploads.filter((u) => u !== latest);
+        if (choice?.kind === 'custom') choice = null;
+      }
+      customImageUrl = mineFirst();
+      if (choice?.kind === 'custom' && !customImageUrl) choice = null;
+    } else if (p.choice.kind === 'custom') {
+      if (customImageUrl) choice = p.choice;
+    } else if (p.choice.kind === 'upload') {
+      const id = p.choice.imageId;
+      if (uploads.some((u) => u.imageId === id)) choice = p.choice;
+    } else choice = p.choice;
   }
   return {
     ...state,
     choice,
     customImageUrl,
+    uploads,
+    appearance: appearance ?? state.appearance ?? DEFAULT_CALL_APPEARANCE,
     effective: effectiveCallBackground(choice, state.policy),
   };
 }
