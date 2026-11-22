@@ -24,7 +24,9 @@ import {
   type CallBackgroundChoice,
   type MinutesEditableField,
   type MeetingMinutes,
+  type UpdateInboxConversationRequest,
 } from '@sampledge/contracts';
+import type { PendingInbox, PendingInboxPost } from '../lib/inbox';
 import { Emitter } from '../lib/emitter';
 import type { NetworkScope } from '../lib/networkSpace';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -124,7 +126,23 @@ export type ActionInput =
        * into `body.attachmentId` (status updates).
        */
       media?: { localUri: string; fileName: string; mimeType: string; sizeBytes: number };
-    };
+    }
+  /**
+   * Client Inbox (`inboxId` is the inbox conversation). Replies and notes carry the client id
+   * the server dedupes on; field changes merge per field; a read mark sets a state. Posts,
+   * field changes and read marks have their own queues per conversation, so a refused reply
+   * never holds back a read mark or an assignment.
+   */
+  | {
+      kind: 'inbox.reply';
+      inboxId: string;
+      clientMessageId: string;
+      text: string;
+      templateId?: string;
+    }
+  | { kind: 'inbox.note'; inboxId: string; clientNoteId: string; text: string; mentions: string[] }
+  | { kind: 'inbox.update'; inboxId: string; patch: UpdateInboxConversationRequest }
+  | { kind: 'inbox.read'; inboxId: string };
 
 export interface TranscriptPatch {
   /** Corrected lines by index. */
@@ -203,7 +221,8 @@ type CacheKind =
   | 'search'
   | 'minutes'
   | 'transcript'
-  | 'network';
+  | 'network'
+  | 'inbox';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -275,6 +294,13 @@ const targetOf = (a: ActionInput): string => {
       return transcriptTarget(a.attachmentId, a.language);
     case 'net.act':
       return 'network';
+    case 'inbox.reply':
+    case 'inbox.note':
+      return `inbox:${a.inboxId}|post`;
+    case 'inbox.update':
+      return `inbox:${a.inboxId}|update`;
+    case 'inbox.read':
+      return `inbox:${a.inboxId}|read`;
   }
 };
 
@@ -294,7 +320,7 @@ const kindOfCache = (k: ActionKind): CacheKind =>
           ? 'vote'
           : k === 'net.act'
             ? 'network'
-            : (k.split('.')[0] as CacheKind);
+            : (k.split('.')[0] as CacheKind); // inbox.* -> 'inbox'
 
 interface ActionRow {
   id: string;
@@ -482,7 +508,25 @@ export class WorkStore {
           break;
         case 'poll.create':
         case 'net.act':
+        case 'inbox.reply':
+        case 'inbox.note':
           await insert(input);
+          break;
+        case 'inbox.update': {
+          // The latest choice per field wins; one waiting change per conversation.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'inbox.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'inbox.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
+        case 'inbox.read':
+          if (!waiting.some((a) => a.state === 'pending')) await insert(input);
           break;
         case 'task.create':
         case 'approval.create':
@@ -1140,6 +1184,58 @@ export class WorkStore {
     )
       .map(toAction)
       .flatMap((a) => (a.input.kind === 'net.act' ? [a.input] : []));
+  }
+
+  /** Client Inbox changes made here and not on the server yet (refused posts included). */
+  async pendingInbox(): Promise<PendingInbox> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE kind LIKE 'inbox.%' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const posts: PendingInboxPost[] = [];
+    const updates: PendingInbox['updates'] = {};
+    const reads = new Set<string>();
+    for (const a of rows) {
+      const i = a.input;
+      const error = a.state === 'failed' ? (a.lastError ?? 'Not sent') : null;
+      if (i.kind === 'inbox.reply' || i.kind === 'inbox.note')
+        posts.push({
+          actionId: a.id,
+          kind: i.kind === 'inbox.reply' ? 'reply' : 'note',
+          inboxId: i.inboxId,
+          clientId: i.kind === 'inbox.reply' ? i.clientMessageId : i.clientNoteId,
+          text: i.text,
+          createdAt: new Date(a.enqueuedAt).toISOString(),
+          error,
+        });
+      else if (i.kind === 'inbox.update' && a.state !== 'failed')
+        updates[i.inboxId] = { ...updates[i.inboxId], ...i.patch };
+      else if (i.kind === 'inbox.read' && a.state !== 'failed') reads.add(i.inboxId);
+    }
+    return { posts, updates, reads };
+  }
+
+  /** Send again an action the server refused (a reply or note in the Client Inbox). */
+  async retryAction(id: string): Promise<void> {
+    const r = await this.db.get<ActionRow>('SELECT * FROM actions WHERE id = ?', [id]);
+    if (!r) return;
+    await this.db.run(
+      `UPDATE actions SET state = 'pending', attempts = 0, next_attempt_at = 0, last_error = NULL WHERE id = ?`,
+      [id],
+    );
+    this.events.emit('changed', { kind: kindOfCache(toAction(r).input.kind) });
+  }
+
+  /** Forget an action that has not reached the server (sending ones are left alone). */
+  async discardAction(id: string): Promise<void> {
+    const r = await this.db.get<ActionRow>(
+      `SELECT * FROM actions WHERE id = ? AND state != 'sending'`,
+      [id],
+    );
+    if (!r) return;
+    await this.db.run('DELETE FROM actions WHERE id = ?', [id]);
+    this.events.emit('changed', { kind: kindOfCache(toAction(r).input.kind) });
   }
 
   /** How you look on camera, changed on this device and not on the server yet. */
