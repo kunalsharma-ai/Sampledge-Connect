@@ -9,9 +9,6 @@ import {
 } from '@sampledge/contracts';
 import { logoBackground, type BackgroundController } from '@/lib/call-backgrounds';
 
-const same = (a: CallBackgroundChoice, b: CallBackgroundChoice) =>
-  a.kind === b.kind && (a.kind !== 'preset' || (b.kind === 'preset' && a.presetId === b.presetId));
-
 function Tile({
   label,
   selected,
@@ -48,10 +45,21 @@ function Tile({
   );
 }
 
+const Img = ({ src }: { src: string }) => (
+  // eslint-disable-next-line @next/next/no-img-element
+  <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
+);
+
+const Heading = ({ children }: { children: React.ReactNode }) => (
+  <p className="col-span-3 pt-1 text-meta font-medium uppercase tracking-wide text-white/50">
+    {children}
+  </p>
+);
+
 /**
- * The background grid in call settings: none, blur, company logo, your own image, and the
- * prebuilt office scenes. Everything runs on this device; members' choice follows them to
- * every device.
+ * The background grid in call settings: none, blur, the company background, uploads (mine and
+ * the organization's) and the prebuilt photos. Everything runs on this device; members' choice
+ * follows them to every device.
  */
 export function BackgroundPicker({
   ctl,
@@ -69,6 +77,7 @@ export function BackgroundPicker({
   const [uploading, setUploading] = React.useState(false);
   const cur = ctl.effective;
   const off = supported === false;
+  const locked = ctl.locked;
 
   React.useEffect(() => {
     if (!ctl.allowLogo || !ctl.brand) return;
@@ -83,7 +92,11 @@ export function BackgroundPicker({
     onError(null);
     void ctl.choose(c);
   };
-  const locked = ctl.locked;
+  const isUpload = (id: string) => cur.kind === 'upload' && cur.imageId === id;
+  const isPreset = (id: string) => cur.kind === 'preset' && cur.presetId === id;
+  const mine = ctl.uploads.filter((u) => u.owner === 'mine');
+  const company = ctl.uploads.filter((u) => u.owner === 'organization');
+  const groups = [...new Set(CALL_BACKGROUND_PRESETS.map((p) => p.group))];
 
   return (
     <section aria-label="Background" className="space-y-2" data-testid="background-picker">
@@ -122,15 +135,25 @@ export function BackgroundPicker({
           disabled={locked || off}
           onClick={() => pick({ kind: 'blur' })}
         >
-          <span
-            aria-hidden
-            className="absolute inset-0 scale-110 bg-cover bg-center blur-[3px]"
-            style={{ backgroundImage: `url(${callBackgroundThumbPath('skyline-office')})` }}
-          />
-          <span className="relative flex h-full flex-col items-center justify-center gap-1 bg-black/30 text-meta text-white">
+          <span className="flex h-full flex-col items-center justify-center gap-1 bg-gradient-to-br from-white/15 to-white/5 text-meta text-white backdrop-blur">
             <Sparkles className="size-4" /> Blur
           </span>
         </Tile>
+        {ctl.allowUpload ? (
+          <Tile
+            label="Upload your own background"
+            selected={false}
+            disabled={locked || off || uploading}
+            onClick={() => fileRef.current?.click()}
+            testId="background-upload"
+          >
+            <span className="flex h-full flex-col items-center justify-center gap-1 border border-dashed border-white/30 text-meta">
+              <ImagePlus className="size-4" /> {uploading ? 'Uploading…' : 'Upload'}
+            </span>
+          </Tile>
+        ) : null}
+
+        {ctl.allowLogo || company.length ? <Heading>Company</Heading> : null}
         {ctl.allowLogo ? (
           <Tile
             label="Company logo background"
@@ -140,8 +163,7 @@ export function BackgroundPicker({
             testId="background-logo"
           >
             {logoPreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoPreview} alt="" className="h-full w-full object-cover" />
+              <Img src={logoPreview} />
             ) : (
               <span className="flex h-full flex-col items-center justify-center gap-1 text-meta">
                 <Building2 className="size-4" /> Company
@@ -149,57 +171,58 @@ export function BackgroundPicker({
             )}
           </Tile>
         ) : null}
-        {ctl.allowUpload && ctl.customImageUrl ? (
-          <div className="relative">
+        {company.map((u) => (
+          <Tile
+            key={u.imageId}
+            label={u.name}
+            selected={isUpload(u.imageId)}
+            disabled={locked || off}
+            onClick={() => pick({ kind: 'upload', imageId: u.imageId })}
+            testId="background-company-upload"
+          >
+            <Img src={u.url} />
+          </Tile>
+        ))}
+
+        {mine.length ? <Heading>Yours</Heading> : null}
+        {mine.map((u) => (
+          <div key={u.imageId} className="relative">
             <Tile
-              label="My own image"
-              selected={cur.kind === 'custom'}
+              label={u.name}
+              selected={isUpload(u.imageId)}
               disabled={locked || off}
-              onClick={() => pick({ kind: 'custom' })}
-              testId="background-custom"
+              onClick={() => pick({ kind: 'upload', imageId: u.imageId })}
+              testId="background-mine"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={ctl.customImageUrl} alt="" className="h-full w-full object-cover" />
+              <Img src={u.url} />
             </Tile>
             <button
               type="button"
-              aria-label="Remove my image"
-              onClick={() => void ctl.removeImage?.()}
+              aria-label={`Remove ${u.name}`}
+              onClick={() => void ctl.removeImage?.(u.imageId)}
               className="absolute right-1 top-1 rounded bg-black/70 p-1 text-white/80 hover:text-white"
             >
               <Trash2 className="size-3" />
             </button>
           </div>
-        ) : null}
-        {ctl.allowUpload ? (
-          <Tile
-            label={ctl.customImageUrl ? 'Replace my image' : 'Upload my own image'}
-            selected={false}
-            disabled={locked || off || uploading}
-            onClick={() => fileRef.current?.click()}
-          >
-            <span className="flex h-full flex-col items-center justify-center gap-1 text-meta">
-              <ImagePlus className="size-4" /> {uploading ? 'Uploading…' : 'Your image'}
-            </span>
-          </Tile>
-        ) : null}
-        {CALL_BACKGROUND_PRESETS.map((p) => (
-          <Tile
-            key={p.id}
-            label={p.name}
-            selected={cur.kind === 'preset' && same(cur, { kind: 'preset', presetId: p.id })}
-            disabled={locked || off}
-            onClick={() => pick({ kind: 'preset', presetId: p.id })}
-            testId={`background-${p.id}`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={callBackgroundThumbPath(p.id)}
-              alt=""
-              loading="lazy"
-              className="h-full w-full object-cover"
-            />
-          </Tile>
+        ))}
+
+        {groups.map((g) => (
+          <React.Fragment key={g}>
+            <Heading>{g}</Heading>
+            {CALL_BACKGROUND_PRESETS.filter((p) => p.group === g).map((p) => (
+              <Tile
+                key={p.id}
+                label={p.name}
+                selected={isPreset(p.id)}
+                disabled={locked || off}
+                onClick={() => pick({ kind: 'preset', presetId: p.id })}
+                testId={`background-${p.id}`}
+              >
+                <Img src={callBackgroundThumbPath(p.id)} />
+              </Tile>
+            ))}
+          </React.Fragment>
         ))}
       </div>
       {ctl.allowUpload ? (
