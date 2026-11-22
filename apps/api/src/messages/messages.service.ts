@@ -443,20 +443,45 @@ export class MessagesService {
         : 'message.delete.any',
     );
     if (m.deletedAt) return toMessage(m);
+    return this.tombstone(ctx.tenantId, m, ctx.userId);
+  }
+
+  /**
+   * SampConnect Network moderation: a platform operator or community moderator removes a
+   * reported message. Authorization is done by the caller (ModerationService).
+   */
+  async removeAsModerator(
+    tenantId: string,
+    messageId: string,
+    byUserId: string,
+  ): Promise<Message | null> {
+    const m = await this.db.for(tenantId).messages.findOne({ _id: messageId });
+    if (!m) return null;
+    if (m.deletedAt) return toMessage(m);
+    return this.tombstone(tenantId, m, byUserId, true);
+  }
+
+  private async tombstone(
+    tenantId: string,
+    m: MessageDoc,
+    byUserId: string,
+    moderated = false,
+  ): Promise<Message> {
+    const t = this.db.for(tenantId);
     const updated = await withLock(
       this.redis,
-      this.lockKey(ctx.tenantId, m.conversationId),
+      this.lockKey(tenantId, m.conversationId),
       async () => {
-        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        const seq = await this.nextSequence(tenantId, m.conversationId, false);
         return t.messages.findOneAndUpdate(
-          { _id: messageId },
+          { _id: m._id },
           {
             $set: {
               content: { text: '', mentions: [] },
               pinned: null,
               deletedAt: new Date(),
               changeSequence: seq,
-              metadata: { deletedBy: ctx.userId },
+              metadata: { deletedBy: byUserId, ...(moderated ? { moderated: true } : {}) },
             },
           },
           { returnDocument: 'after' },
@@ -464,8 +489,8 @@ export class MessagesService {
       },
     );
     const dto = toMessage(updated!);
-    this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
-    await this.notifications.onMessageDeleted(ctx.tenantId, messageId);
+    this.realtime.toConversation(tenantId, m.conversationId, 'message:updated', dto);
+    await this.notifications.onMessageDeleted(tenantId, m._id);
     return dto;
   }
 

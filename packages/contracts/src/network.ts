@@ -226,7 +226,7 @@ export interface NetworkInvite {
   url: string;
   /** For SMS: open this on a phone to send the text from your own number. */
   smsUrl: string | null;
-  /** Email delivery: 'sent', 'not_configured' (no SMTP), 'failed', or null for links. */
+  /** Email or text delivery: 'sent', 'not_configured' (no SMTP or SMS provider), 'failed', or null for links. */
   delivery: 'sent' | 'not_configured' | 'failed' | null;
   status: 'pending' | 'accepted' | 'expired';
   createdAt: string;
@@ -471,6 +471,8 @@ export interface NetworkAdminView {
   policy: NetworkPolicy;
   linkedMembers: number;
   externalConnections: number;
+  /** You are a platform operator: you can review reports across SampConnect Network. */
+  canModerate: boolean;
 }
 
 /** Realtime: something in your network changed; refetch that part. Sent to all your devices. */
@@ -483,6 +485,90 @@ export interface NetworkChangedEvent {
     | 'blocks'
     | 'statuses'
     | 'communities'
-    | 'invites';
+    | 'invites'
+    /** Reports waiting in a community you moderate (`id` is the community). */
+    | 'reports';
   id?: string;
+}
+
+// ─── moderation ──────────────────────────────────────────────────────────────
+
+export const REPORT_TARGETS = ['user', 'status', 'community', 'message'] as const;
+export type ReportTarget = (typeof REPORT_TARGETS)[number];
+export const REPORT_STATUSES = ['open', 'actioned', 'dismissed'] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+/**
+ * What a moderator can do with a report. Platform operators: all of them except
+ * `ban_from_community`. Community owners, admins and moderators: `dismiss`, `remove_content`
+ * (a message in one of their groups) and `ban_from_community`.
+ */
+export const MODERATION_ACTIONS = [
+  'dismiss',
+  'remove_content',
+  'suspend_user',
+  'suspend_community',
+  'ban_from_community',
+] as const;
+export type ModerationActionKind = (typeof MODERATION_ACTIONS)[number];
+
+export const ModerationActionSchema = z.object({
+  ...Action,
+  action: z.enum(MODERATION_ACTIONS),
+  /** Kept with the report and in the audit log; shown to other moderators. */
+  note: z.string().trim().max(500).default(''),
+});
+export type ModerationActionRequest = z.input<typeof ModerationActionSchema>;
+
+export const ModerationQuerySchema = z.object({
+  status: z.enum(REPORT_STATUSES).default('open'),
+});
+
+/** One report, with what was reported as it looked when it was reported. */
+export interface ModerationReport {
+  reportId: string;
+  targetType: ReportTarget;
+  targetId: string;
+  reason: (typeof REPORT_REASONS)[number];
+  details: string;
+  status: ReportStatus;
+  reporter: NetworkPerson | null;
+  /** Whose content it is (the reported person, the author, or the community owner). */
+  subject: NetworkPerson | null;
+  community: { communityId: string; name: string; slug: string } | null;
+  /** Text, caption, name or headline captured at report time. */
+  snapshot: string;
+  /** Today: still up, removed, or its author or community suspended. */
+  targetState: 'active' | 'removed' | 'suspended';
+  /** Other open reports about the same thing. */
+  alsoReported: number;
+  createdAt: string;
+  resolution: {
+    action: ModerationActionKind;
+    note: string;
+    by: string;
+    at: string;
+  } | null;
+}
+
+export interface ModerationQueue {
+  reports: ModerationReport[];
+  counts: Record<ReportStatus, number>;
+}
+
+/** Platform operators: suspended people and communities, to restore them. */
+export interface NetworkSuspensions {
+  users: { person: NetworkPerson; suspendedAt: string; reason: string }[];
+  communities: {
+    communityId: string;
+    name: string;
+    slug: string;
+    suspendedAt: string;
+    reason: string;
+  }[];
+}
+
+/** Realtime, platform operators only: the moderation queue or suspensions changed. */
+export interface ModerationChangedEvent {
+  scope: 'reports' | 'suspensions';
 }

@@ -81,6 +81,7 @@ const SCOPE_PATHS: Record<Scope, RegExp> = {
   statuses: /^\/v1\/network\/statuses/,
   communities: /^\/v1\/network\/communit/,
   invites: /^\/v1\/network\/invites/,
+  reports: /^\/v1\/network\/communities\/[^/]+\/reports/,
 };
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {

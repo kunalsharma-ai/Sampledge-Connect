@@ -24,6 +24,8 @@ import { StatusService } from './status.service.js';
 import { CommunitiesService } from './communities.service.js';
 import { NetworkPolicyService } from './network-policy.service.js';
 import { NetworkGate } from './network-gate.js';
+import { ModerationService } from './moderation.service.js';
+import { PlatformAdmins } from '../common/platform-admins.js';
 
 const kind = (k: string) => {
   if (k !== 'user' && k !== 'community') throw notFound('Follow target');
@@ -38,6 +40,7 @@ export class NetworkController {
     private readonly network: NetworkService,
     private readonly statuses: StatusService,
     private readonly communities: CommunitiesService,
+    private readonly moderation: ModerationService,
   ) {}
 
   // Work session → network session
@@ -137,7 +140,7 @@ export class NetworkController {
   }
   @Post('reports')
   report(@Ctx() ctx: TenantContext, @Body() body: unknown) {
-    return this.network.report(ctx, body);
+    return this.moderation.report(ctx, body);
   }
 
   // Invites
@@ -232,6 +235,20 @@ export class NetworkController {
   @HttpCode(204)
   invite(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
     return this.communities.invite(ctx, id, body);
+  }
+  @Get('communities/:id/reports')
+  communityReports(@Ctx() ctx: TenantContext, @Param('id') id: string, @Query() q: unknown) {
+    return this.moderation.communityQueue(ctx, id, q);
+  }
+  @Post('communities/:id/reports/:reportId/action')
+  @HttpCode(200)
+  communityReportAction(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('reportId') reportId: string,
+    @Body() body: unknown,
+  ) {
+    return this.moderation.communityAct(ctx, id, reportId, body);
   }
   @Get('communities/:id/members')
   members(@Ctx() ctx: TenantContext, @Param('id') id: string) {
@@ -359,7 +376,7 @@ export class NetworkPublicController {
     const p = await net.network_profiles.findOne({
       handle: handle.toLowerCase().replace(/^@/, ''),
     });
-    if (!p || p.privacy.profileVisibility !== 'public') throw notFound('Profile');
+    if (!p || p.privacy.profileVisibility !== 'public' || p.suspendedAt) throw notFound('Profile');
     return { profile: await this.network.toProfile(p), statuses: await this.statuses.publicOf(p) };
   }
 
@@ -389,19 +406,59 @@ export class NetworkAdminController {
   constructor(
     private readonly policy: NetworkPolicyService,
     private readonly gate: NetworkGate,
+    private readonly platformAdmins: PlatformAdmins,
   ) {}
 
   @Get()
-  view(@Ctx() ctx: TenantContext) {
+  async view(@Ctx() ctx: TenantContext) {
     if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
-    return this.policy.view(ctx.tenantId);
+    return this.policy.view(ctx.tenantId, await this.platformAdmins.is(ctx));
   }
 
   @Put()
   async set(@Ctx() ctx: TenantContext, @Body() body: unknown) {
     if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
-    const r = await this.policy.set(ctx.tenantId, ctx.userId, body);
+    const r = await this.policy.set(
+      ctx.tenantId,
+      ctx.userId,
+      body,
+      await this.platformAdmins.is(ctx),
+    );
     this.gate.forget();
     return r;
+  }
+}
+
+/**
+ * Platform operators (PLATFORM_ADMIN_EMAILS), from their work session: every report across
+ * SampConnect Network, and the people and communities they suspended.
+ */
+@Controller('v1/platform/network')
+@UseGuards(AuthGuard)
+export class NetworkModerationController {
+  constructor(private readonly moderation: ModerationService) {}
+
+  @Get('reports')
+  reports(@Ctx() ctx: TenantContext, @Query() q: unknown) {
+    return this.moderation.platformQueue(ctx, q);
+  }
+  @Post('reports/:id/action')
+  @HttpCode(200)
+  act(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.moderation.platformAct(ctx, id, body);
+  }
+  @Get('suspensions')
+  suspensions(@Ctx() ctx: TenantContext) {
+    return this.moderation.suspensions(ctx);
+  }
+  @Delete('suspensions/users/:id')
+  @HttpCode(204)
+  restoreUser(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.moderation.restoreUser(ctx, id);
+  }
+  @Delete('suspensions/communities/:id')
+  @HttpCode(204)
+  restoreCommunity(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.moderation.restoreCommunity(ctx, id);
   }
 }

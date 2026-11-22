@@ -5,6 +5,7 @@ import {
   BookmarkCheck,
   CheckSquare,
   CornerUpLeft,
+  Flag,
   Forward,
   Languages,
   MessagesSquare,
@@ -165,6 +166,8 @@ export interface ExtraActions {
   onDelete?: () => void;
   /** Absent when the conversation turned forwarding off. */
   onForward?: () => void;
+  /** SampConnect Network: report someone else's message to moderators. */
+  onReport?: () => void;
 }
 
 const ACTION_BTN =
@@ -182,6 +185,7 @@ export function MessageActions({
   onEdit,
   onDelete,
   onForward,
+  onReport,
   onCreateTask,
   onRequestApproval,
   onTranslate,
@@ -235,6 +239,15 @@ export function MessageActions({
           {onForward ? (
             <button onClick={onForward} aria-label="Forward" className={ACTION_BTN}>
               <Forward className="size-4" />
+            </button>
+          ) : null}
+          {onReport ? (
+            <button
+              onClick={onReport}
+              aria-label="Report message"
+              className={cn(ACTION_BTN, 'hover:text-danger')}
+            >
+              <Flag className="size-4" />
             </button>
           ) : null}
           {onPin ? (
