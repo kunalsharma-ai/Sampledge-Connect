@@ -70,6 +70,7 @@ import { avatarOf, avatarUrl, nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
 import { RepeatPicker } from './repeat-picker';
 import { BookingPagesDialog } from './booking-pages';
+import { FeatureHelp } from '../feature-help';
 
 const HOUR_PX = 56;
 const FIRST_HOUR = 7;
@@ -129,7 +130,10 @@ export function MeetingsScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" aria-label="Meetings">
       <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <CalendarClock className="size-5 text-accent" />
-        <h1 className="mr-2 font-display text-h3 text-text">Meetings</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="mr-2 font-display text-h3 text-text">Meetings</h1>
+          <FeatureHelp id="meetings" />
+        </div>
         <div className="flex items-center gap-1">
           <button
             className="rounded-sm p-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
@@ -179,6 +183,7 @@ export function MeetingsScreen({
         >
           <Settings2 /> <span className="hidden md:inline">Working hours</span>
         </Button>
+        <FeatureHelp id="booking-pages" size="sm" />
         <Button
           size="sm"
           onClick={() => setCreating({})}

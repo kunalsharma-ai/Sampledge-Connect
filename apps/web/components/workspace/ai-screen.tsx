@@ -30,6 +30,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { aiErrorText, type AiApi } from '@/lib/ai';
 import { ActionItemRow, EngineBadge } from './ai-parts';
 import { avatarOf, conversationTitle, nameOf, relativeShort } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 type Turn =
   | { role: 'user'; text: string }
@@ -181,7 +182,10 @@ export function AiScreen({
           <Bot className="size-4" />
         </span>
         <div className="min-w-0">
-          <h1 className="font-display text-h3 text-text">AI Assistant</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="font-display text-h3 text-text">AI Assistant</h1>
+            <FeatureHelp id="ai" />
+          </div>
           <p className="hidden truncate text-meta text-text-subtle sm:block">
             Private to your organization. It only reads what you can read.
           </p>

@@ -23,6 +23,7 @@ import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { SampledgeModulePanel } from './sampledge-module-panel';
 import { useTenantChange } from '@/lib/engine';
+import { FeatureHelp } from '../feature-help';
 
 type Draft = Record<string, string | number | boolean | null>;
 /** Secret edits: a string replaces, null clears, absent keeps what is stored. */
@@ -134,7 +135,10 @@ export function IntegrationsScreen({
       {platform ? null : (
         <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
           <Plug className="size-5 text-accent" aria-hidden />
-          <h1 className="font-display text-h3 text-text">Integrations</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="font-display text-h3 text-text">Integrations</h1>
+            <FeatureHelp id="integrations" />
+          </div>
           <p className="hidden text-meta text-text-subtle md:block">
             Connect services here. Settings are stored encrypted in your workspace database and
             apply immediately, with no server restart.

@@ -21,6 +21,7 @@ import {
   useMyStatus,
   type ClearAfter,
 } from '@/lib/status';
+import { FeatureHelp } from '../feature-help';
 
 const DOT: Record<Availability, string> = {
   auto: 'bg-success',
@@ -418,7 +419,10 @@ export function QuietHoursCard() {
       <div className="flex items-start gap-3">
         <Moon className="mt-0.5 size-5 text-accent" aria-hidden />
         <div className="min-w-0 flex-1">
-          <h3 className="text-label text-text">Quiet hours</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="text-label text-text">Quiet hours</h3>
+            <FeatureHelp id="presence" size="sm" inDialog />
+          </div>
           <p className="mt-0.5 text-meta text-text-subtle">
             Do not disturb on a schedule. No push notifications during these hours; messages,
             mentions and calls still show in the app. Applies on every device.
@@ -542,7 +546,10 @@ export function StatusCard() {
         {status.emoji ?? '💬'}
       </span>
       <div className="min-w-0 flex-1">
-        <h3 className="text-label text-text">Status</h3>
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="text-label text-text">Status</h3>
+          <FeatureHelp id="presence" size="sm" inDialog />
+        </div>
         <p className="truncate text-meta text-text-subtle">
           {custom ? status.text : 'No status message'} ·{' '}
           {dnd ? 'Do not disturb' : AVAILABILITY_LABEL[status.availability]}

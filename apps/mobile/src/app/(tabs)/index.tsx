@@ -32,6 +32,7 @@ import {
 import { useInNetwork } from '../../state/useNetwork';
 import { radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { FeatureHelp } from '../../components/FeatureHelp';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -129,10 +130,20 @@ function Home() {
                 · {workspaceName}
               </Text>
             </View>
-            <Text variant="display" style={{ marginTop: space.xs }}>
-              {greeting()}
-              {firstName ? `, ${firstName}` : ''}
-            </Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+                marginTop: space.xs,
+              }}
+            >
+              <Text variant="display" style={{ flexShrink: 1 }}>
+                {greeting()}
+                {firstName ? `, ${firstName}` : ''}
+              </Text>
+              <FeatureHelp id="home" size={24} />
+            </View>
             <Text tone="muted" style={{ marginTop: space.xs }}>
               {homeSummary({
                 unread,

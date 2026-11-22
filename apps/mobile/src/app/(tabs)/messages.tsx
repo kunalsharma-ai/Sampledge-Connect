@@ -12,6 +12,7 @@ import { isUnjoinedChannel } from '../../lib/access';
 import { useConversations, usePeople } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { FeatureHelp } from '../../components/FeatureHelp';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -51,7 +52,10 @@ export default function Messages() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Text variant="title">Messages</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <Text variant="title">Messages</Text>
+          <FeatureHelp id="messages" />
+        </View>
         <View style={{ flexDirection: 'row', gap: space.xs }}>
           <Pressable
             onPress={() => router.push('/channels')}

@@ -29,6 +29,7 @@ import {
   type SearchTab,
 } from '@/lib/search';
 import { conversationTitle, formatDay, formatTime, nameOf } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 /** Wraps matched ranges in <mark>. */
 export function Highlight({ text, ranges }: { text: string; ranges: [number, number][] }) {
@@ -158,7 +159,10 @@ export function SearchScreen(props: SearchScreenProps) {
               <Search className="size-[18px]" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <h1 className="font-display text-h3 text-text">Search</h1>
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="font-display text-h3 text-text">Search</h1>
+                <FeatureHelp id="search" />
+              </div>
               <p className="text-meta text-text-subtle">
                 Messages, files, people, channels, tasks and meetings you can open.
               </p>

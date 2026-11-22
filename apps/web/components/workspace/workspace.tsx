@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   UserRound,
   Users,
+  BookOpen,
 } from 'lucide-react';
 import {
   Avatar,
@@ -106,6 +107,7 @@ import { AnalyticsScreen } from './analytics-screen';
 import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
+import { FeatureGuideHost, openFeatureGuide } from '../feature-help';
 
 const LS_RAIL = 'sampledge.rail';
 const LS_PANEL = 'sampledge.panel';
@@ -1165,6 +1167,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
             </main>
           )}
 
+          <FeatureGuideHost isAdmin={isAdmin} isPlatform={!!platformRole} />
           <IncomingCall conversations={conversations ?? []} me={me} directory={directory} />
           <CallStage
             conversations={conversations ?? []}
@@ -1309,6 +1312,12 @@ function WorkspaceInner({ network }: { network: boolean }) {
                 label: 'Projects',
                 icon: FolderKanban,
                 run: () => setModule('projects'),
+              },
+              {
+                id: 'a:help',
+                label: 'Feature guides: how each feature works',
+                icon: BookOpen,
+                run: () => openFeatureGuide(),
               },
               {
                 id: 'a:theme',

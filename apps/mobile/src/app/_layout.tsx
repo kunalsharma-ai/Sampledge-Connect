@@ -19,6 +19,8 @@ import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
 import { BrandingSync } from '../components/BrandingSync';
+import { HeaderTitleWithHelp } from '../components/FeatureHelp';
+import { ROUTE_HELP } from '../lib/featureHelpRoutes';
 import { AppProvider, useApp } from '../state/AppProvider';
 import { fonts } from '../theme/themes';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
@@ -51,7 +53,15 @@ function RootStack() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       <BrandingSync />
       <Stack
-        screenOptions={{
+        screenOptions={({ route }) => ({
+          // Screens with a feature guide show the gold help mark beside their title.
+          ...(ROUTE_HELP[route.name]
+            ? {
+                headerTitle: ({ children }: { children: string }) => (
+                  <HeaderTitleWithHelp title={children} id={ROUTE_HELP[route.name]!} />
+                ),
+              }
+            : null),
           headerShadowVisible: false,
           headerStyle: { backgroundColor: theme.colors.background },
           headerTintColor: theme.colors.accent,
@@ -59,7 +69,7 @@ function RootStack() {
           contentStyle: { backgroundColor: theme.colors.background },
           animation: motion.base ? 'default' : 'none',
           headerBackButtonDisplayMode: 'minimal',
-        }}
+        })}
       >
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -142,6 +152,7 @@ function RootStack() {
           <Stack.Screen name="platform/permissions" options={{ title: 'Permissions' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
+          <Stack.Screen name="help" options={{ title: 'Feature guides' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
           <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
           <Stack.Screen

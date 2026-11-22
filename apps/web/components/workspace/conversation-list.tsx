@@ -6,6 +6,7 @@ import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Kbd, Skeleton, Tooltip, UnreadCounter, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, conversationTitle, relativeShort } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 export function ConversationList({
   conversations,
@@ -48,9 +49,12 @@ export function ConversationList({
       className="flex h-full w-full flex-col border-r border-border bg-surface/60 backdrop-blur-xl lg:w-[320px] lg:shrink-0"
     >
       <div className="flex h-[60px] items-center justify-between gap-2 px-4">
-        <h2 className="font-display text-h3 text-text">
-          {filter === 'channels' ? 'Teams & Channels' : 'Messages'}
-        </h2>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="font-display text-h3 text-text">
+            {filter === 'channels' ? 'Teams & Channels' : 'Messages'}
+          </h2>
+          <FeatureHelp id={filter === 'channels' ? 'channels' : 'messages'} />
+        </div>
         <Tooltip content="New conversation" side="bottom">
           <button
             onClick={onNew}

@@ -2,6 +2,7 @@
 import { BellRing } from 'lucide-react';
 import { Badge, Button } from '@sampledge/ui';
 import { useWebPush, type WebPushState } from '@/lib/web-push';
+import { FeatureHelp } from '../feature-help';
 
 const COPY: Record<
   WebPushState,
@@ -48,7 +49,10 @@ export function BrowserNotificationsCard() {
         <BellRing className="mt-0.5 size-4 text-accent" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-label text-text">Browser notifications on this device</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="text-label text-text">Browser notifications on this device</p>
+              <FeatureHelp id="quiet-hours" size="sm" inDialog />
+            </div>
             {s ? <Badge tone={COPY[s].tone}>{COPY[s].badge}</Badge> : null}
           </div>
           <p className="mt-0.5 text-meta text-text-subtle">{s ? COPY[s].text : 'Checking…'}</p>

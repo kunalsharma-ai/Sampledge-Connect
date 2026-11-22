@@ -7,6 +7,7 @@ import { Avatar, Button, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import type { NotificationsApi } from '@/lib/notifications';
 import { avatarOf, conversationTitle, formatDay, nameOf, relativeShort } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 type Filter = 'all' | 'unread';
 
@@ -56,7 +57,10 @@ export function NotificationsScreen({
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
-        <h1 className="font-display text-h3 text-text">Notifications</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Notifications</h1>
+          <FeatureHelp id="notifications" />
+        </div>
         {api.unreadCount > 0 ? (
           <span className="rounded-full bg-accent px-2 text-meta font-semibold text-accent-fg">
             {api.unreadCount} new

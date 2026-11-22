@@ -38,3 +38,4 @@ export * from './analytics.js';
 export * from './chat-themes.js';
 export * from './platform.js';
 export * from './greetings.js';
+export * from './feature-help.js';

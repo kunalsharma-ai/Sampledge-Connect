@@ -18,6 +18,7 @@ import { attachmentUrl, formatBytes } from '@/lib/uploads';
 import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 import { nameOf } from './helpers';
 import { MinutesSettingsPanel } from './minutes-settings';
+import { FeatureHelp } from '../feature-help';
 
 const FILTERS: { id: RecordingKind | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -153,7 +154,10 @@ export function RecordingsScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" aria-label="Recordings">
       <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <Clapperboard className="size-5 text-accent" />
-        <h1 className="mr-2 font-display text-h3 text-text">Recordings</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="mr-2 font-display text-h3 text-text">Recordings</h1>
+          <FeatureHelp id="recordings" />
+        </div>
         <span className="hidden text-label font-normal text-text-muted sm:inline">
           {items ? `${items.length}${next ? '+' : ''} · ${formatBytes(total)}` : ''}
         </span>

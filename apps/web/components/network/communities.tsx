@@ -70,6 +70,7 @@ export function CommunitiesScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
       <ScreenHeader
         title="Communities"
+        help="communities"
         subtitle="Groups of people across organizations, with announcements and topic groups"
       >
         <Tabs
