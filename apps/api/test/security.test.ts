@@ -37,7 +37,7 @@ const PUBLIC = new Set([
   'POST /v1/calls/livekit/webhook', // LiveKit signature
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
   'GET /v1/avatars/:tenantId/:key', // profile photo, 128-bit random key per photo
-  'GET /v1/call-backgrounds/:tenantId/:key', // personal call background, 128-bit random key
+  'GET /v1/call-backgrounds/:tenantId/:key', // call background image, 128-bit random key
   'GET /v1/recordings/export/:tenantId', // signed, expiring URL
   'POST /v1/network/public/signup', // free personal account (rate limited)
   'GET /v1/network/public/profiles/:handle', // public profile page, only what the owner made public

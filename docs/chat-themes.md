@@ -37,4 +37,18 @@ Owners and admins see **Organization rules**. There they choose the default for 
 
 More → Chat theme has the same tiles, grouped by category, and owners and admins get **Organization rules** (Manage: tap to offer or hide a theme, long-press to make it the default; saving needs a connection). Conversations use the same colors from `chatThemeStyle`, and the scenes and patterns are drawn from the same SVG art with `react-native-svg`. Your pick is kept on the phone, queued as `theme.set` (target `my-chat-theme`) and sent on reconnect; `chat-theme:changed` and `tenant:updated` (`chat_themes`) refetch live.
 
+Own pictures on mobile: Chat theme → **Use your own picture** (all chats) or a conversation's Details → **Chat background** (that conversation; it wins). The photo comes from the phone's library, is shrunk to a 2560 px long edge as JPEG and kept on the phone only (device key-value storage), never uploaded. The editor has opacity, brightness, contrast, saturation, warmth, blur and dim sliders, the seven filters, tap-to-focus with zoom for cropping, and rotate and flip (baked into the saved JPEG). Colors use the shared `chatBackgroundColorMatrix` through react-native-svg's `FeColorMatrix`, so a picture looks the same as on the web. When the organization turns own pictures off (`customImagesAllowed(policy)` is false), pictures stay saved but are hidden.
+
+## Your own picture
+
+Anyone can put a picture from their own device behind their chats. On a computer they pick a file or drop it on the control. On a phone the browser offers the photo library or the camera. Nothing is uploaded and there is nothing to set up.
+
+- **Where:** Settings → Chat theme → _Your own picture_ (all chats), or a conversation's details → _Background for this chat_ (that chat only, wins over the all-chats picture).
+- **Kept on the device:** the picture and its edits live in the browser's offline database (`db.meta`, keys `chatBackground:all` and `chatBackground:c:<conversationId>`). They don't follow you to other devices; each device has its own. The phone app does the same with its photo library.
+- **Prepared on the device:** shrunk to 2560 px on the long edge and saved as JPEG, which also drops location and camera metadata.
+- **Photo editor:** crop (drag, zoom, position), rotate, flip, filters (Original, Mono, Sepia, Vivid, Fade, Noir, Cool), brightness, contrast, saturation, warmth, opacity, blur and dim. Rotate and flip are baked into the saved picture; everything else is applied when drawing, so it can be changed later.
+- **Same look everywhere:** settings use `ChatBackgroundAdjustSchema`, and colour edits use `chatBackgroundColorMatrix()` (an SVG feColorMatrix) from `@sampledge/contracts`, which the web and phone apps both use.
+- **Readable:** the dim wash and the area under a faded picture use the chat theme's own colour, and names, times and dates get a soft halo in that colour. Bubble colours still come from the chat theme.
+- **Organization switch:** owners and admins can turn personal pictures off in _Organization rules_ (`allowCustomImages`, missing means on). When off, pictures are hidden but kept on people's devices, and come back if the switch is turned on again.
+
 Video call backgrounds (blur, company logo, office scenes) are part of meetings, not this feature.

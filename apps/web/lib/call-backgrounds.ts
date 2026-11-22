@@ -9,9 +9,12 @@ import {
 } from 'livekit-client';
 import {
   CALL_BACKGROUND_PRESETS,
+  DEFAULT_CALL_APPEARANCE,
   callBackgroundImagePath,
+  type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundState,
+  type CallBackgroundUpload,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
@@ -29,18 +32,24 @@ export interface BackgroundController {
   /** The organization requires the company logo background. */
   locked: boolean;
   customImageUrl: string | null;
+  /** Uploaded backgrounds: the organization's, then mine (urls are absolute). */
+  uploads: CallBackgroundUpload[];
   brand: CallBackgroundState['brand'] | null;
   /** Options this person can pick (guests have no logo or personal upload). */
   allowLogo: boolean;
   allowUpload: boolean;
   choose(c: CallBackgroundChoice): Promise<void>;
   upload?(file: File): Promise<void>;
-  removeImage?(): Promise<void>;
+  removeImage?(imageId: string): Promise<void>;
+  /** How I look on camera; changes show at once and are saved shortly after. */
+  appearance: CallAppearance;
+  setAppearance(patch: Partial<CallAppearance>): void;
   error: string | null;
 }
 
 const STATE_KEY = 'calls.background';
 const PENDING_KEY = 'calls.background.pending';
+const LOOK_PENDING_KEY = 'calls.appearance.pending';
 
 export function useMemberCallBackground(): BackgroundController {
   const { getAccessToken } = useAuth();
@@ -84,6 +93,11 @@ export function useMemberCallBackground(): BackgroundController {
         if (pending) {
           await apiRequest('PUT', '/v1/me/call-background', { token, body: pending.value });
           await db.meta.delete(PENDING_KEY);
+        }
+        const look = await db.meta.get(LOOK_PENDING_KEY);
+        if (look) {
+          await apiRequest('PUT', '/v1/me/call-appearance', { token, body: look.value });
+          await db.meta.delete(LOOK_PENDING_KEY);
         }
         let s = await apiRequest<CallBackgroundState>('GET', '/v1/me/call-background', { token });
         // Blur used to be saved per device; carry it over to the account once.
@@ -142,14 +156,17 @@ export function useMemberCallBackground(): BackgroundController {
       setError(null);
       try {
         const image = await shrinkImage(file);
-        const res = await fetch(API_URL + '/v1/me/call-background/image', {
-          method: 'PUT',
-          headers: {
-            'content-type': image.type,
-            authorization: `Bearer ${await getAccessToken()}`,
+        const res = await fetch(
+          `${API_URL}/v1/me/call-backgrounds?name=${encodeURIComponent(file.name)}`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': image.type,
+              authorization: `Bearer ${await getAccessToken()}`,
+            },
+            body: image,
           },
-          body: image,
-        });
+        );
         const json = (await res.json().catch(() => null)) as
           (CallBackgroundState & { error?: { message?: string } }) | null;
         if (!res.ok || !json) throw new Error(json?.error?.message ?? 'Upload failed');
@@ -161,24 +178,68 @@ export function useMemberCallBackground(): BackgroundController {
     [getAccessToken, save],
   );
 
-  const removeImage = React.useCallback(async () => {
-    setError(null);
-    try {
-      save(
-        await apiRequest<CallBackgroundState>('DELETE', '/v1/me/call-background/image', {
-          token: await getAccessToken(),
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not remove the image');
-    }
-  }, [getAccessToken, save]);
+  const removeImage = React.useCallback(
+    async (imageId: string) => {
+      setError(null);
+      try {
+        save(
+          await apiRequest<CallBackgroundState>('DELETE', `/v1/me/call-backgrounds/${imageId}`, {
+            token: await getAccessToken(),
+          }),
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not remove the image');
+      }
+    },
+    [getAccessToken, save],
+  );
+
+  // Sliders move many times a second: show each change now, save once they settle.
+  const lookTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [look, setLook] = React.useState<CallAppearance | null>(null);
+  const appearance = look ?? state?.appearance ?? DEFAULT_CALL_APPEARANCE;
+  const lookRef = React.useRef(appearance);
+  lookRef.current = appearance;
+  const setAppearance = React.useCallback(
+    (patch: Partial<CallAppearance>) => {
+      const next = { ...lookRef.current, ...patch };
+      lookRef.current = next;
+      setLook(next);
+      if (lookTimer.current) clearTimeout(lookTimer.current);
+      lookTimer.current = setTimeout(() => {
+        void (async () => {
+          try {
+            const s = await apiRequest<CallBackgroundState>('PUT', '/v1/me/call-appearance', {
+              token: await getAccessToken(),
+              body: next,
+            });
+            save(s);
+            if (lookRef.current === next) setLook(null);
+          } catch (e) {
+            if (e instanceof ApiFailure && e.status === 0) {
+              await db.meta.put({ key: LOOK_PENDING_KEY, value: next });
+              setState((s) => {
+                if (s) void db.meta.put({ key: STATE_KEY, value: { ...s, appearance: next } });
+                return s ? { ...s, appearance: next } : s;
+              });
+              return;
+            }
+            setError(e instanceof Error ? e.message : 'Could not save your look');
+          }
+        })();
+      }, 500);
+    },
+    [getAccessToken, save, db],
+  );
 
   return {
+    appearance,
+    setAppearance,
     effective: state?.effective ?? { kind: 'none' },
     choice: state?.choice ?? null,
     locked: !!state?.policy.enforceLogo,
     customImageUrl: state?.customImageUrl ? API_URL + state.customImageUrl : null,
+    uploads: (state?.uploads ?? []).map((u) => ({ ...u, url: API_URL + u.url })),
     brand: state?.brand ?? null,
     allowLogo: true,
     allowUpload: true,
@@ -190,10 +251,20 @@ export function useMemberCallBackground(): BackgroundController {
 }
 
 const GUEST_KEY = 'sampledge.guestBackground';
+const GUEST_LOOK_KEY = 'sampledge.guestAppearance';
 
 /** Guests (no account): blur or a prebuilt image, remembered in this browser. */
 export function useGuestCallBackground(): BackgroundController {
   const [choice, setChoice] = React.useState<CallBackgroundChoice | null>(null);
+  const [appearance, setLook] = React.useState<CallAppearance>(DEFAULT_CALL_APPEARANCE);
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(GUEST_LOOK_KEY);
+      if (raw) setLook({ ...DEFAULT_CALL_APPEARANCE, ...(JSON.parse(raw) as CallAppearance) });
+    } catch {
+      /* private mode */
+    }
+  }, []);
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem(GUEST_KEY);
@@ -213,10 +284,23 @@ export function useGuestCallBackground(): BackgroundController {
     choice,
     locked: false,
     customImageUrl: null,
+    uploads: [],
     brand: null,
     allowLogo: false,
     allowUpload: false,
     error: null,
+    appearance,
+    setAppearance(patch) {
+      setLook((a) => {
+        const next = { ...a, ...patch };
+        try {
+          localStorage.setItem(GUEST_LOOK_KEY, JSON.stringify(next));
+        } catch {
+          /* lasts for this call only */
+        }
+        return next;
+      });
+    },
     async choose(c) {
       setChoice(c);
       try {
@@ -231,7 +315,7 @@ export function useGuestCallBackground(): BackgroundController {
 // ---------- images ----------
 
 /** Shrinks a photo to at most 1920x1080 JPEG so uploads stay small. */
-async function shrinkImage(file: File): Promise<Blob> {
+export async function shrinkImage(file: File): Promise<Blob> {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Use a PNG, JPEG or WebP image');
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, 1920 / bmp.width, 1080 / bmp.height);
@@ -372,51 +456,131 @@ function shade(hex: string, amt: number) {
 /** The image to put behind the person, or null for none/blur. */
 export async function backgroundImageFor(
   c: CallBackgroundChoice,
-  ctl: Pick<BackgroundController, 'customImageUrl' | 'brand'>,
+  ctl: Pick<BackgroundController, 'customImageUrl' | 'uploads' | 'brand'>,
 ): Promise<string | null> {
   if (c.kind === 'preset') {
     const known = CALL_BACKGROUND_PRESETS.some((p) => p.id === c.presetId);
     return known ? window.location.origin + callBackgroundImagePath(c.presetId) : null;
   }
   if (c.kind === 'custom') return ctl.customImageUrl;
+  if (c.kind === 'upload') return ctl.uploads.find((u) => u.imageId === c.imageId)?.url ?? null;
   if (c.kind === 'logo') return ctl.brand ? logoBackground(ctl.brand) : null;
   return null;
 }
-
-const ASSETS = () => ({
-  tasksVisionFileSet: `${window.location.origin}/vision`,
-  modelAssetPath: `${window.location.origin}/vision/selfie_segmenter.tflite`,
-});
 
 function cameraTrack(room: Room): LocalVideoTrack | null {
   const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
   return (pub?.track as LocalVideoTrack | undefined) ?? null;
 }
 
-/** Puts the chosen background on my camera (or takes it off). Runs on this device only. */
-export async function applyBackground(room: Room, c: CallBackgroundChoice, image: string | null) {
-  const track = cameraTrack(room);
-  if (!track) return;
-  const mode = c.kind === 'none' ? 'off' : c.kind === 'blur' ? 'blur' : image ? 'image' : 'off';
-  const current = track.getProcessor() as
-    | (ReturnType<typeof import('@livekit/track-processors').BackgroundProcessor> & object)
-    | undefined;
-  if (mode === 'off') {
-    if (current) await track.stopProcessor();
-    return;
+type Effects = import('./camera-effects').EffectsOptions;
+/** What each call's camera should show; both hooks below write their half. */
+const wanted = new WeakMap<Room, Effects>();
+const running = new WeakMap<Room, { busy: boolean; again: boolean; last: Promise<void> }>();
+
+/**
+ * Puts the wanted background and look on my camera (or takes effects off). Calls made while one
+ * is running are folded into one more pass, so dragging a slider never piles up work.
+ */
+async function applyEffects(room: Room, patch: Partial<Effects>): Promise<void> {
+  const mod = await import('./camera-effects');
+  wanted.set(room, { ...mod.NO_EFFECTS, ...wanted.get(room), ...patch });
+  let r = running.get(room);
+  if (!r) running.set(room, (r = { busy: false, again: false, last: Promise.resolve() }));
+  if (r.busy) {
+    r.again = true;
+    return r.last;
   }
-  const options =
-    mode === 'blur'
-      ? ({ mode: 'background-blur', blurRadius: 14 } as const)
-      : ({ mode: 'virtual-background', imagePath: image! } as const);
-  if (current && 'switchTo' in current) {
-    await current.switchTo(options);
-    return;
-  }
-  const { BackgroundProcessor } = await import('@livekit/track-processors');
-  await track.setProcessor(BackgroundProcessor({ ...options, assetPaths: ASSETS() }));
+  r.busy = true;
+  const job = (async () => {
+    try {
+      do {
+        r.again = false;
+        const next = wanted.get(room)!;
+        const track = cameraTrack(room);
+        if (!track) continue;
+        const current = track.getProcessor();
+        if (mod.effectsOff(next)) {
+          if (current) await track.stopProcessor();
+        } else if (current instanceof mod.CameraEffectsProcessor) {
+          await current.updateTransformerOptions(next);
+        } else {
+          if (current) await track.stopProcessor();
+          await track.setProcessor(new mod.CameraEffectsProcessor(next));
+        }
+      } while (r.again);
+    } finally {
+      r.busy = false;
+    }
+  })();
+  r.last = job;
+  return job;
 }
 
+/** Puts the chosen background on my camera (or takes it off). Runs on this device only. */
+export async function applyBackground(room: Room, c: CallBackgroundChoice, image: string | null) {
+  const background =
+    c.kind === 'blur'
+      ? ({ mode: 'blur', blurRadius: 14 } as const)
+      : c.kind !== 'none' && image
+        ? ({ mode: 'image', imagePath: image } as const)
+        : ({ mode: 'off' } as const);
+  await applyEffects(room, { background });
+}
+
+export type FaceStatus = 'off' | 'loading' | 'unavailable' | 'searching' | 'found';
+
+/** Whether face shaping has found my face (checked twice a second while it is on). */
+export function useFaceStatus(room: Room | null, on: boolean): FaceStatus {
+  const [status, setStatus] = React.useState<FaceStatus>('off');
+  React.useEffect(() => {
+    if (!room || !on) {
+      setStatus('off');
+      return;
+    }
+    let alive = true;
+    const read = async () => {
+      const mod = await import('./camera-effects');
+      const p = cameraTrack(room)?.getProcessor();
+      if (alive) setStatus(p instanceof mod.CameraEffectsProcessor ? p.faceStatus : 'loading');
+    };
+    void read();
+    const t = setInterval(() => void read(), 500);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [room, on]);
+  return status;
+}
+
+/** Keeps my look (filter, light, touch-up, face shaping) on the camera for the whole call. */
+export function useApplyAppearance(
+  room: Room | null,
+  appearance: CallAppearance,
+  onError: (message: string | null) => void,
+) {
+  const key = JSON.stringify(appearance);
+  const latest = React.useRef(appearance);
+  latest.current = appearance;
+  const errRef = React.useRef(onError);
+  errRef.current = onError;
+  React.useEffect(() => {
+    if (!room) return;
+    const run = () =>
+      applyEffects(room, { appearance: latest.current }).catch(() =>
+        errRef.current('Video effects could not start on this device.'),
+      );
+    const onPublished = (pub: LocalTrackPublication) => {
+      if (pub.source === Track.Source.Camera) void run();
+    };
+    room.on(RoomEvent.LocalTrackPublished, onPublished);
+    void run();
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, onPublished);
+    };
+  }, [room, key]);
+}
 /**
  * Keeps my background on the camera for the whole call: when the choice changes (here or on
  * another device) and whenever the camera is turned on again (a new track each time).
@@ -426,10 +590,10 @@ export function useApplyBackground(
   ctl: BackgroundController,
   onError: (message: string | null) => void,
 ) {
-  const { effective, customImageUrl, brand } = ctl;
-  const key = JSON.stringify([effective, customImageUrl, brand]);
-  const latest = React.useRef({ effective, customImageUrl, brand });
-  latest.current = { effective, customImageUrl, brand };
+  const { effective, customImageUrl, uploads, brand } = ctl;
+  const key = JSON.stringify([effective, customImageUrl, uploads, brand]);
+  const latest = React.useRef({ effective, customImageUrl, uploads, brand });
+  latest.current = { effective, customImageUrl, uploads, brand };
   const errRef = React.useRef(onError);
   errRef.current = onError;
 

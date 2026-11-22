@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_DND_SCHEDULE, effectiveChatTheme } from '@sampledge/contracts';
+import {
+  DEFAULT_CALL_APPEARANCE,
+  DEFAULT_DND_SCHEDULE,
+  effectiveChatTheme,
+} from '@sampledge/contracts';
 import type {
   ChatThemeId,
   ChatThemePolicy,
+  CallAppearance,
+  CallBackgroundChoice,
+  CallBackgroundState,
+  AiTranscript,
+  MeetingMinutes,
   Approval,
   BookingPage,
   CreateBookingPageRequest,
@@ -109,6 +118,19 @@ async function setup() {
       themeId: ChatThemeId | null;
       policy: ChatThemePolicy;
     },
+    minutes: null as MeetingMinutes | null,
+    minutesFieldRevs: {} as Record<string, number>,
+    transcript: null as AiTranscript | null,
+    transcriptLineRevs: [] as number[],
+    callbg: {
+      choice: null as CallBackgroundChoice | null,
+      images: [] as { imageId: string; name: string }[],
+      appearance: DEFAULT_CALL_APPEARANCE as CallAppearance,
+      policy: { defaultChoice: { kind: 'none' }, enforceLogo: false } as Omit<
+        CallBackgroundState['policy'],
+        'canManage'
+      >,
+    },
     users: new Map<string, DirectoryUser>([
       [
         SELF,
@@ -147,6 +169,26 @@ async function setup() {
     const next = { ...m, ...over, changeSequence: ++server.seq };
     server.messages.set(m.messageId, next);
     return next;
+  };
+  const callbgState = (): CallBackgroundState => {
+    const b = server.callbg;
+    return {
+      choice: b.choice,
+      effective: b.policy.enforceLogo ? { kind: 'logo' } : (b.choice ?? b.policy.defaultChoice),
+      customImageUrl: b.images[0]
+        ? `https://connect.test/v1/call-backgrounds/t1/${b.images[0].imageId}`
+        : null,
+      uploads: b.images.map((x) => ({
+        imageId: x.imageId,
+        url: `https://connect.test/v1/call-backgrounds/t1/${x.imageId}`,
+        name: x.name,
+        owner: 'mine' as const,
+        createdAt: '2026-11-22T00:00:00.000Z',
+      })),
+      policy: { ...b.policy, canManage: false },
+      brand: { name: 'Acme', logo: null, primary: '#1f3a5f', secondary: '#c9a227' },
+      appearance: b.appearance,
+    };
   };
   const api = {
     sync: async () => ({ conversations: [], revokedConversationIds: [], results: [] }),
@@ -223,6 +265,112 @@ async function setup() {
         );
       server.theme = { ...server.theme, themeId };
       return { ...server.theme, effective: effectiveChatTheme(themeId, p) };
+    },
+    callMinutes: async (callId: string) => {
+      step(`listCallMinutes ${callId}`);
+      return { minutes: server.minutes, canCreate: true, blockedReason: null };
+    },
+    updateMinutes: async (id: string, req: Record<string, unknown> & { baseRevision: number }) => {
+      const { baseRevision, ...patch } = req;
+      step(`updateMinutes ${id} base ${baseRevision} ${Object.keys(patch).sort().join(',')}`);
+      const cur = server.minutes!;
+      const conflicts = Object.keys(patch).filter(
+        (f) =>
+          (server.minutesFieldRevs[f] ?? 0) > baseRevision &&
+          JSON.stringify((cur as Record<string, unknown>)[f]) !== JSON.stringify(patch[f]),
+      );
+      if (conflicts.length)
+        throw new TransportError(
+          'Someone else changed the same part of these minutes. Reload to see their version.',
+          'api',
+          'CONFLICT',
+        );
+      const revision = cur.revision + 1;
+      for (const f of Object.keys(patch)) server.minutesFieldRevs[f] = revision;
+      server.minutes = { ...cur, ...patch, revision } as MeetingMinutes;
+      return server.minutes;
+    },
+    aiTranscript: async (id: string) => {
+      step(`listTranscript ${id}`);
+      return server.transcript!;
+    },
+    updateTranscript: async (
+      id: string,
+      req: {
+        baseRevision: number;
+        language?: string;
+        segments?: { index: number; text: string }[];
+        reviewed?: boolean;
+      },
+    ) => {
+      step(
+        `updateTranscript ${id} ${req.language ?? 'original'} base ${req.baseRevision} lines ${(req.segments ?? []).map((x) => x.index).join(',')}${req.reviewed !== undefined ? ` reviewed ${req.reviewed}` : ''}`,
+      );
+      const cur = server.transcript!;
+      const segments = cur.segments.map((x) => ({ ...x }));
+      const conflicts: number[] = [];
+      for (const e of req.segments ?? []) {
+        if (e.text === segments[e.index]!.text) continue;
+        if ((server.transcriptLineRevs[e.index] ?? 0) > req.baseRevision) conflicts.push(e.index);
+        segments[e.index]!.text = e.text;
+      }
+      if (conflicts.length)
+        throw new TransportError(
+          'Someone else corrected the same lines. Reload to see their version.',
+          'api',
+          'CONFLICT',
+        );
+      const revision = cur.revision + 1;
+      for (const e of req.segments ?? []) server.transcriptLineRevs[e.index] = revision;
+      server.transcript = {
+        ...cur,
+        segments,
+        text: segments.map((x) => x.text).join(' '),
+        edited: cur.edited || !!req.segments?.length,
+        ...(req.reviewed === undefined
+          ? {}
+          : req.reviewed
+            ? { reviewedBy: SELF, reviewedAt: '2026-11-20T11:00:00.000Z' }
+            : { reviewedBy: null, reviewedAt: null }),
+        revision,
+      };
+      return server.transcript;
+    },
+    getCallBackground: async () => {
+      step('listCallBackground');
+      return callbgState();
+    },
+    setCallBackground: async (choice: CallBackgroundChoice) => {
+      step(
+        `setCallBackground ${choice.kind === 'preset' ? choice.presetId : choice.kind === 'upload' ? `upload ${choice.imageId}` : choice.kind}`,
+      );
+      if (
+        (choice.kind === 'custom' && !server.callbg.images.length) ||
+        (choice.kind === 'upload' &&
+          !server.callbg.images.some((x) => x.imageId === choice.imageId))
+      )
+        throw new TransportError('That background was removed', 'api', 'VALIDATION_FAILED');
+      server.callbg.choice = choice;
+      return callbgState();
+    },
+    uploadCallBackground: async (localUri: string, name?: string) => {
+      step(`uploadCallBackground ${localUri}${name ? ` ${name}` : ''}`);
+      const imageId = String(++server.seq).padStart(32, 'a');
+      server.callbg.images.unshift({ imageId, name: name ?? 'Background' });
+      server.callbg.choice = { kind: 'upload', imageId };
+      return callbgState();
+    },
+    removeCallBackgroundImage: async (imageId: string) => {
+      step(`removeCallBackgroundImage ${imageId}`);
+      const c = server.callbg.choice;
+      if (c?.kind === 'upload' && c.imageId === imageId) server.callbg.choice = null;
+      server.callbg.images = server.callbg.images.filter((x) => x.imageId !== imageId);
+      return callbgState();
+    },
+    setCallAppearance: async (a: CallAppearance) => {
+      step(`setCallAppearance ${a.filter} ${a.smoothing}`);
+      server.callbg.appearance = a;
+      return callbgState();
     },
     getRecentSearches: async () => {
       step('listRecentSearches');
@@ -1124,5 +1272,266 @@ describe('chat theme offline and across devices', () => {
     await t.online();
     expect(t.refused).toEqual(['theme.set: Your organization doesn’t offer that chat theme']);
     expect((await t.engine.getChatTheme())?.effective).toBe('graphite');
+  });
+});
+
+describe('call background offline and across devices', () => {
+  it('queues picks and images offline, sends them in order, and follows other devices', async () => {
+    const t = await setup();
+    await t.online();
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' });
+    t.engine.setNetworkUp(false);
+    await t.engine.setCallBackground({ kind: 'blur' });
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'library-study' });
+    await t.engine.addCallBackgroundImage('file:///bg-1.jpg', 'Desk');
+    await t.engine.addCallBackgroundImage('file:///bg-2.jpg');
+    // Both images show straight away, from this phone; the newest is selected.
+    let s = await t.engine.getCallBackground();
+    expect(s.uploads.map((u) => u.url)).toEqual(['file:///bg-2.jpg', 'file:///bg-1.jpg']);
+    expect(s.effective).toEqual({ kind: 'upload', imageId: 'local:file:///bg-2.jpg' });
+    // Removing one that hasn't uploaded just forgets it.
+    await t.engine.removeCallBackgroundImage('local:file:///bg-2.jpg');
+    s = await t.engine.getCallBackground();
+    expect(s.uploads.map((u) => u.url)).toEqual(['file:///bg-1.jpg']);
+    // Picked after the upload: it goes after it, so the server ends up on Boardroom.
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'boardroom' });
+    expect((await t.engine.getCallBackground()).effective).toEqual({
+      kind: 'preset',
+      presetId: 'boardroom',
+    });
+    await t.online();
+    expect(t.calls.filter((c) => /CallBackground/.test(c) && !c.startsWith('list'))).toEqual([
+      'uploadCallBackground file:///bg-1.jpg Desk',
+      'setCallBackground boardroom',
+    ]);
+    s = await t.engine.getCallBackground();
+    expect(s.uploads).toHaveLength(1);
+    expect(s.uploads[0]!.url).toMatch(/^https:\/\/connect.test\/v1\/call-backgrounds\//);
+    // Another device goes back to the image: this phone follows live.
+    const seen: string[] = [];
+    t.engine.events.on('callBackground', (x) => seen.push(x.effective.kind));
+    t.server.callbg.choice = { kind: 'upload', imageId: s.uploads[0]!.imageId };
+    t.rt.events.emit('meetingsChanged', { area: 'call_background' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getCallBackground()).effective.kind).toBe('upload');
+    expect(seen).toContain('upload');
+  });
+
+  it('removing the image in use falls back to the default, and the company rule wins', async () => {
+    const t = await setup();
+    await t.online();
+    await t.engine.addCallBackgroundImage('file:///bg-2.jpg');
+    await t.online();
+    const imageId = (await t.engine.getCallBackground()).uploads[0]!.imageId;
+    t.server.callbg.policy = { defaultChoice: { kind: 'blur' }, enforceLogo: false };
+    t.engine.setNetworkUp(false);
+    await t.engine.removeCallBackgroundImage(imageId);
+    let s = await t.engine.getCallBackground();
+    expect(s.uploads).toEqual([]);
+    expect(s.effective).toEqual({ kind: 'none' }); // cached rule
+    await t.online();
+    s = await t.engine.getCallBackground();
+    expect(s.choice).toBeNull();
+    expect(s.customImageUrl).toBeNull();
+    expect(s.effective).toEqual({ kind: 'blur' });
+    t.server.callbg.policy = { defaultChoice: { kind: 'blur' }, enforceLogo: true };
+    t.rt.events.emit('tenant', { area: 'calls' });
+    await new Promise((r) => setTimeout(r, 20));
+    s = await t.engine.getCallBackground();
+    expect(s.effective).toEqual({ kind: 'logo' });
+    // A pick made while the rule holds is kept as your choice but the company background applies.
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'office-lounge' });
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'logo' });
+  });
+
+  it('appearance saves offline, the latest wins, and it follows you', async () => {
+    const t = await setup();
+    await t.online();
+    t.engine.setNetworkUp(false);
+    await t.engine.setCallAppearance({ ...DEFAULT_CALL_APPEARANCE, filter: 'warm' });
+    await t.engine.setCallAppearance({ ...DEFAULT_CALL_APPEARANCE, filter: 'warm', smoothing: 45 });
+    expect((await t.engine.getCallBackground()).appearance.smoothing).toBe(45);
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setCallAppearance'))).toEqual([
+      'setCallAppearance warm 45',
+    ]);
+    expect(t.server.callbg.appearance.filter).toBe('warm');
+    // Changed on another device.
+    t.server.callbg.appearance = { ...DEFAULT_CALL_APPEARANCE, filter: 'mono' };
+    t.rt.events.emit('meetingsChanged', { area: 'call_background' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getCallBackground()).appearance.filter).toBe('mono');
+  });
+});
+
+describe('minutes of meeting offline and together', () => {
+  const minutes = (over: Partial<MeetingMinutes> = {}): MeetingMinutes => ({
+    minutesId: 'mm1',
+    callId: 'call1',
+    conversationId: 'c1',
+    meetingId: null,
+    title: 'Weekly sync',
+    media: 'video',
+    startedAt: '2026-11-20T10:00:00.000Z',
+    endedAt: '2026-11-20T10:40:00.000Z',
+    durationSec: 2400,
+    attendees: [],
+    agenda: '',
+    summary: 'Draft summary',
+    decisions: [],
+    actionItems: [],
+    openQuestions: [],
+    notes: '',
+    language: 'en',
+    sources: {
+      transcripts: 0,
+      reviewedTranscripts: 0,
+      captionLines: 0,
+      chatMessages: 0,
+      spokenLanguages: [],
+    },
+    engine: 'basic',
+    status: 'draft',
+    revision: 3,
+    createdBy: SELF,
+    createdAt: '2026-11-20T10:41:00.000Z',
+    updatedBy: SELF,
+    updatedAt: '2026-11-20T10:41:00.000Z',
+    sharedBy: null,
+    sharedAt: null,
+    canEdit: true,
+    ...over,
+  });
+
+  it('edits offline show at once, merge per field and go up once from the first revision', async () => {
+    const t = await setup();
+    t.server.minutes = minutes();
+    await t.online();
+    await t.engine.reloadCallMinutes('call1');
+    const m = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    t.engine.setNetworkUp(false);
+    await t.engine.editMinutes(m, { summary: 'We agreed the plan' });
+    await t.engine.editMinutes(m, { decisions: ['Ship on Friday'] });
+    await t.engine.editMinutes(m, { summary: 'We agreed the plan and the date' });
+    const shown = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    expect(shown.summary).toBe('We agreed the plan and the date');
+    expect(shown.decisions).toEqual(['Ship on Friday']);
+    // Someone else edits the notes meanwhile: a different field, so both apply.
+    t.server.minutes = { ...t.server.minutes, notes: 'From Marco', revision: 4 };
+    t.server.minutesFieldRevs.notes = 4;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('updateMinutes'))).toEqual([
+      'updateMinutes mm1 base 3 decisions,summary',
+    ]);
+    const after = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    expect(after.summary).toBe('We agreed the plan and the date');
+    expect(after.notes).toBe('From Marco');
+    expect(t.refused).toEqual([]);
+  });
+
+  it('the same field changed by someone else meanwhile is refused and their version shows', async () => {
+    const t = await setup();
+    t.server.minutes = minutes();
+    await t.online();
+    await t.engine.reloadCallMinutes('call1');
+    const m = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    t.engine.setNetworkUp(false);
+    await t.engine.editMinutes(m, { summary: 'Mine' });
+    t.server.minutes = { ...t.server.minutes, summary: 'Theirs', revision: 4 };
+    t.server.minutesFieldRevs.summary = 4;
+    await t.online();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.refused).toEqual([
+      'minutes.update: Someone else changed the same part of these minutes. Reload to see their version.',
+    ]);
+    expect((await t.engine.getCallMinutes('call1'))!.minutes!.summary).toBe('Theirs');
+  });
+});
+
+describe('transcript corrections offline and together', () => {
+  const transcript = (): AiTranscript => ({
+    attachmentId: 'rec1',
+    conversationId: 'c1',
+    messageId: 'm1',
+    status: 'done',
+    text: 'hello there we ship on friday thanks',
+    segments: [
+      { startMs: 0, endMs: 2000, text: 'hello there' },
+      { startMs: 2000, endMs: 5000, text: 'we ship on friday' },
+      { startMs: 5000, endMs: 6000, text: 'thanks' },
+    ],
+    language: 'en',
+    model: 'whisper',
+    error: null,
+    updatedAt: '2026-11-20T10:50:00.000Z',
+    translations: [],
+    revision: 2,
+    edited: false,
+    reviewedBy: null,
+    reviewedAt: null,
+    canEdit: true,
+  });
+
+  it('corrections offline show at once, merge per line and go up once', async () => {
+    const t = await setup();
+    t.server.transcript = transcript();
+    await t.online();
+    await t.engine.loadTranscript('rec1');
+    t.engine.setNetworkUp(false);
+    await t.engine.correctTranscript('rec1', null, { segments: { 1: 'We ship on Friday.' } });
+    await t.engine.correctTranscript('rec1', null, { segments: { 0: 'Hello there.' } });
+    await t.engine.correctTranscript('rec1', null, { reviewed: true });
+    const shown = (await t.engine.getTranscript('rec1'))!;
+    expect(shown.segments.map((x) => x.text)).toEqual([
+      'Hello there.',
+      'We ship on Friday.',
+      'thanks',
+    ]);
+    expect(shown.edited).toBe(true);
+    expect(shown.reviewedBy).toBe(SELF);
+    // Someone else corrects another line meanwhile: both apply.
+    t.server.transcript = {
+      ...t.server.transcript!,
+      segments: t.server.transcript!.segments.map((x, i) =>
+        i === 2 ? { ...x, text: 'Thanks all.' } : x,
+      ),
+      revision: 3,
+    };
+    t.server.transcriptLineRevs[2] = 3;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('updateTranscript'))).toEqual([
+      'updateTranscript rec1 original base 2 lines 0,1 reviewed true',
+    ]);
+    const after = (await t.engine.getTranscript('rec1'))!;
+    expect(after.segments.map((x) => x.text)).toEqual([
+      'Hello there.',
+      'We ship on Friday.',
+      'Thanks all.',
+    ]);
+    expect(after.reviewedAt).not.toBeNull();
+    expect(t.refused).toEqual([]);
+  });
+
+  it('a line someone else corrected meanwhile is refused and their version shows', async () => {
+    const t = await setup();
+    t.server.transcript = transcript();
+    await t.online();
+    await t.engine.loadTranscript('rec1');
+    t.engine.setNetworkUp(false);
+    await t.engine.correctTranscript('rec1', null, { segments: { 1: 'Mine' } });
+    t.server.transcript = {
+      ...t.server.transcript!,
+      segments: t.server.transcript!.segments.map((x, i) =>
+        i === 1 ? { ...x, text: 'Theirs' } : x,
+      ),
+      revision: 3,
+    };
+    t.server.transcriptLineRevs[1] = 3;
+    await t.online();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.refused).toEqual([
+      'transcript.update: Someone else corrected the same lines. Reload to see their version.',
+    ]);
+    expect((await t.engine.getTranscript('rec1'))!.segments[1]!.text).toBe('Theirs');
   });
 });

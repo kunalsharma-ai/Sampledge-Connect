@@ -37,6 +37,12 @@ const WHAT: Record<ActionKind, string> = {
   'dnd.set': 'Changing your quiet hours',
   'hours.set': 'Saving your working hours',
   'theme.set': 'Changing your chat theme',
+  'callbg.set': 'Changing your call background',
+  'callbg.image': 'Uploading your call background',
+  'callbg.imageRemove': 'Removing your call background',
+  'callbg.appearance': 'Saving how you look on camera',
+  'minutes.update': 'Saving the minutes',
+  'transcript.update': 'Correcting the transcript',
 };
 
 /**

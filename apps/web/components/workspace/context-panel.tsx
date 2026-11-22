@@ -7,6 +7,7 @@ import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, conversationTitle, nameOf } from './helpers';
 import { WorkContextSection } from './work-context';
+import { ChatBackgroundControl } from './chat-background';
 import { presenceOf } from '@/lib/status';
 
 const KIND_LABEL: Record<Conversation['kind'], string> = {
@@ -181,6 +182,12 @@ export function ContextPanel({
             </div>
           </section>
         ) : null}
+        <ChatBackgroundControl
+          slot={{ conversationId: conversation.conversationId }}
+          heading="Background for this chat"
+          hint="A picture from this device, for this chat only."
+        />
+
         {aiCard}
 
         <section>

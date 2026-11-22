@@ -128,16 +128,20 @@ is turned off and on again. Browsers without WebGL or insertable streams show "N
 
 ### Backgrounds
 
-Choices: none, blur, 20 prebuilt backgrounds (15 office scenes such as a skyline office, boardroom,
-library, glass meeting room, reception and mountain or seaside views, and 5 simple ones), your own
-image, and the company background.
+Choices: none, blur, 24 prebuilt photo backgrounds (12 offices such as a modern office, boardroom,
+glass meeting room, library study and skyline office, and 12 luxury homes such as a luxury living
+room, penthouse view, fireplace lounge, villa terrace and bookshelf wall), your own images, the
+company library and the company background.
 
-- **Prebuilt images** are original artwork shipped with the web app (`apps/web/public/backgrounds`,
-  1280x720 plus 320x180 thumbnails, about 1 MB in total). They are drawn by
-  `apps/web/scripts/make-call-backgrounds.mjs`, so they can be changed or added there and regenerated
-  (needs Playwright). The list is `CALL_BACKGROUND_PRESETS` in the contracts.
-- **Your own image**: PNG, JPEG or WebP, shrunk in the browser to at most 1920x1080 and stored with
-  your account (up to 2 MB). It is served from an unguessable link like profile photos.
+- **Prebuilt images** are real photos (CC0, credited in `apps/web/public/backgrounds/CREDITS.md`)
+  shipped with the web app (`apps/web/public/backgrounds`, 1280x720 plus 320x180 thumbnails, about
+  4 MB in total). The list is `CALL_BACKGROUND_PRESETS` in the contracts. Choices saved with the
+  older drawn backgrounds are mapped to the closest photo (`LEGACY_CALL_BACKGROUND_PRESETS`).
+- **Your own images**: up to 12 per person (PNG, JPEG or WebP, shrunk in the browser to at most
+  1920x1080, 2 MB each), stored with your account and shown under **Yours** with a remove button.
+  They are served from unguessable links like profile photos.
+- **Company library**: admins upload up to 40 backgrounds in **Administration → Calls** that everyone
+  in the organization can pick (shown under **Company**); one of them can be the default.
 - **Company background**: drawn in the browser from Branding (logo, colors and organization name),
   so changing Branding updates it in every call. The logo sits inside the middle of the frame so it
   stays visible when a call tile crops the picture.
@@ -153,17 +157,59 @@ background and locks the picker (external guests keep their own). Changes reach 
 Your own preview is mirrored like a mirror, so text in the background reads backwards to you; everyone
 else sees it the right way round.
 
-| Method | Path                                  | Who            | Notes                                                  |
-| ------ | ------------------------------------- | -------------- | ------------------------------------------------------ |
-| GET    | `/v1/me/call-background`              | member         | Choice, what applies now, own image link, rules, brand |
-| PUT    | `/v1/me/call-background`              | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
-| PUT    | `/v1/me/call-background/image`        | member         | Raw PNG/JPEG/WebP body, 2 MB; selects it               |
-| DELETE | `/v1/me/call-background/image`        | member         | Removes it (back to the default if it was in use)      |
-| PUT    | `/v1/admin/call-backgrounds`          | owner, admin   | `{defaultChoice, enforceLogo}`                         |
-| GET    | `/v1/call-backgrounds/:tenantId/:key` | anyone w/ link | The image, 128-bit random key, changes on every upload |
+On mobile, **More → Call background** shows the same choices: none, blur, the company background
+(drawn from Branding), your own backgrounds (up to 12, named after the photo), the organization's
+library and the 24 prebuilt photos (their 320x180 thumbnails ship in the app). Picking one,
+adding an image (shrunk on the phone to fit 1920x1080 as JPEG, under 2 MB) and removing one are
+queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove {imageId}` on one target, so
+they reach the server in the order you made them. An image added offline shows at once as
+"uploading" and waits in app storage; removing it before it is sent just forgets it. **How you
+look** (look, light and colour, touch-up, face shaping, Enhance, Reset) saves as
+`callbg.appearance` on its own target, latest wins, half a second after the last change. The screens
+follow `meetings:changed {area: 'call_background'}` and `tenant:updated {area: 'calls' | 'branding'}`
+live. Owners and admins get **Manage** for the default, **Add for everyone** and removing library
+images, and **Require the company background** (all need a connection). Applying a background or
+appearance to a phone's own camera is planned: native WebRTC has no segmentation yet, so a phone
+sends the camera as it is, and the screens say so.
+
+| Method | Path                                         | Who            | Notes                                                  |
+| ------ | -------------------------------------------- | -------------- | ------------------------------------------------------ |
+| GET    | `/v1/me/call-background`                     | member         | Choice, what applies now, own image link, rules, brand |
+| PUT    | `/v1/me/call-background`                     | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
+| PUT    | `/v1/me/call-background`                     | member         | also `{kind: 'upload', imageId}` (mine or company)     |
+| POST   | `/v1/me/call-backgrounds?name=`              | member         | Raw PNG/JPEG/WebP body, 2 MB; adds and selects it      |
+| DELETE | `/v1/me/call-backgrounds/:imageId`           | member         | Removes one of mine                                    |
+| PUT    | `/v1/me/call-background/image`               | member         | Older single-image form of the POST above              |
+| DELETE | `/v1/me/call-background/image`               | member         | Older form: removes my latest image                    |
+| PUT    | `/v1/me/call-appearance`                     | member         | My look (see Appearance below)                         |
+| PUT    | `/v1/admin/call-backgrounds`                 | owner, admin   | `{defaultChoice, enforceLogo}`                         |
+| POST   | `/v1/admin/call-backgrounds/images?name=`    | owner, admin   | Adds to the company library                            |
+| DELETE | `/v1/admin/call-backgrounds/images/:imageId` | owner, admin   | Removes it (a default using it goes back to none)      |
+| GET    | `/v1/call-backgrounds/:tenantId/:key`        | anyone w/ link | The image, 128-bit random key, changes on every upload |
 
 Live updates: `meetings:changed {area: 'call_background'}` to all of my devices, and
 `tenant:updated {area: 'calls'}` (rules) or `{area: 'branding'}` (logo, colors) to everyone.
+
+### Appearance
+
+The **Appearance** tab in call settings changes how you look on camera, for everyone in the call:
+
+- **Looks** (one tap): Natural, Fresh, Warm, Cool, Vivid, Soft glow, Studio, Black and white, Noir
+  and Vintage (`CALL_LOOK_FILTERS` in the contracts, shared with mobile).
+- **Light and colour**: brightness, contrast, colour (saturation), warmth and low light (lifts dark
+  areas in a dim room).
+- **Touch-up**: smooth skin (edge-preserving, stronger on skin tones) and sharpness.
+- **Face shaping**: slim face, bigger eyes and slimmer nose. The face is found with the MediaPipe face
+  landmarker (`public/vision/face_landmarker.task`, Apache 2.0) on the device; the settings show
+  "Face found" once it is tracking. Moves are averaged and capped so the picture never folds.
+- **Enhance** sets a natural touch-up in one tap; **Reset** goes back to the camera picture.
+
+Everything runs on the device in one WebGL pass, before the background step, so looks and backgrounds
+combine (`apps/web/lib/camera-effects.ts`). With no look and no background the camera is not
+processed at all. Members' look is saved to their account (`appearance` in
+`GET /v1/me/call-background`), applied live on their other devices and queued while offline; guests'
+look stays in their browser. On mobile, applying a look to the phone's own camera is planned (as
+with backgrounds, native WebRTC has no processing hook yet).
 
 When an admin turns on **Keep live captions for minutes**, caption lines are saved with speaker
 names for the minutes and the captions notice says so. See `minutes.md`.

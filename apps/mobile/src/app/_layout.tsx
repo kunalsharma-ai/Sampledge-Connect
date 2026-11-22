@@ -88,6 +88,13 @@ function RootStack() {
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
           <Stack.Screen name="settings/status" options={{ title: 'Status' }} />
           <Stack.Screen name="settings/chat-theme" options={{ title: 'Chat theme' }} />
+          <Stack.Screen name="settings/call-background" options={{ title: 'Call background' }} />
+          <Stack.Screen name="settings/call-appearance" options={{ title: 'How you look' }} />
+          <Stack.Screen name="minutes/index" options={{ title: 'Minutes of meetings' }} />
+          <Stack.Screen name="minutes/[callId]" options={{ title: 'Minutes' }} />
+          <Stack.Screen name="export-chat" options={{ title: 'Export chat' }} />
+          <Stack.Screen name="transcript/[attachmentId]" options={{ title: 'Transcript' }} />
+          <Stack.Screen name="chat-background" options={{ title: 'Chat background' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
           <Stack.Screen name="files" options={{ title: 'Files' }} />
           <Stack.Screen name="forward" options={{ title: 'Forward', presentation: 'modal' }} />

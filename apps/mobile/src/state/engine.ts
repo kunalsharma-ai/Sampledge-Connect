@@ -22,6 +22,18 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type CallAppearance,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicyInput,
+  type CallBackgroundState,
+  type CallMinutesResponse,
+  type ChatExportAccess,
+  type ChatExportRequest,
+  type MeetingMinutes,
+  type MinutesConfig,
+  type MinutesDocumentQuery,
+  type MinutesChangedEvent,
+  documentFileName,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -97,7 +109,14 @@ import {
   type LocalScheduled,
   type LocalTask,
   type QueuedAction,
+  type MinutesPatch,
+  type TranscriptPatch,
 } from '../db/work';
+import {
+  transcriptRequest,
+  withPendingTranscript,
+  type TranscriptionSettings,
+} from '../lib/transcript';
 import { Emitter } from '../lib/emitter';
 import { forwardSnapshot } from '../lib/forward';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
@@ -106,6 +125,12 @@ import { OutboxProcessor } from '../sync/outbox';
 import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
+import {
+  isLocalUpload,
+  localUploadUri,
+  UNKNOWN_CALL_BACKGROUND,
+  withPendingCallBackground,
+} from '../lib/callBackground';
 import {
   TransportError,
   type ApiTransport,
@@ -146,6 +171,14 @@ const HOURS_KEY = 'workingHours';
 /** Settings key for the server's copy of your chat theme and the organization's rules. */
 const THEME_KEY = 'chatTheme';
 const RECENT_KEY = 'search.recent';
+/** Settings key for the server's copy of your call background, the rules and the branding. */
+const CALL_BG_KEY = 'callBackground';
+/** Settings keys for minutes: the organization's options, and the minutes of each call. */
+const MINUTES_CONFIG_KEY = 'minutes.config';
+const TRANSCRIPTION_KEY = 'ai.transcription';
+const transcriptKey = (attachmentId: string) => `transcript.${attachmentId}`;
+const minutesKey = (callId: string) => `minutes.call.${callId}`;
+const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
 
 export class ConnectEngine {
   readonly events = new Emitter<{
@@ -179,6 +212,12 @@ export class ConnectEngine {
     workingHours: WorkingHours;
     /** Your chat theme or the organization's rules changed, here or elsewhere. */
     chatTheme: ChatThemeState;
+    /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
+    callBackground: CallBackgroundState;
+    /** Minutes of a call changed here, on another device or by someone else. */
+    minutes: { callId: string; conversationId: string };
+    /** A recording transcript was corrected, checked or translated. */
+    transcript: { attachmentId: string };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -249,7 +288,10 @@ export class ConnectEngine {
     await this.store.requeueInflight();
     await this.store.work.requeueInflight();
     // Copies of files whose message was discarded or evicted.
-    pruneLocalFiles(await this.store.liveFileUris());
+    const live = await this.store.liveFileUris();
+    for (const p of await this.store.work.pendingCallBackground())
+      if (p.kind === 'callbg.image') live.add(p.localUri);
+    pruneLocalFiles(live);
     this.patch({ lastSyncAt: (await this.store.getSetting('sync.lastSuccessAt')) ?? null });
     await this.refreshPending();
     this.unsubs.push(
@@ -294,7 +336,11 @@ export class ConnectEngine {
         ),
         this.realtime.events.on('meetingsChanged', (e) => {
           if (e.area === 'working_hours') void this.refreshWorkingHours().catch(() => undefined);
+          if (e.area === 'call_background')
+            void this.refreshCallBackground().catch(() => undefined);
         }),
+        this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
+        this.realtime.events.on('transcript', (e) => void this.receiveTranscript(e.attachmentId)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -493,6 +539,10 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
+    if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
+    if (area === 'calls' || area === 'branding')
+      void this.refreshCallBackground().catch(() => undefined);
     if (area === 'branding' && this.online) {
       try {
         this.events.emit('branding', await this.api.getBranding());
@@ -1257,6 +1307,35 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setChatTheme(i.themeId)),
         );
         break;
+      case 'transcript.update':
+        await this.saveTranscript(
+          await this.api.updateTranscript(
+            i.attachmentId,
+            transcriptRequest(i.language, i.baseRevision, i.patch),
+          ),
+        );
+        break;
+      case 'minutes.update': {
+        const m = await this.api.updateMinutes(i.minutesId, {
+          baseRevision: i.baseRevision,
+          ...i.patch,
+        });
+        await this.saveMinutes(m);
+        break;
+      }
+      case 'callbg.set':
+        await this.saveCallBackground(await this.api.setCallBackground(i.choice));
+        break;
+      case 'callbg.image':
+        await this.saveCallBackground(await this.api.uploadCallBackground(i.localUri, i.name));
+        deleteLocalFile(i.localUri);
+        break;
+      case 'callbg.imageRemove':
+        await this.saveCallBackground(await this.api.removeCallBackgroundImage(i.imageId));
+        break;
+      case 'callbg.appearance':
+        await this.saveCallBackground(await this.api.setCallAppearance(i.appearance));
+        break;
       case 'hours.set':
         await this.store.setSetting(
           HOURS_KEY,
@@ -1314,6 +1393,15 @@ export class ConnectEngine {
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
     if (i.kind === 'search.recent') void this.emitRecent();
     if (i.kind === 'theme.set') void this.emitChatTheme();
+    if (i.kind.startsWith('callbg.')) void this.emitCallBackground();
+    if (i.kind === 'transcript.update')
+      // Saved or refused (someone corrected the same line): show the server's copy either way.
+      void this.refreshTranscript(i.attachmentId).catch(() =>
+        this.events.emit('transcript', { attachmentId: i.attachmentId }),
+      );
+    if (i.kind === 'minutes.update')
+      // Saved or refused (someone changed the same part): show the server's copy either way.
+      void this.refreshCallMinutes(i.callId).catch(() => this.emitMinutesFor(i.callId));
     if (i.kind === 'hours.set')
       void this.getWorkingHours()
         .then((h) => this.events.emit('workingHours', h))
@@ -1346,6 +1434,7 @@ export class ConnectEngine {
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
+          this.refreshCallBackground(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
@@ -1781,6 +1870,371 @@ export class ConnectEngine {
     const state = await this.api.getChatTheme();
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
     await this.emitChatTheme();
+  }
+
+  // ------------------------------------------------------------ minutes of meeting
+
+  /** What the apps should offer (templates, languages, export rule). Cached for offline use. */
+  async minutesConfig(): Promise<MinutesConfig | null> {
+    if (this.online) await this.refreshMinutesConfig().catch(() => undefined);
+    const raw = await this.store.getSetting(MINUTES_CONFIG_KEY);
+    return raw ? (JSON.parse(raw) as MinutesConfig) : null;
+  }
+
+  private async refreshMinutesConfig(): Promise<void> {
+    await this.store.setSetting(MINUTES_CONFIG_KEY, JSON.stringify(await this.api.minutesConfig()));
+  }
+
+  /**
+   * The minutes of a call as last seen on this phone, with edits not sent yet laid over them.
+   * Null when this phone has never loaded them.
+   */
+  async getCallMinutes(callId: string): Promise<CallMinutesResponse | null> {
+    const raw = await this.store.getSetting(minutesKey(callId));
+    if (!raw) return null;
+    const r = JSON.parse(raw) as CallMinutesResponse;
+    if (!r.minutes) return r;
+    const pending = await this.store.work.pendingMinutes(r.minutes.minutesId);
+    return pending ? { ...r, minutes: { ...r.minutes, ...pending } } : r;
+  }
+
+  /** Fetches the minutes of a call when online and emits `minutes`. */
+  async reloadCallMinutes(callId: string): Promise<void> {
+    if (this.online) await this.refreshCallMinutes(callId);
+  }
+
+  private async refreshCallMinutes(callId: string): Promise<void> {
+    const r = await this.api.callMinutes(callId);
+    await this.store.setSetting(minutesKey(callId), JSON.stringify(r));
+    if (r.minutes) await this.rememberInList(r.minutes);
+    await this.emitMinutesFor(callId);
+  }
+
+  /** Minutes made for calls in a conversation (newest first); cached for offline reading. */
+  async listMinutes(conversationId: string): Promise<MeetingMinutes[]> {
+    if (this.online) {
+      try {
+        const items = await this.api.listMinutes(conversationId);
+        await this.store.setSetting(minutesListKey(conversationId), JSON.stringify(items));
+        return items;
+      } catch {
+        // fall back to the copy on this phone
+      }
+    }
+    const raw = await this.store.getSetting(minutesListKey(conversationId));
+    return raw ? (JSON.parse(raw) as MeetingMinutes[]) : [];
+  }
+
+  /** Makes the draft (or writes it again from the sources). Needs a connection. */
+  async generateMinutes(callId: string, language: string, regenerate = false): Promise<void> {
+    const m = await this.serverAction(() =>
+      this.api.generateMinutes(callId, { language, regenerate }),
+    );
+    await this.saveMinutes(m);
+  }
+
+  /**
+   * Edits fields of the minutes. Shows at once and works offline; edits merge per field, and a
+   * field someone else changed meanwhile is refused with their version shown.
+   */
+  async editMinutes(m: MeetingMinutes, patch: MinutesPatch): Promise<void> {
+    const raw = await this.store.getSetting(minutesKey(m.callId));
+    const base = raw ? (JSON.parse(raw) as CallMinutesResponse).minutes : null;
+    await this.queue({
+      kind: 'minutes.update',
+      minutesId: m.minutesId,
+      callId: m.callId,
+      baseRevision: base?.revision ?? m.revision,
+      patch,
+    });
+    await this.emitMinutesFor(m.callId);
+  }
+
+  async shareMinutes(m: MeetingMinutes): Promise<void> {
+    await this.saveMinutes(await this.serverAction(() => this.api.shareMinutes(m.minutesId)));
+  }
+
+  async deleteMinutes(m: MeetingMinutes): Promise<void> {
+    await this.serverAction(() => this.api.deleteMinutes(m.minutesId));
+    await this.refreshCallMinutes(m.callId).catch(() => undefined);
+    await this.dropFromList(m);
+  }
+
+  /** Downloads the minutes as PDF or Word; returns the file on this device. */
+  downloadMinutes(m: MeetingMinutes, q: MinutesDocumentQuery): Promise<string> {
+    const ext = q.format === 'docx' ? 'docx' : 'pdf';
+    const name = documentFileName('Minutes', m.title, new Date(m.startedAt), ext);
+    return this.serverAction(() => this.api.downloadMinutes(m.minutesId, q, name));
+  }
+
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess> {
+    return this.serverAction(() => this.api.chatExportAccess(conversationId));
+  }
+
+  /** Downloads the conversation as PDF, Word or text; returns the file on this device. */
+  exportChat(conversationId: string, title: string, req: ChatExportRequest): Promise<string> {
+    const name = documentFileName('Chat', title, new Date(), req.format ?? 'pdf');
+    return this.serverAction(() => this.api.exportChat(conversationId, req, name));
+  }
+
+  private async receiveMinutes(e: MinutesChangedEvent): Promise<void> {
+    if (await this.store.getSetting(minutesKey(e.callId)))
+      await this.refreshCallMinutes(e.callId).catch(() => undefined);
+    else this.events.emit('minutes', { callId: e.callId, conversationId: e.conversationId });
+  }
+
+  private async saveMinutes(m: MeetingMinutes): Promise<void> {
+    const raw = await this.store.getSetting(minutesKey(m.callId));
+    const prev = raw ? (JSON.parse(raw) as CallMinutesResponse) : null;
+    await this.store.setSetting(
+      minutesKey(m.callId),
+      JSON.stringify({ canCreate: prev?.canCreate ?? true, blockedReason: null, minutes: m }),
+    );
+    await this.rememberInList(m);
+    await this.emitMinutesFor(m.callId);
+  }
+
+  private async rememberInList(m: MeetingMinutes): Promise<void> {
+    const key = minutesListKey(m.conversationId);
+    const raw = await this.store.getSetting(key);
+    const list = raw ? (JSON.parse(raw) as MeetingMinutes[]) : [];
+    const next = [m, ...list.filter((x) => x.minutesId !== m.minutesId)].sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt),
+    );
+    await this.store.setSetting(key, JSON.stringify(next));
+  }
+
+  private async dropFromList(m: MeetingMinutes): Promise<void> {
+    const key = minutesListKey(m.conversationId);
+    const raw = await this.store.getSetting(key);
+    if (!raw) return;
+    const list = (JSON.parse(raw) as MeetingMinutes[]).filter((x) => x.minutesId !== m.minutesId);
+    await this.store.setSetting(key, JSON.stringify(list));
+    this.events.emit('minutes', { callId: m.callId, conversationId: m.conversationId });
+  }
+
+  private async emitMinutesFor(callId: string): Promise<void> {
+    const r = await this.getCallMinutes(callId);
+    this.events.emit('minutes', { callId, conversationId: r?.minutes?.conversationId ?? '' });
+  }
+
+  // ------------------------------------------------------------ recording transcripts
+
+  /**
+   * The organization's speech-to-text setup (null: never loaded). Refreshed when online and kept
+   * for offline use, so the Transcript button shows on clips you can already read offline.
+   */
+  async transcriptionSettings(): Promise<TranscriptionSettings | null> {
+    // Every clip on screen asks, so ask the server at most once a minute.
+    if (this.online && Date.now() - this.transcriptionCheckedAt > 60_000) {
+      this.transcriptionCheckedAt = Date.now();
+      this.transcriptionFetch = this.api
+        .aiStatus()
+        .then((s) =>
+          this.store.setSetting(
+            TRANSCRIPTION_KEY,
+            JSON.stringify(s.enabled ? s.transcription : { ...s.transcription, configured: false }),
+          ),
+        )
+        .catch(() => undefined); // keep the copy on this phone
+    }
+    await this.transcriptionFetch;
+    const raw = await this.store.getSetting(TRANSCRIPTION_KEY);
+    return raw ? (JSON.parse(raw) as TranscriptionSettings) : null;
+  }
+
+  private transcriptionCheckedAt = 0;
+  private transcriptionFetch: Promise<void> = Promise.resolve();
+
+  /** A transcript as last seen on this phone, with corrections not sent yet laid over it. */
+  async getTranscript(attachmentId: string): Promise<AiTranscript | null> {
+    const raw = await this.store.getSetting(transcriptKey(attachmentId));
+    if (!raw) return null;
+    const t = JSON.parse(raw) as AiTranscript;
+    const original = await this.store.work.pendingTranscript(attachmentId, null);
+    const translations: Record<string, TranscriptPatch> = {};
+    for (const x of t.translations) {
+      const p = await this.store.work.pendingTranscript(attachmentId, x.language);
+      if (p) translations[x.language] = p;
+    }
+    if (!original && !Object.keys(translations).length) return t;
+    return withPendingTranscript(
+      t,
+      { original, translations },
+      this.store.selfUserId,
+      new Date().toISOString(),
+    );
+  }
+
+  /**
+   * Fetches the transcript when online (and asks for one when `request` and there is none yet
+   * or the last try failed), then returns what this phone has.
+   */
+  async loadTranscript(attachmentId: string, request = false): Promise<AiTranscript | null> {
+    if (this.online) {
+      let t = await this.api.aiTranscript(attachmentId);
+      if (request && (t.status === 'none' || t.status === 'failed'))
+        t = await this.api.aiTranscript(attachmentId, true);
+      await this.saveTranscript(t);
+    }
+    return this.getTranscript(attachmentId);
+  }
+
+  /**
+   * Corrects lines of the transcript (`language` null) or a translation, or marks it checked.
+   * Shows at once and waits in the queue when offline; a line someone else corrected meanwhile
+   * is refused and their version shown.
+   */
+  async correctTranscript(
+    attachmentId: string,
+    language: string | null,
+    patch: TranscriptPatch,
+  ): Promise<void> {
+    const raw = await this.store.getSetting(transcriptKey(attachmentId));
+    const base = raw ? (JSON.parse(raw) as AiTranscript).revision : 0;
+    await this.queue({
+      kind: 'transcript.update',
+      attachmentId,
+      language,
+      baseRevision: base,
+      patch,
+    });
+    this.events.emit('transcript', { attachmentId });
+  }
+
+  /** Asks for a translation (or a new one). Needs a connection. */
+  async translateTranscript(attachmentId: string, language: string): Promise<void> {
+    await this.saveTranscript(
+      await this.serverAction(() => this.api.translateTranscript(attachmentId, language)),
+    );
+  }
+
+  private async refreshTranscript(attachmentId: string): Promise<void> {
+    await this.saveTranscript(await this.api.aiTranscript(attachmentId));
+  }
+
+  private async receiveTranscript(attachmentId: string): Promise<void> {
+    // Only transcripts this phone has opened are kept; others load when opened.
+    if (await this.store.getSetting(transcriptKey(attachmentId)))
+      await this.refreshTranscript(attachmentId).catch(() => undefined);
+    else this.events.emit('transcript', { attachmentId });
+  }
+
+  private async saveTranscript(t: AiTranscript): Promise<void> {
+    await this.store.setSetting(transcriptKey(t.attachmentId), JSON.stringify(t));
+    this.events.emit('transcript', { attachmentId: t.attachmentId });
+  }
+
+  // ------------------------------------------------------------ call background
+
+  /**
+   * Your background in calls: the server's copy on this phone with changes not sent yet laid
+   * over it, so the picker shows your pick at once, on or offline.
+   */
+  async getCallBackground(): Promise<CallBackgroundState> {
+    const raw = await this.store.getSetting(CALL_BG_KEY);
+    const saved = raw ? (JSON.parse(raw) as CallBackgroundState) : UNKNOWN_CALL_BACKGROUND;
+    return withPendingCallBackground(
+      saved,
+      await this.store.work.pendingCallBackground(),
+      await this.store.work.pendingCallAppearance(),
+    );
+  }
+
+  /** Picks a background. Works offline and follows you to every device. */
+  async setCallBackground(choice: CallBackgroundChoice): Promise<void> {
+    // An image still on its way is selected by its upload; nothing to send for it.
+    if (choice.kind === 'upload' && isLocalUpload(choice.imageId)) return;
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [{ kind: 'callbg.set', choice }]),
+      );
+    else await this.queue({ kind: 'callbg.set', choice });
+    await this.emitCallBackground();
+  }
+
+  /**
+   * Adds one of your own backgrounds (a JPEG already in app storage, see prepareCallBackground)
+   * and selects it. Works offline: it uploads when you are back online.
+   */
+  async addCallBackgroundImage(localUri: string, name?: string): Promise<void> {
+    const input = { kind: 'callbg.image' as const, localUri, ...(name ? { name } : {}) };
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [input]),
+      );
+    else await this.queue(input);
+    await this.emitCallBackground();
+  }
+
+  /** Removes one of your backgrounds (one picked offline that hasn't uploaded is just dropped). */
+  async removeCallBackgroundImage(imageId: string): Promise<void> {
+    if (isLocalUpload(imageId)) {
+      const uri = localUploadUri(imageId);
+      if (await this.store.work.dropPendingCallBackgroundImage(uri)) deleteLocalFile(uri);
+      await this.emitCallBackground();
+      return;
+    }
+    const input = { kind: 'callbg.imageRemove' as const, imageId };
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [input]),
+      );
+    else await this.queue(input);
+    await this.emitCallBackground();
+  }
+
+  /** How you look on camera. Works offline and follows you to every device. */
+  async setCallAppearance(appearance: CallAppearance): Promise<void> {
+    if (this.session.state === 'demo')
+      await this.saveCallBackground({ ...(await this.getCallBackground()), appearance });
+    else await this.queue({ kind: 'callbg.appearance', appearance });
+    await this.emitCallBackground();
+  }
+
+  /** Owners and admins: adds a background everyone can pick. Needs a connection. */
+  async addOrganizationCallBackground(localUri: string, name?: string): Promise<void> {
+    try {
+      await this.saveCallBackground(
+        await this.serverAction(() => this.api.addOrganizationCallBackground(localUri, name)),
+      );
+    } finally {
+      deleteLocalFile(localUri);
+    }
+    await this.emitCallBackground();
+  }
+
+  async removeOrganizationCallBackground(imageId: string): Promise<void> {
+    await this.saveCallBackground(
+      await this.serverAction(() => this.api.removeOrganizationCallBackground(imageId)),
+    );
+    await this.emitCallBackground();
+  }
+
+  /** Owners and admins: the default background and whether the company one is required. */
+  async setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<void> {
+    await this.saveCallBackground(
+      await this.serverAction(() => this.api.setCallBackgroundPolicy(policy)),
+    );
+    await this.emitCallBackground();
+  }
+
+  /** Fetches the latest when online (the picker calls this when it opens). */
+  reloadCallBackground(): Promise<void> {
+    return this.online ? this.refreshCallBackground().catch(() => undefined) : Promise.resolve();
+  }
+
+  private async refreshCallBackground(): Promise<void> {
+    await this.saveCallBackground(await this.api.getCallBackground());
+    await this.emitCallBackground();
+  }
+
+  private saveCallBackground(s: CallBackgroundState): Promise<void> {
+    return this.store.setSetting(CALL_BG_KEY, JSON.stringify(s));
+  }
+
+  private async emitCallBackground(): Promise<void> {
+    this.events.emit('callBackground', await this.getCallBackground());
   }
 
   private async emitChatTheme(): Promise<void> {

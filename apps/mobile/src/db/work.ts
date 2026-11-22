@@ -20,6 +20,10 @@ import {
   type DndSchedule,
   type WorkingHours,
   type ChatThemeId,
+  type CallAppearance,
+  type CallBackgroundChoice,
+  type MinutesEditableField,
+  type MeetingMinutes,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -70,7 +74,56 @@ export type ActionInput =
   | { kind: 'dnd.set'; schedule: DndSchedule }
   /** Your working hours, replaced as a whole (the latest wins). */
   | { kind: 'hours.set'; hours: WorkingHours }
-  | { kind: 'theme.set'; themeId: ChatThemeId | null };
+  | { kind: 'theme.set'; themeId: ChatThemeId | null }
+  /** Your background in calls (the latest wins). */
+  | { kind: 'callbg.set'; choice: CallBackgroundChoice }
+  /** One of your own call backgrounds: a JPEG kept in app storage until it reaches the server. */
+  | { kind: 'callbg.image'; localUri: string; name?: string }
+  /** Removes one of your backgrounds (no `imageId`: the older "most recent image" form). */
+  | { kind: 'callbg.imageRemove'; imageId?: string }
+  /** How you look on camera (the latest wins). */
+  | { kind: 'callbg.appearance'; appearance: CallAppearance }
+  /**
+   * Edits to minutes of meeting, merged per field while waiting. `baseRevision` is the revision
+   * the first edit started from, so the server can tell a field someone else changed meanwhile.
+   */
+  | {
+      kind: 'minutes.update';
+      minutesId: string;
+      callId: string;
+      baseRevision: number;
+      patch: MinutesPatch;
+    }
+  /**
+   * Corrections to a transcript (`language` null) or one of its translations. Waiting
+   * corrections merge per line; `baseRevision` is where the first one started.
+   */
+  | {
+      kind: 'transcript.update';
+      attachmentId: string;
+      language: string | null;
+      baseRevision: number;
+      patch: TranscriptPatch;
+    };
+
+export interface TranscriptPatch {
+  /** Corrected lines by index. */
+  segments?: Record<number, string>;
+  /** The whole text, for transcripts without timed lines. */
+  text?: string;
+  reviewed?: boolean;
+}
+
+export function mergeTranscriptPatch(a: TranscriptPatch, b: TranscriptPatch): TranscriptPatch {
+  const out: TranscriptPatch = { ...a, ...b };
+  if (a.segments || b.segments) out.segments = { ...a.segments, ...b.segments };
+  return out;
+}
+
+export const transcriptTarget = (attachmentId: string, language: string | null) =>
+  `transcript:${attachmentId}|${language ?? 'original'}`;
+
+export type MinutesPatch = Partial<Pick<MeetingMinutes, MinutesEditableField>>;
 
 export type ActionKind = ActionInput['kind'];
 
@@ -120,7 +173,16 @@ export interface ApprovalFilter {
 }
 
 type CacheKind =
-  'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking' | 'profile' | 'search';
+  | 'task'
+  | 'approval'
+  | 'scheduled'
+  | 'bookmark'
+  | 'vote'
+  | 'booking'
+  | 'profile'
+  | 'search'
+  | 'minutes'
+  | 'transcript';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -179,6 +241,17 @@ const targetOf = (a: ActionInput): string => {
       return 'hours:me';
     case 'theme.set':
       return 'my-chat-theme';
+    case 'callbg.appearance':
+      return 'callappearance:me';
+    case 'callbg.set':
+    case 'callbg.image':
+    case 'callbg.imageRemove':
+      // One target, so an upload and a later pick reach the server in the order you made them.
+      return 'callbg:me';
+    case 'minutes.update':
+      return `minutes:${a.minutesId}`;
+    case 'transcript.update':
+      return transcriptTarget(a.attachmentId, a.language);
   }
 };
 
@@ -187,7 +260,8 @@ const kindOfCache = (k: ActionKind): CacheKind =>
   k === 'status.set' ||
   k === 'dnd.set' ||
   k === 'hours.set' ||
-  k === 'theme.set'
+  k === 'theme.set' ||
+  k.startsWith('callbg.')
     ? 'profile'
     : k === 'pin' || k === 'poll.create' || k === 'poll.close'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
@@ -442,6 +516,71 @@ export class WorkStore {
           await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
           await insert(input);
           break;
+        case 'minutes.update': {
+          // Later edits merge per field into the one still waiting, from the first base revision.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'minutes.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'minutes.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
+        case 'transcript.update': {
+          // Later corrections merge per line into the one still waiting.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'transcript.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'transcript.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: mergeTranscriptPatch(prior.input.patch, input.patch),
+            });
+          else await insert(input);
+          break;
+        }
+        case 'callbg.set':
+          // A later pick replaces an earlier one still waiting; uploads stay in order before it.
+          await drop(
+            waiting
+              .filter((a) => a.state === 'pending' && a.input.kind === 'callbg.set')
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
+        case 'callbg.image':
+          // The upload selects the image, so picks still waiting before it no longer matter.
+          // Earlier uploads stay: each adds a background.
+          await drop(
+            waiting
+              .filter((a) => a.state === 'pending' && a.input.kind === 'callbg.set')
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
+        case 'callbg.imageRemove':
+          // Picks of that image still waiting no longer matter.
+          await drop(
+            waiting
+              .filter(
+                (a) =>
+                  a.state === 'pending' &&
+                  a.input.kind === 'callbg.set' &&
+                  (input.imageId
+                    ? a.input.choice.kind === 'upload' && a.input.choice.imageId === input.imageId
+                    : a.input.choice.kind === 'custom'),
+              )
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
+        case 'callbg.appearance':
+          await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
+          await insert(input);
+          break;
         case 'booking.delete':
           if (create && create.state !== 'sending') {
             // Never reached the server: forget it here.
@@ -677,6 +816,22 @@ export class WorkStore {
     await this.db.run(`UPDATE actions SET state = 'sending' WHERE id = ?`, [id]);
   }
 
+  /**
+   * Marks the action as being sent and returns it as stored now. A change queued between
+   * {@link next} and this call may have merged into it (or dropped it), so the copy read by
+   * `next` can be stale; sending that would lose the merged change.
+   */
+  async claim(id: string): Promise<QueuedAction | undefined> {
+    await this.db.run(`UPDATE actions SET state = 'sending' WHERE id = ? AND state = 'pending'`, [
+      id,
+    ]);
+    const r = await this.db.get<ActionRow>(
+      `SELECT * FROM actions WHERE id = ? AND state = 'sending'`,
+      [id],
+    );
+    return r && toAction(r);
+  }
+
   async markRetry(a: QueuedAction, at: number, error: string): Promise<void> {
     await this.db.run(
       `UPDATE actions SET state = 'pending', attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE id = ?`,
@@ -900,6 +1055,83 @@ export class WorkStore {
     ).map(toAction);
     const last = rows[rows.length - 1]?.input;
     return last?.kind === 'theme.set' ? { themeId: last.themeId } : undefined;
+  }
+
+  /** Edits to these minutes not on the server yet, merged per field (undefined: none). */
+  async pendingMinutes(minutesId: string): Promise<MinutesPatch | undefined> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = ? AND state != 'failed' ORDER BY enqueued_at, rowid`,
+        [`minutes:${minutesId}`],
+      )
+    ).map(toAction);
+    let out: MinutesPatch | undefined;
+    for (const a of rows) if (a.input.kind === 'minutes.update') out = { ...out, ...a.input.patch };
+    return out;
+  }
+
+  /** Corrections to this transcript (or translation) not on the server yet, merged. */
+  async pendingTranscript(
+    attachmentId: string,
+    language: string | null,
+  ): Promise<TranscriptPatch | undefined> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = ? AND state != 'failed' ORDER BY enqueued_at, rowid`,
+        [transcriptTarget(attachmentId, language)],
+      )
+    ).map(toAction);
+    let out: TranscriptPatch | undefined;
+    for (const a of rows)
+      if (a.input.kind === 'transcript.update')
+        out = out ? mergeTranscriptPatch(out, a.input.patch) : a.input.patch;
+    return out;
+  }
+
+  /**
+   * Forgets an image picked on this phone that hasn't started uploading. False when it is
+   * already on its way (remove it once it has arrived).
+   */
+  async dropPendingCallBackgroundImage(localUri: string): Promise<boolean> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callbg:me' AND state = 'pending' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const hit = rows.find((a) => a.input.kind === 'callbg.image' && a.input.localUri === localUri);
+    if (!hit) return false;
+    await this.db.run(`DELETE FROM actions WHERE id = ?`, [hit.id]);
+    this.events.emit('changed', { kind: 'profile' });
+    return true;
+  }
+
+  /** How you look on camera, changed on this device and not on the server yet. */
+  async pendingCallAppearance(): Promise<CallAppearance | null> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callappearance:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'callbg.appearance' ? last.appearance : null;
+  }
+
+  /** Call background changes made on this device and not on the server yet, oldest first. */
+  async pendingCallBackground(): Promise<
+    Extract<ActionInput, { kind: 'callbg.set' | 'callbg.image' | 'callbg.imageRemove' }>[]
+  > {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callbg:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    return rows.flatMap((a) =>
+      a.input.kind === 'callbg.set' ||
+      a.input.kind === 'callbg.image' ||
+      a.input.kind === 'callbg.imageRemove'
+        ? [a.input]
+        : [],
+    );
   }
 
   /** Working hours changed on this device and not on the server yet (null: none). */

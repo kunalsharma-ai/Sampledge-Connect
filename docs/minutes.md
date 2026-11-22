@@ -89,6 +89,34 @@ are deleted after 30 days (1 to 365).
 | Minutes and export settings              | `tenant:updated` `minutes`          | Needs a connection (admin)     |
 | Downloads and exports                    | -                                   | Need a connection              |
 
+## Mobile
+
+The mobile app has the same minutes and export, offline first:
+
+- **Minutes.** Tap an ended call in the timeline, the shared minutes card, or **Details › Minutes
+  of meetings** (which also lists recent calls without minutes). People in the call make the draft
+  (pick the language), edit every field, share, regenerate and delete. Edits save when you leave
+  a box, show at once and are queued offline as `minutes.update` on target `minutes:<id>`. Edits
+  waiting together merge per field and go up once with the revision the first one started from,
+  so the server can spot a field someone else changed meanwhile (the app then says so and shows
+  their version). The minutes of each call and each conversation's list are kept on the phone for
+  offline reading, and `minutes:changed` refreshes them live.
+- **Download** as PDF or Word in any template, with or without the transcript, then save or send
+  it from the share sheet. **Export chat** (Details › Export chat) follows the organization's
+  export rule and offers PDF, Word or text for everything or the last 7, 30 or 90 days. Both need
+  a connection.
+- **Transcripts.** Voice messages, video clips and call recordings (in the conversation and in
+  **Recordings**) show **Transcript** once the organization has a speech-to-text server. The
+  transcript screen switches between the original and its translations, asks for a new
+  translation (needs a connection), corrects lines and marks the original or a translation
+  checked. Corrections show at once and are queued offline as `transcript.update` on target
+  `transcript:<attachmentId>|<language or original>`; corrections waiting together merge per line
+  and go up once from the first revision, so a line someone else corrected meanwhile is refused
+  and their version shown. Opened transcripts are kept on the phone for offline reading, refresh
+  live on `transcript:changed`, and the screen checks back while a transcript or translation is
+  still being made. A translation made before the original was corrected says so and offers
+  **Translate again**.
+
 ## API
 
 | Endpoint                                             | Purpose                                              |

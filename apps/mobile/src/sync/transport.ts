@@ -20,6 +20,7 @@ import {
   type AiSuggestedReplies,
   type AiSummary,
   type AiTranscript,
+  type UpdateTranscriptRequest,
   type AiTranslation,
   type ConfirmAiProposalRequest,
   type SummaryRange,
@@ -48,7 +49,19 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type CallAppearance,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicyInput,
+  type CallBackgroundState,
   type CallCaptionResponse,
+  type CallMinutesResponse,
+  type ChatExportAccess,
+  type ChatExportRequest,
+  type GenerateMinutesRequest,
+  type MeetingMinutes,
+  type MinutesConfig,
+  type MinutesDocumentQuery,
+  type UpdateMinutesRequest,
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
@@ -93,7 +106,7 @@ import {
   type SyncResponse,
 } from '@sampledge/contracts';
 
-import { putFileBytes } from '../lib/localFiles';
+import { downloadDocument, putFileBytes } from '../lib/localFiles';
 import type {
   ListNotificationsQuery,
   ListNotificationsResponse,
@@ -191,6 +204,29 @@ export interface ApiTransport {
   setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
   /** Owners and admins: the default theme and which themes people may choose. */
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** Your background in calls, the organization rules and the branding for the company one. */
+  getCallBackground(): Promise<CallBackgroundState>;
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
+  /** Sends a JPEG kept on this device as your own background (selects it). */
+  uploadCallBackground(localUri: string, name?: string): Promise<CallBackgroundState>;
+  removeCallBackgroundImage(imageId?: string): Promise<CallBackgroundState>;
+  setCallAppearance(appearance: CallAppearance): Promise<CallBackgroundState>;
+  addOrganizationCallBackground(localUri: string, name?: string): Promise<CallBackgroundState>;
+  removeOrganizationCallBackground(imageId: string): Promise<CallBackgroundState>;
+  /** Owners and admins: the organization default and whether the company background is required. */
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState>;
+  minutesConfig(): Promise<MinutesConfig>;
+  callMinutes(callId: string): Promise<CallMinutesResponse>;
+  generateMinutes(callId: string, req: GenerateMinutesRequest): Promise<MeetingMinutes>;
+  listMinutes(conversationId: string): Promise<MeetingMinutes[]>;
+  updateMinutes(minutesId: string, req: UpdateMinutesRequest): Promise<MeetingMinutes>;
+  shareMinutes(minutesId: string): Promise<MeetingMinutes>;
+  deleteMinutes(minutesId: string): Promise<void>;
+  /** Saves the minutes as PDF or Word on this device; returns where. */
+  downloadMinutes(minutesId: string, q: MinutesDocumentQuery, fileName: string): Promise<string>;
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess>;
+  /** Saves the conversation as PDF, Word or text on this device; returns where. */
+  exportChat(conversationId: string, req: ChatExportRequest, fileName: string): Promise<string>;
   activeCalls(): Promise<Call[]>;
   getCall(callId: string): Promise<Call>;
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
@@ -297,6 +333,8 @@ export interface ApiTransport {
   aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal>;
   aiDismiss(proposalId: string): Promise<AiProposal>;
   aiTranscript(attachmentId: string, queue?: boolean): Promise<AiTranscript>;
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript>;
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -426,14 +464,31 @@ export class HttpTransport implements ApiTransport {
 
   async uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment> {
     const ticket = await this.request<UploadTicket>('POST', '/v1/uploads', req);
+    await this.putRaw(ticket.uploadUrl, localUri, 'application/octet-stream');
+    return this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+  }
+
+  /** Streams a file on this device as the raw request body. Returns the response text. */
+  private async putRaw(
+    path: string,
+    localUri: string,
+    contentType: string,
+    method: 'PUT' | 'POST' = 'PUT',
+  ): Promise<string> {
     const token = await this.opts.getAccessToken();
     if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
     let res: { status: number; body: string };
     try {
-      res = await putFileBytes(new URL(ticket.uploadUrl, this.opts.baseUrl).toString(), localUri, {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/octet-stream',
-      });
+      res = await putFileBytes(
+        new URL(path, this.opts.baseUrl).toString(),
+        localUri,
+        { authorization: `Bearer ${token}`, 'content-type': contentType },
+        method,
+      );
     } catch (err) {
       throw new TransportError(err instanceof Error ? err.message : 'Upload failed', 'network');
     }
@@ -451,11 +506,7 @@ export class HttpTransport implements ApiTransport {
         error?.retryAfterMs,
       );
     }
-    return this.request(
-      'POST',
-      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
-      undefined,
-    );
+    return res.body;
   }
 
   async attachmentUrl(attachmentId: string): Promise<AttachmentUrl> {
@@ -540,6 +591,177 @@ export class HttpTransport implements ApiTransport {
 
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
     return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getCallBackground(): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('GET', '/v1/me/call-background', undefined).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/me/call-background', choice).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  async uploadCallBackground(localUri: string, name?: string): Promise<CallBackgroundState> {
+    const q = name ? `?name=${encodeURIComponent(name)}` : '';
+    const body = await this.putRaw(`/v1/me/call-backgrounds${q}`, localUri, 'image/jpeg', 'POST');
+    return this.withBackgroundUrl(JSON.parse(body) as CallBackgroundState);
+  }
+
+  removeCallBackgroundImage(imageId?: string): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>(
+      'DELETE',
+      imageId
+        ? `/v1/me/call-backgrounds/${encodeURIComponent(imageId)}`
+        : '/v1/me/call-background/image',
+      undefined,
+    ).then((s) => this.withBackgroundUrl(s));
+  }
+
+  setCallAppearance(appearance: CallAppearance): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/me/call-appearance', appearance).then(
+      (s) => this.withBackgroundUrl(s),
+    );
+  }
+
+  async addOrganizationCallBackground(
+    localUri: string,
+    name?: string,
+  ): Promise<CallBackgroundState> {
+    const q = name ? `?name=${encodeURIComponent(name)}` : '';
+    const body = await this.putRaw(
+      `/v1/admin/call-backgrounds/images${q}`,
+      localUri,
+      'image/jpeg',
+      'POST',
+    );
+    return this.withBackgroundUrl(JSON.parse(body) as CallBackgroundState);
+  }
+
+  removeOrganizationCallBackground(imageId: string): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>(
+      'DELETE',
+      `/v1/admin/call-backgrounds/images/${encodeURIComponent(imageId)}`,
+      undefined,
+    ).then((s) => this.withBackgroundUrl(s));
+  }
+
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/admin/call-backgrounds', policy).then(
+      (s) => this.withBackgroundUrl(s),
+    );
+  }
+
+  minutesConfig(): Promise<MinutesConfig> {
+    return this.request('GET', '/v1/minutes/config', undefined);
+  }
+
+  callMinutes(callId: string): Promise<CallMinutesResponse> {
+    return this.request('GET', `/v1/calls/${encodeURIComponent(callId)}/minutes`, undefined);
+  }
+
+  generateMinutes(callId: string, req: GenerateMinutesRequest): Promise<MeetingMinutes> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/minutes`, req);
+  }
+
+  async listMinutes(conversationId: string): Promise<MeetingMinutes[]> {
+    const r = await this.request<{ items: MeetingMinutes[] }>(
+      'GET',
+      `/v1/minutes?conversationId=${encodeURIComponent(conversationId)}`,
+      undefined,
+    );
+    return r.items;
+  }
+
+  updateMinutes(minutesId: string, req: UpdateMinutesRequest): Promise<MeetingMinutes> {
+    return this.request('PATCH', `/v1/minutes/${encodeURIComponent(minutesId)}`, req);
+  }
+
+  shareMinutes(minutesId: string): Promise<MeetingMinutes> {
+    return this.request('POST', `/v1/minutes/${encodeURIComponent(minutesId)}/share`, {});
+  }
+
+  async deleteMinutes(minutesId: string): Promise<void> {
+    await this.request('DELETE', `/v1/minutes/${encodeURIComponent(minutesId)}`, undefined);
+  }
+
+  async downloadMinutes(
+    minutesId: string,
+    q: MinutesDocumentQuery,
+    fileName: string,
+  ): Promise<string> {
+    const qs = new URLSearchParams({
+      format: q.format ?? 'pdf',
+      ...(q.template ? { template: q.template } : {}),
+      ...(q.transcript ? { transcript: '1' } : {}),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    return this.document(
+      `/v1/minutes/${encodeURIComponent(minutesId)}/document?${qs}`,
+      'GET',
+      undefined,
+      fileName,
+    );
+  }
+
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess> {
+    return this.request(
+      'GET',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/export`,
+      undefined,
+    );
+  }
+
+  exportChat(conversationId: string, req: ChatExportRequest, fileName: string): Promise<string> {
+    return this.document(
+      `/v1/conversations/${encodeURIComponent(conversationId)}/export`,
+      'POST',
+      req,
+      fileName,
+    );
+  }
+
+  private async document(
+    path: string,
+    method: string,
+    body: unknown,
+    fileName: string,
+  ): Promise<string> {
+    const token = await this.opts.getAccessToken();
+    if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
+    try {
+      return await downloadDocument(
+        new URL(path, this.opts.baseUrl).toString(),
+        {
+          method,
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(body ? { 'content-type': 'application/json' } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        },
+        fileName,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed';
+      const status = (err as { status?: number }).status;
+      // The API answered (a refusal): its own words. Otherwise the connection failed.
+      throw status
+        ? new TransportError(msg, 'api', codeForStatus(status))
+        : new TransportError(msg, 'network');
+    }
+  }
+
+  private withBackgroundUrl(s: CallBackgroundState): CallBackgroundState {
+    const abs = (u: string) => new URL(u, this.opts.baseUrl).toString();
+    return {
+      ...s,
+      customImageUrl: s.customImageUrl ? abs(s.customImageUrl) : null,
+      uploads: (s.uploads ?? []).map((u) => ({ ...u, url: abs(u.url) })),
+    };
   }
 
   callsConfig(): Promise<CallsConfig> {
@@ -936,6 +1158,18 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript> {
+    return this.request('PATCH', `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}`, req);
+  }
+
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript> {
+    return this.request(
+      'POST',
+      `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}/translations`,
+      { language },
+    );
+  }
+
   setForwarding(conversationId: string, allowed: boolean): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -1209,12 +1443,32 @@ export class NoServerTransport implements ApiTransport {
   aiConfirm = async (): Promise<AiProposal> => this.fail();
   aiDismiss = async (): Promise<AiProposal> => this.fail();
   aiTranscript = async (): Promise<AiTranscript> => this.fail();
+  updateTranscript = async (): Promise<AiTranscript> => this.fail();
+  translateTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   transcribeCaption = async (): Promise<CallCaptionResponse> => this.fail();
   getChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  removeCallBackgroundImage = async (): Promise<CallBackgroundState> => this.fail();
+  setCallAppearance = async (): Promise<CallBackgroundState> => this.fail();
+  addOrganizationCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  removeOrganizationCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackgroundPolicy = async (): Promise<CallBackgroundState> => this.fail();
+  minutesConfig = async (): Promise<MinutesConfig> => this.fail();
+  callMinutes = async (): Promise<CallMinutesResponse> => this.fail();
+  generateMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  listMinutes = async (): Promise<MeetingMinutes[]> => this.fail();
+  updateMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  shareMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  deleteMinutes = async (): Promise<void> => this.fail();
+  downloadMinutes = async (): Promise<string> => this.fail();
+  chatExportAccess = async (): Promise<ChatExportAccess> => this.fail();
+  exportChat = async (): Promise<string> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();
