@@ -105,7 +105,17 @@ The mobile app has the same minutes and export, offline first:
   it from the share sheet. **Export chat** (Details › Export chat) follows the organization's
   export rule and offers PDF, Word or text for everything or the last 7, 30 or 90 days. Both need
   a connection.
-- Transcript corrections, translation and checking on mobile are next.
+- **Transcripts.** Voice messages, video clips and call recordings (in the conversation and in
+  **Recordings**) show **Transcript** once the organization has a speech-to-text server. The
+  transcript screen switches between the original and its translations, asks for a new
+  translation (needs a connection), corrects lines and marks the original or a translation
+  checked. Corrections show at once and are queued offline as `transcript.update` on target
+  `transcript:<attachmentId>|<language or original>`; corrections waiting together merge per line
+  and go up once from the first revision, so a line someone else corrected meanwhile is refused
+  and their version shown. Opened transcripts are kept on the phone for offline reading, refresh
+  live on `transcript:changed`, and the screen checks back while a transcript or translation is
+  still being made. A translation made before the original was corrected says so and offers
+  **Translate again**.
 
 ## API
 

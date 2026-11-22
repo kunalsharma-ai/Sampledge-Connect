@@ -16,6 +16,7 @@ import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AudioClip, DeletedClip, RECORDING_LABEL, VideoClip } from './MediaClips';
 import { Text } from './Text';
+import { TranscriptButton } from './TranscriptButton';
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -171,10 +172,18 @@ export function AttachmentList({ items, own }: { items: LocalAttachment[]; own: 
         if (isImageAttachment(a)) return <ImageAttachment key={key} a={a} own={own} />;
         if (isAudioAttachment(a))
           return (
-            <AudioClip key={key} source={a} durationMs={a.durationMs} own={own} label={label} />
+            <View key={key} style={styles.clip}>
+              <AudioClip source={a} durationMs={a.durationMs} own={own} label={label} />
+              <TranscriptButton attachmentId={a.attachmentId} title={label} own={own} />
+            </View>
           );
         if (isVideoAttachment(a))
-          return <VideoClip key={key} source={a} durationMs={a.durationMs} label={label} />;
+          return (
+            <View key={key} style={styles.clip}>
+              <VideoClip source={a} durationMs={a.durationMs} label={label} />
+              <TranscriptButton attachmentId={a.attachmentId} title={label} own={own} />
+            </View>
+          );
         return <FileAttachment key={key} a={a} own={own} />;
       })}
     </View>
@@ -183,6 +192,7 @@ export function AttachmentList({ items, own }: { items: LocalAttachment[]; own: 
 
 const styles = StyleSheet.create({
   list: { gap: 6, marginBottom: 6 },
+  clip: { gap: 4 },
   image: { borderRadius: radius.md, overflow: 'hidden', maxWidth: '100%' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
   badge: {

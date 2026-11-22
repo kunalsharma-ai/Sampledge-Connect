@@ -89,7 +89,35 @@ export type ActionInput =
       callId: string;
       baseRevision: number;
       patch: MinutesPatch;
+    }
+  /**
+   * Corrections to a transcript (`language` null) or one of its translations. Waiting
+   * corrections merge per line; `baseRevision` is where the first one started.
+   */
+  | {
+      kind: 'transcript.update';
+      attachmentId: string;
+      language: string | null;
+      baseRevision: number;
+      patch: TranscriptPatch;
     };
+
+export interface TranscriptPatch {
+  /** Corrected lines by index. */
+  segments?: Record<number, string>;
+  /** The whole text, for transcripts without timed lines. */
+  text?: string;
+  reviewed?: boolean;
+}
+
+export function mergeTranscriptPatch(a: TranscriptPatch, b: TranscriptPatch): TranscriptPatch {
+  const out: TranscriptPatch = { ...a, ...b };
+  if (a.segments || b.segments) out.segments = { ...a.segments, ...b.segments };
+  return out;
+}
+
+export const transcriptTarget = (attachmentId: string, language: string | null) =>
+  `transcript:${attachmentId}|${language ?? 'original'}`;
 
 export type MinutesPatch = Partial<Pick<MeetingMinutes, MinutesEditableField>>;
 
@@ -149,7 +177,8 @@ type CacheKind =
   | 'booking'
   | 'profile'
   | 'search'
-  | 'minutes';
+  | 'minutes'
+  | 'transcript';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -215,6 +244,8 @@ const targetOf = (a: ActionInput): string => {
       return 'callbg:me';
     case 'minutes.update':
       return `minutes:${a.minutesId}`;
+    case 'transcript.update':
+      return transcriptTarget(a.attachmentId, a.language);
   }
 };
 
@@ -488,6 +519,19 @@ export class WorkStore {
             await rewrite(prior, {
               ...prior.input,
               patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
+        case 'transcript.update': {
+          // Later corrections merge per line into the one still waiting.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'transcript.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'transcript.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: mergeTranscriptPatch(prior.input.patch, input.patch),
             });
           else await insert(input);
           break;
@@ -994,6 +1038,24 @@ export class WorkStore {
     ).map(toAction);
     let out: MinutesPatch | undefined;
     for (const a of rows) if (a.input.kind === 'minutes.update') out = { ...out, ...a.input.patch };
+    return out;
+  }
+
+  /** Corrections to this transcript (or translation) not on the server yet, merged. */
+  async pendingTranscript(
+    attachmentId: string,
+    language: string | null,
+  ): Promise<TranscriptPatch | undefined> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = ? AND state != 'failed' ORDER BY enqueued_at, rowid`,
+        [transcriptTarget(attachmentId, language)],
+      )
+    ).map(toAction);
+    let out: TranscriptPatch | undefined;
+    for (const a of rows)
+      if (a.input.kind === 'transcript.update')
+        out = out ? mergeTranscriptPatch(out, a.input.patch) : a.input.patch;
     return out;
   }
 

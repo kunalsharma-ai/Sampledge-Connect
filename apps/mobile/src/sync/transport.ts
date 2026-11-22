@@ -20,6 +20,7 @@ import {
   type AiSuggestedReplies,
   type AiSummary,
   type AiTranscript,
+  type UpdateTranscriptRequest,
   type AiTranslation,
   type ConfirmAiProposalRequest,
   type SummaryRange,
@@ -328,6 +329,8 @@ export interface ApiTransport {
   aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal>;
   aiDismiss(proposalId: string): Promise<AiProposal>;
   aiTranscript(attachmentId: string, queue?: boolean): Promise<AiTranscript>;
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript>;
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
@@ -1110,6 +1113,18 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript> {
+    return this.request('PATCH', `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}`, req);
+  }
+
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript> {
+    return this.request(
+      'POST',
+      `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}/translations`,
+      { language },
+    );
+  }
+
   setForwarding(conversationId: string, allowed: boolean): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -1383,6 +1398,8 @@ export class NoServerTransport implements ApiTransport {
   aiConfirm = async (): Promise<AiProposal> => this.fail();
   aiDismiss = async (): Promise<AiProposal> => this.fail();
   aiTranscript = async (): Promise<AiTranscript> => this.fail();
+  updateTranscript = async (): Promise<AiTranscript> => this.fail();
+  translateTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
   transcribeCaption = async (): Promise<CallCaptionResponse> => this.fail();
