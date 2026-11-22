@@ -9,8 +9,14 @@ import type {
   Session,
   Subscription,
 } from '@sampledge/contracts';
-import { PlatformAdmins } from '../src/common/platform-admins.js';
-import { api, inviteAndLogin, registerTenant, startHarness, type Harness } from './harness.js';
+import {
+  api,
+  grantPlatformRole,
+  inviteAndLogin,
+  registerTenant,
+  startHarness,
+  type Harness,
+} from './harness.js';
 
 /** A Stripe-shaped fake: records requests and answers the few calls Connect makes. */
 let fake: Server;
@@ -82,7 +88,7 @@ beforeAll(async () => {
   slug = t.slug;
   ravi = await inviteAndLogin(h, owner, slug, 'Ravi Kumar');
   // The owner of this test organization is also a platform operator.
-  (h.app.get(PlatformAdmins) as unknown as { emails: Set<string> }).emails.add(owner.user.email);
+  await grantPlatformRole(h, owner);
 });
 afterAll(async () => {
   await h?.close();

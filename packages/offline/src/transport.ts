@@ -107,6 +107,8 @@ export type ChangeEvent =
     }
   /** Platform operators: the SampConnect Network report queue or suspensions changed. */
   | { type: 'moderation'; scope: 'reports' | 'suspensions' }
+  /** Platform admins: an area of the super admin console changed (`me`: your own role). */
+  | { type: 'platform'; area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me'; tenantId?: string }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
@@ -296,6 +298,7 @@ export class HttpSocketTransport implements Transport {
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
     s.on('moderation:changed', (e) => this.handlers?.onChange?.({ type: 'moderation', ...e }));
+    s.on('platform:changed', (e) => this.handlers?.onChange?.({ type: 'platform', ...e }));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
     s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
     s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));

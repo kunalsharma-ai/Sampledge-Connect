@@ -13,6 +13,7 @@ import {
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { PlatformAdmins } from '../common/platform-admins.js';
+import { PlatformAudit } from '../platform/platform-audit.service.js';
 import type { CommunityDoc, NetworkProfileDoc, NetworkReportDoc } from '../database/documents.js';
 import { TenantDb, type ScopedDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -58,6 +59,7 @@ export class ModerationService {
     private readonly rateLimit: RateLimitService,
     private readonly audit: AuditService,
     private readonly platformAdmins: PlatformAdmins,
+    private readonly platformAudit: PlatformAudit,
     private readonly db: TenantDb,
   ) {}
 
@@ -153,7 +155,7 @@ export class ModerationService {
   /** Platform operators act from their work session (Administration). */
   private async operator(ctx: TenantContext): Promise<Moderator> {
     if (await this.network.isNetworkTenant(ctx.tenantId)) throw forbidden();
-    await this.platformAdmins.assert(ctx);
+    await this.platformAdmins.assert(ctx, 'moderation');
     const u = await this.db
       .for(ctx.tenantId)
       .users.findOne({ _id: ctx.userId }, { projection: { displayName: 1 } });
@@ -468,7 +470,7 @@ export class ModerationService {
     const target = { type: r.targetType, id: r.targetId };
     const metadata = { reportId: r._id ?? null, note, by: mod.kind };
     await this.audit.record({ tenantId, actorId: mod.ctx.userId, action, target, metadata });
-    if (mod.kind === 'platform')
+    if (mod.kind === 'platform') {
       await this.audit.record({
         tenantId: mod.ctx.tenantId,
         actorId: mod.ctx.userId,
@@ -476,6 +478,15 @@ export class ModerationService {
         target,
         metadata: { ...metadata, network: true },
       });
+      await this.platformAudit.record({
+        ctx: mod.ctx,
+        action: action.includes('restore')
+          ? 'platform.moderation_restore'
+          : 'platform.moderation_action',
+        target: { type: r.targetType, id: r.targetId, label: `${r.targetType} ${r.targetId}` },
+        metadata: { networkAction: action, reportId: r._id ?? null, note },
+      });
+    }
   }
 
   private async notify(r: NetworkReportDoc, suspensions = false) {

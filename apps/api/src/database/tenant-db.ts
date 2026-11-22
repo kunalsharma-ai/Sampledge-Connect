@@ -11,7 +11,13 @@ import {
   type UpdateFilter,
   type UpdateOptions,
 } from 'mongodb';
-import type { BillingPlanDoc, TenantCollections, TenantDoc } from './documents.js';
+import type {
+  BillingPlanDoc,
+  PlatformAdminDoc,
+  PlatformAuditDoc,
+  TenantCollections,
+  TenantDoc,
+} from './documents.js';
 
 export const newId = (): string => new ObjectId().toHexString();
 
@@ -131,6 +137,21 @@ export class TenantDb {
   /** Global plan catalog. Only billing code uses this. */
   get billingPlans(): Collection<BillingPlanDoc> {
     return this.db.collection<BillingPlanDoc>('billing_plans');
+  }
+
+  /** Global: platform admins and their roles. Only the super admin console uses this. */
+  get platformAdmins(): Collection<PlatformAdminDoc> {
+    return this.db.collection<PlatformAdminDoc>('platform_admins');
+  }
+
+  /** Global: the super admin audit log. */
+  get platformAudit(): Collection<PlatformAuditDoc> {
+    return this.db.collection<PlatformAuditDoc>('platform_audit');
+  }
+
+  /** The underlying database, for the cross-organization console totals and the erase job. */
+  get raw(): Db {
+    return this.db;
   }
 
   /**

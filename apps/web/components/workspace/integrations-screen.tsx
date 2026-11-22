@@ -70,8 +70,15 @@ export function StatusBadge({ view }: { view: IntegrationView }) {
 }
 
 /** Administration → Integrations. Every third-party connection is configured here, not in env. */
-export function IntegrationsScreen({ online }: { online: boolean }) {
-  const api = useIntegrationsApi();
+export function IntegrationsScreen({
+  online,
+  platform = false,
+}: {
+  online: boolean;
+  /** Super admin console: the platform-wide defaults every organization falls back to. */
+  platform?: boolean;
+}) {
+  const api = useIntegrationsApi(platform ? '/v1/platform/integrations' : undefined);
   const [views, setViews] = React.useState<IntegrationView[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<string | null>(null);
@@ -80,7 +87,9 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
   const load = React.useCallback(async () => {
     setError(null);
     try {
-      const v = await api.list();
+      const v = (await api.list()).filter(
+        (x) => !platform || x.provider.scopes.includes('platform'),
+      );
       setViews(v);
       setSelected((cur) => cur ?? (window.innerWidth >= 1024 ? (v[0]?.provider.id ?? null) : null));
     } catch (e) {
@@ -111,16 +120,27 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
       </main>
     );
 
+  const Root = platform ? 'div' : 'main';
   return (
-    <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="integrations-screen">
-      <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
-        <Plug className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Integrations</h1>
-        <p className="hidden text-meta text-text-subtle md:block">
-          Connect services here. Settings are stored encrypted in your workspace database and apply
-          immediately, with no server restart.
-        </p>
-      </header>
+    <Root
+      className={cn(
+        'flex min-w-0 flex-1 flex-col',
+        platform
+          ? 'min-h-[560px] overflow-hidden rounded-xl border border-border bg-surface'
+          : 'pb-16 md:pb-0',
+      )}
+      data-testid={platform ? 'platform-integrations' : 'integrations-screen'}
+    >
+      {platform ? null : (
+        <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
+          <Plug className="size-5 text-accent" aria-hidden />
+          <h1 className="font-display text-h3 text-text">Integrations</h1>
+          <p className="hidden text-meta text-text-subtle md:block">
+            Connect services here. Settings are stored encrypted in your workspace database and
+            apply immediately, with no server restart.
+          </p>
+        </header>
+      )}
 
       {!views && !error ? (
         <StateView state="loading" className="flex-1" />
@@ -218,7 +238,7 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
           </section>
         </div>
       )}
-    </main>
+    </Root>
   );
 }
 

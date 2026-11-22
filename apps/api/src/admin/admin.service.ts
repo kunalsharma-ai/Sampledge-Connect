@@ -40,7 +40,12 @@ export class AdminService {
 
   async overview(ctx: TenantContext): Promise<AdminOverview> {
     this.assert(ctx);
-    const t = this.db.for(ctx.tenantId);
+    return this.overviewFor(ctx.tenantId);
+  }
+
+  /** The Administration home numbers for one organization (also the super admin console). */
+  async overviewFor(tenantId: string): Promise<AdminOverview> {
+    const t = this.db.for(tenantId);
     const now = Date.now();
     const [
       tenant,
@@ -55,16 +60,16 @@ export class AdminService {
       integrations,
       security,
     ] = await Promise.all([
-      this.db.tenants.findOne({ _id: ctx.tenantId }),
+      this.db.tenants.findOne({ _id: tenantId }),
       t.users.find({}, { projection: { status: 1, mfa: 1 } }).toArray(),
       t.memberships.find({}, { projection: { userId: 1, role: 1 } }).toArray(),
       t.devices.countDocuments({ revokedAt: null }),
       t.devices.countDocuments({ revokedAt: null, lastSeenAt: { $gte: new Date(now - 7 * DAY) } }),
       t.messages.countDocuments({ createdAt: { $gte: new Date(now - 7 * DAY) }, deletedAt: null }),
       t.conversations.countDocuments({}),
-      this.billing.summary(ctx.tenantId),
-      readOidcSettings(this.settings, ctx.tenantId),
-      this.settings.list({ tenantId: ctx.tenantId }).catch(() => []),
+      this.billing.summary(tenantId),
+      readOidcSettings(this.settings, tenantId),
+      this.settings.list({ tenantId: tenantId }).catch(() => []),
       t.audit_logs
         .find(
           {
@@ -118,7 +123,7 @@ export class AdminService {
         connected: live.length,
         failing: live.filter((v) => v.lastTest && !v.lastTest.ok).length,
       },
-      security: await this.entries(ctx.tenantId, security),
+      security: await this.entries(tenantId, security),
     };
   }
 
@@ -234,7 +239,7 @@ export class AdminService {
   }
 
   /** Adds people's names and plain-language labels. */
-  private async entries(tenantId: string, rows: AuditLogDoc[]): Promise<AuditEntry[]> {
+  async entries(tenantId: string, rows: AuditLogDoc[]): Promise<AuditEntry[]> {
     const ids = new Set<string>();
     for (const r of rows) {
       if (r.actorId) ids.add(r.actorId);

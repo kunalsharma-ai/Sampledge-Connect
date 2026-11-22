@@ -390,6 +390,12 @@ export interface ApiTransport {
   moderationAct(reportId: string, body: ModerationActionRequest): Promise<ModerationReport>;
   networkSuspensions(): Promise<NetworkSuspensions>;
   restoreSuspension(kind: 'users' | 'communities', id: string): Promise<void>;
+  /** Super admin console (docs/super-admin.md): any route under /v1/platform/. */
+  platformRequest<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -1320,6 +1326,15 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  platformRequest<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    if (!path.startsWith('/v1/platform/')) throw new Error('Not a platform route');
+    return this.request<T>(method, path, body);
+  }
+
   networkSuspensions(): Promise<NetworkSuspensions> {
     return this.request('GET', '/v1/platform/network/suspensions', undefined);
   }
@@ -1585,6 +1600,7 @@ export class NoServerTransport implements ApiTransport {
   moderationQueue = async (): Promise<ModerationQueue> => this.fail();
   moderationAct = async (): Promise<ModerationReport> => this.fail();
   networkSuspensions = async (): Promise<NetworkSuspensions> => this.fail();
+  platformRequest = async <T>(): Promise<T> => this.fail();
   restoreSuspension = async (): Promise<void> => this.fail();
 }
 

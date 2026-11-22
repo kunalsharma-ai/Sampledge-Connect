@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AdminOverview, AuditPage, BillingPlan, Session } from '@sampledge/contracts';
 import { AuditService } from '../src/audit/audit.service.js';
-import { PlatformAdmins } from '../src/common/platform-admins.js';
 import {
   api,
   device,
+  grantPlatformRole,
   inviteAndLogin,
   registerTenant,
   startHarness,
@@ -141,7 +141,7 @@ describe('administration', () => {
   });
 
   it('publishes public plans for the website without sign-in', async () => {
-    (h.app.get(PlatformAdmins) as unknown as { emails: Set<string> }).emails.add(owner.user.email);
+    await grantPlatformRole(h, owner);
     const body = (name: string, pub: boolean) => ({
       name,
       currency: 'usd',

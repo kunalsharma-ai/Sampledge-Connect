@@ -25,6 +25,9 @@ function parseRefresh(token: string): { tenantId: string; sessionId: string; sec
   return { tenantId: parts[0]!, sessionId: parts[1]!, secret: parts[2]! };
 }
 
+export const SUSPENDED_MESSAGE =
+  'This organization’s access to SampConnect is suspended. Contact SampConnect support.';
+
 interface MemberCache {
   role: TenantRole;
   status: 'active' | 'deactivated';
@@ -122,6 +125,7 @@ export class SessionService {
     if (session.refreshExpiresAt < new Date())
       throw new AppError('UNAUTHENTICATED', 'Refresh token expired');
 
+    await this.assertTenantActive(tenantId);
     const member = await this.loadMember(tenantId, session.userId);
     if (member.status !== 'active') throw new AppError('UNAUTHENTICATED', 'Account deactivated');
 
@@ -180,6 +184,7 @@ export class SessionService {
       await this.redis.set(key, cached, 'EX', 60);
     }
     if (!deviceId) throw new AppError('UNAUTHENTICATED', 'Session revoked');
+    await this.assertTenantActive(claims.tid);
     const member = await this.loadMember(claims.tid, claims.sub);
     if (member.status !== 'active') throw new AppError('UNAUTHENTICATED', 'Account deactivated');
     return {
@@ -210,6 +215,22 @@ export class SessionService {
     };
     await this.redis.set(key, JSON.stringify(value), 'EX', 60);
     return value;
+  }
+
+  /** A super admin suspended the organization (docs/super-admin.md): nobody in it gets in. */
+  async assertTenantActive(tenantId: string) {
+    const key = `tenant-status:${tenantId}`;
+    let status = await this.redis.get(key);
+    if (status === null) {
+      const t = await this.db.tenants.findOne({ _id: tenantId }, { projection: { status: 1 } });
+      status = t?.status ?? 'missing';
+      await this.redis.set(key, status, 'EX', 30);
+    }
+    if (status !== 'active') throw new AppError('UNAUTHENTICATED', SUSPENDED_MESSAGE);
+  }
+
+  invalidateTenant(tenantId: string) {
+    return this.redis.del(`tenant-status:${tenantId}`);
   }
 
   invalidateMember(tenantId: string, userId: string) {

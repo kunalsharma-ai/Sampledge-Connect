@@ -20,7 +20,12 @@ import { BrandingController } from './branding/branding.controller.js';
 import { BrandingService } from './branding/branding.service.js';
 import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
-import { PlatformAdmins } from './common/platform-admins.js';
+import { PlatformAdmins } from './platform/platform-admins.js';
+import { PlatformAudit } from './platform/platform-audit.service.js';
+import { PlatformService } from './platform/platform.service.js';
+import { PlatformAdminsService } from './platform/platform-admins.service.js';
+import { PlatformController } from './platform/platform.controller.js';
+import { OrgPurgeWorker } from './platform/org-purge.worker.js';
 import { DirectoryController } from './directory/directory.controller.js';
 import { AvatarsController, ProfileController } from './directory/profile.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
@@ -188,6 +193,7 @@ export class AppModule {
         NetworkController,
         NetworkModerationController,
         MinutesController,
+        PlatformController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -203,6 +209,10 @@ export class AppModule {
         BrandingService,
         AdminService,
         PlatformAdmins,
+        PlatformAudit,
+        PlatformService,
+        PlatformAdminsService,
+        OrgPurgeWorker,
         ConversationsService,
         MessagesService,
         SyncService,

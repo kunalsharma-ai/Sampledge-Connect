@@ -219,6 +219,8 @@ export class ConnectEngine {
     network: { scope: NetworkScope | null };
     /** Platform operators: the report queue or suspensions changed (live, or after a reconnect). */
     moderation: { scope: 'reports' | 'suspensions' | null };
+    /** Platform admins: a console area changed (live), or null after a reconnect: reload. */
+    platform: { area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me' | null; tenantId?: string };
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
@@ -376,6 +378,11 @@ export class ConnectEngine {
         this.realtime.events.on(
           'state',
           (s) => s === 'connected' && this.events.emit('moderation', { scope: null }),
+        ),
+        this.realtime.events.on('platform', (e) => this.events.emit('platform', e)),
+        this.realtime.events.on(
+          'state',
+          (s) => s === 'connected' && this.events.emit('platform', { area: null }),
         ),
         this.realtime.events.on('inbox', (e) => void this.refreshInbox(e.conversationId)),
         this.realtime.events.on('myVote', (v) => {
@@ -1971,6 +1978,15 @@ export class ConnectEngine {
     return this.serverAction(() =>
       this.api.moderationAct(reportId, { clientActionId: uuidv7(), action, note }),
     );
+  }
+
+  /** Super admin console: needs the server (idempotent where it matters), never queued. */
+  platform<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    return this.serverAction(() => this.api.platformRequest<T>(method, path, body));
   }
 
   networkSuspensions(): Promise<NetworkSuspensions> {

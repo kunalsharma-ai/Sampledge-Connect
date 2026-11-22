@@ -496,7 +496,7 @@ const EMPTY: PlanInput = {
   sortOrder: 0,
 };
 
-function CatalogTab({ onChanged }: { onChanged: () => Promise<void> }) {
+export function CatalogTab({ onChanged }: { onChanged: () => Promise<void> }) {
   const api = useBillingApi();
   const [plans, setPlans] = React.useState<BillingPlan[] | null>(null);
   const [editing, setEditing] = React.useState<BillingPlan | 'new' | null>(null);
@@ -855,7 +855,7 @@ function OrganizationsTab() {
 
 // ---------- operator: payment provider ----------
 
-function PaymentsTab({ onChanged }: { onChanged: () => Promise<void> }) {
+export function PaymentsTab({ onChanged }: { onChanged: () => Promise<void> }) {
   const api = useBillingApi();
   const [view, setView] = React.useState<IntegrationView | null | undefined>(undefined);
   const [key, setKey] = React.useState('');

@@ -412,7 +412,7 @@ export class NetworkAdminController {
   @Get()
   async view(@Ctx() ctx: TenantContext) {
     if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
-    return this.policy.view(ctx.tenantId, await this.platformAdmins.is(ctx));
+    return this.policy.view(ctx.tenantId, await this.platformAdmins.can(ctx, 'moderation'));
   }
 
   @Put()
@@ -422,7 +422,7 @@ export class NetworkAdminController {
       ctx.tenantId,
       ctx.userId,
       body,
-      await this.platformAdmins.is(ctx),
+      await this.platformAdmins.can(ctx, 'moderation'),
     );
     this.gate.forget();
     return r;
@@ -430,7 +430,7 @@ export class NetworkAdminController {
 }
 
 /**
- * Platform operators (PLATFORM_ADMIN_EMAILS), from their work session: every report across
+ * Platform admins with the moderation permission, from their work session: every report across
  * SampConnect Network, and the people and communities they suspended.
  */
 @Controller('v1/platform/network')

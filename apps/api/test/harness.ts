@@ -147,3 +147,22 @@ export function nextEvent<E extends keyof ServerToClientEvents>(
     s.on(event, handler as never);
   });
 }
+
+/** Makes a signed-in person a platform admin, as the console's "Add platform admin" would. */
+export async function grantPlatformRole(
+  h: Harness,
+  s: { tenant: { tenantId: string }; user: { userId: string; email: string } },
+  role: 'owner' | 'admin' | 'billing' | 'support' | 'moderator' = 'owner',
+) {
+  const { TenantDb } = await import('../src/database/tenant-db.js');
+  const { PlatformAdmins } = await import('../src/platform/platform-admins.js');
+  await h.app.get(TenantDb).platformAdmins.updateOne(
+    { tenantId: s.tenant.tenantId, userId: s.user.userId },
+    {
+      $set: { role, email: s.user.email },
+      $setOnInsert: { _id: `pa_${s.user.userId}`, addedAt: new Date(), addedBy: null },
+    },
+    { upsert: true },
+  );
+  h.app.get(PlatformAdmins).forget(s.tenant.tenantId, s.user.userId);
+}

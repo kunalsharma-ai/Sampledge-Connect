@@ -17,6 +17,7 @@ import type { Approval, Task } from './work.js';
 import type { ModerationChangedEvent, NetworkChangedEvent } from './network.js';
 import type { AiProposal, AiSuggestionEvent, TranscriptChangedEvent } from './ai.js';
 import type { MinutesChangedEvent } from './minutes.js';
+import type { PlatformChangedEvent } from './platform.js';
 import type { BookingPage } from './booking.js';
 
 /**
@@ -80,6 +81,8 @@ export interface ServerToClientEvents {
   'network:changed': (e: NetworkChangedEvent) => void;
   /** Platform operators: SampConnect Network reports or suspensions changed; refetch. */
   'moderation:changed': (e: ModerationChangedEvent) => void;
+  /** Platform admins (super admin console): refetch that area. `me`: your own role changed. */
+  'platform:changed': (e: PlatformChangedEvent) => void;
   /**
    * A module record in this conversation was linked or updated, or someone ran a record action.
    * Sent to the conversation room; clients refetch GET /v1/integrations/records (also on reconnect).
