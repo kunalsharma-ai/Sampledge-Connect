@@ -355,7 +355,9 @@ describe('recurring meetings', () => {
     expect(before).toBeLessThan(132);
     const svc = h.app.get(MeetingsService);
     expect(await svc.extendSeries(new Date())).toBe(0);
-    const added = await svc.extendSeries(new Date(Date.now() + 14 * DAY));
+    // The first batch runs to 180 days after the first meeting, so measure two weeks from there
+    // (measuring from now made the count depend on the weekday the test ran).
+    const added = await svc.extendSeries(new Date(start.getTime() + 14 * DAY));
     expect(added).toBe(10);
     expect(await count()).toBe(before + 10);
     await client.close();

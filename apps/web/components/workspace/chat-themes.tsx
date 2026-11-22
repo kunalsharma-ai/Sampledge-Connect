@@ -4,6 +4,7 @@ import { Check, MessageSquareText } from 'lucide-react';
 import {
   CHAT_THEMES,
   CHAT_THEME_CATEGORIES,
+  customImagesAllowed,
   type ChatThemeCategory,
   type ChatThemeId,
   type ChatThemePolicy,
@@ -11,6 +12,7 @@ import {
 import { Badge, Button, Card, cn, useTheme, useToast } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
 import { chatThemeCss, useChatTheme } from '@/lib/chat-theme';
+import { ChatBackgroundControl } from './chat-background';
 
 const CATEGORY_LABEL: Record<ChatThemeCategory, string> = {
   classic: 'Classic',
@@ -108,6 +110,15 @@ export function ChatThemesCard() {
               </select>
             </label>
           </div>
+          <label className="flex items-center gap-2 text-meta text-text-muted sm:col-span-2 sm:row-start-2">
+            <input
+              type="checkbox"
+              checked={customImagesAllowed(draft)}
+              onChange={(e) => setDraft({ ...draft, allowCustomImages: e.target.checked })}
+              className="size-4 accent-[var(--sc-color-accent)]"
+            />
+            People can use their own pictures as chat backgrounds (kept on their devices)
+          </label>
           <Button
             size="sm"
             disabled={!online || JSON.stringify(draft) === JSON.stringify(policy)}
@@ -131,6 +142,16 @@ export function ChatThemesCard() {
           Your organization offers {policy.allowed.length} of {CHAT_THEMES.length} themes.
         </p>
       ) : null}
+
+      {managing ? null : (
+        <div className="mt-4">
+          <ChatBackgroundControl
+            slot="all"
+            heading="Your own picture"
+            hint="Use any picture from this device behind all your chats. You can edit it first."
+          />
+        </div>
+      )}
 
       <div role="tablist" aria-label="Theme categories" className="mt-4 flex flex-wrap gap-1.5">
         {(['all', ...CHAT_THEME_CATEGORIES] as const).map((c) => (

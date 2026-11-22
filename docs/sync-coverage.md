@@ -67,6 +67,7 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Transcript corrections and translations         | `transcript:changed`                                        | Corrections queued                     |
 | Chat theme (your choice)                        | `chat-theme:changed` to your other devices                  | Queued; shows at once on this device   |
 | Chat theme rules (owners and admins)            | `tenant:updated` area `chat_themes`                         | Needs a connection                     |
+| Chat background picture (your own)              | Kept on this device only, by design (Kunal, 2026-11-22)     | Works offline; nothing is sent         |
 | Typing, presence                                | `typing:update`, `presence:update`                          | Ephemeral, not queued                  |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.
