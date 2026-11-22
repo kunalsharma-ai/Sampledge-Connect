@@ -68,6 +68,7 @@ export function PeopleScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
       <ScreenHeader
         title="People"
+        help="network-people"
         subtitle="Connect with anyone on SampConnect, in any organization"
       >
         <Tabs

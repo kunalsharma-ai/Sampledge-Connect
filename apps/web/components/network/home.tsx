@@ -11,6 +11,7 @@ import { Badge, Button, useToast } from '@sampledge/ui';
 import { useNet, useNetwork, useNetworkOutbox } from '@/lib/network';
 import { StatusComposer, StatusRail, StatusViewer } from './status';
 import { PersonLine, ScreenHeader, Section } from './ui';
+import { FeatureHelp } from '../feature-help';
 
 /** Network home: status updates, requests waiting for you, your Connect ID, communities. */
 export function NetworkHome({
@@ -33,6 +34,7 @@ export function NetworkHome({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
       <ScreenHeader
         title="SampConnect Network"
+        help="network"
         subtitle="Your connections across every organization"
       >
         <Button size="sm" variant="secondary" onClick={() => onGo('people')}>
@@ -48,6 +50,7 @@ export function NetworkHome({
             <section className="rounded-xl border border-border bg-surface-glass p-4 shadow-md backdrop-blur-xl">
               <div className="mb-3 flex items-center">
                 <h2 className="text-label text-text">Status updates</h2>
+                <FeatureHelp id="status-updates" size="sm" className="ml-2" />
                 <span className="ml-auto text-meta text-text-subtle">
                   {feed ? `${feed.people.reduce((n, p) => n + p.unseen, 0)} new` : ''}
                 </span>

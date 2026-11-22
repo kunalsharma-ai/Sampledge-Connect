@@ -28,6 +28,7 @@ import { BrowserNotificationsCard } from './browser-notifications';
 import { TwoStepCard } from './two-step-card';
 import { PasswordCard } from './password-card';
 import { avatarUrl, relativeShort } from './helpers';
+import { HelpBadge, openFeatureGuide } from '../feature-help';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
 
@@ -442,6 +443,19 @@ export function SettingsDialog({
         <QuietHoursCard />
         <PasswordCard />
         <TwoStepCard />
+        <button
+          type="button"
+          onClick={() => openFeatureGuide()}
+          className="mt-6 flex w-full items-center gap-3 rounded-xl border border-[#F5B83D]/50 bg-[linear-gradient(135deg,rgba(18,130,92,0.12),rgba(245,184,61,0.10))] p-4 text-left transition-colors hover:border-[#F5B83D]"
+        >
+          <HelpBadge />
+          <span className="min-w-0 flex-1">
+            <span className="block text-label text-text">Feature guides</span>
+            <span className="block text-meta text-text-subtle">
+              What each feature does, why it helps, where to find it and how to use it.
+            </span>
+          </span>
+        </button>
         {branding?.supportEmail || branding?.supportUrl ? (
           <p className="mt-6 text-meta text-text-muted" data-testid="support-contact">
             Need help? Contact{' '}

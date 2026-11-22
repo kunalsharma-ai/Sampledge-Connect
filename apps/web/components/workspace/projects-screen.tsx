@@ -21,6 +21,7 @@ import { NewProjectDialog } from './work-dialogs';
 import { EditProjectDialog, canEditProject } from './edit-dialogs';
 import { useAuth } from '@/lib/auth';
 import { PeopleStack } from './work-ui';
+import { FeatureHelp } from '../feature-help';
 
 const STATUS: Record<
   Project['status'],
@@ -95,7 +96,10 @@ export function ProjectsScreen({
     >
       <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <FolderKanban className="size-5 text-accent" />
-        <h1 className="mr-2 font-display text-h3 text-text">Projects</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="mr-2 font-display text-h3 text-text">Projects</h1>
+          <FeatureHelp id="projects" />
+        </div>
         <span className="hidden text-label font-normal text-text-muted md:inline">
           Samptrek projects and projects made here, each with its own channel.
         </span>

@@ -39,6 +39,7 @@ import {
   relTime,
   selectClass,
 } from './shared';
+import { FeatureHelp } from '../../feature-help';
 
 type Tab = 'inbox' | 'dashboard' | 'channels' | 'settings';
 type View = 'mine' | 'unassigned' | 'active' | 'breached' | 'resolved';
@@ -139,7 +140,10 @@ export function ClientInboxScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" aria-label="Client Inbox">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <Inbox className="size-5 text-accent" />
-        <h1 className="font-display text-h3 text-text">Client Inbox</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Client Inbox</h1>
+          <FeatureHelp id="client-inbox" />
+        </div>
         {anyTest ? <TestModeBadge className="hidden sm:inline-flex" /> : null}
         <nav
           className="ml-2 flex items-center gap-1"

@@ -17,6 +17,7 @@ import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { ConnectivityBanner } from './Connectivity';
 import { ConversationRow } from './ConversationRow';
+import { FeatureHelp } from './FeatureHelp';
 import { Glass } from './Glass';
 import {
   CommunityAvatar,
@@ -55,9 +56,12 @@ export function NetworkHome() {
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: 120 }}>
         <View style={{ gap: 4 }}>
-          <Text variant="overline" tone="accent">
-            SampConnect Network
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Text variant="overline" tone="accent">
+              SampConnect Network
+            </Text>
+            <FeatureHelp id="network" size={18} />
+          </View>
           <Text variant="display">
             {profile ? `Hi, ${profile.displayName.split(' ')[0]}` : 'Your network'}
           </Text>

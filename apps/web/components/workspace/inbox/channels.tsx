@@ -38,6 +38,7 @@ import {
 import { API_URL } from '@/lib/config';
 import type { InboxApi } from '@/lib/inbox';
 import { MODE_LABEL, PROVIDER_META, ProviderMark, TestModeBadge, selectClass } from './shared';
+import { FeatureHelp } from '../../feature-help';
 
 const MODE_TONE = { two_way: 'success', limited: 'warning', handoff: 'neutral' } as const;
 const webhookUrl = (path: string) => new URL(path, API_URL || window.location.origin).toString();
@@ -110,7 +111,10 @@ export function ChannelsPanel({
     >
       <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h2 className="font-display text-h2 text-text">Client messaging channels</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="font-display text-h2 text-text">Client messaging channels</h2>
+            <FeatureHelp id="inbox-channels" />
+          </div>
           <p className="mt-1 text-label font-normal text-text-muted">
             Connect the apps your clients already use. Credentials are entered here and stored
             encrypted in your database. Channels that fail never affect internal chat.

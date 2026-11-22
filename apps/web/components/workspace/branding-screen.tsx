@@ -13,6 +13,7 @@ import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useOrgBranding } from '@/lib/org-branding';
 import { LogoMark } from '../brand';
+import { FeatureHelp } from '../feature-help';
 
 type Draft = Required<{ [K in keyof BrandingInput]: NonNullable<BrandingInput[K]> | null }>;
 const toDraft = (b: BrandingView): Draft => ({
@@ -166,7 +167,10 @@ export function BrandingScreen() {
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="branding-screen">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <Palette className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Branding</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Branding</h1>
+          <FeatureHelp id="branding" />
+        </div>
         <p className="hidden text-meta text-text-subtle md:block">
           Your name, logo and colors across the app, the sign-in page and emails.
         </p>

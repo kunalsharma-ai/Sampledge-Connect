@@ -40,6 +40,7 @@ import { CallBackgroundsAdmin } from './call-backgrounds-admin';
 import { MessageEditingAdmin } from './message-editing-admin';
 import type { ModuleId } from './modules';
 import { NetworkPolicyTab } from '../network/admin-policy';
+import { FeatureHelp } from '../feature-help';
 
 type Tab = 'overview' | 'members' | 'devices' | 'messages' | 'calls' | 'audit' | 'network';
 interface Device {
@@ -121,7 +122,10 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="admin-screen">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <ShieldCheck className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Administration</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Administration</h1>
+          <FeatureHelp id="admin" />
+        </div>
         <nav className="ml-4 flex gap-1 overflow-x-auto" aria-label="Administration sections">
           {tabs.map((t) => (
             <button

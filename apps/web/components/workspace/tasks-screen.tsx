@@ -28,6 +28,7 @@ import {
   TaskStatusBadge,
   formatMoney,
 } from './work-ui';
+import { FeatureHelp } from '../feature-help';
 
 type Tab = 'mine' | 'created' | 'to_decide' | 'requested';
 const TABS: { id: Tab; label: string }[] = [
@@ -104,7 +105,10 @@ export function TasksScreen({
     >
       <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <CheckSquare className="size-5 text-accent" />
-        <h1 className="mr-2 font-display text-h3 text-text">Tasks & Approvals</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="mr-2 font-display text-h3 text-text">Tasks & Approvals</h1>
+          <FeatureHelp id="tasks" />
+        </div>
         <span className="hidden text-label font-normal text-text-muted md:inline">
           Work raised in chat, by you or by Sampledge modules.
         </span>
