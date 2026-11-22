@@ -124,8 +124,8 @@ const login = async (email) =>
   await shot(p, '01-picker');
 
   // 1. A prebuilt scene, saved to the account.
-  await pick('Library');
-  check('preset saved to the account', (await server()).choice?.presetId === 'library');
+  await pick('Library study');
+  check('preset saved to the account', (await server()).choice?.presetId === 'library-study');
   await p.getByTestId('call-background-preview').scrollIntoViewIfNeeded();
   await shot(p, '02-library');
 

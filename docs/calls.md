@@ -128,14 +128,15 @@ is turned off and on again. Browsers without WebGL or insertable streams show "N
 
 ### Backgrounds
 
-Choices: none, blur, 20 prebuilt backgrounds (15 office scenes such as a skyline office, boardroom,
-library, glass meeting room, reception and mountain or seaside views, and 5 simple ones), your own
-image, and the company background.
+Choices: none, blur, 24 prebuilt photo backgrounds (12 offices such as a modern office, boardroom,
+glass meeting room, library study and skyline office, and 12 luxury homes such as a luxury living
+room, penthouse view, fireplace lounge, villa terrace and bookshelf wall), your own images, the
+company library and the company background.
 
-- **Prebuilt images** are original artwork shipped with the web app (`apps/web/public/backgrounds`,
-  1280x720 plus 320x180 thumbnails, about 1 MB in total). They are drawn by
-  `apps/web/scripts/make-call-backgrounds.mjs`, so they can be changed or added there and regenerated
-  (needs Playwright). The list is `CALL_BACKGROUND_PRESETS` in the contracts.
+- **Prebuilt images** are real photos (CC0, credited in `apps/web/public/backgrounds/CREDITS.md`)
+  shipped with the web app (`apps/web/public/backgrounds`, 1280x720 plus 320x180 thumbnails, about
+  4 MB in total). The list is `CALL_BACKGROUND_PRESETS` in the contracts. Choices saved with the
+  older drawn backgrounds are mapped to the closest photo (`LEGACY_CALL_BACKGROUND_PRESETS`).
 - **Your own images**: up to 12 per person (PNG, JPEG or WebP, shrunk in the browser to at most
   1920x1080, 2 MB each), stored with your account and shown under **Yours** with a remove button.
   They are served from unguessable links like profile photos.
@@ -157,7 +158,7 @@ Your own preview is mirrored like a mirror, so text in the background reads back
 else sees it the right way round.
 
 On mobile, **More → Call background** shows the same choices: none, blur, the company background
-(drawn from Branding), your own image and the 20 prebuilt scenes (their 320x180 thumbnails ship in
+(drawn from Branding), your own image and the 24 prebuilt photos (their 320x180 thumbnails ship in
 the app). Picking one, uploading your image (shrunk on the phone to fit 1920x1080 as JPEG, under
 2 MB) and removing it are queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove` on
 one target, so they reach the server in the order you made them. The image waits in app storage

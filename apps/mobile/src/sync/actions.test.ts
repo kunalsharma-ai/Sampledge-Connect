@@ -1212,7 +1212,7 @@ describe('call background offline and across devices', () => {
     expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' });
     t.engine.setNetworkUp(false);
     await t.engine.setCallBackground({ kind: 'blur' });
-    await t.engine.setCallBackground({ kind: 'preset', presetId: 'library' });
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'library-study' });
     await t.engine.setCallBackgroundImage('file:///bg-1.jpg');
     // The image shows straight away, from this phone.
     let s = await t.engine.getCallBackground();
@@ -1261,7 +1261,7 @@ describe('call background offline and across devices', () => {
     s = await t.engine.getCallBackground();
     expect(s.effective).toEqual({ kind: 'logo' });
     // A pick made while the rule holds is kept as your choice but the company background applies.
-    await t.engine.setCallBackground({ kind: 'preset', presetId: 'lounge' });
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'office-lounge' });
     expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'logo' });
   });
 });

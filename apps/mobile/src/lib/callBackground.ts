@@ -84,7 +84,7 @@ export function callBackgroundLabel(c: CallBackgroundChoice): string {
 export const PRESET_GROUPS: {
   group: string;
   presets: { id: CallBackgroundPresetId; name: string }[];
-}[] = ['Office', 'Simple'].map((group) => ({
+}[] = ['Office', 'Home'].map((group) => ({
   group,
   presets: CALL_BACKGROUND_PRESETS.filter((p) => p.group === group).map((p) => ({
     id: p.id,

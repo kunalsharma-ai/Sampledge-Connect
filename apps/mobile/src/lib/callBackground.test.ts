@@ -11,8 +11,8 @@ import {
 
 const base = {
   ...UNKNOWN_CALL_BACKGROUND,
-  choice: { kind: 'preset', presetId: 'library' } as const,
-  effective: { kind: 'preset', presetId: 'library' } as const,
+  choice: { kind: 'preset', presetId: 'library-study' } as const,
+  effective: { kind: 'preset', presetId: 'library-study' } as const,
   customImageUrl: 'https://api/v1/call-backgrounds/t/k1',
 };
 
@@ -45,14 +45,17 @@ describe('call background on the phone', () => {
     expect(fitCallBackground(4032, 3024)).toEqual({ width: 1440, height: 1080 });
     expect(fitCallBackground(3000, 1000)).toEqual({ width: 1920, height: 640 });
     expect(fitCallBackground(800, 600)).toEqual({ width: 800, height: 600 });
-    expect(callBackgroundLabel({ kind: 'preset', presetId: 'mountain-view' })).toBe(
-      'Mountain view',
+    expect(callBackgroundLabel({ kind: 'preset', presetId: 'villa-terrace' })).toBe(
+      'Villa terrace',
     );
     expect(
-      sameChoice({ kind: 'preset', presetId: 'lounge' }, { kind: 'preset', presetId: 'library' }),
+      sameChoice(
+        { kind: 'preset', presetId: 'office-lounge' },
+        { kind: 'preset', presetId: 'library-study' },
+      ),
     ).toBe(false);
     expect(sameChoice({ kind: 'blur' }, { kind: 'blur' })).toBe(true);
-    expect(PRESET_GROUPS.map((g) => g.presets.length)).toEqual([15, 5]);
+    expect(PRESET_GROUPS.map((g) => g.presets.length)).toEqual([12, 12]);
     expect(shade('#808080', -0.5)).toBe('#404040');
   });
 });

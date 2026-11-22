@@ -258,7 +258,7 @@ export default function CallBackgroundScreen() {
         {PRESET_GROUPS.map((g) => (
           <View key={g.group} style={{ gap: space.sm }}>
             <Text variant="label" tone="muted">
-              {g.group === 'Office' ? 'Office scenes' : 'Simple'}
+              {g.group === 'Office' ? 'Offices' : 'Luxury homes'}
             </Text>
             <View style={styles.grid}>
               {g.presets.map((p) => tile({ kind: 'preset', presetId: p.id }, p.name, p.id))}
