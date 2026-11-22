@@ -7,18 +7,13 @@ import { Glass } from '../../components/Glass';
 import { Empty, Field, QueuedTag, Section, SmallButton, Tag } from '../../components/NetworkBits';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
+import { deliveryLabel } from '../../lib/moderation';
 import { CIRCLE_LABEL } from '../../lib/network';
 import { useWorkspace } from '../../state/AppProvider';
 import { useNet, useNetPending } from '../../state/useNetwork';
 import { space } from '../../theme/themes';
 
 type Channel = 'link' | 'email' | 'sms';
-
-const DELIVERY: Record<NonNullable<NetworkInvite['delivery']>, string> = {
-  sent: 'Email sent',
-  not_configured: 'Email not set up: share the link',
-  failed: 'Email failed: share the link',
-};
 
 /**
  * Invite someone who isn't on SampConnect yet: a link to share, an email, or a text from your
@@ -114,7 +109,7 @@ export default function Invite() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
               placeholder="+44 7700 900123"
-              hint="The text goes from your own phone, with the invite link in it."
+              hint="Sent by text when your organization has set up text messages, otherwise from your own phone."
             />
           ) : null}
           <Text variant="label" tone="muted">
@@ -174,7 +169,7 @@ export default function Invite() {
                 <Tag
                   text={i.channel === 'sms' ? 'Text' : i.channel === 'email' ? 'Email' : 'Link'}
                 />
-                {i.delivery ? <Tag text={DELIVERY[i.delivery]} /> : null}
+                {deliveryLabel(i) ? <Tag text={deliveryLabel(i)!} /> : null}
               </View>
               <Text variant="meta" tone="muted" numberOfLines={1} selectable>
                 {i.url}

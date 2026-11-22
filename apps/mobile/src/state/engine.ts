@@ -49,6 +49,11 @@ import {
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
+  type ModerationActionKind,
+  type ModerationQueue,
+  type NetworkAdminView,
+  type NetworkSuspensions,
+  type ReportStatus,
   type CreatePollRequest,
   type Poll,
   type PostingPolicy,
@@ -212,6 +217,8 @@ export class ConnectEngine {
      * read here): screens re-read what they show.
      */
     network: { scope: NetworkScope | null };
+    /** Platform operators: the report queue or suspensions changed (live, or after a reconnect). */
+    moderation: { scope: 'reports' | 'suspensions' | null };
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
@@ -365,6 +372,11 @@ export class ConnectEngine {
         this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
         this.realtime.events.on('transcript', (e) => void this.receiveTranscript(e.attachmentId)),
         this.realtime.events.on('network', (e) => void this.refreshNetwork([e.scope], e.scope)),
+        this.realtime.events.on('moderation', (e) => this.events.emit('moderation', e)),
+        this.realtime.events.on(
+          'state',
+          (s) => s === 'connected' && this.events.emit('moderation', { scope: null }),
+        ),
         this.realtime.events.on('inbox', (e) => void this.refreshInbox(e.conversationId)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
@@ -1943,6 +1955,30 @@ export class ConnectEngine {
         await this.api.setPostingPolicy(conversationId, policy),
       ]);
     });
+  }
+
+  /** Administration → SampConnect Network: the policy view, with `canModerate` for operators. */
+  networkAdmin(): Promise<NetworkAdminView> {
+    return this.serverAction(() => this.api.networkAdmin());
+  }
+
+  /** Platform operators: review reports and suspensions. Each action needs the server. */
+  moderationQueue(status: ReportStatus): Promise<ModerationQueue> {
+    return this.serverAction(() => this.api.moderationQueue(status));
+  }
+
+  moderationAct(reportId: string, action: ModerationActionKind, note: string) {
+    return this.serverAction(() =>
+      this.api.moderationAct(reportId, { clientActionId: uuidv7(), action, note }),
+    );
+  }
+
+  networkSuspensions(): Promise<NetworkSuspensions> {
+    return this.serverAction(() => this.api.networkSuspensions());
+  }
+
+  restoreSuspension(kind: 'users' | 'communities', id: string): Promise<void> {
+    return this.serverAction(() => this.api.restoreSuspension(kind, id));
   }
 
   /** Administration, Integrations. All need a connection; secrets never come back. */

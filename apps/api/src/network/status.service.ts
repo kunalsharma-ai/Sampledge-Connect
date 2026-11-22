@@ -308,15 +308,36 @@ export class StatusService {
     const net = await this.network.assertNetwork(ctx);
     const s = await net.network_statuses.findOne({ _id: statusId, authorId: ctx.userId });
     if (!s) return;
+    await this.erase(s, ctx.userId);
+  }
+
+  /** Moderation: a platform operator removes a reported status. Returns false when it's gone. */
+  async removeAsModerator(statusId: string, byUserId: string): Promise<boolean> {
+    const net = await this.network.net();
+    const s = await net.network_statuses.findOne({ _id: statusId });
+    if (!s) return false;
+    await this.erase(s, byUserId);
+    return true;
+  }
+
+  /** Can this person see the status right now (for reports)? */
+  async visibleTo(userId: string, statusId: string): Promise<NetworkStatusDoc | null> {
+    const net = await this.network.net();
+    const s = await net.network_statuses.findOne({ _id: statusId, expiresAt: { $gt: new Date() } });
+    return s && StatusService.canView(s, await this.viewer(userId)) ? s : null;
+  }
+
+  private async erase(s: NetworkStatusDoc, byUserId: string) {
+    const net = await this.network.net();
     const audience = await this.audienceOf(s);
-    await net.network_statuses.deleteMany({ _id: statusId });
-    await net.network_status_views.deleteMany({ statusId });
+    await net.network_statuses.deleteMany({ _id: s._id });
+    await net.network_status_views.deleteMany({ statusId: s._id });
     if (s.attachmentId)
       await net.attachments.updateOne(
         { _id: s.attachmentId },
-        { $set: { deletedAt: new Date(), deletedBy: ctx.userId } },
+        { $set: { deletedAt: new Date(), deletedBy: byUserId } },
       );
-    await this.network.changed(audience, { scope: 'statuses', id: statusId });
+    await this.network.changed(audience, { scope: 'statuses', id: s._id });
   }
 
   /** A private reply: lands in your direct message with the author, quoting the status. */

@@ -32,10 +32,10 @@ and build communities.
 | Connection requests | Free. Each request has a circle (**business** or **friends**), and either side can change it later. Accept, decline or withdraw. Each pair can have one pending request.                                                                                                                                                                                                                     |
 | Chat                | A direct message needs a connection and no block, both to start and on every send. Calls and files reuse the normal chat infrastructure.                                                                                                                                                                                                                                                     |
 | Follow / unfollow   | Follow a person or a community without connecting. Registered users follow in-app. Visitors without an account follow from the public page, which offers a quick signup and then completes the follow.                                                                                                                                                                                       |
-| Invites             | Invite by email (sent through the database `smtp` integration), by shareable link, or by SMS (opens the phone's SMS app with the link). The invitee gets a lightweight personal account, and accepting connects you automatically.                                                                                                                                                           |
+| Invites             | Invite by email (sent through the database `smtp` integration), by shareable link, or by SMS (sent through the database `sms` integration, else the phone's own SMS app sends the link). The invitee gets a lightweight personal account, and accepting connects you automatically.                                                                                                          |
 | Status              | Text with a background, or a photo or video. The audience is connections, connections plus followers, public, or a selected list of people, and replies can be turned off. Statuses expire after 1–168 hours (24 by default). Viewers are recorded, and you can see who viewed yours. A reply goes to the poster's DM with a quote.                                                          |
 | Communities         | Public (listed, with a shareable page) or private (invite links or approval only), and open or approval-to-join. Each starts with an **Announcements** group (only admins post) and a **General** group. There are roles (owner, admin, moderator, member), invites, invite links with expiry and use limits, join approval, ban and unban, transfer of ownership, extra groups, and follow. |
-| Safety              | Block (which hides each side from the other and removes the connection), report a person, status, community or message (stored for review), and rate limits on search, requests, invites and posts.                                                                                                                                                                                          |
+| Safety              | Block (which hides each side from the other and removes the connection), report a person, status, community or message (reviewed by platform operators and, for messages in a community, its moderators; see Moderation), and rate limits on search, requests, invites and posts.                                                                                                            |
 | Public pages        | `/n/<handle>` for a profile, `/c/<slug>` for a community, `/join/n/<token>` for an invite, and `/join/c/<token>` for a community link. They show only what the owner made public.                                                                                                                                                                                                            |
 
 ## Full synchronization
@@ -102,6 +102,36 @@ Every network action by a member (link, request, connect, block, report, invite,
 change) is written to the organization's audit log with who, what and when, never message
 content. Usage counts appear on the same screen.
 
+## SMS invites
+
+Text-message invites go through the **Text messages (SMS)** integration, set up in Administration →
+Integrations (encrypted in the database, with Test connection; never env). Providers: Twilio
+(Account SID, auth token, and a sender number or `MG…` Messaging Service SID), Vonage (API key,
+secret, sender) or your own HTTPS gateway (we POST `{to, from, text}` with a Bearer token). The
+inviter's organization's provider is used, else the platform one (Administration → SampConnect
+Network, platform operators). `delivery` on the invite is `sent`, `failed` or `not_configured`;
+when not sent, the app opens the phone's messages app with the link instead. Each phone number gets
+at most 3 invite texts a day, whoever sends them.
+
+## Moderation
+
+- **Reporting**: anyone can report a person, status, community or message they can see. The
+  report keeps a snapshot of the text, whose it is and the community it belongs to, so reviewers
+  still see it after removal. Reporting something you can't see returns 404.
+- **Platform operators** (`PLATFORM_ADMIN_EMAILS`, a bootstrap value) review every report in
+  Administration → SampConnect Network → Reported content (web) or Administration → Reported
+  content (mobile). Actions: **Remove content** (a message or status disappears for everyone),
+  **Suspend person** (signed out of the network everywhere, hidden from search, lists, statuses,
+  member lists and public pages, and unable to relink; their organization workspace isn't
+  affected), **Suspend community** (hidden, public page gone, groups archived) and **Dismiss**.
+  The Suspended list restores people and communities.
+- **Community moderators** (owner, admin, moderator) see reports about messages in their groups
+  under the community's **Reports** tab: Remove content, Ban from community, or Dismiss.
+- An action closes every open report about the same thing; Dismiss closes just that one. Every
+  action keeps an optional note, and is written to the network audit log (and the operator's
+  organization's). The queue updates live for every operator (`moderation:changed`) and every
+  community moderator (`network:changed` scope `reports`), and after a reconnect.
+
 ## API
 
 All routes are under `/v1/network` with a network session, unless noted.
@@ -127,12 +157,16 @@ All routes are under `/v1/network` with a network session, unless noted.
 - Public, no session: `POST /v1/network/public/signup`, `GET /v1/network/public/profiles/:handle`,
   `GET /v1/network/public/communities/:slug`, `GET /v1/network/public/invites/:token`,
   `GET /v1/network/public/community-links/:token`
-- Admin (work session, owner or admin): `GET|PUT /v1/admin/network`
+- `GET /communities/:id/reports?status=open|actioned|dismissed`,
+  `POST /communities/:id/reports/:reportId/action` (moderator or higher)
+- Admin (work session, owner or admin): `GET|PUT /v1/admin/network` (with `canModerate`)
+- Platform operators (work session): `GET /v1/platform/network/reports?status=`,
+  `POST /v1/platform/network/reports/:id/action`, `GET /v1/platform/network/suspensions`,
+  `DELETE /v1/platform/network/suspensions/{users,communities}/:id`
 
 Types and schemas are in `packages/contracts/src/network.ts`.
 
 ## Planned
 
-- Sending SMS invites through an SMS provider (today the phone's own SMS app sends the link)
-- A moderation console for reports (reports are stored and audited, but there is no review screen yet)
+- Telling the reporter what happened to their report, and appeals from suspended people
 - Presence for people other than your connections, and group chats outside communities

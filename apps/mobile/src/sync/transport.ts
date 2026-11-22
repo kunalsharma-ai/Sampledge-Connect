@@ -66,6 +66,12 @@ import {
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
+  type ModerationActionRequest,
+  type ModerationQueue,
+  type ModerationReport,
+  type NetworkAdminView,
+  type NetworkSuspensions,
+  type ReportStatus,
   type Recording,
   type RecordingKind,
   type RecordingList,
@@ -377,6 +383,13 @@ export interface ApiTransport {
   ): Promise<IntegrationView>;
   testIntegration(id: string, values?: IntegrationValues): Promise<IntegrationTestResult>;
   resetIntegration(id: string): Promise<IntegrationView>;
+  /** Administration → SampConnect Network (members.manage); `canModerate` for platform operators. */
+  networkAdmin(): Promise<NetworkAdminView>;
+  /** Platform operators: every SampConnect Network report, and suspensions. */
+  moderationQueue(status: ReportStatus): Promise<ModerationQueue>;
+  moderationAct(reportId: string, body: ModerationActionRequest): Promise<ModerationReport>;
+  networkSuspensions(): Promise<NetworkSuspensions>;
+  restoreSuspension(kind: 'users' | 'communities', id: string): Promise<void>;
 }
 
 /** A signed-in device session, from GET /v1/devices. */
@@ -1291,6 +1304,34 @@ export class HttpTransport implements ApiTransport {
     return this.request('GET', '/v1/admin/integrations', undefined);
   }
 
+  networkAdmin(): Promise<NetworkAdminView> {
+    return this.request('GET', '/v1/admin/network', undefined);
+  }
+
+  moderationQueue(status: ReportStatus): Promise<ModerationQueue> {
+    return this.request('GET', `/v1/platform/network/reports?status=${status}`, undefined);
+  }
+
+  moderationAct(reportId: string, body: ModerationActionRequest): Promise<ModerationReport> {
+    return this.request(
+      'POST',
+      `/v1/platform/network/reports/${encodeURIComponent(reportId)}/action`,
+      body,
+    );
+  }
+
+  networkSuspensions(): Promise<NetworkSuspensions> {
+    return this.request('GET', '/v1/platform/network/suspensions', undefined);
+  }
+
+  restoreSuspension(kind: 'users' | 'communities', id: string): Promise<void> {
+    return this.request(
+      'DELETE',
+      `/v1/platform/network/suspensions/${kind}/${encodeURIComponent(id)}`,
+      undefined,
+    );
+  }
+
   saveIntegration(
     id: string,
     enabled: boolean,
@@ -1540,6 +1581,11 @@ export class NoServerTransport implements ApiTransport {
   saveIntegration = async (): Promise<IntegrationView> => this.fail();
   testIntegration = async (): Promise<IntegrationTestResult> => this.fail();
   resetIntegration = async (): Promise<IntegrationView> => this.fail();
+  networkAdmin = async (): Promise<NetworkAdminView> => this.fail();
+  moderationQueue = async (): Promise<ModerationQueue> => this.fail();
+  moderationAct = async (): Promise<ModerationReport> => this.fail();
+  networkSuspensions = async (): Promise<NetworkSuspensions> => this.fail();
+  restoreSuspension = async (): Promise<void> => this.fail();
 }
 
 /**

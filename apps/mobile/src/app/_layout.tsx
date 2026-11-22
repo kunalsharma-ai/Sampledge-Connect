@@ -129,6 +129,7 @@ function RootStack() {
             options={{ title: 'Add member', presentation: 'modal' }}
           />
           <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
+          <Stack.Screen name="admin/moderation" options={{ title: 'Reported content' }} />
           <Stack.Screen name="admin/devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />

@@ -3,6 +3,7 @@ import type {
   InboxChangedEvent,
   MinutesChangedEvent,
   TranscriptChangedEvent,
+  ModerationChangedEvent,
   NetworkChangedEvent,
   Ack,
   AckReceiptRequest,
@@ -77,6 +78,8 @@ type RealtimeEvents = {
   transcript: TranscriptChangedEvent;
   /** Something in your SampConnect Network changed (on any device, or by someone else). */
   network: NetworkChangedEvent;
+  /** Platform operators: the SampConnect Network report queue or suspensions changed. */
+  moderation: ModerationChangedEvent;
   /** A Client Inbox conversation you can see changed (or you read it on another device). */
   inbox: InboxChangedEvent;
 };
@@ -163,6 +166,7 @@ export class RealtimeClient {
     socket.on('minutes:changed', (e) => this.events.emit('minutes', e));
     socket.on('transcript:changed', (e) => this.events.emit('transcript', e));
     socket.on('network:changed', (e) => this.events.emit('network', e));
+    socket.on('moderation:changed', (e) => this.events.emit('moderation', e));
     socket.on('inbox:changed', (e) => this.events.emit('inbox', e));
     socket.on('session:expired', () => {
       socket.disconnect();

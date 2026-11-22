@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Flag,
   Globe,
   Hash,
   Link2,
@@ -37,6 +38,8 @@ import {
 } from '@sampledge/ui';
 import { newActionId, useNet, useNetwork } from '@/lib/network';
 import { Switch } from './profile';
+import { CommunityReports } from './moderation';
+import { ReportDialog } from './people';
 import { PersonLine, QueuedBadge, ScreenHeader, Section, Tabs, errorText, plural } from './ui';
 
 const ROLE_LABEL = {
@@ -313,8 +316,11 @@ function CommunityPage({
   const { data: c, loading } = useNet<Community>(`/v1/network/communities/${id}`, ['communities']);
   const net = useNetwork();
   const { toast } = useToast();
-  const [tab, setTab] = React.useState<'groups' | 'members' | 'invite' | 'settings'>('groups');
+  const [tab, setTab] = React.useState<'groups' | 'members' | 'invite' | 'reports' | 'settings'>(
+    'groups',
+  );
   const [newGroup, setNewGroup] = React.useState(false);
+  const [reporting, setReporting] = React.useState(false);
   if (!c)
     return (
       <main className="flex flex-1 items-center justify-center">
@@ -425,6 +431,16 @@ function CommunityPage({
                 {c.following ? 'Following' : 'Follow'}
               </Button>
             )}
+            {c.myRole !== 'owner' ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Report community"
+                onClick={() => setReporting(true)}
+              >
+                <Flag />
+              </Button>
+            ) : null}
             {c.publicUrl ? (
               <Button
                 variant="ghost"
@@ -452,6 +468,7 @@ function CommunityPage({
                 ...(isMod || c.joinPolicy === 'open'
                   ? [{ id: 'invite' as const, label: 'Invite' }]
                   : []),
+                ...(isMod ? [{ id: 'reports' as const, label: 'Reports' }] : []),
                 ...(isAdmin ? [{ id: 'settings' as const, label: 'Settings' }] : []),
               ]}
             />
@@ -540,12 +557,23 @@ function CommunityPage({
             <Members c={c} run={run} />
           ) : tab === 'invite' ? (
             <InviteToCommunity c={c} isMod={isMod} />
+          ) : tab === 'reports' && isMod ? (
+            <CommunityReports c={c} />
           ) : (
             <CommunitySettings c={c} run={run} />
           )}
         </div>
       </div>
       <NewGroup c={c} open={newGroup} onOpenChange={setNewGroup} />
+      {reporting ? (
+        <ReportDialog
+          targetType="community"
+          targetId={c.communityId}
+          name={c.name}
+          open
+          onOpenChange={setReporting}
+        />
+      ) : null}
     </main>
   );
 }

@@ -11,6 +11,8 @@ import { apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Switch } from './profile';
 import { errorText } from './ui';
+import { PlatformModeration } from './moderation';
+import { useEngine } from '@/lib/engine';
 
 /**
  * Administration → SampConnect Network. The organization decides whether its members may connect
@@ -19,6 +21,7 @@ import { errorText } from './ui';
 export function NetworkPolicyTab() {
   const { getAccessToken } = useAuth();
   const { toast } = useToast();
+  const { state } = useEngine();
   const [view, setView] = React.useState<NetworkAdminView | null>(null);
   const [draft, setDraft] = React.useState<NetworkPolicy | null>(null);
   const [domains, setDomains] = React.useState('');
@@ -195,6 +198,7 @@ export function NetworkPolicyTab() {
           Save policy
         </Button>
       </div>
+      {view.canModerate ? <PlatformModeration online={state.connectivity !== 'offline'} /> : null}
     </div>
   );
 }

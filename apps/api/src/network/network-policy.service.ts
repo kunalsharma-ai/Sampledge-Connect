@@ -33,7 +33,7 @@ export class NetworkPolicyService {
     return policy;
   }
 
-  async view(tenantId: string): Promise<NetworkAdminView> {
+  async view(tenantId: string, canModerate = false): Promise<NetworkAdminView> {
     const net = await this.network.scoped();
     const linked = await net.network_profiles
       .find({ homeTenantId: tenantId }, { projection: { userId: 1 } })
@@ -42,10 +42,20 @@ export class NetworkPolicyService {
     const externalConnections = ids.length
       ? await net.network_connections.countDocuments({ userId: { $in: ids } })
       : 0;
-    return { policy: await this.get(tenantId), linkedMembers: ids.length, externalConnections };
+    return {
+      policy: await this.get(tenantId),
+      linkedMembers: ids.length,
+      externalConnections,
+      canModerate,
+    };
   }
 
-  async set(tenantId: string, actorId: string, input: unknown): Promise<NetworkAdminView> {
+  async set(
+    tenantId: string,
+    actorId: string,
+    input: unknown,
+    canModerate = false,
+  ): Promise<NetworkAdminView> {
     const policy = parse(NetworkPolicySchema, input);
     const before = await this.get(tenantId);
     await this.db.for(tenantId).tenant_settings.updateOne(
@@ -64,7 +74,7 @@ export class NetworkPolicyService {
       target: { type: 'tenant', id: tenantId },
       metadata: { before, after: policy },
     });
-    return this.view(tenantId);
+    return this.view(tenantId, canModerate);
   }
 
   /**
