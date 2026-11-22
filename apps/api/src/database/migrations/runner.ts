@@ -26,6 +26,7 @@ import { networkMigration } from './033-network.js';
 import { networkModerationMigration } from './051-network-moderation.js';
 import { platformAdminsMigration } from './052-platform-admins.js';
 import { platformControlsMigration } from './053-platform-controls.js';
+import { messageEditsMigration } from './060-message-edits.js';
 
 export interface Migration {
   id: string;
@@ -61,6 +62,7 @@ export const MIGRATIONS: Migration[] = [
   networkModerationMigration,
   platformAdminsMigration,
   platformControlsMigration,
+  messageEditsMigration,
 ];
 
 /**

@@ -54,6 +54,12 @@ export interface TenantDoc {
   } | null;
   /** What each role may do here, set by a super admin; absent = the platform default. */
   permissions?: Record<string, string[]> | null;
+  /** Message editing rules (see MessageEditingPolicySchema); absent = editing on, no limit. */
+  messageEditing?: {
+    allowEditing: boolean;
+    editWindowMinutes: number | null;
+    historyVisibleTo: 'everyone' | 'moderators';
+  } | null;
 }
 
 /** Global: platform-wide settings kept by super admins (`_id` names the setting). */
@@ -222,6 +228,21 @@ export interface MessageDoc extends TenantOwned {
   pinned?: { pinnedBy: string; pinnedAt: Date } | null;
   /** Poll messages only. Votes live inline so tallies change atomically under the conversation lock. */
   poll?: PollDoc;
+}
+
+/** An earlier version of a message's text, kept when it is edited (docs/editing.md). */
+export interface MessageEditDoc extends TenantOwned {
+  messageId: string;
+  conversationId: string;
+  /** 1 = as first sent. */
+  version: number;
+  text: string;
+  mentions: string[];
+  /** When this text was written. */
+  writtenAt: Date;
+  /** When it was replaced, and by whom. */
+  replacedAt: Date;
+  replacedBy: string;
 }
 
 export interface PollDoc {
@@ -912,6 +933,7 @@ export interface BookingPageDoc extends TenantOwned {
 
 export interface TenantCollections {
   users: UserDoc;
+  message_edits: MessageEditDoc;
   memberships: MembershipDoc;
   workspaces: WorkspaceDoc;
   conversations: ConversationDoc;

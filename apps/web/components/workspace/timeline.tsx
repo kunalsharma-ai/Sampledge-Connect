@@ -380,7 +380,7 @@ export function Timeline({
                               />
                             )}
                             {m.editedAt && !m.deletedAt ? (
-                              <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                              <EditedMark onHistory={actions?.(m).onHistory} />
                             ) : null}
                             {(m as { pendingChange?: boolean }).pendingChange ? (
                               <span className="ml-1.5 text-meta opacity-70">· not synced yet</span>
@@ -512,5 +512,20 @@ function TranslationNote({
       </span>
       {t.state !== 'loading' ? <span className="whitespace-pre-wrap">{t.text}</span> : null}
     </motion.div>
+  );
+}
+
+/** "(edited)" on a changed message; a button that opens its earlier versions when allowed. */
+function EditedMark({ onHistory }: { onHistory?: () => void }) {
+  if (!onHistory) return <span className="ml-1.5 text-meta opacity-70">(edited)</span>;
+  return (
+    <button
+      type="button"
+      onClick={onHistory}
+      title="See earlier versions"
+      className="ml-1.5 text-meta underline decoration-dotted underline-offset-2 opacity-70 hover:opacity-100"
+    >
+      (edited)
+    </button>
   );
 }

@@ -155,6 +155,8 @@ export const TENANT_AREAS = [
   'calls',
   /** Client Inbox channels (connectors), reply templates and inbox settings (SLA, teams). */
   'inbox',
+  /** Message editing rules (on/off, time limit, history) or what a role may do changed. */
+  'messages',
 ] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 

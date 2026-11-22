@@ -36,6 +36,10 @@ import {
   MessagesController,
 } from './conversations/conversations.controller.js';
 import { MessagesService } from './messages/messages.service.js';
+import {
+  MessageEditingController,
+  MessageEditingService,
+} from './messages/message-editing.service.js';
 import { SyncService } from './sync/sync.service.js';
 import { SyncController } from './sync/sync.controller.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
@@ -165,6 +169,7 @@ export class AppModule {
         AvatarsController,
         ConversationsController,
         MessagesController,
+        MessageEditingController,
         SyncController,
         HealthController,
         AttachmentsController,
@@ -219,6 +224,7 @@ export class AppModule {
         OrgPurgeWorker,
         ConversationsService,
         MessagesService,
+        MessageEditingService,
         SyncService,
         RealtimeGateway,
         AttachmentsService,

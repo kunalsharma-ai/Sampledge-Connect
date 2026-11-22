@@ -30,7 +30,7 @@ const toDraft = (b: BrandingView): Draft => ({
 });
 const blank = (v: string | null) => (v && v.trim() ? v.trim() : null);
 
-function Toggle({
+export function Toggle({
   label,
   help,
   checked,

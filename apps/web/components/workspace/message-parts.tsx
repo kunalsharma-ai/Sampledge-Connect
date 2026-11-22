@@ -164,6 +164,8 @@ export interface ExtraActions {
   /** Your own messages: change the text or delete for everyone. */
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Edited messages: open their earlier versions (absent when the rules hide them). */
+  onHistory?: () => void;
   /** Absent when the conversation turned forwarding off. */
   onForward?: () => void;
   /** SampConnect Network: report someone else's message to moderators. */

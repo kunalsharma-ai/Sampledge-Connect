@@ -61,6 +61,7 @@ export default function Admin() {
     { label: 'Members', icon: 'people-outline', href: '/admin/members' },
     { label: 'Audit log', icon: 'list-outline', href: '/admin/audit' },
     { label: 'Devices', icon: 'phone-portrait-outline', href: '/admin/devices' },
+    { label: 'Messages', icon: 'create-outline', href: '/admin/messages' },
     { label: 'Integrations', icon: 'extension-puzzle-outline', href: '/admin/integrations' },
     { label: 'Branding', icon: 'color-palette-outline', href: '/admin/branding' },
     { label: 'Recordings', icon: 'recording-outline', href: '/recordings' },

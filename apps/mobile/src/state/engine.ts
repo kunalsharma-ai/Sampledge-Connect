@@ -22,6 +22,10 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  DEFAULT_MESSAGE_EDITING_STATE,
+  type MessageEditHistory,
+  type MessageEditingPolicy,
+  type MessageEditingState,
   type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
@@ -182,6 +186,8 @@ export interface EngineState {
 const HOURS_KEY = 'workingHours';
 /** Settings key for the server's copy of your chat theme and the organization's rules. */
 const THEME_KEY = 'chatTheme';
+/** Settings key for the organization's message editing rules (docs/editing.md). */
+const EDITING_KEY = 'messageEditing';
 const RECENT_KEY = 'search.recent';
 /** Settings key for the server's copy of your call background, the rules and the branding. */
 const CALL_BG_KEY = 'callBackground';
@@ -239,6 +245,8 @@ export class ConnectEngine {
     workingHours: WorkingHours;
     /** Your chat theme or the organization's rules changed, here or elsewhere. */
     chatTheme: ChatThemeState;
+    /** The organization's message editing rules, or what your role may do, changed. */
+    messageEditing: MessageEditingState;
     /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
     callBackground: CallBackgroundState;
     /** Minutes of a call changed here, on another device or by someone else. */
@@ -595,6 +603,7 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'messages') void this.refreshMessageEditing().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
     if (area === 'inbox') void this.refreshInboxAdmin();
     if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
@@ -1567,6 +1576,7 @@ export class ConnectEngine {
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
+          this.refreshMessageEditing(),
           this.refreshCallBackground(),
           this.refreshInbox(null),
         ]);
@@ -2294,6 +2304,36 @@ export class ConnectEngine {
     const state = await this.serverAction(() => this.api.setChatThemePolicy(policy));
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
     await this.emitChatTheme();
+  }
+
+  // ------------------------------------------------------------ message editing rules
+
+  /**
+   * The organization's editing rules as last seen (kept on the phone so Edit shows or hides
+   * correctly offline). The server checks them again when a queued edit is sent.
+   */
+  async getMessageEditing(): Promise<MessageEditingState> {
+    const raw = await this.store.getSetting(EDITING_KEY);
+    return raw ? (JSON.parse(raw) as MessageEditingState) : DEFAULT_MESSAGE_EDITING_STATE;
+  }
+
+  /** Owners and admins: turn editing on or off, set a time limit, choose who sees history. */
+  async setMessageEditing(policy: MessageEditingPolicy): Promise<void> {
+    const state = await this.serverAction(() => this.api.setMessageEditing(policy));
+    await this.store.setSetting(EDITING_KEY, JSON.stringify(state));
+    this.events.emit('messageEditing', state);
+  }
+
+  /** Every version of an edited message (needs a connection). */
+  messageHistory(messageId: string): Promise<MessageEditHistory> {
+    return this.serverAction(() => this.api.messageHistory(messageId));
+  }
+
+  private async refreshMessageEditing(): Promise<void> {
+    if (this.session.state === 'demo') return;
+    const state = await this.api.getMessageEditing();
+    await this.store.setSetting(EDITING_KEY, JSON.stringify(state));
+    this.events.emit('messageEditing', state);
   }
 
   private async refreshChatTheme(): Promise<void> {

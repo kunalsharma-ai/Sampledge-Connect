@@ -27,6 +27,8 @@ import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { ChatBackdrop, ChatThemeScope } from '../../components/ChatBackdrop';
 import { useChatTheme } from '../../state/useChatTheme';
+import { useMessageEditing } from '../../state/useMessageEditing';
+import { editBlockedReason } from '@sampledge/contracts';
 import { useInNetwork } from '../../state/useNetwork';
 import { useChatImage } from '../../lib/chatImageStore';
 import { customImagesAllowed } from '@sampledge/contracts';
@@ -54,6 +56,7 @@ export default function ConversationScreen() {
   const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
   const chat = useChatTheme();
+  const editRules = useMessageEditing();
   const storedImage = useChatImage(id);
   // The organization can turn own pictures off; they stay saved but aren't shown.
   const chatImage = chat.state && !customImagesAllowed(chat.state.policy) ? null : storedImage;
@@ -260,6 +263,8 @@ export default function ConversationScreen() {
         return router.push({ pathname: '/forward', params: { clientId: m.clientId } });
       case 'edit':
         return setMode({ kind: 'edit', message: m });
+      case 'history':
+        return router.push({ pathname: '/message-history/[id]', params: { id: m.messageId! } });
       case 'retry':
         return void engine.retry(m.clientId);
       case 'discard':
@@ -644,6 +649,21 @@ export default function ConversationScreen() {
           canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
           canForward={!!sheetFor && canForwardMessage(sheetFor)}
           canReport={inNetwork && sheetFor?.messageType !== 'system'}
+          canEdit={
+            !!sheetFor &&
+            !sheetFor.poll &&
+            sheetFor.messageType !== 'system' &&
+            !editBlockedReason(sheetFor.createdAt, editRules)
+          }
+          canSeeHistory={
+            !!sheetFor?.messageId &&
+            (editRules.policy.historyVisibleTo === 'everyone' ||
+              sheetFor.senderId === selfId ||
+              conv?.myRole === 'owner' ||
+              conv?.myRole === 'moderator' ||
+              tenantRole === 'owner' ||
+              tenantRole === 'admin')
+          }
           canClosePoll={
             !!sheetFor?.poll &&
             !pollIsClosed(sheetFor.poll) &&

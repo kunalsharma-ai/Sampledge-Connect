@@ -30,6 +30,7 @@ import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
 import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
+import { MessageEditingService } from './message-editing.service.js';
 
 @Injectable()
 export class MessagesService {
@@ -43,6 +44,7 @@ export class MessagesService {
     private readonly rateLimit: RateLimitService,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly webhooks: WebhooksService,
+    private readonly editing: MessageEditingService,
   ) {}
 
   private lockKey(tenantId: string, conversationId: string) {
@@ -274,17 +276,27 @@ export class MessagesService {
     if (m.poll)
       throw new AppError('CONFLICT', 'Polls can’t be edited. Close it and start a new one.');
     if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    await this.editing.assertCanEdit(ctx, m);
+    let version = 0;
     const updated = await withLock(
       this.redis,
       this.lockKey(ctx.tenantId, m.conversationId),
       async () => {
+        // Re-read under the lock: the version kept must be the text this edit replaces.
+        const cur = await t.messages.findOne({ _id: messageId, deletedAt: null });
+        if (!cur) return null;
+        const mentions = req.content.mentions ?? [];
+        // A retried request (same text) changes nothing and keeps no extra version.
+        if (cur.content.text === req.content.text) return cur;
+        const at = new Date();
+        version = await this.editing.keepVersion(ctx.tenantId, cur, ctx.userId, at);
         const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
         return t.messages.findOneAndUpdate(
           { _id: messageId, deletedAt: null },
           {
             $set: {
-              content: { text: req.content.text, mentions: req.content.mentions ?? [] },
-              editedAt: new Date(),
+              content: { text: req.content.text, mentions },
+              editedAt: at,
               changeSequence: seq,
             },
           },
@@ -293,6 +305,7 @@ export class MessagesService {
       },
     );
     if (!updated) throw new AppError('CONFLICT', 'Message was deleted');
+    if (version) await this.editing.recordEdit(ctx, updated, version);
     const dto = toMessage(updated);
     this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
     return dto;
@@ -490,6 +503,7 @@ export class MessagesService {
     );
     const dto = toMessage(updated!);
     this.realtime.toConversation(tenantId, m.conversationId, 'message:updated', dto);
+    await this.editing.forget(tenantId, m._id);
     await this.notifications.onMessageDeleted(tenantId, m._id);
     return dto;
   }

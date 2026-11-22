@@ -50,6 +50,9 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type MessageEditHistory,
+  type MessageEditingPolicy,
+  type MessageEditingState,
   type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
@@ -236,6 +239,12 @@ export interface ApiTransport {
   setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
   /** Owners and admins: the default theme and which themes people may choose. */
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** The organization's message editing rules and what they mean for you. */
+  getMessageEditing(): Promise<MessageEditingState>;
+  /** Owners and admins (messages.manage): editing on/off, time limit, history audience. */
+  setMessageEditing(policy: MessageEditingPolicy): Promise<MessageEditingState>;
+  /** Every version of an edited message, oldest first. */
+  messageHistory(messageId: string): Promise<MessageEditHistory>;
   /** Your background in calls, the organization rules and the branding for the company one. */
   getCallBackground(): Promise<CallBackgroundState>;
   setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
@@ -679,6 +688,18 @@ export class HttpTransport implements ApiTransport {
 
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
     return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getMessageEditing(): Promise<MessageEditingState> {
+    return this.request('GET', '/v1/message-editing', undefined);
+  }
+
+  setMessageEditing(policy: MessageEditingPolicy): Promise<MessageEditingState> {
+    return this.request('PUT', '/v1/admin/message-editing', policy);
+  }
+
+  messageHistory(messageId: string): Promise<MessageEditHistory> {
+    return this.request('GET', `/v1/messages/${encodeURIComponent(messageId)}/edits`, undefined);
   }
 
   getCallBackground(): Promise<CallBackgroundState> {
@@ -1615,6 +1636,9 @@ export class NoServerTransport implements ApiTransport {
   getChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getMessageEditing = async (): Promise<MessageEditingState> => this.fail();
+  setMessageEditing = async (): Promise<MessageEditingState> => this.fail();
+  messageHistory = async (): Promise<MessageEditHistory> => this.fail();
   getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();

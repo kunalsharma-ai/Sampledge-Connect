@@ -11,6 +11,7 @@ export type MessageAction =
   | 'reply'
   | 'forward'
   | 'edit'
+  | 'history'
   | 'delete'
   | 'retry'
   | 'discard'
@@ -36,6 +37,8 @@ export function MessageActions({
   canMakeWork = false,
   canForward = false,
   canReport = false,
+  canEdit,
+  canSeeHistory = false,
   onAction,
   onReact,
   onClose,
@@ -54,6 +57,10 @@ export function MessageActions({
   canForward?: boolean;
   /** SampConnect Network: someone else's message, which you can report to moderators. */
   canReport?: boolean;
+  /** Your own message that the organization's editing rules still let you change (default: own). */
+  canEdit?: boolean;
+  /** An edited message whose earlier versions you may open. */
+  canSeeHistory?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -107,8 +114,15 @@ export function MessageActions({
     );
     if (canReport && !own)
       rows.push({ key: 'report', label: 'Report message', icon: 'flag-outline', danger: true });
+    if (canSeeHistory && message.editedAt)
+      rows.push({ key: 'history', label: 'Edit history', icon: 'time-outline' });
+    if (own && (canEdit ?? true))
+      rows.push({
+        key: 'edit',
+        label: !message.text.trim() && message.attachments.length ? 'Add a caption' : 'Edit',
+        icon: 'create-outline',
+      });
     if (own) {
-      rows.push({ key: 'edit', label: 'Edit', icon: 'create-outline' });
       rows.push({
         key: 'delete',
         label: 'Delete for everyone',
