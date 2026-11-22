@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openNodeDriver } from '../test/nodeDriver';
 import { migrate } from './migrations';
-import { WorkStore } from './work';
+import { WorkStore, type ActionInput } from './work';
 
 describe('action queue', () => {
   it('sends a change merged in after the action was picked but before it was claimed', async () => {
@@ -63,7 +63,11 @@ describe('action queue', () => {
         decidedAt: null,
       },
     ]);
-    await work.enqueue({ kind: 'approval.update', approvalId: 'a1', patch: { title: 'Top-up (UK)' } });
+    await work.enqueue({
+      kind: 'approval.update',
+      approvalId: 'a1',
+      patch: { title: 'Top-up (UK)' },
+    });
     await work.enqueue({
       kind: 'approval.update',
       approvalId: 'a1',
@@ -86,23 +90,29 @@ describe('action queue', () => {
     const db = openNodeDriver();
     await migrate(db);
     const work = new WorkStore(db, 'u1');
-    const poll = (question: string) =>
-      ({
-        kind: 'poll.edit',
-        messageId: 'm1',
-        conversationId: 'c1',
-        request: { question, options: ['Mon', 'Tue'] },
-      }) as const;
+    const poll = (question: string): ActionInput => ({
+      kind: 'poll.edit',
+      messageId: 'm1',
+      conversationId: 'c1',
+      request: { question, options: ['Mon', 'Tue'] },
+    });
     await work.enqueue(poll('Kick-off?'));
     await work.enqueue(poll('Kick-off day?'));
-    await work.enqueue({ kind: 'conversation.update', conversationId: 'c1', patch: { name: 'Q4' } });
+    await work.enqueue({
+      kind: 'conversation.update',
+      conversationId: 'c1',
+      patch: { name: 'Q4' },
+    });
     await work.enqueue({
       kind: 'conversation.update',
       conversationId: 'c1',
       patch: { topic: 'Quotas' },
     });
     const first = await work.next();
-    expect(first?.input).toMatchObject({ kind: 'poll.edit', request: { question: 'Kick-off day?' } });
+    expect(first?.input).toMatchObject({
+      kind: 'poll.edit',
+      request: { question: 'Kick-off day?' },
+    });
     await work.complete(first!);
     expect((await work.next())?.input).toEqual({
       kind: 'conversation.update',

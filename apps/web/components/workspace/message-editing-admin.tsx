@@ -8,6 +8,7 @@ import {
 } from '@sampledge/contracts';
 import { Button, StateView, useToast } from '@sampledge/ui';
 import { useMessageEditing } from '@/lib/message-editing';
+import { FeatureHelp } from '../feature-help';
 import { Toggle } from './branding-screen';
 
 /**
@@ -60,6 +61,7 @@ export function MessageEditingAdmin() {
       <div className="mb-4 flex items-center gap-2">
         <PencilLine className="size-4 text-accent" aria-hidden />
         <h2 className="flex-1 text-label text-text">Editing messages</h2>
+        <FeatureHelp id="editing" size="sm" />
       </div>
       <div className="flex flex-col gap-5">
         <Toggle
