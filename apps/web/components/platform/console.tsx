@@ -33,6 +33,7 @@ import { errorText, usePlatformApi, usePlatformChange } from './api';
 import { OrganizationsTab } from './orgs';
 import { AdminsTab, AuditTab } from './people';
 import { ActivityTab, PermissionsTab } from './controls';
+import { FeatureHelp } from '../feature-help';
 
 export { usePlatformRole } from './api';
 
@@ -83,7 +84,10 @@ export function PlatformConsole({ me, online }: { me: PlatformMe; online: boolea
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="platform-console">
       <header className="flex min-h-[60px] shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface/40 px-4 py-2 backdrop-blur-xl sm:px-6">
         <Crown className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Super admin</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Super admin</h1>
+          <FeatureHelp id="platform" />
+        </div>
         <Badge tone="accent">{PLATFORM_ROLE_INFO[me.role].label}</Badge>
         <nav className="flex gap-1 overflow-x-auto md:ml-4" aria-label="Super admin sections">
           {tabs.map((t) => (

@@ -13,6 +13,7 @@ import { Badge, Button, Card, cn, useTheme, useToast } from '@sampledge/ui';
 import { useAuth } from '@/lib/auth';
 import { chatThemeCss, useChatTheme } from '@/lib/chat-theme';
 import { ChatBackgroundControl } from './chat-background';
+import { FeatureHelp } from '../feature-help';
 
 const CATEGORY_LABEL: Record<ChatThemeCategory, string> = {
   classic: 'Classic',
@@ -55,7 +56,10 @@ export function ChatThemesCard() {
       <div className="flex flex-wrap items-start gap-3">
         <MessageSquareText className="mt-0.5 size-5 text-accent" aria-hidden />
         <div className="min-w-0 flex-1">
-          <h3 className="text-label text-text">Chat theme</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="text-label text-text">Chat theme</h3>
+            <FeatureHelp id="chat-themes" size="sm" inDialog />
+          </div>
           <p className="mt-0.5 text-meta text-text-subtle">
             How your conversations look: background and your message bubbles. Works with your app
             theme above and follows you to every device.

@@ -7,6 +7,7 @@ import type { DirectoryEntry } from '@/lib/engine';
 import type { InboxApi } from '@/lib/inbox';
 import { nameOf } from '../helpers';
 import { PRIORITY_STYLE, PROVIDER_META, ProviderMark, Segmented, minutesLabel } from './shared';
+import { FeatureHelp } from '../../feature-help';
 
 function Kpi({
   label,
@@ -104,7 +105,10 @@ export function InboxDashboard({
       data-testid="inbox-dashboard"
     >
       <div className="flex items-center gap-3">
-        <h2 className="font-display text-h2 text-text">Supervisor dashboard</h2>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="font-display text-h2 text-text">Supervisor dashboard</h2>
+          <FeatureHelp id="inbox-dashboard" />
+        </div>
         <div className="flex-1" />
         <Segmented
           label="Period"

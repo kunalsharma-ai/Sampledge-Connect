@@ -29,6 +29,7 @@ import { useMeetings } from '@/lib/meetings';
 import { dueLabel, isActiveTask, sortTasks, useApprovals, useTasks, useWorkApi } from '@/lib/work';
 import type { NotificationsApi } from '@/lib/notifications';
 import { conversationTitle, formatTime, nameOf, relativeShort } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 function greeting(d: Date) {
   const h = d.getHours();
@@ -150,9 +151,12 @@ export function HomeScreen(p: HomeScreenProps) {
                 })}{' '}
                 · {p.tenantName}
               </p>
-              <h1 className="mt-2 font-display text-h1 text-text">
-                {greeting(now)}, {p.myName.split(' ')[0]}
-              </h1>
+              <div className="mt-2 flex items-center gap-2.5">
+                <h1 className="font-display text-h1 text-text">
+                  {greeting(now)}, {p.myName.split(' ')[0]}
+                </h1>
+                <FeatureHelp id="home" />
+              </div>
               <p className="mt-2 text-body text-text-muted">
                 {summary.length
                   ? `You have ${summary.join(', ')}.`

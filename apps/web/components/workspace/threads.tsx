@@ -16,6 +16,7 @@ import { avatarOf, conversationTitle, formatDay, formatTime, nameOf } from './he
 import { Composer } from './composer';
 import { Timeline } from './timeline';
 import type { ExtraActions } from './message-parts';
+import { FeatureHelp } from '../feature-help';
 
 type MentionCandidate = { userId: string; displayName: string; subtitle?: string };
 
@@ -277,7 +278,10 @@ export function SavedScreen({
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="saved-screen">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-surface/40 px-4 backdrop-blur-xl sm:px-6">
         <Bookmark className="size-5 text-accent" aria-hidden />
-        <h1 className="font-display text-h3 text-text">Saved</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="font-display text-h3 text-text">Saved</h1>
+          <FeatureHelp id="threads" />
+        </div>
         <p className="hidden text-meta text-text-subtle md:block">
           Only you can see what you save.
           {!api.online ? ' Showing your last synced list while offline.' : ''}

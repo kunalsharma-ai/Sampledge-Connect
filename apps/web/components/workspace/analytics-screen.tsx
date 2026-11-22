@@ -21,6 +21,7 @@ import { Avatar, Badge, Card, Skeleton, StateView, cn } from '@sampledge/ui';
 import { useAnalytics } from '@/lib/analytics';
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, nameOf } from './helpers';
+import { FeatureHelp } from '../feature-help';
 
 const RANGE_LABEL: Record<AnalyticsRange, string> = {
   '7d': 'Last 7 days',
@@ -76,7 +77,10 @@ export function AnalyticsScreen({
             <BarChart3 className="size-[18px]" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-h3 text-text">Analytics</h1>
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="font-display text-h3 text-text">Analytics</h1>
+              <FeatureHelp id="analytics" />
+            </div>
             <p className="text-meta text-text-subtle">
               {scope === 'org' ? 'How your organization uses SampConnect' : 'Your own activity'}
               {data

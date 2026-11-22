@@ -16,6 +16,7 @@ import {
 } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { FeatureHelp } from '../../components/FeatureHelp';
 
 const when = (iso: string) => {
   const d = new Date(iso);
@@ -58,7 +59,10 @@ export default function Activity() {
     <Screen>
       <View style={styles.header}>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="title">Activity</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Text variant="title">Activity</Text>
+            <FeatureHelp id="notifications" />
+          </View>
           <Text tone="muted">
             {unread > 0 ? `${unread} unread` : 'Mentions and replies, newest first.'}
           </Text>

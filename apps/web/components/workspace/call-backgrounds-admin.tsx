@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth';
 import { logoBackground, shrinkImage } from '@/lib/call-backgrounds';
 import { API_URL } from '@/lib/config';
 import { useEngineChange } from '@/lib/engine';
+import { FeatureHelp } from '../feature-help';
 
 const label = (c: CallBackgroundChoice, uploads: CallBackgroundUpload[] = []) =>
   c.kind === 'none'
@@ -192,7 +193,10 @@ export function CallBackgroundsAdmin() {
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]" data-testid="call-backgrounds-admin">
       <section className="space-y-4 rounded-xl border border-border bg-surface p-5">
         <div>
-          <h2 className="font-display text-h3 text-text">Call backgrounds</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="font-display text-h3 text-text">Call backgrounds</h2>
+            <FeatureHelp id="call-background" />
+          </div>
           <p className="mt-1 text-body text-text-muted">
             The background people start with in calls. Anyone can change theirs from the settings
             button in a call, unless you require the company background. Video is processed on each
