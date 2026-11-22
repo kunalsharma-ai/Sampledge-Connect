@@ -9,6 +9,7 @@ import type {
   ChatThemePolicy,
   CallBackgroundChoice,
   CallBackgroundState,
+  MeetingMinutes,
   Approval,
   BookingPage,
   CreateBookingPageRequest,
@@ -115,6 +116,8 @@ async function setup() {
       themeId: ChatThemeId | null;
       policy: ChatThemePolicy;
     },
+    minutes: null as MeetingMinutes | null,
+    minutesFieldRevs: {} as Record<string, number>,
     callbg: {
       choice: null as CallBackgroundChoice | null,
       imageKey: null as string | null,
@@ -251,6 +254,30 @@ async function setup() {
         );
       server.theme = { ...server.theme, themeId };
       return { ...server.theme, effective: effectiveChatTheme(themeId, p) };
+    },
+    callMinutes: async (callId: string) => {
+      step(`listCallMinutes ${callId}`);
+      return { minutes: server.minutes, canCreate: true, blockedReason: null };
+    },
+    updateMinutes: async (id: string, req: Record<string, unknown> & { baseRevision: number }) => {
+      const { baseRevision, ...patch } = req;
+      step(`updateMinutes ${id} base ${baseRevision} ${Object.keys(patch).sort().join(',')}`);
+      const cur = server.minutes!;
+      const conflicts = Object.keys(patch).filter(
+        (f) =>
+          (server.minutesFieldRevs[f] ?? 0) > baseRevision &&
+          JSON.stringify((cur as Record<string, unknown>)[f]) !== JSON.stringify(patch[f]),
+      );
+      if (conflicts.length)
+        throw new TransportError(
+          'Someone else changed the same part of these minutes. Reload to see their version.',
+          'api',
+          'CONFLICT',
+        );
+      const revision = cur.revision + 1;
+      for (const f of Object.keys(patch)) server.minutesFieldRevs[f] = revision;
+      server.minutes = { ...cur, ...patch, revision } as MeetingMinutes;
+      return server.minutes;
     },
     getCallBackground: async () => {
       step('listCallBackground');
@@ -1236,5 +1263,89 @@ describe('call background offline and across devices', () => {
     // A pick made while the rule holds is kept as your choice but the company background applies.
     await t.engine.setCallBackground({ kind: 'preset', presetId: 'lounge' });
     expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'logo' });
+  });
+});
+
+describe('minutes of meeting offline and together', () => {
+  const minutes = (over: Partial<MeetingMinutes> = {}): MeetingMinutes => ({
+    minutesId: 'mm1',
+    callId: 'call1',
+    conversationId: 'c1',
+    meetingId: null,
+    title: 'Weekly sync',
+    media: 'video',
+    startedAt: '2026-11-20T10:00:00.000Z',
+    endedAt: '2026-11-20T10:40:00.000Z',
+    durationSec: 2400,
+    attendees: [],
+    agenda: '',
+    summary: 'Draft summary',
+    decisions: [],
+    actionItems: [],
+    openQuestions: [],
+    notes: '',
+    language: 'en',
+    sources: {
+      transcripts: 0,
+      reviewedTranscripts: 0,
+      captionLines: 0,
+      chatMessages: 0,
+      spokenLanguages: [],
+    },
+    engine: 'basic',
+    status: 'draft',
+    revision: 3,
+    createdBy: SELF,
+    createdAt: '2026-11-20T10:41:00.000Z',
+    updatedBy: SELF,
+    updatedAt: '2026-11-20T10:41:00.000Z',
+    sharedBy: null,
+    sharedAt: null,
+    canEdit: true,
+    ...over,
+  });
+
+  it('edits offline show at once, merge per field and go up once from the first revision', async () => {
+    const t = await setup();
+    t.server.minutes = minutes();
+    await t.online();
+    await t.engine.reloadCallMinutes('call1');
+    const m = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    t.engine.setNetworkUp(false);
+    await t.engine.editMinutes(m, { summary: 'We agreed the plan' });
+    await t.engine.editMinutes(m, { decisions: ['Ship on Friday'] });
+    await t.engine.editMinutes(m, { summary: 'We agreed the plan and the date' });
+    const shown = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    expect(shown.summary).toBe('We agreed the plan and the date');
+    expect(shown.decisions).toEqual(['Ship on Friday']);
+    // Someone else edits the notes meanwhile: a different field, so both apply.
+    t.server.minutes = { ...t.server.minutes, notes: 'From Marco', revision: 4 };
+    t.server.minutesFieldRevs.notes = 4;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('updateMinutes'))).toEqual([
+      'updateMinutes mm1 base 3 decisions,summary',
+    ]);
+    const after = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    expect(after.summary).toBe('We agreed the plan and the date');
+    expect(after.notes).toBe('From Marco');
+    expect(t.refused).toEqual([]);
+  });
+
+  it('the same field changed by someone else meanwhile is refused and their version shows', async () => {
+    const t = await setup();
+    t.server.minutes = minutes();
+    await t.online();
+    await t.engine.reloadCallMinutes('call1');
+    const m = (await t.engine.getCallMinutes('call1'))!.minutes!;
+    t.engine.setNetworkUp(false);
+    await t.engine.editMinutes(m, { summary: 'Mine' });
+    t.server.minutes = { ...t.server.minutes, summary: 'Theirs', revision: 4 };
+    t.server.minutesFieldRevs.summary = 4;
+    await t.online();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.refused).toEqual([
+      'minutes.update: Someone else changed the same part of these minutes. Reload to see their version.',
+    ]);
+    expect((await t.engine.getCallMinutes('call1'))!.minutes!.summary).toBe('Theirs');
   });
 });

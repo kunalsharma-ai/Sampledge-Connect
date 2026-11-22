@@ -52,6 +52,21 @@ export function recordingMeta(metadata: Record<string, unknown>): RecordingMeta 
   return r && typeof r === 'object' ? (r as RecordingMeta) : null;
 }
 
+export interface MinutesMeta {
+  minutesId?: string;
+  callId?: string;
+  title?: string;
+  decisions?: number;
+  actionItems?: number;
+  deleted?: boolean;
+}
+
+/** The card posted when minutes of meeting are shared (and updated when they are deleted). */
+export function minutesMeta(metadata: Record<string, unknown>): MinutesMeta | null {
+  const m = metadata.minutes;
+  return m && typeof m === 'object' ? (m as MinutesMeta) : null;
+}
+
 function when(iso: string): string {
   const d = new Date(iso);
   return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;

@@ -21,6 +21,8 @@ import {
   type WorkingHours,
   type ChatThemeId,
   type CallBackgroundChoice,
+  type MinutesEditableField,
+  type MeetingMinutes,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -76,7 +78,20 @@ export type ActionInput =
   | { kind: 'callbg.set'; choice: CallBackgroundChoice }
   /** Your own call background: a JPEG kept in app storage until it reaches the server. */
   | { kind: 'callbg.image'; localUri: string }
-  | { kind: 'callbg.imageRemove' };
+  | { kind: 'callbg.imageRemove' }
+  /**
+   * Edits to minutes of meeting, merged per field while waiting. `baseRevision` is the revision
+   * the first edit started from, so the server can tell a field someone else changed meanwhile.
+   */
+  | {
+      kind: 'minutes.update';
+      minutesId: string;
+      callId: string;
+      baseRevision: number;
+      patch: MinutesPatch;
+    };
+
+export type MinutesPatch = Partial<Pick<MeetingMinutes, MinutesEditableField>>;
 
 export type ActionKind = ActionInput['kind'];
 
@@ -126,7 +141,15 @@ export interface ApprovalFilter {
 }
 
 type CacheKind =
-  'task' | 'approval' | 'scheduled' | 'bookmark' | 'vote' | 'booking' | 'profile' | 'search';
+  | 'task'
+  | 'approval'
+  | 'scheduled'
+  | 'bookmark'
+  | 'vote'
+  | 'booking'
+  | 'profile'
+  | 'search'
+  | 'minutes';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -190,6 +213,8 @@ const targetOf = (a: ActionInput): string => {
     case 'callbg.imageRemove':
       // One target, so an upload and a later pick reach the server in the order you made them.
       return 'callbg:me';
+    case 'minutes.update':
+      return `minutes:${a.minutesId}`;
   }
 };
 
@@ -454,6 +479,19 @@ export class WorkStore {
           await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
           await insert(input);
           break;
+        case 'minutes.update': {
+          // Later edits merge per field into the one still waiting, from the first base revision.
+          const prior = waiting.find(
+            (a) => a.input.kind === 'minutes.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'minutes.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
         case 'callbg.set':
           // A later pick replaces an earlier one still waiting; uploads stay in order before it.
           await drop(
@@ -705,6 +743,22 @@ export class WorkStore {
     await this.db.run(`UPDATE actions SET state = 'sending' WHERE id = ?`, [id]);
   }
 
+  /**
+   * Marks the action as being sent and returns it as stored now. A change queued between
+   * {@link next} and this call may have merged into it (or dropped it), so the copy read by
+   * `next` can be stale; sending that would lose the merged change.
+   */
+  async claim(id: string): Promise<QueuedAction | undefined> {
+    await this.db.run(`UPDATE actions SET state = 'sending' WHERE id = ? AND state = 'pending'`, [
+      id,
+    ]);
+    const r = await this.db.get<ActionRow>(
+      `SELECT * FROM actions WHERE id = ? AND state = 'sending'`,
+      [id],
+    );
+    return r && toAction(r);
+  }
+
   async markRetry(a: QueuedAction, at: number, error: string): Promise<void> {
     await this.db.run(
       `UPDATE actions SET state = 'pending', attempts = attempts + 1, next_attempt_at = ?, last_error = ? WHERE id = ?`,
@@ -928,6 +982,19 @@ export class WorkStore {
     ).map(toAction);
     const last = rows[rows.length - 1]?.input;
     return last?.kind === 'theme.set' ? { themeId: last.themeId } : undefined;
+  }
+
+  /** Edits to these minutes not on the server yet, merged per field (undefined: none). */
+  async pendingMinutes(minutesId: string): Promise<MinutesPatch | undefined> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = ? AND state != 'failed' ORDER BY enqueued_at, rowid`,
+        [`minutes:${minutesId}`],
+      )
+    ).map(toAction);
+    let out: MinutesPatch | undefined;
+    for (const a of rows) if (a.input.kind === 'minutes.update') out = { ...out, ...a.input.patch };
+    return out;
   }
 
   /** Call background changes made on this device and not on the server yet, oldest first. */

@@ -89,6 +89,24 @@ are deleted after 30 days (1 to 365).
 | Minutes and export settings              | `tenant:updated` `minutes`          | Needs a connection (admin)     |
 | Downloads and exports                    | -                                   | Need a connection              |
 
+## Mobile
+
+The mobile app has the same minutes and export, offline first:
+
+- **Minutes.** Tap an ended call in the timeline, the shared minutes card, or **Details › Minutes
+  of meetings** (which also lists recent calls without minutes). People in the call make the draft
+  (pick the language), edit every field, share, regenerate and delete. Edits save when you leave
+  a box, show at once and are queued offline as `minutes.update` on target `minutes:<id>`. Edits
+  waiting together merge per field and go up once with the revision the first one started from,
+  so the server can spot a field someone else changed meanwhile (the app then says so and shows
+  their version). The minutes of each call and each conversation's list are kept on the phone for
+  offline reading, and `minutes:changed` refreshes them live.
+- **Download** as PDF or Word in any template, with or without the transcript, then save or send
+  it from the share sheet. **Export chat** (Details › Export chat) follows the organization's
+  export rule and offers PDF, Word or text for everything or the last 7, 30 or 90 days. Both need
+  a connection.
+- Transcript corrections, translation and checking on mobile are next.
+
 ## API
 
 | Endpoint                                             | Purpose                                              |

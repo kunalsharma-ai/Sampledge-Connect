@@ -1,5 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import type {
+  MinutesChangedEvent,
+  TranscriptChangedEvent,
   Ack,
   AckReceiptRequest,
   Call,
@@ -67,6 +69,10 @@ type RealtimeEvents = {
   searchRecent: { recent: string[] };
   /** Your booking pages or working hours changed (on any of your devices). */
   meetingsChanged: { area: MeetingsArea };
+  /** Minutes of a call in one of your conversations were made, edited, shared or deleted. */
+  minutes: MinutesChangedEvent;
+  /** A recording transcript was corrected, checked or translated. */
+  transcript: TranscriptChangedEvent;
 };
 
 /**
@@ -148,6 +154,8 @@ export class RealtimeClient {
     socket.on('search:recent', (e) => this.events.emit('searchRecent', e));
     socket.on('chat-theme:changed', (e) => this.events.emit('chatTheme', e));
     socket.on('meetings:changed', (e) => this.events.emit('meetingsChanged', e));
+    socket.on('minutes:changed', (e) => this.events.emit('minutes', e));
+    socket.on('transcript:changed', (e) => this.events.emit('transcript', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);
