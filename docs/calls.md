@@ -158,15 +158,19 @@ Your own preview is mirrored like a mirror, so text in the background reads back
 else sees it the right way round.
 
 On mobile, **More → Call background** shows the same choices: none, blur, the company background
-(drawn from Branding), your own image and the 24 prebuilt photos (their 320x180 thumbnails ship in
-the app). Picking one, uploading your image (shrunk on the phone to fit 1920x1080 as JPEG, under
-2 MB) and removing it are queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove` on
-one target, so they reach the server in the order you made them. The image waits in app storage
-until it is sent. The screen follows `meetings:changed {area: 'call_background'}` and
-`tenant:updated {area: 'calls' | 'branding'}` live. Owners and admins get **Manage** for the default
-and **Require the company background** (needs a connection). Applying a background to a phone's own
-camera is planned: native WebRTC has no segmentation yet, so a phone sends the camera as it is, and
-the screen says so.
+(drawn from Branding), your own backgrounds (up to 12, named after the photo), the organization's
+library and the 24 prebuilt photos (their 320x180 thumbnails ship in the app). Picking one,
+adding an image (shrunk on the phone to fit 1920x1080 as JPEG, under 2 MB) and removing one are
+queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove {imageId}` on one target, so
+they reach the server in the order you made them. An image added offline shows at once as
+"uploading" and waits in app storage; removing it before it is sent just forgets it. **How you
+look** (look, light and colour, touch-up, face shaping, Enhance, Reset) saves as
+`callbg.appearance` on its own target, latest wins, half a second after the last change. The screens
+follow `meetings:changed {area: 'call_background'}` and `tenant:updated {area: 'calls' | 'branding'}`
+live. Owners and admins get **Manage** for the default, **Add for everyone** and removing library
+images, and **Require the company background** (all need a connection). Applying a background or
+appearance to a phone's own camera is planned: native WebRTC has no segmentation yet, so a phone
+sends the camera as it is, and the screens say so.
 
 | Method | Path                                         | Who            | Notes                                                  |
 | ------ | -------------------------------------------- | -------------- | ------------------------------------------------------ |

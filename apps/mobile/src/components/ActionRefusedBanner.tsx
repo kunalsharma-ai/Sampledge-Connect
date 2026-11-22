@@ -40,6 +40,7 @@ const WHAT: Record<ActionKind, string> = {
   'callbg.set': 'Changing your call background',
   'callbg.image': 'Uploading your call background',
   'callbg.imageRemove': 'Removing your call background',
+  'callbg.appearance': 'Saving how you look on camera',
   'minutes.update': 'Saving the minutes',
   'transcript.update': 'Correcting the transcript',
 };

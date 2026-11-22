@@ -7,6 +7,7 @@ import {
 import type {
   ChatThemeId,
   ChatThemePolicy,
+  CallAppearance,
   CallBackgroundChoice,
   CallBackgroundState,
   AiTranscript,
@@ -123,7 +124,8 @@ async function setup() {
     transcriptLineRevs: [] as number[],
     callbg: {
       choice: null as CallBackgroundChoice | null,
-      imageKey: null as string | null,
+      images: [] as { imageId: string; name: string }[],
+      appearance: DEFAULT_CALL_APPEARANCE as CallAppearance,
       policy: { defaultChoice: { kind: 'none' }, enforceLogo: false } as Omit<
         CallBackgroundState['policy'],
         'canManage'
@@ -173,13 +175,19 @@ async function setup() {
     return {
       choice: b.choice,
       effective: b.policy.enforceLogo ? { kind: 'logo' } : (b.choice ?? b.policy.defaultChoice),
-      customImageUrl: b.imageKey
-        ? `https://connect.test/v1/call-backgrounds/t1/${b.imageKey}`
+      customImageUrl: b.images[0]
+        ? `https://connect.test/v1/call-backgrounds/t1/${b.images[0].imageId}`
         : null,
-      uploads: [],
+      uploads: b.images.map((x) => ({
+        imageId: x.imageId,
+        url: `https://connect.test/v1/call-backgrounds/t1/${x.imageId}`,
+        name: x.name,
+        owner: 'mine' as const,
+        createdAt: '2026-11-22T00:00:00.000Z',
+      })),
       policy: { ...b.policy, canManage: false },
       brand: { name: 'Acme', logo: null, primary: '#1f3a5f', secondary: '#c9a227' },
-      appearance: DEFAULT_CALL_APPEARANCE,
+      appearance: b.appearance,
     };
   };
   const api = {
@@ -333,22 +341,35 @@ async function setup() {
       return callbgState();
     },
     setCallBackground: async (choice: CallBackgroundChoice) => {
-      step(`setCallBackground ${choice.kind === 'preset' ? choice.presetId : choice.kind}`);
-      if (choice.kind === 'custom' && !server.callbg.imageKey)
-        throw new TransportError('Upload an image first', 'api', 'VALIDATION_FAILED');
+      step(
+        `setCallBackground ${choice.kind === 'preset' ? choice.presetId : choice.kind === 'upload' ? `upload ${choice.imageId}` : choice.kind}`,
+      );
+      if (
+        (choice.kind === 'custom' && !server.callbg.images.length) ||
+        (choice.kind === 'upload' &&
+          !server.callbg.images.some((x) => x.imageId === choice.imageId))
+      )
+        throw new TransportError('That background was removed', 'api', 'VALIDATION_FAILED');
       server.callbg.choice = choice;
       return callbgState();
     },
-    uploadCallBackground: async (localUri: string) => {
-      step(`uploadCallBackground ${localUri}`);
-      server.callbg.imageKey = `k${++server.seq}`;
-      server.callbg.choice = { kind: 'custom' };
+    uploadCallBackground: async (localUri: string, name?: string) => {
+      step(`uploadCallBackground ${localUri}${name ? ` ${name}` : ''}`);
+      const imageId = String(++server.seq).padStart(32, 'a');
+      server.callbg.images.unshift({ imageId, name: name ?? 'Background' });
+      server.callbg.choice = { kind: 'upload', imageId };
       return callbgState();
     },
-    removeCallBackgroundImage: async () => {
-      step('removeCallBackgroundImage');
-      if (server.callbg.choice?.kind === 'custom') server.callbg.choice = null;
-      server.callbg.imageKey = null;
+    removeCallBackgroundImage: async (imageId: string) => {
+      step(`removeCallBackgroundImage ${imageId}`);
+      const c = server.callbg.choice;
+      if (c?.kind === 'upload' && c.imageId === imageId) server.callbg.choice = null;
+      server.callbg.images = server.callbg.images.filter((x) => x.imageId !== imageId);
+      return callbgState();
+    },
+    setCallAppearance: async (a: CallAppearance) => {
+      step(`setCallAppearance ${a.filter} ${a.smoothing}`);
+      server.callbg.appearance = a;
       return callbgState();
     },
     getRecentSearches: async () => {
@@ -1255,18 +1276,23 @@ describe('chat theme offline and across devices', () => {
 });
 
 describe('call background offline and across devices', () => {
-  it('queues picks and an image offline, sends them in order, and follows other devices', async () => {
+  it('queues picks and images offline, sends them in order, and follows other devices', async () => {
     const t = await setup();
     await t.online();
     expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' });
     t.engine.setNetworkUp(false);
     await t.engine.setCallBackground({ kind: 'blur' });
     await t.engine.setCallBackground({ kind: 'preset', presetId: 'library-study' });
-    await t.engine.setCallBackgroundImage('file:///bg-1.jpg');
-    // The image shows straight away, from this phone.
+    await t.engine.addCallBackgroundImage('file:///bg-1.jpg', 'Desk');
+    await t.engine.addCallBackgroundImage('file:///bg-2.jpg');
+    // Both images show straight away, from this phone; the newest is selected.
     let s = await t.engine.getCallBackground();
-    expect(s.effective).toEqual({ kind: 'custom' });
-    expect(s.customImageUrl).toBe('file:///bg-1.jpg');
+    expect(s.uploads.map((u) => u.url)).toEqual(['file:///bg-2.jpg', 'file:///bg-1.jpg']);
+    expect(s.effective).toEqual({ kind: 'upload', imageId: 'local:file:///bg-2.jpg' });
+    // Removing one that hasn't uploaded just forgets it.
+    await t.engine.removeCallBackgroundImage('local:file:///bg-2.jpg');
+    s = await t.engine.getCallBackground();
+    expect(s.uploads.map((u) => u.url)).toEqual(['file:///bg-1.jpg']);
     // Picked after the upload: it goes after it, so the server ends up on Boardroom.
     await t.engine.setCallBackground({ kind: 'preset', presetId: 'boardroom' });
     expect((await t.engine.getCallBackground()).effective).toEqual({
@@ -1275,32 +1301,36 @@ describe('call background offline and across devices', () => {
     });
     await t.online();
     expect(t.calls.filter((c) => /CallBackground/.test(c) && !c.startsWith('list'))).toEqual([
-      'uploadCallBackground file:///bg-1.jpg',
+      'uploadCallBackground file:///bg-1.jpg Desk',
       'setCallBackground boardroom',
     ]);
     s = await t.engine.getCallBackground();
-    expect(s.customImageUrl).toMatch(/^https:\/\/connect.test\/v1\/call-backgrounds\//);
+    expect(s.uploads).toHaveLength(1);
+    expect(s.uploads[0]!.url).toMatch(/^https:\/\/connect.test\/v1\/call-backgrounds\//);
     // Another device goes back to the image: this phone follows live.
     const seen: string[] = [];
     t.engine.events.on('callBackground', (x) => seen.push(x.effective.kind));
-    t.server.callbg.choice = { kind: 'custom' };
+    t.server.callbg.choice = { kind: 'upload', imageId: s.uploads[0]!.imageId };
     t.rt.events.emit('meetingsChanged', { area: 'call_background' });
     await new Promise((r) => setTimeout(r, 20));
-    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'custom' });
-    expect(seen).toContain('custom');
+    expect((await t.engine.getCallBackground()).effective.kind).toBe('upload');
+    expect(seen).toContain('upload');
   });
 
   it('removing the image in use falls back to the default, and the company rule wins', async () => {
     const t = await setup();
     await t.online();
-    await t.engine.setCallBackgroundImage('file:///bg-2.jpg');
+    await t.engine.addCallBackgroundImage('file:///bg-2.jpg');
     await t.online();
+    const imageId = (await t.engine.getCallBackground()).uploads[0]!.imageId;
     t.server.callbg.policy = { defaultChoice: { kind: 'blur' }, enforceLogo: false };
     t.engine.setNetworkUp(false);
-    await t.engine.removeCallBackgroundImage();
-    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' }); // cached rule
-    await t.online();
+    await t.engine.removeCallBackgroundImage(imageId);
     let s = await t.engine.getCallBackground();
+    expect(s.uploads).toEqual([]);
+    expect(s.effective).toEqual({ kind: 'none' }); // cached rule
+    await t.online();
+    s = await t.engine.getCallBackground();
     expect(s.choice).toBeNull();
     expect(s.customImageUrl).toBeNull();
     expect(s.effective).toEqual({ kind: 'blur' });
@@ -1312,6 +1342,25 @@ describe('call background offline and across devices', () => {
     // A pick made while the rule holds is kept as your choice but the company background applies.
     await t.engine.setCallBackground({ kind: 'preset', presetId: 'office-lounge' });
     expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'logo' });
+  });
+
+  it('appearance saves offline, the latest wins, and it follows you', async () => {
+    const t = await setup();
+    await t.online();
+    t.engine.setNetworkUp(false);
+    await t.engine.setCallAppearance({ ...DEFAULT_CALL_APPEARANCE, filter: 'warm' });
+    await t.engine.setCallAppearance({ ...DEFAULT_CALL_APPEARANCE, filter: 'warm', smoothing: 45 });
+    expect((await t.engine.getCallBackground()).appearance.smoothing).toBe(45);
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('setCallAppearance'))).toEqual([
+      'setCallAppearance warm 45',
+    ]);
+    expect(t.server.callbg.appearance.filter).toBe('warm');
+    // Changed on another device.
+    t.server.callbg.appearance = { ...DEFAULT_CALL_APPEARANCE, filter: 'mono' };
+    t.rt.events.emit('meetingsChanged', { area: 'call_background' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getCallBackground()).appearance.filter).toBe('mono');
   });
 });
 

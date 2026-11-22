@@ -4,8 +4,10 @@ import {
   UNKNOWN_CALL_BACKGROUND,
   callBackgroundLabel,
   fitCallBackground,
+  isLocalUpload,
   sameChoice,
   shade,
+  uploadUrl,
   withPendingCallBackground,
 } from './callBackground';
 
@@ -20,18 +22,58 @@ describe('call background on the phone', () => {
   it('lays unsent changes over the server copy in order', () => {
     const s = withPendingCallBackground(base, [
       { kind: 'callbg.set', choice: { kind: 'blur' } },
-      { kind: 'callbg.image', localUri: 'file:///x.jpg' },
+      { kind: 'callbg.image', localUri: 'file:///x.jpg', name: 'Desk' },
     ]);
-    expect(s.choice).toEqual({ kind: 'custom' });
-    expect(s.customImageUrl).toBe('file:///x.jpg');
-    const r = withPendingCallBackground(s, [{ kind: 'callbg.imageRemove' }]);
+    expect(s.choice).toEqual({ kind: 'upload', imageId: 'local:file:///x.jpg' });
+    expect(s.uploads.map((u) => [u.url, u.name, u.owner])).toEqual([
+      ['file:///x.jpg', 'Desk', 'mine'],
+    ]);
+    expect(uploadUrl(s, s.effective)).toBe('file:///x.jpg');
+    const r = withPendingCallBackground(s, [
+      { kind: 'callbg.imageRemove', imageId: 'local:file:///x.jpg' },
+    ]);
     expect(r.choice).toBeNull();
+    expect(r.uploads).toEqual([]);
     expect(r.customImageUrl).toBeNull();
     expect(r.effective).toEqual({ kind: 'none' });
-    // Picking "your image" with none left does nothing, as the server would refuse it.
+    // Picking an image that is gone does nothing, as the server would refuse it.
+    expect(
+      withPendingCallBackground(r, [
+        { kind: 'callbg.set', choice: { kind: 'upload', imageId: 'a'.repeat(32) } },
+      ]).choice,
+    ).toBeNull();
     expect(
       withPendingCallBackground(r, [{ kind: 'callbg.set', choice: { kind: 'custom' } }]).choice,
     ).toBeNull();
+  });
+
+  it('keeps the organization library first and overlays the appearance', () => {
+    const org = {
+      ...base,
+      uploads: [
+        {
+          imageId: 'b'.repeat(32),
+          url: 'https://x/org.jpg',
+          name: 'HQ',
+          owner: 'organization' as const,
+          createdAt: '2026-11-01T00:00:00.000Z',
+        },
+      ],
+    };
+    const s = withPendingCallBackground(
+      org,
+      [{ kind: 'callbg.image', localUri: 'file:///y.jpg' }],
+      { ...base.appearance, filter: 'warm' },
+    );
+    expect(s.uploads.map((u) => u.owner)).toEqual(['organization', 'mine']);
+    expect(s.appearance.filter).toBe('warm');
+    expect(isLocalUpload(s.uploads[1]!.imageId)).toBe(true);
+    expect(
+      sameChoice(
+        { kind: 'upload', imageId: 'b'.repeat(32) },
+        { kind: 'upload', imageId: 'c'.repeat(32) },
+      ),
+    ).toBe(false);
   });
 
   it('the company rule wins over any pick', () => {

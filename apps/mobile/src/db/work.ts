@@ -20,6 +20,7 @@ import {
   type DndSchedule,
   type WorkingHours,
   type ChatThemeId,
+  type CallAppearance,
   type CallBackgroundChoice,
   type MinutesEditableField,
   type MeetingMinutes,
@@ -76,9 +77,12 @@ export type ActionInput =
   | { kind: 'theme.set'; themeId: ChatThemeId | null }
   /** Your background in calls (the latest wins). */
   | { kind: 'callbg.set'; choice: CallBackgroundChoice }
-  /** Your own call background: a JPEG kept in app storage until it reaches the server. */
-  | { kind: 'callbg.image'; localUri: string }
-  | { kind: 'callbg.imageRemove' }
+  /** One of your own call backgrounds: a JPEG kept in app storage until it reaches the server. */
+  | { kind: 'callbg.image'; localUri: string; name?: string }
+  /** Removes one of your backgrounds (no `imageId`: the older "most recent image" form). */
+  | { kind: 'callbg.imageRemove'; imageId?: string }
+  /** How you look on camera (the latest wins). */
+  | { kind: 'callbg.appearance'; appearance: CallAppearance }
   /**
    * Edits to minutes of meeting, merged per field while waiting. `baseRevision` is the revision
    * the first edit started from, so the server can tell a field someone else changed meanwhile.
@@ -237,6 +241,8 @@ const targetOf = (a: ActionInput): string => {
       return 'hours:me';
     case 'theme.set':
       return 'my-chat-theme';
+    case 'callbg.appearance':
+      return 'callappearance:me';
     case 'callbg.set':
     case 'callbg.image':
     case 'callbg.imageRemove':
@@ -546,9 +552,32 @@ export class WorkStore {
           await insert(input);
           break;
         case 'callbg.image':
+          // The upload selects the image, so picks still waiting before it no longer matter.
+          // Earlier uploads stay: each adds a background.
+          await drop(
+            waiting
+              .filter((a) => a.state === 'pending' && a.input.kind === 'callbg.set')
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
         case 'callbg.imageRemove':
-          // A new image (or removing it) makes waiting uploads and picks pointless: the upload
-          // selects the image, and removing it falls back to the default.
+          // Picks of that image still waiting no longer matter.
+          await drop(
+            waiting
+              .filter(
+                (a) =>
+                  a.state === 'pending' &&
+                  a.input.kind === 'callbg.set' &&
+                  (input.imageId
+                    ? a.input.choice.kind === 'upload' && a.input.choice.imageId === input.imageId
+                    : a.input.choice.kind === 'custom'),
+              )
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
+        case 'callbg.appearance':
           await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
           await insert(input);
           break;
@@ -1059,8 +1088,38 @@ export class WorkStore {
     return out;
   }
 
+  /**
+   * Forgets an image picked on this phone that hasn't started uploading. False when it is
+   * already on its way (remove it once it has arrived).
+   */
+  async dropPendingCallBackgroundImage(localUri: string): Promise<boolean> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callbg:me' AND state = 'pending' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const hit = rows.find((a) => a.input.kind === 'callbg.image' && a.input.localUri === localUri);
+    if (!hit) return false;
+    await this.db.run(`DELETE FROM actions WHERE id = ?`, [hit.id]);
+    this.events.emit('changed', { kind: 'profile' });
+    return true;
+  }
+
+  /** How you look on camera, changed on this device and not on the server yet. */
+  async pendingCallAppearance(): Promise<CallAppearance | null> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callappearance:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'callbg.appearance' ? last.appearance : null;
+  }
+
   /** Call background changes made on this device and not on the server yet, oldest first. */
-  async pendingCallBackground(): Promise<Extract<ActionInput, { kind: `callbg.${string}` }>[]> {
+  async pendingCallBackground(): Promise<
+    Extract<ActionInput, { kind: 'callbg.set' | 'callbg.image' | 'callbg.imageRemove' }>[]
+  > {
     const rows = (
       await this.db.all<ActionRow>(
         `SELECT * FROM actions WHERE target = 'callbg:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,

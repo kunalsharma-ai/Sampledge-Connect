@@ -34,7 +34,7 @@ describe('action queue', () => {
     const work = new WorkStore(db, 'u1');
     await work.enqueue({ kind: 'callbg.set', choice: { kind: 'blur' } });
     const picked = await work.next();
-    await work.enqueue({ kind: 'callbg.imageRemove' });
+    await work.enqueue({ kind: 'callbg.image', localUri: 'file:///x.jpg' }); // drops waiting picks
     expect(await work.claim(picked!.id)).toBeUndefined();
   });
 });

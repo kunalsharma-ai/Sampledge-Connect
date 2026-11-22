@@ -11,7 +11,7 @@ import Svg, {
   Stop,
   SvgXml,
 } from 'react-native-svg';
-import { shade } from '../lib/callBackground';
+import { shade, uploadUrl } from '../lib/callBackground';
 import { PRESET_THUMBS } from '../lib/callBackgroundThumbs';
 import { alpha } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
@@ -29,7 +29,7 @@ export function CallBackgroundPreview({
   testID,
 }: {
   choice: CallBackgroundChoice;
-  state: Pick<CallBackgroundState, 'brand' | 'customImageUrl'>;
+  state: Pick<CallBackgroundState, 'brand' | 'customImageUrl' | 'uploads'>;
   person?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -45,12 +45,15 @@ export function CallBackgroundPreview({
       );
       break;
     case 'custom':
-      body = state.customImageUrl ? (
-        <Image source={{ uri: state.customImageUrl }} style={styles.fill} resizeMode="cover" />
+    case 'upload': {
+      const url = uploadUrl(state, choice);
+      body = url ? (
+        <Image source={{ uri: url }} style={styles.fill} resizeMode="cover" />
       ) : (
         <Placeholder icon="image-outline" />
       );
       break;
+    }
     case 'logo':
       body = <CompanyBackground brand={state.brand} width={w} />;
       break;
