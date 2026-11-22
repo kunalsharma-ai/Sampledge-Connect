@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { useTenantChange } from '@/lib/engine';
 import {
   Activity,
   Copy,
@@ -74,6 +75,8 @@ export function ChannelsPanel({
   React.useEffect(() => {
     if (online) void load();
   }, [load, online]);
+  // Another admin (or this admin on another device) changed a channel.
+  useTenantChange('inbox', () => void load());
 
   const act = async (fn: () => Promise<unknown>, title: string) => {
     try {

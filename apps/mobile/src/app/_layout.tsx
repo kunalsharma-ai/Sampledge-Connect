@@ -142,6 +142,10 @@ function RootStack() {
             options={{ title: 'Log a conversation', presentation: 'modal' }}
           />
           <Stack.Screen name="inbox/dashboard" options={{ title: 'Inbox dashboard' }} />
+          <Stack.Screen name="inbox/settings" options={{ title: 'Inbox settings' }} />
+          <Stack.Screen name="inbox/channels/index" options={{ title: 'Channels' }} />
+          <Stack.Screen name="inbox/channels/add" options={{ title: 'Add channel' }} />
+          <Stack.Screen name="inbox/channels/[id]" options={{ title: 'Channel' }} />
           <Stack.Screen name="assistant" options={{ title: 'AI Assistant' }} />
           <Stack.Screen name="summary/[id]" options={{ title: 'Summary' }} />
           <Stack.Screen name="task/[id]" options={{ title: 'Task' }} />

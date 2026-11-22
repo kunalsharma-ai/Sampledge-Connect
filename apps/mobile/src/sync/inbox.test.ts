@@ -4,7 +4,9 @@ import type {
   InboxConversationDetail,
   InboxList,
   InboxMessage,
+  InboxSettings,
 } from '@sampledge/contracts';
+import { DEFAULT_INBOX_SETTINGS } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
 import { migrate } from '../db/migrations';
 import { LocalStore } from '../db/store';
@@ -84,6 +86,8 @@ async function setup() {
   let down = true;
   let refuseReplies = false;
   const server = {
+    settings: { ...DEFAULT_INBOX_SETTINGS } as InboxSettings,
+    channels: [{ connectorId: 'k1', name: 'Telegram support', status: 'active' }],
     c: conv(),
     timeline: [{ type: 'message', message: inbound('Hi!') }] as InboxConversationDetail['timeline'],
   };
@@ -121,6 +125,12 @@ async function setup() {
       return l;
     }
     if (method === 'GET' && path === '/v1/inbox/conversations/x1') return detail();
+    if (method === 'GET' && path === '/v1/inbox/settings') return server.settings;
+    if (method === 'PUT' && path === '/v1/inbox/settings') {
+      server.settings = body as unknown as InboxSettings;
+      return server.settings;
+    }
+    if (method === 'GET' && path === '/v1/connectors') return server.channels;
     if (method === 'POST' && path.endsWith('/replies')) {
       if (refuseReplies) throw new TransportError('This channel is paused', 'api', 'CONFLICT');
       server.timeline = [
@@ -301,6 +311,48 @@ describe('Client Inbox on mobile', () => {
     const l = await t.engine.inboxCached<InboxList>(listPath);
     expect(l!.items[0]!.subject).toBe('Changed by Marco');
     expect(seen).toContain('x1');
+  });
+});
+
+describe('Inbox settings and channels on mobile', () => {
+  it('saves settings offline, shows the latest save at once and sends only that on reconnect', async () => {
+    const t = await setup();
+    await t.online();
+    await t.engine.inboxLoad('/v1/inbox/settings');
+    t.offline();
+    const first = { ...t.server.settings, autoAssign: true };
+    await t.engine.saveInboxSettings(first);
+    const second = { ...first, sla: { ...first.sla, urgent: 15 }, dueSoonRatio: 0.5 };
+    await t.engine.saveInboxSettings(second);
+    // This phone shows the latest save before anything is sent.
+    expect(await t.engine.inboxSettings()).toEqual(second);
+    expect(t.server.settings.autoAssign).toBe(DEFAULT_INBOX_SETTINGS.autoAssign);
+
+    t.calls.length = 0;
+    await t.online();
+    const puts = t.calls.filter((c) => c.startsWith('PUT /v1/inbox/settings'));
+    expect(puts).toHaveLength(1);
+    expect(t.server.settings).toEqual(second);
+    // Nothing waits any more; the cached server copy is the saved one.
+    expect(await t.engine.inboxCached<InboxSettings>('/v1/inbox/settings')).toEqual(second);
+    expect(await t.engine.inboxSettings()).toEqual(second);
+  });
+
+  it('re-reads channels and settings when another admin changes them', async () => {
+    const t = await setup();
+    await t.online();
+    await t.engine.inboxLoad('/v1/connectors');
+    await t.engine.inboxLoad('/v1/inbox/settings');
+    t.server.channels = [{ connectorId: 'k1', name: 'Telegram support', status: 'paused' }];
+    t.server.settings = { ...t.server.settings, autoEscalateOnBreach: true };
+    const seen: (string | null)[] = [];
+    t.engine.events.on('inbox', (e) => seen.push(e.conversationId));
+    t.rt.events.emit('tenant' as never, { area: 'inbox' } as never);
+    await new Promise((r) => setTimeout(r, 20));
+    const ch = await t.engine.inboxCached<{ status: string }[]>('/v1/connectors');
+    expect(ch![0]!.status).toBe('paused');
+    expect((await t.engine.inboxSettings())!.autoEscalateOnBreach).toBe(true);
+    expect(seen).toContain(null);
   });
 });
 

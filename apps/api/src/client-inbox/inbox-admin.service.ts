@@ -22,6 +22,7 @@ import { newId, TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
 import { InboxAccess } from './inbox-events.js';
 import { settingsOf, toClient } from './mappers.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const toTemplate = (t: InboxTemplateDoc): InboxTemplate => ({
   templateId: t._id,
@@ -46,7 +47,13 @@ export class InboxAdminService {
     private readonly db: TenantDb,
     private readonly access: InboxAccess,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimePublisher,
   ) {}
+
+  /** Templates and settings changed: every device re-reads them (`tenant:updated` inbox). */
+  private changed(tenantId: string) {
+    this.realtime.toTenant(tenantId, 'tenant:updated', { area: 'inbox' });
+  }
 
   private supervise(ctx: TenantContext) {
     if (!tenantCan(ctx.role, 'inbox.supervise'))
@@ -177,14 +184,17 @@ export class InboxAdminService {
     const req = parse(UpsertTemplateRequestSchema, input);
     const t = this.db.for(ctx.tenantId);
     try {
-      if (!id)
-        return toTemplate(
+      if (!id) {
+        const created = toTemplate(
           await t.inbox_templates.insertOne({
             ...req,
             createdBy: ctx.userId,
             updatedAt: new Date(),
           }),
         );
+        this.changed(ctx.tenantId);
+        return created;
+      }
       const cur = await t.inbox_templates.findOne({ _id: id });
       if (!cur) throw notFound('Template');
       if (cur.createdBy !== ctx.userId && !tenantCan(ctx.role, 'inbox.supervise'))
@@ -194,6 +204,7 @@ export class InboxAdminService {
         { $set: { ...req, updatedAt: new Date() } },
         { returnDocument: 'after' },
       );
+      this.changed(ctx.tenantId);
       return toTemplate(doc!);
     } catch (e) {
       if (e instanceof MongoServerError && e.code === 11000)
@@ -209,6 +220,7 @@ export class InboxAdminService {
     if (!cur) throw notFound('Template');
     if (cur.createdBy !== ctx.userId && !tenantCan(ctx.role, 'inbox.supervise')) throw forbidden();
     await t.inbox_templates.deleteMany({ _id: id });
+    this.changed(ctx.tenantId);
     return { deleted: true as const };
   }
 
@@ -251,6 +263,7 @@ export class InboxAdminService {
       actorId: ctx.userId,
       action: 'inbox.settings_updated',
     });
+    this.changed(ctx.tenantId);
     return settingsOf({ ...value, _id: '', tenantId: ctx.tenantId });
   }
 

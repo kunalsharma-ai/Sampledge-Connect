@@ -93,6 +93,15 @@ export default function Inbox() {
               <Ionicons name="stats-chart-outline" size={19} color={c.accent} />
             </Pressable>
           ) : null}
+          <Pressable
+            onPress={() => router.push('/inbox/settings')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Inbox settings"
+            style={[styles.iconBtn, { backgroundColor: c.surfaceRaised }]}
+          >
+            <Ionicons name="settings-outline" size={19} color={c.accent} />
+          </Pressable>
           {handoff ? (
             <Pressable
               onPress={() => router.push('/inbox/new')}

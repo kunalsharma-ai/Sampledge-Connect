@@ -25,6 +25,7 @@ import {
   type MinutesEditableField,
   type MeetingMinutes,
   type UpdateInboxConversationRequest,
+  type InboxSettings,
 } from '@sampledge/contracts';
 import type { PendingInbox, PendingInboxPost } from '../lib/inbox';
 import { Emitter } from '../lib/emitter';
@@ -142,7 +143,9 @@ export type ActionInput =
     }
   | { kind: 'inbox.note'; inboxId: string; clientNoteId: string; text: string; mentions: string[] }
   | { kind: 'inbox.update'; inboxId: string; patch: UpdateInboxConversationRequest }
-  | { kind: 'inbox.read'; inboxId: string };
+  | { kind: 'inbox.read'; inboxId: string }
+  /** Inbox settings (SLA, teams, escalation), replaced as a whole: the latest wins. */
+  | { kind: 'inbox.settings'; settings: InboxSettings };
 
 export interface TranscriptPatch {
   /** Corrected lines by index. */
@@ -301,6 +304,8 @@ const targetOf = (a: ActionInput): string => {
       return `inbox:${a.inboxId}|update`;
     case 'inbox.read':
       return `inbox:${a.inboxId}|read`;
+    case 'inbox.settings':
+      return 'inbox:settings';
   }
 };
 
@@ -576,6 +581,7 @@ export class WorkStore {
           break;
         }
         case 'search.recent':
+        case 'inbox.settings':
         case 'status.set':
         case 'dnd.set':
         case 'hours.set':
@@ -1214,6 +1220,17 @@ export class WorkStore {
       else if (i.kind === 'inbox.read' && a.state !== 'failed') reads.add(i.inboxId);
     }
     return { posts, updates, reads };
+  }
+
+  /** Inbox settings saved here and not on the server yet (null: none). */
+  async pendingInboxSettings(): Promise<InboxSettings | null> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'inbox:settings' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    const last = rows[rows.length - 1]?.input;
+    return last?.kind === 'inbox.settings' ? last.settings : null;
   }
 
   /** Send again an action the server refused (a reply or note in the Client Inbox). */
