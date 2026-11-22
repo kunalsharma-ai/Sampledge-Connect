@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { MyNetworkProfile, NetworkPerson, Relationship } from '@sampledge/contracts';
+import type {
+  Community,
+  CommunityMember,
+  MyNetworkProfile,
+  NetworkPerson,
+  Relationship,
+} from '@sampledge/contracts';
 import {
+  localCommunityById,
   pendingFor,
+  pendingInvites,
+  withPendingCommunities,
+  withPendingCommunity,
+  withPendingLinks,
+  withPendingMembers,
   personLine,
   timeLeft,
   withPendingConnections,
@@ -222,5 +234,132 @@ describe('SampConnect Network on the phone', () => {
       me,
     );
     expect(posted.mine.map((s) => s.statusId)).toEqual(['srv']);
+  });
+});
+
+const community = (over: Partial<Community> = {}): Community => ({
+  communityId: 'c1',
+  slug: 'mr-leaders',
+  name: 'MR Leaders',
+  description: '',
+  rules: '',
+  visibility: 'public',
+  joinPolicy: 'open',
+  memberCount: 3,
+  followerCount: 0,
+  avatarColor: '#123456',
+  createdAt: '2026-11-01T00:00:00.000Z',
+  myRole: null,
+  myStatus: null,
+  following: false,
+  groups: [],
+  publicUrl: null,
+  ...over,
+});
+
+describe('communities offline', () => {
+  const base = '/v1/network/communities/c1';
+  it('joins at once, or asks when approval is needed, and follows', () => {
+    const j = withPendingCommunity(community(), [
+      act('POST', `${base}/join`),
+      act('PUT', '/v1/network/follows/community/c1'),
+    ]);
+    expect(j).toMatchObject({
+      myStatus: 'member',
+      myRole: 'member',
+      memberCount: 4,
+      following: true,
+    });
+    const ask = withPendingCommunity(community({ joinPolicy: 'approval' }), [
+      act('POST', `${base}/join`),
+    ]);
+    expect(ask.myStatus).toBe('pending');
+    const invited = withPendingCommunity(
+      community({ joinPolicy: 'approval', myStatus: 'invited' }),
+      [act('POST', `${base}/join`)],
+    );
+    expect(invited.myStatus).toBe('member');
+  });
+
+  it('leaves, edits settings, and adds or joins groups', () => {
+    const g = {
+      conversationId: 'g1',
+      name: 'General',
+      topic: '',
+      kind: 'group' as const,
+      access: 'open' as const,
+      announcementsOnly: false,
+      memberCount: 2,
+      joined: false,
+    };
+    const mine = community({ myStatus: 'member', myRole: 'admin', groups: [g] });
+    const c = withPendingCommunity(mine, [
+      act('PATCH', base, { clientActionId: 'a', name: 'Leaders', joinPolicy: 'approval' }),
+      act('POST', `${base}/groups/g1/join`),
+      act('POST', `${base}/groups`, { clientActionId: 'n1', name: 'Panels', access: 'private' }),
+    ]);
+    expect(c.name).toBe('Leaders');
+    expect(c.joinPolicy).toBe('approval');
+    expect(c.groups[0]).toMatchObject({ joined: true, memberCount: 3 });
+    expect(c.groups[1]).toMatchObject({
+      conversationId: 'local:n1',
+      name: 'Panels',
+      access: 'private',
+    });
+    const left = withPendingCommunities([mine], [act('POST', `${base}/leave`)]);
+    expect(left).toEqual([]);
+  });
+
+  it('shows a community made offline first, and can open it', () => {
+    const p = [
+      act('POST', '/v1/network/communities', { clientActionId: 'x1', name: 'Panel partners' }),
+    ];
+    const list = withPendingCommunities([community({ myStatus: 'member' })], p);
+    expect(list.map((c) => c.communityId)).toEqual(['local:x1', 'c1']);
+    expect(localCommunityById('local:x1', p)).toMatchObject({
+      myRole: 'owner',
+      name: 'Panel partners',
+    });
+  });
+
+  it('approves, denies, changes roles, removes, bans and unbans members', () => {
+    const m = (id: string, status: CommunityMember['status'] = 'active'): CommunityMember => ({
+      person: person(id),
+      role: 'member',
+      status,
+      joinedAt: '2026-11-01T00:00:00.000Z',
+    });
+    const out = withPendingMembers(
+      'c1',
+      [m('a', 'pending'), m('b', 'pending'), m('c'), m('d'), m('e'), m('f', 'banned')],
+      [
+        act('POST', `${base}/members/a/approve`),
+        act('POST', `${base}/members/b/deny`),
+        act('PUT', `${base}/members/c/role`, { role: 'moderator' }),
+        act('DELETE', `${base}/members/d`),
+        act('DELETE', `${base}/members/e?ban=true`),
+        act('DELETE', `${base}/bans/f`),
+      ],
+    );
+    expect(out.map((x) => [x.person.userId, x.status, x.role])).toEqual([
+      ['a', 'active', 'member'],
+      ['c', 'active', 'moderator'],
+      ['e', 'banned', 'member'],
+    ]);
+  });
+
+  it('shows new links as queued, revokes, and remembers invites', () => {
+    const links = withPendingLinks(
+      'c1',
+      [{ linkId: 'l1', url: 'u', expiresAt: null, maxUses: null, uses: 0, revoked: false }],
+      [act('POST', `${base}/links`, { clientActionId: 'k' }), act('DELETE', `${base}/links/l1`)],
+    );
+    expect(links.map((l) => [l.linkId, l.revoked, !!l.queued])).toEqual([
+      ['local:k', false, true],
+      ['l1', true, false],
+    ]);
+    expect([
+      ...pendingInvites('c1', [act('POST', `${base}/invite`, { userIds: ['u1', 'u2'] })]),
+    ]).toEqual(['u1', 'u2']);
   });
 });

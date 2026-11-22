@@ -66,14 +66,20 @@ Every network action is idempotent and synced everywhere:
   tab takes the place of the Client Inbox (Find, Requests, Connections, Followers), and a person's
   page has Connect (with a circle and a note), Accept / Decline / Withdraw, Message, Follow,
   Move between circles, Remove, Block and Report. _More_ has Invite (link, email or text from your
-  own phone), Network profile and privacy, and Blocked people. Communities are marked Planned on
-  the phone.
+  own phone), Network profile and privacy, and Blocked people.
 - **Status updates.** Home has a status strip: your own status, then each person with new ones.
   _New status_ posts text on a colour, or a photo or video with a caption, to an audience with an
   expiry and a replies switch. The viewer goes through a person's statuses with progress bars,
   records your view, and sends replies to their chat. On your own you see _Seen by_ (the viewers
   list) and _Delete_. A status made offline, photo or video included, shows at once with a
   _Queued_ tag; the file is kept on the phone, uploaded first on reconnect, then posted.
+- **Communities.** Home lists yours, and _Communities_ (Home or More) has _My communities_ and
+  _Discover_ (search public ones). A community's page has Join, Ask to join or Accept invitation,
+  Follow, the public link, and Leave. Members see Groups (open a group as a chat, join open ones,
+  and moderators add groups), Members (approve or deny people asking, change roles, remove, ban
+  and unban), Invite (your connections, and invite links to share or revoke) and, for admins,
+  Settings (name, description, rules, public and approval). A community or group made offline
+  shows at once with a _Queued_ tag and is created on reconnect.
 - **Offline and sync.** Every list is cached by path and shown offline. Every change goes through
   the phone's action queue as one ordered `net.act` (with the same `clientActionId` bodies as the
   web), shows at once with a _Queued_ tag, and is sent on reconnect. A refused change is dropped and
@@ -130,4 +136,3 @@ Types and schemas are in `packages/contracts/src/network.ts`.
 - Sending SMS invites through an SMS provider (today the phone's own SMS app sends the link)
 - A moderation console for reports (reports are stored and audited, but there is no review screen yet)
 - Presence for people other than your connections, and group chats outside communities
-- Communities on mobile
