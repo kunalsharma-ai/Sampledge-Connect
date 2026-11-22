@@ -1,5 +1,6 @@
 import {
   CALL_BACKGROUND_PRESETS,
+  DEFAULT_CALL_APPEARANCE,
   type CallBackgroundChoice,
   type CallBackgroundPolicy,
   type CallBackgroundPresetId,
@@ -55,8 +56,10 @@ export const UNKNOWN_CALL_BACKGROUND: CallBackgroundState = {
   choice: null,
   effective: { kind: 'none' },
   customImageUrl: null,
+  uploads: [],
   policy: { defaultChoice: { kind: 'none' }, enforceLogo: false, canManage: false },
   brand: { name: '', logo: null, primary: '#1f3a5f', secondary: '#c9a227' },
+  appearance: DEFAULT_CALL_APPEARANCE,
 };
 
 const PRESET_NAMES = new Map<string, string>(CALL_BACKGROUND_PRESETS.map((p) => [p.id, p.name]));
@@ -71,6 +74,8 @@ export function callBackgroundLabel(c: CallBackgroundChoice): string {
       return 'Company background';
     case 'custom':
       return 'Your image';
+    case 'upload':
+      return 'Uploaded background';
     case 'preset':
       return PRESET_NAMES.get(c.presetId) ?? 'Background';
   }
