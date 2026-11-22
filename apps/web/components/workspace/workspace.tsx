@@ -50,6 +50,7 @@ import {
 import { overlayMessage, type LocalMessage } from '@sampledge/offline';
 import { DeleteMessageDialog, EditHistoryDialog, EditMessageDialog } from './message-edit';
 import { useMessageEditing } from '@/lib/message-editing';
+import { EditConversationDialog } from './edit-dialogs';
 import { editBlockedReason } from '@sampledge/contracts';
 import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
@@ -254,6 +255,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
   }, [rawMessages, pendingMessageActions, me]);
   const [editing, setEditing] = React.useState<LocalMessage | null>(null);
   const [historyOf, setHistoryOf] = React.useState<string | null>(null);
+  const [editingConversation, setEditingConversation] = React.useState<Conversation | null>(null);
   const editRules = useMessageEditing();
   const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
   const [forwarding, setForwarding] = React.useState<LocalMessage | null>(null);
@@ -1084,6 +1086,13 @@ function WorkspaceInner({ network }: { network: boolean }) {
                       presence={engine.presence}
                       onClose={() => setPanelOpen(false)}
                       canManage={canModerate && !offline && !active.archivedAt}
+                      onEdit={
+                        (active.myRole === 'owner' || active.myRole === 'moderator') &&
+                        !active.archivedAt &&
+                        active.kind !== 'dm'
+                          ? () => setEditingConversation(active)
+                          : undefined
+                      }
                       onSetPostingPolicy={(policy) =>
                         void pollsApi
                           .setPostingPolicy(getAccessToken, active.conversationId, policy)
@@ -1231,6 +1240,10 @@ function WorkspaceInner({ network }: { network: boolean }) {
             policy={editRules.policy}
             onOpenChange={(o) => !o && setEditing(null)}
             onSave={editMessage}
+          />
+          <EditConversationDialog
+            conversation={editingConversation}
+            onOpenChange={(o) => !o && setEditingConversation(null)}
           />
           <EditHistoryDialog
             messageId={historyOf}

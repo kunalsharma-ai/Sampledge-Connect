@@ -30,7 +30,7 @@ export interface WorkSource {
   prefill?: { assigneeIds?: string[]; dueDate?: string | null; description?: string };
 }
 
-function candidatesFor(conv: Conversation | null, directory: Map<string, DirectoryEntry>) {
+export function candidatesFor(conv: Conversation | null, directory: Map<string, DirectoryEntry>) {
   // Public channels: anyone can be assigned (they can read it). Otherwise members only.
   if (!conv || conv.kind === 'channel_public') return [...directory.keys()];
   return conv.memberIds;

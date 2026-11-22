@@ -34,9 +34,17 @@ export function MessageEditingAdmin() {
     setSaving(true);
     try {
       await savePolicy(draft);
-      toast({ title: 'Message rules saved', description: 'Everyone’s apps update now.', tone: 'success' });
+      toast({
+        title: 'Message rules saved',
+        description: 'Everyone’s apps update now.',
+        tone: 'success',
+      });
     } catch (e) {
-      toast({ title: 'Couldn’t save the rules', description: (e as Error).message, tone: 'danger' });
+      toast({
+        title: 'Couldn’t save the rules',
+        description: (e as Error).message,
+        tone: 'danger',
+      });
     } finally {
       setSaving(false);
     }

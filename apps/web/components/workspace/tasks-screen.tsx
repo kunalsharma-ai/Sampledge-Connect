@@ -1,12 +1,22 @@
 'use client';
 import * as React from 'react';
-import { Check, CheckSquare, CircleSlash, MessageSquare, Plus, Stamp, X } from 'lucide-react';
+import {
+  Check,
+  CheckSquare,
+  CircleSlash,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Stamp,
+  X,
+} from 'lucide-react';
 import { TASK_STATUSES, type Approval, type Conversation, type Task } from '@sampledge/contracts';
 import { Badge, Button, StateView, cn, useToast } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { dueLabel, isActiveTask, sortTasks, useApprovals, useTasks, useWorkApi } from '@/lib/work';
 import { conversationTitle, nameOf, relativeShort } from './helpers';
 import { CreateTaskDialog, DecideDialog } from './work-dialogs';
+import { EditApprovalDialog, EditTaskDialog, canEditApproval } from './edit-dialogs';
 import {
   ApprovalStatusBadge,
   CATEGORY_LABEL,
@@ -162,6 +172,7 @@ export function TasksScreen({
             me={me}
             directory={directory}
             where={where}
+            conversationOf={(id) => (id ? (convById.get(id) ?? null) : null)}
             onOpenConversation={onOpenConversation}
             onChanged={(t) =>
               list.setItems((cur) => cur?.map((x) => (x.taskId === t.taskId ? t : x)) ?? cur)
@@ -257,6 +268,7 @@ function TaskList({
   me,
   directory,
   where,
+  conversationOf,
   onOpenConversation,
   onChanged,
   empty,
@@ -268,6 +280,7 @@ function TaskList({
   me: string;
   directory: Map<string, DirectoryEntry>;
   where: Where;
+  conversationOf: (id: string | null) => Conversation | null;
   onOpenConversation: (id: string) => void;
   onChanged: (t: Task) => void;
   empty: { title: string; description: string };
@@ -275,6 +288,7 @@ function TaskList({
   const api = useWorkApi();
   const { toast } = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState<Task | null>(null);
   const visible = items ? sortTasks(items.filter((t) => showDone || isActiveTask(t))) : null;
   const hiddenDone = items ? items.length - (visible?.length ?? 0) : 0;
 
@@ -294,121 +308,145 @@ function TaskList({
   };
 
   return (
-    <ListState
-      items={visible}
-      error={error}
-      online={online}
-      empty={
-        hiddenDone
-          ? {
-              title: 'All caught up',
-              description: `${hiddenDone} finished task${hiddenDone === 1 ? '' : 's'} hidden. Tick “Show finished” to see them.`,
-            }
-          : empty
-      }
-    >
-      {(rows) => (
-        <ul className="divide-y divide-border" data-testid="task-list">
-          {rows.map((t) => {
-            const due = isActiveTask(t) ? dueLabel(t.dueAt) : null;
-            const w = where(t.conversationId);
-            const canEdit = t.createdBy === me || t.assigneeIds.includes(me);
-            return (
-              <li key={t.taskId} className="flex gap-3 px-4 py-3.5 sm:px-6">
-                <button
-                  aria-label={t.status === 'done' ? `Reopen ${t.title}` : `Mark ${t.title} done`}
-                  disabled={!canEdit || busy === t.taskId || t.status === 'cancelled'}
-                  onClick={() => void setStatus(t, t.status === 'done' ? 'open' : 'done')}
-                  className={cn(
-                    'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-40',
-                    t.status === 'done'
-                      ? 'border-success bg-success text-bg'
-                      : 'border-border-strong hover:border-accent hover:bg-accent-soft',
-                  )}
-                >
-                  {t.status === 'done' ? <Check className="size-3.5" /> : null}
-                  {t.status === 'cancelled' ? (
-                    <CircleSlash className="size-3.5 text-text-subtle" />
-                  ) : null}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        'text-label text-text',
-                        !isActiveTask(t) && 'text-text-muted line-through decoration-text-subtle',
-                      )}
-                    >
-                      {t.title}
-                    </span>
-                    {t.kind !== 'task' ? <Badge tone="accent2">{KIND_LABEL[t.kind]}</Badge> : null}
-                    <PriorityBadge priority={t.priority} />
-                    {due ? (
-                      <Badge tone={due.overdue ? 'danger' : 'neutral'}>{due.text}</Badge>
+    <>
+      <ListState
+        items={visible}
+        error={error}
+        online={online}
+        empty={
+          hiddenDone
+            ? {
+                title: 'All caught up',
+                description: `${hiddenDone} finished task${hiddenDone === 1 ? '' : 's'} hidden. Tick “Show finished” to see them.`,
+              }
+            : empty
+        }
+      >
+        {(rows) => (
+          <ul className="divide-y divide-border" data-testid="task-list">
+            {rows.map((t) => {
+              const due = isActiveTask(t) ? dueLabel(t.dueAt) : null;
+              const w = where(t.conversationId);
+              const canEdit = t.createdBy === me || t.assigneeIds.includes(me);
+              return (
+                <li key={t.taskId} className="flex gap-3 px-4 py-3.5 sm:px-6">
+                  <button
+                    aria-label={t.status === 'done' ? `Reopen ${t.title}` : `Mark ${t.title} done`}
+                    disabled={!canEdit || busy === t.taskId || t.status === 'cancelled'}
+                    onClick={() => void setStatus(t, t.status === 'done' ? 'open' : 'done')}
+                    className={cn(
+                      'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-40',
+                      t.status === 'done'
+                        ? 'border-success bg-success text-bg'
+                        : 'border-border-strong hover:border-accent hover:bg-accent-soft',
+                    )}
+                  >
+                    {t.status === 'done' ? <Check className="size-3.5" /> : null}
+                    {t.status === 'cancelled' ? (
+                      <CircleSlash className="size-3.5 text-text-subtle" />
                     ) : null}
-                  </div>
-                  {t.sourceExcerpt ? (
-                    <p className="mt-1 line-clamp-1 border-l-2 border-border pl-2 text-meta text-text-subtle">
-                      {t.sourceExcerpt}
-                    </p>
-                  ) : t.description ? (
-                    <p className="mt-1 line-clamp-1 text-meta text-text-muted">{t.description}</p>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-text-subtle">
-                    <PeopleStack ids={t.assigneeIds} directory={directory} />
-                    {t.record ? <RecordChip record={t.record} /> : null}
-                    {w ? (
-                      <button
-                        onClick={() => onOpenConversation(w.id)}
-                        className="inline-flex items-center gap-1 hover:text-text"
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          'text-label text-text',
+                          !isActiveTask(t) && 'text-text-muted line-through decoration-text-subtle',
+                        )}
                       >
-                        <MessageSquare className="size-3.5" /> {w.name}
-                      </button>
-                    ) : null}
-                    <span>
-                      {t.origin === 'module'
-                        ? 'From module'
-                        : `By ${t.createdBy === me ? 'you' : nameOf(t.createdBy, directory)}`}{' '}
-                      · {relativeShort(t.createdAt)}
-                    </span>
-                    {t.moduleSync ? (
-                      <span title="What happened when this task was sent to the module">
-                        {t.moduleSync.status === 'test_mode'
-                          ? 'Module: test mode, not sent'
-                          : t.moduleSync.status === 'sent'
-                            ? 'Sent to module'
-                            : t.moduleSync.status === 'failed'
-                              ? 'Module send failed'
-                              : 'Module not configured'}
+                        {t.title}
                       </span>
+                      {t.kind !== 'task' ? (
+                        <Badge tone="accent2">{KIND_LABEL[t.kind]}</Badge>
+                      ) : null}
+                      <PriorityBadge priority={t.priority} />
+                      {due ? (
+                        <Badge tone={due.overdue ? 'danger' : 'neutral'}>{due.text}</Badge>
+                      ) : null}
+                    </div>
+                    {t.sourceExcerpt ? (
+                      <p className="mt-1 line-clamp-1 border-l-2 border-border pl-2 text-meta text-text-subtle">
+                        {t.sourceExcerpt}
+                      </p>
+                    ) : t.description ? (
+                      <p className="mt-1 line-clamp-1 text-meta text-text-muted">{t.description}</p>
                     ) : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-text-subtle">
+                      <PeopleStack ids={t.assigneeIds} directory={directory} />
+                      {t.record ? <RecordChip record={t.record} /> : null}
+                      {w ? (
+                        <button
+                          onClick={() => onOpenConversation(w.id)}
+                          className="inline-flex items-center gap-1 hover:text-text"
+                        >
+                          <MessageSquare className="size-3.5" /> {w.name}
+                        </button>
+                      ) : null}
+                      <span>
+                        {t.origin === 'module'
+                          ? 'From module'
+                          : `By ${t.createdBy === me ? 'you' : nameOf(t.createdBy, directory)}`}{' '}
+                        · {relativeShort(t.createdAt)}
+                      </span>
+                      {t.moduleSync ? (
+                        <span title="What happened when this task was sent to the module">
+                          {t.moduleSync.status === 'test_mode'
+                            ? 'Module: test mode, not sent'
+                            : t.moduleSync.status === 'sent'
+                              ? 'Sent to module'
+                              : t.moduleSync.status === 'failed'
+                                ? 'Module send failed'
+                                : 'Module not configured'}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0">
-                  {canEdit ? (
-                    <select
-                      aria-label={`Status of ${t.title}`}
-                      value={t.status}
-                      disabled={busy === t.taskId}
-                      onChange={(e) => void setStatus(t, e.target.value as Task['status'])}
-                      className="h-8 rounded-sm border border-border bg-surface px-2 text-meta text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-                    >
-                      {TASK_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {TASK_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <TaskStatusBadge status={t.status} />
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </ListState>
+                  <div className="flex shrink-0 items-start gap-1">
+                    {canEdit && t.status !== 'cancelled' && t.origin !== 'module' ? (
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Edit ${t.title}`}
+                        title="Edit task"
+                        onClick={() => setEditing(t)}
+                      >
+                        <Pencil />
+                      </Button>
+                    ) : null}
+                    {canEdit ? (
+                      <select
+                        aria-label={`Status of ${t.title}`}
+                        value={t.status}
+                        disabled={busy === t.taskId}
+                        onChange={(e) => void setStatus(t, e.target.value as Task['status'])}
+                        className="h-8 rounded-sm border border-border bg-surface px-2 text-meta text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+                      >
+                        {TASK_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {TASK_STATUS_LABEL[s]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <TaskStatusBadge status={t.status} />
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </ListState>
+      {editing ? (
+        <EditTaskDialog
+          task={editing}
+          conversation={conversationOf(editing.conversationId)}
+          directory={directory}
+          onOpenChange={(o) => !o && setEditing(null)}
+          onSaved={onChanged}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -442,6 +480,7 @@ function ApprovalList({
   const [deciding, setDeciding] = React.useState<{ a: Approval; d: 'approve' | 'reject' } | null>(
     null,
   );
+  const [editing, setEditing] = React.useState<Approval | null>(null);
   const visible = items
     ? [...items]
         .filter((a) => showDone || a.status === 'pending')
@@ -564,6 +603,11 @@ function ApprovalList({
                           </Button>
                         </>
                       ) : null}
+                      {canEditApproval(a, me) ? (
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(a)}>
+                          <Pencil /> Edit
+                        </Button>
+                      ) : null}
                       {!canDecide && a.status === 'pending' && a.requesterId === me ? (
                         <Button
                           size="sm"
@@ -588,6 +632,7 @@ function ApprovalList({
         onOpenChange={(o) => !o && setDeciding(null)}
         onDecided={onChanged}
       />
+      <EditApprovalDialog approval={editing} onOpenChange={(o) => !o && setEditing(null)} />
     </>
   );
 }

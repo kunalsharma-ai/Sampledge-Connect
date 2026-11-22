@@ -139,7 +139,10 @@ export function EditHistoryDialog({
         ) : !hist ? (
           <p className="text-meta text-text-subtle">Loading…</p>
         ) : (
-          <ol className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto" data-testid="edit-history">
+          <ol
+            className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto"
+            data-testid="edit-history"
+          >
             {[...hist.versions].reverse().map((v) => (
               <li
                 key={v.version}
