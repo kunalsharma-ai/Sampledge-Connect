@@ -205,6 +205,23 @@ export default function ConversationInfo() {
             </Pressable>
             <Pressable
               onPress={() =>
+                router.push({ pathname: '/chat-background', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Chat background for this conversation"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="image-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Chat background
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
                 router.push({ pathname: '/recordings', params: { conversationId: id, title } })
               }
               accessibilityRole="button"

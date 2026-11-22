@@ -27,6 +27,7 @@ import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { ChatBackdrop, ChatThemeScope } from '../../components/ChatBackdrop';
 import { useChatTheme } from '../../state/useChatTheme';
+import { useChatImage } from '../../lib/chatImageStore';
 import { Button } from '../../components/Button';
 import { canPostIn, isUnjoinedChannel } from '../../lib/access';
 import { formatSendAt } from '../../lib/schedule';
@@ -51,6 +52,7 @@ export default function ConversationScreen() {
   const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
   const chat = useChatTheme();
+  const chatImage = useChatImage(id);
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
   const { messages } = useMessages(id);
@@ -498,7 +500,7 @@ export default function ConversationScreen() {
             ) : null}
           </View>
           <View style={{ flex: 1 }}>
-            {chat.look ? <ChatBackdrop look={chat.look} /> : null}
+            <ChatBackdrop look={chat.look} image={chatImage} />
             <FlatList
               ref={list}
               inverted
