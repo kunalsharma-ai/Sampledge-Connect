@@ -1,7 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CHAT_THEMES, type ChatThemeId, type ChatThemePolicy } from '@sampledge/contracts';
+import {
+  CHAT_THEMES,
+  customImagesAllowed,
+  type ChatThemeId,
+  type ChatThemePolicy,
+} from '@sampledge/contracts';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { router } from 'expo-router';
 import { Button } from '../../components/Button';
@@ -85,7 +90,7 @@ export default function ChatThemeScreen() {
           How your conversations look: the background and your message bubbles. Works with your app
           theme and follows you to every device.
         </Text>
-        <OwnPictureRow />
+        {customImagesAllowed(policy) ? <OwnPictureRow /> : null}
         {isAdmin ? (
           <Glass>
             <View style={{ padding: space.lg, gap: space.md }}>
@@ -103,7 +108,8 @@ export default function ChatThemeScreen() {
                 .{' '}
                 {draft.allowed
                   ? `People can choose ${draft.allowed.length} of ${CHAT_THEMES.length} themes.`
-                  : 'People can choose any theme.'}
+                  : 'People can choose any theme.'}{' '}
+                {customImagesAllowed(draft) ? 'Own pictures allowed.' : 'Own pictures off.'}
               </Text>
               {managing ? (
                 <>
@@ -140,6 +146,20 @@ export default function ChatThemeScreen() {
                         </Pressable>
                       );
                     })}
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text variant="label">Let people use their own pictures</Text>
+                      <Text variant="meta" tone="muted">
+                        Pictures stay on each person’s device; turning this off hides them.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={customImagesAllowed(draft)}
+                      onValueChange={(on) => setDraft({ ...draft, allowCustomImages: on })}
+                      accessibilityLabel="Let people use their own pictures"
+                      trackColor={{ true: c.accent, false: c.border }}
+                    />
                   </View>
                   <Button
                     title={blocked ? 'Needs a connection' : 'Save rules'}

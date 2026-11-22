@@ -1,3 +1,12 @@
+import {
+  CHAT_BACKGROUND_FILTERS,
+  CHAT_BACKGROUND_MAX_EDGE,
+  DEFAULT_CHAT_BACKGROUND_ADJUST,
+  chatBackgroundColorMatrix,
+  isNeutralChatBackground,
+  type ChatBackgroundFilter,
+} from '@sampledge/contracts';
+
 /**
  * Your own picture behind conversations, chosen from the phone's photos and kept on this phone
  * only (nothing is uploaded). Same shape as the web app: one picture for all chats plus an
@@ -29,23 +38,27 @@ export interface ChatImage {
   filter: ChatImageFilter;
 }
 
-export const CHAT_IMAGE_FILTERS = [
-  { key: 'none', label: 'Original' },
-  { key: 'vivid', label: 'Vivid' },
-  { key: 'fade', label: 'Fade' },
-  { key: 'mono', label: 'Mono' },
-  { key: 'noir', label: 'Noir' },
-  { key: 'sepia', label: 'Sepia' },
-  { key: 'cool', label: 'Cool' },
-] as const;
-export type ChatImageFilter = (typeof CHAT_IMAGE_FILTERS)[number]['key'];
-const FILTER_KEYS = CHAT_IMAGE_FILTERS.map((f) => f.key) as readonly string[];
+export type ChatImageFilter = ChatBackgroundFilter;
+const FILTER_LABEL: Record<ChatImageFilter, string> = {
+  none: 'Original',
+  vivid: 'Vivid',
+  fade: 'Fade',
+  mono: 'Mono',
+  noir: 'Noir',
+  sepia: 'Sepia',
+  cool: 'Cool',
+};
+export const CHAT_IMAGE_FILTERS = CHAT_BACKGROUND_FILTERS.map((key) => ({
+  key,
+  label: FILTER_LABEL[key],
+}));
+const FILTER_KEYS = CHAT_BACKGROUND_FILTERS as readonly string[];
 
 /** Edits that can be reset in one go (the picture and its crop stay). */
 export const NO_EDITS = {
-  blur: 0,
-  dim: 0.25,
-  opacity: 1,
+  blur: DEFAULT_CHAT_BACKGROUND_ADJUST.blur,
+  dim: DEFAULT_CHAT_BACKGROUND_ADJUST.dim,
+  opacity: DEFAULT_CHAT_BACKGROUND_ADJUST.opacity,
   brightness: 0,
   contrast: 0,
   saturation: 0,
@@ -72,7 +85,7 @@ export const ZOOM_STEPS = [
 ];
 
 /** Longest side kept on the phone (as on the web). */
-export const CHAT_IMAGE_MAX_SIDE = 2560;
+export const CHAT_IMAGE_MAX_SIDE = CHAT_BACKGROUND_MAX_EDGE;
 /** Largest saved picture (base64 bytes); compression steps down until it fits. */
 export const CHAT_IMAGE_MAX_BYTES = 1536 * 1024;
 
@@ -149,81 +162,14 @@ export function coverRect(
   return { left, top, width, height };
 }
 
-/** 4x5 color matrix rows (SVG feColorMatrix order), as a 5x5 for composing. */
-type M5 = number[][];
-const I5 = (): M5 => [0, 1, 2, 3, 4].map((r) => [0, 1, 2, 3, 4].map((c) => (r === c ? 1 : 0)));
-const mul = (a: M5, b: M5): M5 =>
-  a.map((row) => [0, 1, 2, 3, 4].map((c) => row.reduce((s, v, k) => s + v * b[k]![c]!, 0)));
-
-const LR = 0.2126;
-const LG = 0.7152;
-const LB = 0.0722;
-function saturate(s: number): M5 {
-  const m = I5();
-  m[0] = [LR + (1 - LR) * s, LG - LG * s, LB - LB * s, 0, 0];
-  m[1] = [LR - LR * s, LG + (1 - LG) * s, LB - LB * s, 0, 0];
-  m[2] = [LR - LR * s, LG - LG * s, LB + (1 - LB) * s, 0, 0];
-  return m;
-}
-function contrastM(f: number): M5 {
-  const m = I5();
-  for (let i = 0; i < 3; i++) {
-    m[i]![i] = f;
-    m[i]![4] = (1 - f) / 2;
-  }
-  return m;
-}
-function offset(r: number, g: number, b: number): M5 {
-  const m = I5();
-  m[0]![4] = r;
-  m[1]![4] = g;
-  m[2]![4] = b;
-  return m;
-}
-const SEPIA: M5 = [
-  [0.393, 0.769, 0.189, 0, 0],
-  [0.349, 0.686, 0.168, 0, 0],
-  [0.272, 0.534, 0.131, 0, 0],
-  [0, 0, 0, 1, 0],
-  [0, 0, 0, 0, 1],
-];
-
-function filterMatrix(f: ChatImageFilter): M5 {
-  switch (f) {
-    case 'vivid':
-      return mul(contrastM(1.12), saturate(1.45));
-    case 'fade':
-      return mul(offset(0.06, 0.06, 0.06), mul(contrastM(0.8), saturate(0.75)));
-    case 'mono':
-      return saturate(0);
-    case 'noir':
-      return mul(contrastM(1.35), saturate(0));
-    case 'sepia':
-      return SEPIA;
-    case 'cool':
-      return mul(offset(-0.05, 0, 0.07), saturate(0.9));
-    default:
-      return I5();
-  }
-}
-
 /**
- * The color edits as one SVG feColorMatrix (20 numbers), or null when nothing changes the
- * colors. The filter is applied first, then brightness, contrast, saturation and warmth.
+ * The color edits as one SVG feColorMatrix (20 numbers), from the shared contracts so the web
+ * and the phone render the same picture; null when nothing changes the colors.
  */
 export function colorMatrix(
   img: Pick<ChatImage, 'brightness' | 'contrast' | 'saturation' | 'warmth' | 'filter'>,
 ): number[] | null {
-  if (img.filter === 'none' && !img.brightness && !img.contrast && !img.saturation && !img.warmth)
-    return null;
-  let m = filterMatrix(img.filter);
-  const b = img.brightness * 0.35;
-  m = mul(offset(b, b, b), m);
-  m = mul(contrastM(1 + img.contrast * 0.6), m);
-  m = mul(saturate(1 + img.saturation), m);
-  const w = img.warmth * 0.08;
-  m = mul(offset(w, w * 0.3, -w), m);
-  return m.slice(0, 4).flatMap((row) => row.map((v) => Math.round(v * 10000) / 10000));
+  return isNeutralChatBackground(img) ? null : chatBackgroundColorMatrix(img);
 }
 
 /** Applies a color matrix to one RGB color (0 to 1), as the renderer would; for tests. */

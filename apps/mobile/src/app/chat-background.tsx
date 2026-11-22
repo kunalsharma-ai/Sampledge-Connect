@@ -26,6 +26,7 @@ import {
 } from '../lib/chatImageStore';
 import { confirmThen } from '../lib/confirm';
 import { useChatTheme } from '../state/useChatTheme';
+import { customImagesAllowed } from '@sampledge/contracts';
 import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -46,7 +47,8 @@ export default function ChatBackgroundScreen() {
   const { theme } = useTheme();
   const c = theme.colors;
   const image = useChatImageSlot(slot);
-  const { look } = useChatTheme();
+  const { look, state } = useChatTheme();
+  const allowed = !state || customImagesAllowed(state.policy);
   const [tab, setTab] = useState<Tab>('adjust');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -100,6 +102,14 @@ export default function ChatBackgroundScreen() {
           Kept on this phone only; nothing is uploaded.
         </Text>
 
+        {!allowed ? (
+          <View style={[styles.notice, { backgroundColor: alpha(c.warning, 0.12) }]}>
+            <Text variant="meta" style={{ color: c.warning }}>
+              Your organization has turned off own pictures in chats. Your picture stays saved on
+              this phone and shows again if they turn it back on.
+            </Text>
+          </View>
+        ) : null}
         <Pressable
           onLayout={(e) =>
             setBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
@@ -157,6 +167,7 @@ export default function ChatBackgroundScreen() {
             title={image ? 'Replace photo' : 'Choose a photo'}
             onPress={() => void pick()}
             busy={busy}
+            disabled={!allowed}
             style={{ flex: 1 }}
           />
           {image ? <Button title="Remove" kind="danger" onPress={remove} /> : null}
@@ -373,6 +384,7 @@ const styles = StyleSheet.create({
   bubble: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, maxWidth: '80%' },
   focus: { position: 'absolute', width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
   row: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
+  notice: { padding: space.md, borderRadius: radius.md },
   adjustHead: { flexDirection: 'row', justifyContent: 'space-between' },
   filters: {
     flexDirection: 'row',

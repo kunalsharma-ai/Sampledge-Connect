@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, {
   Defs,
@@ -89,8 +89,28 @@ export function PhotoBackdrop({
   );
 }
 
+/** Set while a picture is behind the chat: text outside bubbles gets a soft halo in this color. */
+const HaloContext = createContext<string | null>(null);
+
+/** Text style that keeps names readable over a picture (nothing when there is none). */
+export function useChatHalo() {
+  const halo = useContext(HaloContext);
+  return halo
+    ? { textShadowColor: halo, textShadowRadius: 6, textShadowOffset: { width: 0, height: 0 } }
+    : null;
+}
+
 /** Conversation colors (background and bubbles) from the chat theme, for everything inside. */
-export function ChatThemeScope({ look, children }: { look: ChatLook | null; children: ReactNode }) {
+export function ChatThemeScope({
+  look,
+  halo = null,
+  children,
+}: {
+  look: ChatLook | null;
+  /** The base color to halo text with, when a picture is showing. */
+  halo?: string | null;
+  children: ReactNode;
+}) {
   const colors = useMemo(
     () =>
       look
@@ -104,7 +124,11 @@ export function ChatThemeScope({ look, children }: { look: ChatLook | null; chil
         : null,
     [look],
   );
-  return <ThemeOverride colors={colors}>{children}</ThemeOverride>;
+  return (
+    <HaloContext.Provider value={halo}>
+      <ThemeOverride colors={colors}>{children}</ThemeOverride>
+    </HaloContext.Provider>
+  );
 }
 
 const styles = StyleSheet.create({

@@ -28,6 +28,7 @@ import { CallBanner } from '../../calls/CallBanner';
 import { ChatBackdrop, ChatThemeScope } from '../../components/ChatBackdrop';
 import { useChatTheme } from '../../state/useChatTheme';
 import { useChatImage } from '../../lib/chatImageStore';
+import { customImagesAllowed } from '@sampledge/contracts';
 import { Button } from '../../components/Button';
 import { canPostIn, isUnjoinedChannel } from '../../lib/access';
 import { formatSendAt } from '../../lib/schedule';
@@ -52,7 +53,9 @@ export default function ConversationScreen() {
   const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
   const chat = useChatTheme();
-  const chatImage = useChatImage(id);
+  const storedImage = useChatImage(id);
+  // The organization can turn own pictures off; they stay saved but aren't shown.
+  const chatImage = chat.state && !customImagesAllowed(chat.state.policy) ? null : storedImage;
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
   const { messages } = useMessages(id);
@@ -294,7 +297,10 @@ export default function ConversationScreen() {
   };
 
   return (
-    <ChatThemeScope look={chat.look}>
+    <ChatThemeScope
+      look={chat.look}
+      halo={chatImage ? (chat.look?.base ?? theme.colors.background) : null}
+    >
       <Screen edges={['bottom']}>
         <Stack.Screen
           options={{

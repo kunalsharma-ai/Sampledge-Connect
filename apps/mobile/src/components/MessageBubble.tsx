@@ -10,6 +10,7 @@ import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemM
 import { workMeta } from '../lib/work';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { useChatHalo } from './ChatBackdrop';
 import { AttachmentList } from './Attachments';
 import { PollCard } from './PollCard';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
@@ -63,6 +64,7 @@ function MessageBubbleImpl({
   nameOf,
 }: Props) {
   const { theme, motion } = useTheme();
+  const halo = useChatHalo();
   const c = theme.colors;
   const unsent = m.status === 'queued' || m.status === 'sending' || m.status === 'failed';
   const deleted = !!m.deletedAt;
@@ -85,7 +87,7 @@ function MessageBubbleImpl({
       ]}
     >
       {showSender && !own ? (
-        <Text variant="label" tone="muted" style={styles.sender}>
+        <Text variant="label" tone="muted" style={[styles.sender, halo]}>
           {senderName}
         </Text>
       ) : null}
