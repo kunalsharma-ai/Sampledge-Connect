@@ -12,6 +12,7 @@ import {
   callBackgroundImagePath,
   type CallBackgroundChoice,
   type CallBackgroundState,
+  type CallBackgroundUpload,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
 import { useAuth } from './auth';
@@ -29,13 +30,15 @@ export interface BackgroundController {
   /** The organization requires the company logo background. */
   locked: boolean;
   customImageUrl: string | null;
+  /** Uploaded backgrounds: the organization's, then mine (urls are absolute). */
+  uploads: CallBackgroundUpload[];
   brand: CallBackgroundState['brand'] | null;
   /** Options this person can pick (guests have no logo or personal upload). */
   allowLogo: boolean;
   allowUpload: boolean;
   choose(c: CallBackgroundChoice): Promise<void>;
   upload?(file: File): Promise<void>;
-  removeImage?(): Promise<void>;
+  removeImage?(imageId: string): Promise<void>;
   error: string | null;
 }
 
@@ -142,14 +145,17 @@ export function useMemberCallBackground(): BackgroundController {
       setError(null);
       try {
         const image = await shrinkImage(file);
-        const res = await fetch(API_URL + '/v1/me/call-background/image', {
-          method: 'PUT',
-          headers: {
-            'content-type': image.type,
-            authorization: `Bearer ${await getAccessToken()}`,
+        const res = await fetch(
+          `${API_URL}/v1/me/call-backgrounds?name=${encodeURIComponent(file.name)}`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': image.type,
+              authorization: `Bearer ${await getAccessToken()}`,
+            },
+            body: image,
           },
-          body: image,
-        });
+        );
         const json = (await res.json().catch(() => null)) as
           (CallBackgroundState & { error?: { message?: string } }) | null;
         if (!res.ok || !json) throw new Error(json?.error?.message ?? 'Upload failed');
@@ -161,24 +167,28 @@ export function useMemberCallBackground(): BackgroundController {
     [getAccessToken, save],
   );
 
-  const removeImage = React.useCallback(async () => {
-    setError(null);
-    try {
-      save(
-        await apiRequest<CallBackgroundState>('DELETE', '/v1/me/call-background/image', {
-          token: await getAccessToken(),
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not remove the image');
-    }
-  }, [getAccessToken, save]);
+  const removeImage = React.useCallback(
+    async (imageId: string) => {
+      setError(null);
+      try {
+        save(
+          await apiRequest<CallBackgroundState>('DELETE', `/v1/me/call-backgrounds/${imageId}`, {
+            token: await getAccessToken(),
+          }),
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not remove the image');
+      }
+    },
+    [getAccessToken, save],
+  );
 
   return {
     effective: state?.effective ?? { kind: 'none' },
     choice: state?.choice ?? null,
     locked: !!state?.policy.enforceLogo,
     customImageUrl: state?.customImageUrl ? API_URL + state.customImageUrl : null,
+    uploads: (state?.uploads ?? []).map((u) => ({ ...u, url: API_URL + u.url })),
     brand: state?.brand ?? null,
     allowLogo: true,
     allowUpload: true,
@@ -213,6 +223,7 @@ export function useGuestCallBackground(): BackgroundController {
     choice,
     locked: false,
     customImageUrl: null,
+    uploads: [],
     brand: null,
     allowLogo: false,
     allowUpload: false,
@@ -231,7 +242,7 @@ export function useGuestCallBackground(): BackgroundController {
 // ---------- images ----------
 
 /** Shrinks a photo to at most 1920x1080 JPEG so uploads stay small. */
-async function shrinkImage(file: File): Promise<Blob> {
+export async function shrinkImage(file: File): Promise<Blob> {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Use a PNG, JPEG or WebP image');
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, 1920 / bmp.width, 1080 / bmp.height);
@@ -372,13 +383,14 @@ function shade(hex: string, amt: number) {
 /** The image to put behind the person, or null for none/blur. */
 export async function backgroundImageFor(
   c: CallBackgroundChoice,
-  ctl: Pick<BackgroundController, 'customImageUrl' | 'brand'>,
+  ctl: Pick<BackgroundController, 'customImageUrl' | 'uploads' | 'brand'>,
 ): Promise<string | null> {
   if (c.kind === 'preset') {
     const known = CALL_BACKGROUND_PRESETS.some((p) => p.id === c.presetId);
     return known ? window.location.origin + callBackgroundImagePath(c.presetId) : null;
   }
   if (c.kind === 'custom') return ctl.customImageUrl;
+  if (c.kind === 'upload') return ctl.uploads.find((u) => u.imageId === c.imageId)?.url ?? null;
   if (c.kind === 'logo') return ctl.brand ? logoBackground(ctl.brand) : null;
   return null;
 }
@@ -426,10 +438,10 @@ export function useApplyBackground(
   ctl: BackgroundController,
   onError: (message: string | null) => void,
 ) {
-  const { effective, customImageUrl, brand } = ctl;
-  const key = JSON.stringify([effective, customImageUrl, brand]);
-  const latest = React.useRef({ effective, customImageUrl, brand });
-  latest.current = { effective, customImageUrl, brand };
+  const { effective, customImageUrl, uploads, brand } = ctl;
+  const key = JSON.stringify([effective, customImageUrl, uploads, brand]);
+  const latest = React.useRef({ effective, customImageUrl, uploads, brand });
+  latest.current = { effective, customImageUrl, uploads, brand };
   const errRef = React.useRef(onError);
   errRef.current = onError;
 

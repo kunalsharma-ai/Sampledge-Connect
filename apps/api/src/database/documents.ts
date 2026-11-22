@@ -337,7 +337,10 @@ export interface TenantSettingsDoc extends TenantOwned {
   /** Minutes and chat export (Administration › Minutes and export). Absent: defaults. */
   minutes?: MinutesSettings;
   /** Call backgrounds: organization default and whether the logo background is required. */
-  callBackgrounds?: { defaultChoice: { kind: string; presetId?: string }; enforceLogo: boolean };
+  callBackgrounds?: {
+    defaultChoice: { kind: string; presetId?: string; imageId?: string };
+    enforceLogo: boolean;
+  };
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -455,15 +458,19 @@ export interface UserAvatarDoc extends TenantOwned {
 /** A person's call background choice, synced to all of their devices. */
 export interface CallBackgroundPrefDoc extends TenantOwned {
   userId: string;
-  choice: { kind: string; presetId?: string } | null;
-  /** Key of their own image in `call_background_images`, if they uploaded one. */
+  choice: { kind: string; presetId?: string; imageId?: string } | null;
+  /** Older single-image form; images now live in `call_background_images` by user. */
   imageKey?: string | null;
   updatedAt: Date;
 }
 
 /** A personal call background image. `_id` is a random key, so its public URL can't be guessed. */
 export interface CallBackgroundImageDoc extends TenantOwned {
+  /** Who uploaded it. */
   userId: string;
+  /** 'user': only theirs; 'org': in the organization library for everyone. Absent = 'user'. */
+  scope?: 'user' | 'org' | null;
+  name?: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   data: Buffer;
   size: number;

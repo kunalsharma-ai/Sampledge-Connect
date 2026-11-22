@@ -23,6 +23,18 @@ const PNG = Buffer.from(
 const state = async (s: Session) =>
   (await api<CallBackgroundState>(h, 'GET', '/v1/me/call-background', { token: s.accessToken }))
     .body;
+const postImage = (
+  s: Session,
+  bytes: Buffer,
+  name = 'mine.png',
+  type = 'image/png',
+  path = '/v1/me/call-backgrounds',
+) =>
+  fetch(`${h.url}${path}?name=${name}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${s.accessToken}`, 'content-type': type },
+    body: bytes,
+  });
 const putImage = (s: Session, bytes: Buffer, type = 'image/png') =>
   fetch(h.url + '/v1/me/call-background/image', {
     method: 'PUT',
@@ -73,33 +85,124 @@ describe('call backgrounds', () => {
       ).toBe(400);
   });
 
-  it('uploads my own image, serves it by an unguessable link, and removes it', async () => {
+  it('keeps several of my own images, serves them by unguessable links, and removes them', async () => {
     const ev = nextEvent(raviSocket, 'meetings:changed', (e) => e.area === 'call_background');
-    const res = await putImage(ravi, PNG);
-    expect(res.status).toBe(200);
+    const res = await postImage(ravi, PNG, 'Lake%20house.png');
+    expect(res.status).toBe(201);
     const s = (await res.json()) as CallBackgroundState;
-    expect(s.choice).toEqual({ kind: 'custom' });
-    expect(s.customImageUrl).toMatch(/^\/v1\/call-backgrounds\/[a-f0-9]{24}\/[a-f0-9]{32}$/);
+    expect(s.uploads).toHaveLength(1);
+    const first = s.uploads[0]!;
+    expect(first).toMatchObject({ owner: 'mine', name: 'Lake house' });
+    expect(first.url).toMatch(/^\/v1\/call-backgrounds\/[a-f0-9]{24}\/[a-f0-9]{32}$/);
+    expect(s.choice).toEqual({ kind: 'upload', imageId: first.imageId });
+    expect(s.customImageUrl).toBe(first.url);
     await ev;
-    const img = await fetch(h.url + s.customImageUrl!);
+    const img = await fetch(h.url + first.url);
     expect(img.status).toBe(200);
     expect(img.headers.get('content-type')).toBe('image/png');
     expect(Buffer.from(await img.arrayBuffer()).equals(PNG)).toBe(true);
     // Not an image, or too big.
-    expect((await putImage(ravi, Buffer.from('hello'), 'image/png')).status).toBe(400);
-    expect((await putImage(ravi, Buffer.alloc(2 * 1024 * 1024 + 10, 1), 'image/jpeg')).status).toBe(
-      400,
-    );
-    // A new image replaces the old one; the old link stops working.
+    expect((await postImage(ravi, Buffer.from('hello'))).status).toBe(400);
+    expect(
+      (await postImage(ravi, Buffer.alloc(2 * 1024 * 1024 + 10, 1), 'big.jpg', 'image/jpeg'))
+        .status,
+    ).toBe(400);
+    // A second image is added (the first stays), via the older PUT route too.
     const again = (await (await putImage(ravi, PNG)).json()) as CallBackgroundState;
-    expect(again.customImageUrl).not.toBe(s.customImageUrl);
-    expect((await fetch(h.url + s.customImageUrl!)).status).toBe(404);
-    const removed = await api<CallBackgroundState>(h, 'DELETE', '/v1/me/call-background/image', {
+    expect(again.uploads.map((u) => u.owner)).toEqual(['mine', 'mine']);
+    const second = again.uploads[0]!;
+    expect(again.choice).toEqual({ kind: 'upload', imageId: second.imageId });
+    // Going back to the first one; someone else's image can't be picked.
+    const back = await api<CallBackgroundState>(h, 'PUT', '/v1/me/call-background', {
+      token: ravi.accessToken,
+      body: { kind: 'upload', imageId: first.imageId },
+    });
+    expect(back.body.effective).toEqual({ kind: 'upload', imageId: first.imageId });
+    expect(
+      (
+        await api(h, 'PUT', '/v1/me/call-background', {
+          token: owner.accessToken,
+          body: { kind: 'upload', imageId: first.imageId },
+        })
+      ).status,
+    ).toBe(400);
+    // Removing the one in use falls back to the default; its link stops working.
+    const removed = await api<CallBackgroundState>(
+      h,
+      'DELETE',
+      `/v1/me/call-backgrounds/${first.imageId}`,
+      { token: ravi.accessToken },
+    );
+    expect(removed.body.uploads.map((u) => u.imageId)).toEqual([second.imageId]);
+    expect(removed.body.choice).toBeNull();
+    expect((await fetch(h.url + first.url)).status).toBe(404);
+    // The older DELETE removes my most recent image.
+    const none = await api<CallBackgroundState>(h, 'DELETE', '/v1/me/call-background/image', {
       token: ravi.accessToken,
     });
-    expect(removed.body.customImageUrl).toBeNull();
-    expect(removed.body.choice).toBeNull();
-    expect((await fetch(h.url + again.customImageUrl!)).status).toBe(404);
+    expect(none.body.uploads).toEqual([]);
+    expect(none.body.customImageUrl).toBeNull();
+  });
+
+  it('admins keep a company library everyone can pick from, and can make one the default', async () => {
+    expect(
+      (await postImage(ravi, PNG, 'x.png', 'image/png', '/v1/admin/call-backgrounds/images'))
+        .status,
+    ).toBe(403);
+    const ev = nextEvent(raviSocket, 'tenant:updated', (e) => e.area === 'calls');
+    const add = await postImage(
+      owner,
+      PNG,
+      'HQ lobby.png',
+      'image/png',
+      '/v1/admin/call-backgrounds/images',
+    );
+    expect(add.status).toBe(201);
+    await ev;
+    const lib = ((await add.json()) as CallBackgroundState).uploads.filter(
+      (u) => u.owner === 'organization',
+    );
+    expect(lib).toHaveLength(1);
+    expect(lib[0]!.name).toBe('HQ lobby');
+    const hq = lib[0]!.imageId;
+    // Ravi sees it and can pick it.
+    const r = await state(ravi);
+    expect(r.uploads.find((u) => u.imageId === hq)?.owner).toBe('organization');
+    const picked = await api<CallBackgroundState>(h, 'PUT', '/v1/me/call-background', {
+      token: ravi.accessToken,
+      body: { kind: 'upload', imageId: hq },
+    });
+    expect(picked.body.effective).toEqual({ kind: 'upload', imageId: hq });
+    // It can be the organization default; a personal image can't.
+    const mine = ((await (await postImage(owner, PNG)).json()) as CallBackgroundState).uploads.find(
+      (u) => u.owner === 'mine',
+    )!;
+    expect(
+      (
+        await api(h, 'PUT', '/v1/admin/call-backgrounds', {
+          token: owner.accessToken,
+          body: { defaultChoice: { kind: 'upload', imageId: mine.imageId } },
+        })
+      ).status,
+    ).toBe(400);
+    const def = await api<CallBackgroundState>(h, 'PUT', '/v1/admin/call-backgrounds', {
+      token: owner.accessToken,
+      body: { defaultChoice: { kind: 'upload', imageId: hq } },
+    });
+    expect(def.status).toBe(200);
+    // Removing it clears the default and anyone's choice of it.
+    const del = await api<CallBackgroundState>(
+      h,
+      'DELETE',
+      `/v1/admin/call-backgrounds/images/${hq}`,
+      {
+        token: owner.accessToken,
+      },
+    );
+    expect(del.body.policy.defaultChoice).toEqual({ kind: 'none' });
+    const after = await state(ravi);
+    expect(after.choice).toBeNull();
+    expect(after.uploads.some((u) => u.imageId === hq)).toBe(false);
   });
 
   it('admins set the default and can require the company logo', async () => {

@@ -43,13 +43,15 @@ export const callBackgroundThumbPath = (id: CallBackgroundPresetId) =>
  * - none: the real camera picture
  * - blur: their real background, blurred
  * - preset: one of the prebuilt images
- * - custom: their own uploaded image
+ * - upload: an uploaded image, mine or one the organization added (`imageId`)
+ * - custom: older form of "my uploaded image" (the most recent one)
  * - logo: the organization's logo and colors (from Branding)
  */
 export const CallBackgroundChoiceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }),
   z.object({ kind: z.literal('blur') }),
   z.object({ kind: z.literal('preset'), presetId: z.enum(PRESET_IDS) }),
+  z.object({ kind: z.literal('upload'), imageId: z.string().regex(/^[a-f0-9]{32}$/) }),
   z.object({ kind: z.literal('custom') }),
   z.object({ kind: z.literal('logo') }),
 ]);
@@ -71,8 +73,21 @@ export const CallBackgroundPolicySchema = z.object({
 export type CallBackgroundPolicyInput = z.input<typeof CallBackgroundPolicySchema>;
 export type CallBackgroundPolicy = z.infer<typeof CallBackgroundPolicySchema>;
 
-/** Largest personal background image (after the app shrinks it to 1920x1080). */
+/** Largest background image (after the app shrinks it to 1920x1080). */
 export const CALL_BACKGROUND_MAX_BYTES = 2 * 1024 * 1024;
+/** How many backgrounds a person can upload, and how many the organization library holds. */
+export const CALL_BACKGROUND_MAX_PERSONAL = 12;
+export const CALL_BACKGROUND_MAX_ORGANIZATION = 40;
+
+/** An uploaded background: one of mine, or one the organization added for everyone. */
+export interface CallBackgroundUpload {
+  imageId: string;
+  /** Public, unguessable link on the API (prefix with the API origin). */
+  url: string;
+  name: string;
+  owner: 'mine' | 'organization';
+  createdAt: string;
+}
 
 /**
  * GET /v1/me/call-background. Everything an app needs to apply the right background, on any of
@@ -84,8 +99,10 @@ export interface CallBackgroundState {
   choice: CallBackgroundChoice | null;
   /** What to apply now: my choice, the default, or the logo when the organization requires it. */
   effective: CallBackgroundChoice;
-  /** My uploaded image (public, unguessable URL on the API), if any. */
+  /** My most recent uploaded image (older clients), if any. */
   customImageUrl: string | null;
+  /** The organization's backgrounds first, then mine (newest first). */
+  uploads: CallBackgroundUpload[];
   policy: CallBackgroundPolicy & { canManage: boolean };
   /** Branding used to draw the logo background. */
   brand: { name: string; logo: string | null; primary: string; secondary: string };
