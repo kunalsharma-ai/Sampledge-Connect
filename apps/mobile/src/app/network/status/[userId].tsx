@@ -10,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
@@ -64,6 +65,7 @@ export default function StatusViewer() {
   const [reply, setReply] = useState('');
   const [sent, setSent] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [edit, setEdit] = useState<{ text: string; allowReplies: boolean } | null>(null);
 
   if (!s)
     return (
@@ -118,6 +120,7 @@ export default function StatusViewer() {
           </Text>
           <Text variant="meta" style={styles.dim}>
             {AUDIENCE_LABEL[s.audience]} · {timeLeft(s.expiresAt, now)}
+            {s.editedAt ? ' · edited' : ''}
           </Text>
         </View>
         {local ? <QueuedTag /> : null}
@@ -140,8 +143,79 @@ export default function StatusViewer() {
         />
       </View>
 
-      {mine ? (
+      {mine && edit ? (
+        <View style={[styles.reply, { flexDirection: 'column', alignItems: 'stretch' }]}>
+          <TextInput
+            value={edit.text}
+            onChangeText={(text) => setEdit({ ...edit, text })}
+            maxLength={700}
+            multiline
+            autoFocus
+            placeholder={s.kind === 'text' ? 'Your status' : 'Caption'}
+            placeholderTextColor="rgba(255,255,255,0.6)"
+            accessibilityLabel={s.kind === 'text' ? 'Status text' : 'Caption'}
+            style={[styles.replyInput, { minHeight: 64 }]}
+          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Text variant="label" style={[styles.white, { flex: 1 }]}>
+              Let people reply
+            </Text>
+            <Switch
+              value={edit.allowReplies}
+              onValueChange={(allowReplies) => setEdit({ ...edit, allowReplies })}
+              accessibilityLabel="Let people reply"
+            />
+          </View>
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            <Pressable
+              onPress={() => setEdit(null)}
+              accessibilityRole="button"
+              style={styles.footBtn}
+            >
+              <Text variant="label" style={styles.white}>
+                Cancel
+              </Text>
+            </Pressable>
+            <Pressable
+              disabled={s.kind === 'text' && !edit.text.trim()}
+              onPress={() => {
+                const body: Record<string, unknown> = {};
+                if (edit.text.trim() !== s.text) body.text = edit.text.trim();
+                if (edit.allowReplies !== s.allowReplies) body.allowReplies = edit.allowReplies;
+                if (Object.keys(body).length)
+                  void engine.netAct({
+                    method: 'PATCH',
+                    path: `/v1/network/statuses/${s.statusId}`,
+                    body,
+                    label: 'Editing your status',
+                    scopes: ['statuses'],
+                  });
+                setEdit(null);
+              }}
+              accessibilityRole="button"
+              style={styles.footBtn}
+            >
+              <Ionicons name="checkmark" size={18} color="#fff" />
+              <Text variant="label" style={styles.white}>
+                Save
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : mine ? (
         <View style={styles.foot}>
+          <Pressable
+            onPress={() => setEdit({ text: s.text, allowReplies: s.allowReplies })}
+            disabled={local}
+            accessibilityRole="button"
+            accessibilityLabel="Edit status"
+            style={styles.footBtn}
+          >
+            <Ionicons name="create-outline" size={18} color="#fff" />
+            <Text variant="label" style={styles.white}>
+              Edit
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => setShowViewers((v) => !v)}
             disabled={local}

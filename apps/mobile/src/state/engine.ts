@@ -23,6 +23,9 @@ import {
   type ChatThemePolicy,
   type ChatThemeState,
   DEFAULT_MESSAGE_EDITING_STATE,
+  type EditPollRequest,
+  type UpdateApprovalRequest,
+  type UpdateConversationRequest,
   type MessageEditHistory,
   type MessageEditingPolicy,
   type MessageEditingState,
@@ -844,6 +847,21 @@ export class ConnectEngine {
     await this.queue({ kind: 'poll.vote', messageId, conversationId: m.conversationId, optionIds });
   }
 
+  /** Change a poll nobody has voted on yet. Queued; the server refuses once someone votes. */
+  async editPoll(messageId: string, request: EditPollRequest): Promise<void> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m) throw new Error('This poll is not on this device.');
+    await this.queue({ kind: 'poll.edit', messageId, conversationId: m.conversationId, request });
+  }
+
+  /** Rename a group or channel, or change its description. Queued, so it works offline. */
+  async updateConversation(
+    conversationId: string,
+    patch: UpdateConversationRequest,
+  ): Promise<void> {
+    await this.queue({ kind: 'conversation.update', conversationId, patch });
+  }
+
   async closePoll(messageId: string): Promise<void> {
     const m = await this.store.getMessageByServerId(messageId);
     if (!m) throw new Error('This poll is not on this device.');
@@ -989,6 +1007,12 @@ export class ConnectEngine {
 
   async decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<void> {
     await this.queue({ kind: 'approval.decide', approvalId, request: req });
+    this.events.emit('work', { kind: 'approval' });
+  }
+
+  /** Fix your request before anyone decides (queued; shows at once). */
+  async updateApproval(approvalId: string, patch: UpdateApprovalRequest): Promise<void> {
+    await this.queue({ kind: 'approval.update', approvalId, patch });
     this.events.emit('work', { kind: 'approval' });
   }
 
@@ -1266,6 +1290,14 @@ export class ConnectEngine {
       case 'poll.close':
         await this.store.applyServerMessages([await this.api.closePoll(i.messageId)]);
         break;
+      case 'poll.edit':
+        await this.store.applyServerMessages([await this.api.editPoll(i.messageId, i.request)]);
+        break;
+      case 'conversation.update':
+        await this.store.upsertConversations([
+          await this.api.updateConversation(i.conversationId, i.patch),
+        ]);
+        break;
       case 'task.create':
         await w.settleCreate(a, { kind: 'task', data: await this.api.createTask(i.request) });
         this.events.emit('work', { kind: 'task' });
@@ -1287,6 +1319,11 @@ export class ConnectEngine {
         break;
       case 'approval.cancel':
         await w.upsert('approval', [await this.api.cancelApproval(await need(i.approvalId))]);
+        break;
+      case 'approval.update':
+        await w.upsert('approval', [
+          await this.api.updateApproval(await need(i.approvalId), i.patch),
+        ]);
         break;
       case 'scheduled.create':
         try {

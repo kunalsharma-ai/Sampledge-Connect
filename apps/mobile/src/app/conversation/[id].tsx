@@ -274,6 +274,11 @@ export default function ConversationScreen() {
         return serverStep(engine.pinMessage(m.messageId!, action === 'pin'));
       case 'closePoll':
         return serverStep(engine.closePoll(m.messageId!));
+      case 'editPoll':
+        return router.push({
+          pathname: '/poll/new',
+          params: { conversationId: id, edit: m.messageId! },
+        });
       case 'createTask':
       case 'requestApproval':
         return router.push({
@@ -649,6 +654,14 @@ export default function ConversationScreen() {
           canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
           canForward={!!sheetFor && canForwardMessage(sheetFor)}
           canReport={inNetwork && sheetFor?.messageType !== 'system'}
+          canEditPoll={
+            !!sheetFor?.poll &&
+            !!sheetFor.messageId &&
+            sheetFor.senderId === selfId &&
+            !pollIsClosed(sheetFor.poll) &&
+            sheetFor.poll.totalVoters === 0 &&
+            !editBlockedReason(sheetFor.createdAt, editRules)
+          }
           canEdit={
             !!sheetFor &&
             !sheetFor.poll &&

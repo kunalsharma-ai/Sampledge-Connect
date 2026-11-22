@@ -48,7 +48,8 @@ const edit = (s: Session, id: string, text: string) =>
   as<Message & { error?: { message: string } }>(s, 'PATCH', `/v1/messages/${id}`, {
     content: { text },
   });
-const rules = (body: object) => as<MessageEditingState>(owner, 'PUT', '/v1/admin/message-editing', body);
+const rules = (body: object) =>
+  as<MessageEditingState>(owner, 'PUT', '/v1/admin/message-editing', body);
 
 beforeAll(async () => {
   h = await startHarness();
@@ -127,9 +128,9 @@ describe('message edit history', () => {
 
 describe('editing rules', () => {
   it('only people with messages.manage change them; everyone hears about it live', async () => {
-    expect((await as(ravi, 'PUT', '/v1/admin/message-editing', { allowEditing: false })).status).toBe(
-      403,
-    );
+    expect(
+      (await as(ravi, 'PUT', '/v1/admin/message-editing', { allowEditing: false })).status,
+    ).toBe(403);
     const sock = await connect(h, lena.accessToken);
     const live = nextEvent(sock, 'tenant:updated', (e) => e.area === 'messages');
     const r = await rules({ allowEditing: false });
@@ -142,7 +143,11 @@ describe('editing rules', () => {
     await live;
     sock.disconnect();
     const s = await as<MessageEditingState>(lena, 'GET', '/v1/message-editing');
-    expect(s.body).toMatchObject({ policy: { allowEditing: false }, canEditOwn: true, canManage: false });
+    expect(s.body).toMatchObject({
+      policy: { allowEditing: false },
+      canEditOwn: true,
+      canManage: false,
+    });
 
     const m = await send(lena, 'hello');
     const refused = await edit(lena, m.messageId, 'hello all');
@@ -191,9 +196,9 @@ describe('editing rules', () => {
     await live;
     sock.disconnect();
     await new Promise((r) => setTimeout(r, 50));
-    expect((await as<MessageEditingState>(ravi, 'GET', '/v1/message-editing')).body.canEditOwn).toBe(
-      false,
-    );
+    expect(
+      (await as<MessageEditingState>(ravi, 'GET', '/v1/message-editing')).body.canEditOwn,
+    ).toBe(false);
     const m = await send(ravi, 'locked');
     const refused = await edit(ravi, m.messageId, 'unlocked');
     expect(refused.status).toBe(403);
@@ -236,7 +241,10 @@ describe('editing elsewhere', () => {
       topic: 'Daily quotas and field issues',
     });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ name: 'Wave 4 fieldwork', topic: 'Daily quotas and field issues' });
+    expect(r.body).toMatchObject({
+      name: 'Wave 4 fieldwork',
+      topic: 'Daily quotas and field issues',
+    });
     await live;
     sock.disconnect();
     // Plain members can't; bad channel names are refused; archiving still works.
@@ -252,17 +260,24 @@ describe('editing elsewhere', () => {
     ).toBe(200);
     // A group gets a name but no description.
     expect(
-      (await as<Conversation>(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, { name: 'Q4 tracker team' }))
-        .body.name,
+      (
+        await as<Conversation>(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, {
+          name: 'Q4 tracker team',
+        })
+      ).body.name,
     ).toBe('Q4 tracker team');
     expect(
-      (await as(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, { topic: 'x' })).status,
+      (await as(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, { topic: 'x' }))
+        .status,
     ).toBe(400);
   });
 
   it('edits every part of a task', async () => {
     const t = (
-      await as<Task>(ravi, 'POST', '/v1/tasks', { title: 'Check quotas', assigneeIds: [ravi.user.userId] })
+      await as<Task>(ravi, 'POST', '/v1/tasks', {
+        title: 'Check quotas',
+        assigneeIds: [ravi.user.userId],
+      })
     ).body;
     const due = new Date(Date.now() + 86_400_000).toISOString();
     const r = await as<Task>(ravi, 'PATCH', `/v1/tasks/${t.taskId}`, {
@@ -321,7 +336,10 @@ describe('editing elsewhere', () => {
 
   it('edits a project and renames its channel', async () => {
     const p = (
-      await as<Project>(owner, 'POST', '/v1/projects', { name: 'Brand tracker', memberIds: [ravi.user.userId] })
+      await as<Project>(owner, 'POST', '/v1/projects', {
+        name: 'Brand tracker',
+        memberIds: [ravi.user.userId],
+      })
     ).body;
     const r = await as<Project>(owner, 'PATCH', `/v1/projects/${p.projectId}`, {
       name: 'Brand tracker 2027',
@@ -329,10 +347,16 @@ describe('editing elsewhere', () => {
       status: 'at_risk',
     });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ name: 'Brand tracker 2027', description: 'Quarterly waves', status: 'at_risk' });
+    expect(r.body).toMatchObject({
+      name: 'Brand tracker 2027',
+      description: 'Quarterly waves',
+      status: 'at_risk',
+    });
     const ch = await as<Conversation>(owner, 'GET', `/v1/conversations/${p.conversationId}`);
     expect(ch.body.name).toBe('Brand tracker 2027');
-    expect((await as(ravi, 'PATCH', `/v1/projects/${p.projectId}`, { name: 'x' })).status).toBe(403);
+    expect((await as(ravi, 'PATCH', `/v1/projects/${p.projectId}`, { name: 'x' })).status).toBe(
+      403,
+    );
   });
 
   it('edits a poll until the first vote', async () => {
@@ -353,8 +377,12 @@ describe('editing elsewhere', () => {
     expect(r.body.poll!.options.map((o) => o.text)).toEqual(['Mon', 'Tue', 'Wed']);
     expect(r.body.editedAt).not.toBeNull();
     expect(
-      (await as(ravi, 'PATCH', `/v1/messages/${poll.messageId}/poll`, { question: 'x', options: ['a', 'b'] }))
-        .status,
+      (
+        await as(ravi, 'PATCH', `/v1/messages/${poll.messageId}/poll`, {
+          question: 'x',
+          options: ['a', 'b'],
+        })
+      ).status,
     ).toBe(403);
     await as(ravi, 'PUT', `/v1/messages/${poll.messageId}/poll/vote`, { optionIds: ['o1'] });
     const late = await as(lena, 'PATCH', `/v1/messages/${poll.messageId}/poll`, {
@@ -384,7 +412,11 @@ describe('editing elsewhere', () => {
       allowReplies: false,
     });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ text: 'At ESOMAR this week', background: 'sunset', allowReplies: false });
+    expect(r.body).toMatchObject({
+      text: 'At ESOMAR this week',
+      background: 'sunset',
+      allowReplies: false,
+    });
     expect(r.body.editedAt).toBeTruthy();
     expect(
       (await as(net, 'PATCH', `/v1/network/statuses/${st.statusId}`, { text: '' })).status,

@@ -677,7 +677,8 @@ export class MessagesService {
         );
       },
     );
-    if (!doc) throw new AppError('CONFLICT', 'Someone voted at the same time; reload and try again');
+    if (!doc)
+      throw new AppError('CONFLICT', 'Someone voted at the same time; reload and try again');
     await this.audit.record({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,

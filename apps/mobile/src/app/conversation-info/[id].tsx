@@ -1,7 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  TextInput,
+  View,
+} from 'react-native';
 import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
@@ -13,7 +21,7 @@ import { confirmThen } from '../../lib/confirm';
 import { canTurnOffForwarding } from '../../lib/forward';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useConversation, usePeople, useTenantRole } from '../../state/hooks';
-import { alpha, radius, space } from '../../theme/themes';
+import { alpha, radius, space, type as typeScale } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
 const KIND_LABEL = {
@@ -38,6 +46,7 @@ export default function ConversationInfo() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
+  const [edit, setEdit] = useState<{ name: string; topic: string } | null>(null);
   const blocked = engine.serverActionBlocker();
 
   if (!conv) {
@@ -58,6 +67,37 @@ export default function ConversationInfo() {
   const canAdd = !isDm && can('members.add');
   const canRemove = !isDm && can('members.remove');
   const canArchive = canInConversation({ ...conv, archivedAt: null }, role, 'conversation.archive');
+  const isChannel = conv.kind === 'channel_public' || conv.kind === 'channel_private';
+  // Owners and moderators of a group or channel (the server checks the same).
+  const canRename =
+    !isDm && !conv.archivedAt && (conv.myRole === 'owner' || conv.myRole === 'moderator');
+  const saveEdit = async () => {
+    if (!edit) return;
+    if (isChannel && !edit.name.trim()) return setError('A channel needs a name.');
+    const patch: { name?: string; topic?: string | null } = {};
+    if (edit.name.trim() !== (conv.name ?? '')) patch.name = edit.name.trim();
+    if (isChannel && edit.topic.trim() !== (conv.topic ?? ''))
+      patch.topic = edit.topic.trim() || null;
+    setError(null);
+    try {
+      if (Object.keys(patch).length) await engine.updateConversation(id, patch);
+      setEdit(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const input = [
+    typeScale.body,
+    {
+      color: c.text,
+      backgroundColor: c.surfaceSunken,
+      borderColor: c.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      paddingVertical: 10,
+    },
+  ];
   const members = [...conv.memberIds].sort((a, b) =>
     a === selfId ? -1 : b === selfId ? 1 : nameOf(a).localeCompare(nameOf(b)),
   );
@@ -127,7 +167,52 @@ export default function ConversationInfo() {
               {conv.topic}
             </Text>
           ) : null}
+          {canRename && !edit ? (
+            <Button
+              title={isChannel ? 'Edit name and description' : 'Rename group'}
+              icon="create-outline"
+              kind="quiet"
+              onPress={() => setEdit({ name: conv.name ?? '', topic: conv.topic ?? '' })}
+            />
+          ) : null}
         </View>
+        {edit ? (
+          <Glass style={{ padding: space.md, gap: space.md }}>
+            <Text variant="meta" tone="muted">
+              Everyone in the conversation sees the change, on every device.
+            </Text>
+            <TextInput
+              value={edit.name}
+              onChangeText={(name) => setEdit({ ...edit, name })}
+              maxLength={80}
+              placeholder={isChannel ? 'Channel name' : 'Group name (empty: members’ names)'}
+              placeholderTextColor={c.textSubtle}
+              accessibilityLabel="Name"
+              style={input}
+            />
+            {isChannel ? (
+              <TextInput
+                value={edit.topic}
+                onChangeText={(topic) => setEdit({ ...edit, topic })}
+                maxLength={250}
+                multiline
+                placeholder="Description"
+                placeholderTextColor={c.textSubtle}
+                accessibilityLabel="Description"
+                style={[input, { minHeight: 64, textAlignVertical: 'top' }]}
+              />
+            ) : null}
+            <View style={{ flexDirection: 'row', gap: space.sm }}>
+              <Button
+                title="Cancel"
+                kind="quiet"
+                onPress={() => setEdit(null)}
+                style={{ flex: 1 }}
+              />
+              <Button title="Save" onPress={() => void saveEdit()} style={{ flex: 1 }} />
+            </View>
+          </Glass>
+        ) : null}
 
         {blocked && !isDm ? (
           <View style={[styles.note, { backgroundColor: alpha(c.warning, 0.12) }]}>

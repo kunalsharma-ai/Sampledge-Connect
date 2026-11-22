@@ -21,11 +21,9 @@ export const messageEditsMigration: Migration = {
         },
       ),
     );
-    await db
-      .collection('message_edits')
-      .createIndexes([
-        { key: { tenantId: 1, messageId: 1, version: 1 }, name: 'versions', unique: true },
-        { key: { tenantId: 1, conversationId: 1 }, name: 'by_conversation' },
-      ]);
+    await db.collection('message_edits').createIndexes([
+      { key: { tenantId: 1, messageId: 1, version: 1 }, name: 'versions', unique: true },
+      { key: { tenantId: 1, conversationId: 1 }, name: 'by_conversation' },
+    ]);
   },
 };

@@ -126,7 +126,10 @@ export class PlatformControlService implements OnModuleInit, OnModuleDestroy {
     const t = await this.tenant(tenantId);
     const req = parse(SetPermissionPolicySchema, body);
     const policy = cleanPolicy(req.policy && { ...req.policy, _known: [...TENANT_PERMISSIONS] });
-    await this.db.tenants.updateOne({ _id: tenantId }, { $set: { permissions: storedPolicy(policy) } });
+    await this.db.tenants.updateOne(
+      { _id: tenantId },
+      { $set: { permissions: storedPolicy(policy) } },
+    );
     await this.policy.bump();
     await this.audit.record({
       ctx,
