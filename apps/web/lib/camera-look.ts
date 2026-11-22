@@ -1,38 +1,7 @@
-import { CALL_LOOK_FILTERS, type CallAppearance } from '@sampledge/contracts';
+import type { CallAppearance } from '@sampledge/contracts';
 
-/** Shader numbers for a look: the filter's mix plus the person's sliders. */
-export interface LookParams {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  warmth: number;
-  grayscale: number;
-  sepia: number;
-  glow: number;
-  vignette: number;
-  lowLight: number;
-  sharpness: number;
-  smoothing: number;
-}
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-export function lookParams(a: CallAppearance): LookParams {
-  const mix: Partial<LookParams> = CALL_LOOK_FILTERS.find((f) => f.id === a.filter)?.mix ?? {};
-  return {
-    brightness: clamp(a.brightness / 100 + (mix.brightness ?? 0), -1, 1),
-    contrast: clamp(a.contrast / 100 + (mix.contrast ?? 0), -1, 1),
-    saturation: clamp(a.saturation / 100 + (mix.saturation ?? 0), -1, 1),
-    warmth: clamp(a.warmth / 100 + (mix.warmth ?? 0), -1, 1),
-    grayscale: mix.grayscale ?? 0,
-    sepia: mix.sepia ?? 0,
-    glow: mix.glow ?? 0,
-    vignette: mix.vignette ?? 0,
-    lowLight: a.lowLight / 100,
-    sharpness: a.sharpness / 100,
-    smoothing: a.smoothing / 100,
-  };
-}
+// The look numbers are shared with the phone apps (their camera runs the same math natively).
+export { lookParams, type LookParams } from '@sampledge/contracts';
 
 export interface Point {
   x: number;

@@ -18,6 +18,7 @@ import { useWorkspace } from '../../state/AppProvider';
 import { useCallBackground } from '../../state/useCallBackground';
 import { space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { cameraEffectsAvailable } from '../../../modules/camera-effects';
 
 type SliderKey = Exclude<keyof CallAppearance, 'filter'>;
 
@@ -126,8 +127,9 @@ export default function CallAppearanceScreen() {
           <View style={styles.notice}>
             <Ionicons name="phone-portrait-outline" size={18} color={c.accent} />
             <Text variant="meta" tone="muted" style={{ flex: 1 }}>
-              Applied to your camera when you join from a browser or the desktop app. Applying it to
-              a phone’s camera is planned.
+              {cameraEffectsAvailable()
+                ? 'Applied to your camera in calls on this phone, in a browser and in the desktop app, all on the device. Face shaping follows your face as you move.'
+                : 'This version of the app sends your camera as it is. Update the app to use looks on this phone; browsers and the desktop app already apply them.'}
             </Text>
           </View>
         </Glass>

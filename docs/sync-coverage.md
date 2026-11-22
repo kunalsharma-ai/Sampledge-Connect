@@ -48,7 +48,7 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 | Booking page create / change / delete                                                     | `meetings:changed` `booking_pages` (every host)             | Needs a connection                        |
 | Book a slot (public page)                                                                 | `meeting:upsert` to the hosts                               | Needs a connection by nature              |
 | Call recording added, any recording deleted                                               | `recording:changed` (conversation members)                  | Delete needs a connection                 |
-| Call background (mine), own images, appearance                                            | `meetings:changed` `call_background` (my devices)           | Choice and look queued, sent on reconnect |
+| Call background (mine), own images, appearance (phone camera re-applies live in a call)   | `meetings:changed` `call_background` (my devices)           | Choice and look queued, sent on reconnect |
 | Company background library                                                                | `tenant:updated` `calls`                                    | Needs a connection                        |
 | Call background rules (default, require logo)                                             | `tenant:updated` `calls`                                    | Needs a connection                        |
 | Live captions on/off, caption lines                                                       | LiveKit attribute `captions` and data topic `captions`      | Live only (not stored)                    |

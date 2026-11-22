@@ -168,9 +168,8 @@ look** (look, light and colour, touch-up, face shaping, Enhance, Reset) saves as
 `callbg.appearance` on its own target, latest wins, half a second after the last change. The screens
 follow `meetings:changed {area: 'call_background'}` and `tenant:updated {area: 'calls' | 'branding'}`
 live. Owners and admins get **Manage** for the default, **Add for everyone** and removing library
-images, and **Require the company background** (all need a connection). Applying a background or
-appearance to a phone's own camera is planned: native WebRTC has no segmentation yet, so a phone
-sends the camera as it is, and the screens say so.
+images, and **Require the company background** (all need a connection). In a call the phone's own
+camera applies the background and look too (see **Phone camera effects** below).
 
 | Method | Path                                         | Who            | Notes                                                  |
 | ------ | -------------------------------------------- | -------------- | ------------------------------------------------------ |
@@ -208,8 +207,33 @@ Everything runs on the device in one WebGL pass, before the background step, so 
 combine (`apps/web/lib/camera-effects.ts`). With no look and no background the camera is not
 processed at all. Members' look is saved to their account (`appearance` in
 `GET /v1/me/call-background`), applied live on their other devices and queued while offline; guests'
-look stays in their browser. On mobile, applying a look to the phone's own camera is planned (as
-with backgrounds, native WebRTC has no processing hook yet).
+look stays in their browser. Phones apply it to their own camera too (below).
+
+### Phone camera effects
+
+The mobile app has a local Expo module, `apps/mobile/modules/camera-effects`, that registers a frame
+processor with `@livekit/react-native-webrtc` (`ProcessorProvider` on Android,
+`LKRNProcessorProvider` on iOS). In a call, `useCameraEffects` turns the synced call background
+state into options (`nativeEffectsOptions`: look numbers from the shared `lookParams`, face shaping
+0..1, background picture as a local file) and switches the processor on for the camera track with
+`_setVideoEffects`, again whenever the track is replaced (camera turned back on, flipped). A change
+on any device reaches a call in progress within a moment; offline the saved copy applies.
+
+- **Android**: one GLES 2 pass on the camera's own GL thread (`Shaders.kt`, a port of the web shader
+  with the same numbers) draws the look, face shaping and background into a texture WebRTC sends. A
+  384 px upright copy goes to MediaPipe Tasks (the web app's `selfie_segmenter.tflite` and
+  `face_landmarker.task`, bundled in the APK) on a worker thread, so the masks and face points match
+  the web. Face warps are the web's `faceWarps`, ported (`FaceWarps.kt`, unit-tested against it).
+- **iOS**: Metal compute kernels compiled on the phone (`EffectsKernels.swift`, the same shader),
+  Apple Vision for the person mask (`VNGeneratePersonSegmentationRequest`) and face points
+  (`VNDetectFaceLandmarksRequest`, mapped to the MediaPipe numbers), output as NV12 for the encoder.
+- Pictures: the 24 presets ship full size in the app; uploads are downloaded once into app storage;
+  the company background is drawn on the phone in the frame's shape; SVG logos are drawn to PNG
+  first. A picture that isn't on the phone yet shows as blur, and until the first person mask is
+  ready the background covers the whole frame, so the room never shows. If the phone can't run
+  segmentation the camera is sent as it is. Nothing leaves the phone.
+- Needs a development or store build (not Expo Go). Builds made before this module send the camera
+  as it is, and the settings screens say so.
 
 When an admin turns on **Keep live captions for minutes**, caption lines are saved with speaker
 names for the minutes and the captions notice says so. See `minutes.md`.

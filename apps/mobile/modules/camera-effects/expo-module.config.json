@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["CameraEffectsModule"]
+  },
+  "android": {
+    "modules": ["com.sampconnect.cameraeffects.CameraEffectsModule"]
+  }
+}
