@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_DND_SCHEDULE, effectiveChatTheme } from '@sampledge/contracts';
+import {
+  DEFAULT_CALL_APPEARANCE,
+  DEFAULT_DND_SCHEDULE,
+  effectiveChatTheme,
+} from '@sampledge/contracts';
 import type {
   ChatThemeId,
   ChatThemePolicy,
@@ -169,8 +173,10 @@ async function setup() {
       customImageUrl: b.imageKey
         ? `https://connect.test/v1/call-backgrounds/t1/${b.imageKey}`
         : null,
+      uploads: [],
       policy: { ...b.policy, canManage: false },
       brand: { name: 'Acme', logo: null, primary: '#1f3a5f', secondary: '#c9a227' },
+      appearance: DEFAULT_CALL_APPEARANCE,
     };
   };
   const api = {

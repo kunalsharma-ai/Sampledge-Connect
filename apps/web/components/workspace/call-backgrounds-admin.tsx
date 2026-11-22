@@ -1,19 +1,21 @@
 'use client';
 import * as React from 'react';
-import { Ban, Building2, Sparkles } from 'lucide-react';
+import { Ban, Building2, ImagePlus, Sparkles, Trash2 } from 'lucide-react';
 import {
   CALL_BACKGROUND_PRESETS,
   callBackgroundThumbPath,
   type CallBackgroundChoice,
   type CallBackgroundState,
+  type CallBackgroundUpload,
 } from '@sampledge/contracts';
 import { Button, StateView, cn, useToast } from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { logoBackground } from '@/lib/call-backgrounds';
+import { logoBackground, shrinkImage } from '@/lib/call-backgrounds';
+import { API_URL } from '@/lib/config';
 import { useEngineChange } from '@/lib/engine';
 
-const label = (c: CallBackgroundChoice) =>
+const label = (c: CallBackgroundChoice, uploads: CallBackgroundUpload[] = []) =>
   c.kind === 'none'
     ? 'No effect'
     : c.kind === 'blur'
@@ -22,10 +24,14 @@ const label = (c: CallBackgroundChoice) =>
         ? 'Company background'
         : c.kind === 'preset'
           ? (CALL_BACKGROUND_PRESETS.find((p) => p.id === c.presetId)?.name ?? 'Image')
-          : 'Own image';
+          : c.kind === 'upload'
+            ? (uploads.find((u) => u.imageId === c.imageId)?.name ?? 'Company background')
+            : 'Own image';
 
 const sameChoice = (a: CallBackgroundChoice, b: CallBackgroundChoice) =>
-  a.kind === b.kind && (a.kind !== 'preset' || (b.kind === 'preset' && a.presetId === b.presetId));
+  a.kind === b.kind &&
+  (a.kind !== 'preset' || (b.kind === 'preset' && a.presetId === b.presetId)) &&
+  (a.kind !== 'upload' || (b.kind === 'upload' && a.imageId === b.imageId));
 
 /**
  * Administration → Calls: the background everyone starts with, and whether the company
@@ -41,6 +47,8 @@ export function CallBackgroundsAdmin() {
     enforceLogo: boolean;
   } | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement>(null);
   const [logo, setLogo] = React.useState<string | null>(null);
   const [version, setVersion] = React.useState(0);
 
@@ -67,6 +75,58 @@ export function CallBackgroundsAdmin() {
     })();
   }, [getAccessToken, version]);
 
+  const companyUploads = (state?.uploads ?? []).filter((u) => u.owner === 'organization');
+
+  const addImages = async (files: File[]) => {
+    setUploading(true);
+    try {
+      for (const f of files) {
+        const image = await shrinkImage(f);
+        const res = await fetch(
+          `${API_URL}/v1/admin/call-backgrounds/images?name=${encodeURIComponent(f.name)}`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': image.type,
+              authorization: `Bearer ${await getAccessToken()}`,
+            },
+            body: image,
+          },
+        );
+        const json = (await res.json().catch(() => null)) as
+          (CallBackgroundState & { error?: { message?: string } }) | null;
+        if (!res.ok || !json) throw new Error(json?.error?.message ?? 'Upload failed');
+        setState(json);
+      }
+      toast({
+        title: files.length > 1 ? 'Backgrounds added' : 'Background added',
+        tone: 'success',
+      });
+    } catch (e) {
+      toast({ title: 'Not added', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeImage = async (imageId: string) => {
+    try {
+      const s = await apiRequest<CallBackgroundState>(
+        'DELETE',
+        `/v1/admin/call-backgrounds/images/${imageId}`,
+        { token: await getAccessToken() },
+      );
+      setState(s);
+      setDraft((d) => (d ? { ...d, defaultChoice: s.policy.defaultChoice } : d));
+    } catch (e) {
+      toast({
+        title: 'Not removed',
+        description: e instanceof ApiFailure ? e.error.message : 'Try again',
+        tone: 'danger',
+      });
+    }
+  };
+
   if (error) return <StateView state="error" title="Calls" description={error} />;
   if (!state || !draft) return <StateView state="loading" title="Loading call settings" />;
 
@@ -86,7 +146,7 @@ export function CallBackgroundsAdmin() {
         title: 'Call backgrounds saved',
         description: draft.enforceLogo
           ? 'Everyone shows the company background in calls.'
-          : `People who haven’t picked a background start with: ${label(draft.defaultChoice)}.`,
+          : `People who haven’t picked a background start with: ${label(draft.defaultChoice, state.uploads)}.`,
         tone: 'success',
       });
     } catch (e) {
@@ -169,6 +229,70 @@ export function CallBackgroundsAdmin() {
             />
           </button>
         </label>
+        <div className="space-y-2" data-testid="company-library">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-label text-text">Company backgrounds</p>
+              <p className="text-meta text-text-subtle">
+                Your own designs or office photos. Everyone in the organization can pick them in
+                calls. PNG, JPEG or WebP; large photos are resized to 1920x1080.
+              </p>
+            </div>
+            {state.policy.canManage ? (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <ImagePlus className="size-4" /> {uploading ? 'Uploading…' : 'Add backgrounds'}
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  data-testid="company-background-file"
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = '';
+                    void addImages(files);
+                  }}
+                />
+              </>
+            ) : null}
+          </div>
+          {companyUploads.length ? (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
+              {companyUploads.map((u) => (
+                <div key={u.imageId} className="relative" data-testid="company-upload">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={API_URL + u.url}
+                    alt={u.name}
+                    title={u.name}
+                    className="aspect-video w-full rounded-lg border border-border object-cover"
+                  />
+                  {state.policy.canManage ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${u.name}`}
+                      onClick={() => void removeImage(u.imageId)}
+                      className="absolute right-1 top-1 rounded bg-black/70 p-1 text-white/80 hover:text-white"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed border-border p-4 text-meta text-text-subtle">
+              No company backgrounds yet.
+            </p>
+          )}
+        </div>
         <div className="space-y-2">
           <p className="text-label text-text">Default background</p>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
@@ -183,6 +307,14 @@ export function CallBackgroundsAdmin() {
                 iconTile(<Building2 className="size-4" />, 'Company')
               ),
               'default-logo',
+            )}
+            {companyUploads.map((u) =>
+              tile(
+                { kind: 'upload', imageId: u.imageId },
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={API_URL + u.url} alt="" className="h-full w-full object-cover" />,
+                `default-upload-${u.imageId}`,
+              ),
             )}
             {CALL_BACKGROUND_PRESETS.map((p) =>
               tile(
