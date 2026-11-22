@@ -160,7 +160,8 @@ const DISMISSED_CACHE_KEY = 'ai-dismissed-suggestions';
  */
 export function useAiDismissals() {
   const { db, engine, state } = useEngine();
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, session } = useAuth();
+  const network = isNetworkSession(session); // no AI in SampConnect Network
   const [ids, setIds] = React.useState<Set<string>>(() => new Set());
   const online = state.connectivity === 'online';
   const store = React.useCallback(
@@ -171,6 +172,7 @@ export function useAiDismissals() {
     [db],
   );
   const refresh = React.useCallback(async () => {
+    if (network) return;
     try {
       const r = await apiRequest<AiDismissedSuggestions>('GET', '/v1/ai/suggestions/dismissed', {
         token: await getAccessToken(),
@@ -179,7 +181,7 @@ export function useAiDismissals() {
     } catch {
       /* offline or AI unavailable: keep the cached set */
     }
-  }, [getAccessToken, store]);
+  }, [getAccessToken, store, network]);
   React.useEffect(() => {
     void db.meta.get(DISMISSED_CACHE_KEY).then((row) => {
       if (row) setIds((s) => (s.size ? s : new Set(row.value as string[])));
