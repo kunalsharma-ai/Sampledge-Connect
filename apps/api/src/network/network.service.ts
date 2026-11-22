@@ -9,7 +9,6 @@ import {
   LinkNetworkRequestSchema,
   NetworkSearchQuerySchema,
   NetworkSignupRequestSchema,
-  ReportSchema,
   RespondConnectionRequestSchema,
   SendConnectionRequestSchema,
   SetCircleSchema,
@@ -42,6 +41,7 @@ import { SessionService } from '../auth/session.service.js';
 import { RateLimitService } from '../redis/redis.module.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
+import { sendSms } from '../integration-settings/sms.js';
 import { NetworkTenant } from './network-tenant.js';
 import { NetworkPolicyService } from './network-policy.service.js';
 import { NetworkGate } from './network-gate.js';
@@ -100,6 +100,14 @@ export class NetworkService {
     return this.network.scoped();
   }
 
+  async ids() {
+    return this.network.get();
+  }
+
+  async isNetworkTenant(tenantId: string) {
+    return this.network.isNetwork(tenantId);
+  }
+
   /** Only network sessions may call network-side endpoints. */
   async assertNetwork(ctx: TenantContext): Promise<ScopedDb> {
     if (!(await this.network.isNetwork(ctx.tenantId)))
@@ -142,7 +150,7 @@ export class NetworkService {
     return result;
   }
 
-  private async auditBoth(
+  async auditBoth(
     actor: NetworkProfileDoc,
     action: string,
     target: { type: string; id: string } | null,
@@ -293,6 +301,7 @@ export class NetworkService {
         { handle },
       );
     }
+    if (profile.suspendedAt) throw forbidden('Your SampConnect Network account is suspended');
     const issued = await this.sessions.create({
       tenantId: netId,
       userId: profile.userId,
@@ -540,13 +549,21 @@ export class NetworkService {
     return ps.map((p) => ({ person: toPerson(p), relationship: rel.get(p.userId)! }));
   }
 
-  /** Ids I blocked or who blocked me: hidden from each other everywhere. */
+  /**
+   * Ids I blocked or who blocked me, plus suspended accounts: hidden everywhere (search,
+   * profiles, statuses, requests, follows, community members).
+   */
   async hiddenFor(meId: string): Promise<Set<string>> {
     const net = await this.net();
-    const rows = await net.network_blocks
-      .find({ $or: [{ userId: meId }, { blockedUserId: meId }] })
-      .toArray();
-    return new Set(rows.map((r) => (r.userId === meId ? r.blockedUserId : r.userId)));
+    const [rows, suspended] = await Promise.all([
+      net.network_blocks.find({ $or: [{ userId: meId }, { blockedUserId: meId }] }).toArray(),
+      net.network_profiles
+        .find({ suspendedAt: { $type: 'date' } } as never, { projection: { userId: 1 } })
+        .toArray(),
+    ]);
+    const out = new Set(rows.map((r) => (r.userId === meId ? r.blockedUserId : r.userId)));
+    for (const p of suspended) if (p.userId !== meId) out.add(p.userId);
+    return out;
   }
 
   async search(ctx: TenantContext, query: unknown): Promise<PersonWithRelationship[]> {
@@ -786,7 +803,8 @@ export class NetworkService {
     const profiles = await net.network_profiles
       .find({ userId: { $in: rows.map((r) => r.otherUserId) } })
       .toArray();
-    const byId = new Map(profiles.map((p) => [p.userId, p]));
+    // Suspended accounts drop out of lists until a platform operator restores them.
+    const byId = new Map(profiles.filter((p) => !p.suspendedAt).map((p) => [p.userId, p]));
     return rows
       .filter((r) => byId.has(r.otherUserId))
       .map((r) => this.toConnection(r.circle, r.connectedAt, byId.get(r.otherUserId)!))
@@ -967,30 +985,6 @@ export class NetworkService {
     return ps.map(toPerson);
   }
 
-  async report(ctx: TenantContext, input: unknown): Promise<{ reportId: string }> {
-    const net = await this.assertNetwork(ctx);
-    const req = parse(ReportSchema, input);
-    return this.once(ctx, req.clientActionId, async () => {
-      await this.rateLimit.consume('network_request', `report:${ctx.userId}`);
-      const doc = await net.network_reports.insertOne({
-        reporterId: ctx.userId,
-        targetType: req.targetType,
-        targetId: req.targetId,
-        reason: req.reason,
-        details: req.details,
-        status: 'open',
-        createdAt: new Date(),
-      });
-      await this.auditBoth(
-        await this.requireProfile(ctx.userId),
-        'network.reported',
-        { type: req.targetType, id: req.targetId },
-        { reason: req.reason },
-      );
-      return { reportId: doc._id };
-    });
-  }
-
   // ─── invites for people not on the platform ────────────────────────────────
 
   private toInvite(i: NetworkInviteDoc, token: string | null): NetworkInvite {
@@ -1032,7 +1026,7 @@ export class NetworkService {
         phone: req.phone ?? null,
         name: req.name ?? null,
         circle: req.circle,
-        delivery: req.channel === 'email' ? 'not_configured' : null,
+        delivery: req.channel === 'link' ? null : 'not_configured',
         status: 'pending',
         acceptedBy: [],
         createdAt: now,
@@ -1045,6 +1039,11 @@ export class NetworkService {
           req.name ?? '',
           `${this.webBase}/join/n/${token}`,
         );
+        doc.delivery = delivery;
+        await net.network_invites.updateOne({ _id: doc._id }, { $set: { delivery } });
+      }
+      if (req.channel === 'sms' && req.phone) {
+        const delivery = await this.sendInviteSms(me, req.phone, `${this.webBase}/join/n/${token}`);
         doc.delivery = delivery;
         await net.network_invites.updateOne({ _id: doc._id }, { $set: { delivery } });
       }
@@ -1097,6 +1096,32 @@ export class NetworkService {
       return 'failed';
     } finally {
       t.close();
+    }
+  }
+
+  /**
+   * Through the SMS provider set up in Integrations → Text messages (the inviter's organization,
+   * else the platform). When nothing is set up the invite still carries an sms: link to send
+   * from the person's own phone.
+   */
+  private async sendInviteSms(
+    inviter: NetworkProfileDoc,
+    phone: string,
+    url: string,
+  ): Promise<'sent' | 'not_configured' | 'failed'> {
+    const sms = await this.settings.get(inviter.homeTenantId, 'sms').catch(() => null);
+    if (!sms?.enabled || !sms.values.secret) return 'not_configured';
+    try {
+      await this.rateLimit.consume('network_sms', phone);
+    } catch {
+      return 'failed';
+    }
+    const text = `${inviter.displayName} invited you to connect on SampConnect: ${url}`;
+    try {
+      await sendSms(sms.values, phone, text);
+      return 'sent';
+    } catch {
+      return 'failed';
     }
   }
 

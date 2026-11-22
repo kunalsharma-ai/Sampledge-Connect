@@ -26,8 +26,9 @@ import { MessagesService } from '../messages/messages.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RealtimePublisher } from './realtime.publisher.js';
-import { conversationRoom, tenantRoom, userRoom } from './rooms.js';
+import { conversationRoom, tenantRoom, userRoom, moderatorsRoom } from './rooms.js';
 import { NetworkGate } from '../network/network-gate.js';
+import { PlatformAdmins } from '../common/platform-admins.js';
 import { NetworkTenant } from '../network/network-tenant.js';
 
 interface SocketData {
@@ -70,6 +71,7 @@ export class RealtimeGateway
     @Inject(REDIS) private readonly redis: Redis,
     private readonly networkGate: NetworkGate,
     private readonly network: NetworkTenant,
+    private readonly platformAdmins: PlatformAdmins,
   ) {}
 
   /**
@@ -118,6 +120,8 @@ export class RealtimeGateway
         ? [userRoom(ctx.tenantId, ctx.userId)]
         : [userRoom(ctx.tenantId, ctx.userId), tenantRoom(ctx.tenantId)],
     );
+    if (!isNetwork && (await this.platformAdmins.is(ctx).catch(() => false)))
+      await socket.join(moderatorsRoom());
     // Join only conversations the user is a member of (public channels they haven't joined sync via REST).
     const mine = await this.db
       .for(ctx.tenantId)

@@ -7,6 +7,8 @@ import {
   type CommunityMember,
   type CommunityRole,
   type Connection,
+  type ModerationQueue,
+  type ReportStatus,
 } from '@sampledge/contracts';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -33,9 +35,11 @@ import {
   SmallButton,
   Tag,
 } from '../../../components/NetworkBits';
+import { ReportCard } from '../../../components/ReportCard';
 import { Screen } from '../../../components/Screen';
 import { Text } from '../../../components/Text';
 import { confirmThen } from '../../../lib/confirm';
+import { ACTION_TEXT } from '../../../lib/moderation';
 import {
   LOCAL_COMMUNITY,
   ROLE_LABEL,
@@ -53,7 +57,7 @@ import { useNet, useNetPending } from '../../../state/useNetwork';
 import { alpha, radius, space } from '../../../theme/themes';
 import { useTheme } from '../../../theme/ThemeProvider';
 
-type Tab = 'groups' | 'members' | 'invite' | 'settings';
+type Tab = 'groups' | 'members' | 'invite' | 'reports' | 'settings';
 type Method = 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 type Run = (label: string, method: Method, path: string, body?: unknown) => void;
 
@@ -122,6 +126,7 @@ export default function CommunityPage() {
     { key: 'groups', label: 'Groups' },
     { key: 'members', label: 'Members' },
     ...(isMod || c.joinPolicy === 'open' ? [{ key: 'invite' as const, label: 'Invite' }] : []),
+    ...(isMod ? [{ key: 'reports' as const, label: 'Reports' }] : []),
     ...(isAdmin ? [{ key: 'settings' as const, label: 'Settings' }] : []),
   ];
   const shown = tabs.some((t) => t.key === tab) ? tab : 'groups';
@@ -270,6 +275,8 @@ export default function CommunityPage() {
                 <Members c={c} pending={pending} run={run} />
               ) : shown === 'invite' ? (
                 <Invite c={c} isMod={isMod} pending={pending} run={run} />
+              ) : shown === 'reports' ? (
+                <Reports c={c} />
               ) : (
                 <Settings key={c.communityId} c={c} run={run} />
               )}
@@ -820,3 +827,70 @@ const styles = StyleSheet.create({
   manage: { paddingHorizontal: space.md, paddingBottom: space.md, gap: space.sm },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md },
 });
+
+/**
+ * Moderators: reports about messages in this community's groups. Actions are queued on the
+ * phone like every other community change, and every moderator's devices update live.
+ */
+function Reports({ c }: { c: Community }) {
+  const { engine } = useWorkspace();
+  const [status, setStatus] = useState<ReportStatus>('open');
+  const base = `/v1/network/communities/${c.communityId}/reports`;
+  const { data, loading } = useNet<ModerationQueue>(`${base}?status=${status}`);
+  const pending = useNetPending().filter((p) => p.path.startsWith(`${base}/`));
+  return (
+    <View style={{ gap: space.md }}>
+      <Text variant="meta" tone="muted">
+        Reports about messages in this community’s groups. The SampConnect team sees them too.
+      </Text>
+      <Chips
+        label="Reports"
+        options={[
+          { key: 'open', label: data?.counts.open ? `Open (${data.counts.open})` : 'Open' },
+          { key: 'actioned', label: 'Actioned' },
+          { key: 'dismissed', label: 'Dismissed' },
+        ]}
+        selected={[status]}
+        onToggle={setStatus}
+      />
+      {pending.length ? <QueuedTag /> : null}
+      {!data ? (
+        loading ? (
+          <ActivityIndicator />
+        ) : (
+          <Empty icon="cloud-offline-outline" title="Open it again once you’re online" />
+        )
+      ) : data.reports.filter((r) => !pending.some((p) => p.path.includes(r.reportId))).length ===
+        0 ? (
+        <Empty
+          icon="shield-checkmark-outline"
+          title={status === 'open' ? 'Nothing to review' : `No ${status} reports`}
+          body={
+            status === 'open'
+              ? 'When someone reports a message in one of your groups, it shows up here.'
+              : undefined
+          }
+        />
+      ) : (
+        data.reports
+          .filter((r) => !pending.some((p) => p.path.includes(r.reportId)))
+          .map((r) => (
+            <ReportCard
+              key={r.reportId}
+              report={r}
+              kind="community"
+              onAct={(action, note) =>
+                void engine.netAct({
+                  method: 'POST',
+                  path: `${base}/${r.reportId}/action`,
+                  body: { clientActionId: uuidv7(), action, note },
+                  label: `${ACTION_TEXT[action].label}`,
+                  scopes: ['reports', 'communities'],
+                })
+              }
+            />
+          ))
+      )}
+    </View>
+  );
+}

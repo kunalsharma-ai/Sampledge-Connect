@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { TYPING_TTL_MS } from '@sampledge/contracts';
+import { TYPING_TTL_MS, uuidv7 } from '@sampledge/contracts';
 import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { canForwardMessage } from '../../lib/forward';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -27,6 +27,7 @@ import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
 import { ChatBackdrop, ChatThemeScope } from '../../components/ChatBackdrop';
 import { useChatTheme } from '../../state/useChatTheme';
+import { useInNetwork } from '../../state/useNetwork';
 import { useChatImage } from '../../lib/chatImageStore';
 import { customImagesAllowed } from '@sampledge/contracts';
 import { Button } from '../../components/Button';
@@ -97,6 +98,7 @@ export default function ConversationScreen() {
   const [notifyOpen, setNotifyOpen] = useState(false);
   const calls = useCalls();
   const { engineState } = useApp();
+  const inNetwork = useInNetwork();
   const online =
     engineState?.connectivity === 'online' || engineState?.connectivity === 'connecting';
   const callsOn = !!calls.config?.enabled;
@@ -281,6 +283,29 @@ export default function ConversationScreen() {
       case 'save':
       case 'unsave':
         return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
+      case 'report': {
+        // Goes to the SampConnect team, and to the community's moderators in a community group.
+        const send = (reason: 'spam' | 'harassment' | 'inappropriate' | 'other') =>
+          void engine.netAct({
+            method: 'POST',
+            path: '/v1/network/reports',
+            body: {
+              clientActionId: uuidv7(),
+              targetType: 'message',
+              targetId: m.messageId!,
+              reason,
+            },
+            label: 'Report message',
+            scopes: [],
+          });
+        if (Platform.OS === 'web') return send('inappropriate');
+        return Alert.alert('Report this message?', 'No one is told who reported it.', [
+          { text: 'Spam', onPress: () => send('spam') },
+          { text: 'Harassment', onPress: () => send('harassment') },
+          { text: 'Something else', onPress: () => send('inappropriate') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      }
       case 'delete': {
         const go = () => void engine.remove(m.clientId);
         if (Platform.OS === 'web') return go();
@@ -618,6 +643,7 @@ export default function ConversationScreen() {
           canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
           canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
           canForward={!!sheetFor && canForwardMessage(sheetFor)}
+          canReport={inNetwork && sheetFor?.messageType !== 'system'}
           canClosePoll={
             !!sheetFor?.poll &&
             !pollIsClosed(sheetFor.poll) &&

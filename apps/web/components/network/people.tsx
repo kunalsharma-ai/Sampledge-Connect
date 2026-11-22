@@ -453,7 +453,7 @@ export function ReportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title={`Report ${name}`}
-        description="Reports are reviewed by the platform team. The person is not told who reported them."
+        description="Reports go to the SampConnect team, and to the community’s moderators for messages in a community. No one is told who reported."
       >
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-1.5">
@@ -766,21 +766,27 @@ function Invite() {
           description: 'It will be created when you’re back online.',
         });
       setMade(r);
-      if (r.smsUrl) window.open(r.smsUrl, '_self');
+      const texted = r.channel === 'sms';
+      // Not sent by the server: open the phone's messages app with the text filled in.
+      if (r.smsUrl && r.delivery !== 'sent') window.open(r.smsUrl, '_self');
       toast({
         title:
           r.delivery === 'sent'
-            ? `Invite emailed to ${r.email}`
-            : r.delivery === 'not_configured'
-              ? 'Invite link ready'
-              : r.delivery === 'failed'
-                ? 'Email failed: copy the link instead'
-                : 'Invite link ready',
+            ? texted
+              ? `Invite texted to ${r.phone}`
+              : `Invite emailed to ${r.email}`
+            : r.delivery === 'failed'
+              ? texted
+                ? 'Text didn’t send: share the link instead'
+                : 'Email failed: copy the link instead'
+              : 'Invite link ready',
         description:
           r.delivery === 'not_configured'
-            ? 'Email isn’t set up on this server yet (Integrations → SMTP). Copy the link and share it.'
+            ? texted
+              ? 'Text messages aren’t set up yet (Administration → Integrations → Text messages), so it opens your messages app instead.'
+              : 'Email isn’t set up on this server yet (Integrations → SMTP). Copy the link and share it.'
             : undefined,
-        tone: 'success',
+        tone: r.delivery === 'failed' ? 'danger' : 'success',
       });
     } catch (e) {
       toast({ title: 'Couldn’t create the invite', description: errorText(e), tone: 'danger' });
@@ -830,7 +836,7 @@ function Invite() {
               <Field
                 label="Mobile number"
                 htmlFor="inv-phone"
-                hint="Opens your phone’s messages app to send it from your number."
+                hint="Sent by text when your organization has set up text messages, otherwise from your own phone."
               >
                 <Input
                   id="inv-phone"
@@ -877,6 +883,13 @@ function Invite() {
               </span>
               <Badge>
                 {i.channel === 'sms' ? 'Text' : i.channel === 'email' ? 'Email' : 'Link'}
+                {i.delivery === 'sent'
+                  ? ' · sent'
+                  : i.delivery === 'failed'
+                    ? ' · not delivered'
+                    : i.delivery === 'not_configured' && i.channel === 'sms'
+                      ? ' · from your phone'
+                      : ''}
               </Badge>
               <Badge
                 tone={

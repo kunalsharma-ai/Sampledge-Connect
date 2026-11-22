@@ -33,7 +33,7 @@ import {
 import { isNetworkSession, useAuth } from '@/lib/auth';
 import { NetworkProvider, useNet } from '@/lib/network';
 import { NetworkHome } from '../network/home';
-import { PeopleScreen } from '../network/people';
+import { PeopleScreen, ReportDialog } from '../network/people';
 import { CommunitiesScreen } from '../network/communities';
 import { SpaceSwitcher } from '../network/space-switcher';
 import { threadCounts, useBookmarks } from '@/lib/bookmarks';
@@ -247,6 +247,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
   const [editing, setEditing] = React.useState<LocalMessage | null>(null);
   const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
   const [forwarding, setForwarding] = React.useState<LocalMessage | null>(null);
+  const [reporting, setReporting] = React.useState<LocalMessage | null>(null);
   const receipts = useReceipts(activeId) ?? [];
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
@@ -496,6 +497,10 @@ function WorkspaceInner({ network }: { network: boolean }) {
       onForward:
         m.messageType === 'text' && !m.poll && active?.allowForwarding !== false
           ? () => setForwarding(m)
+          : undefined,
+      onReport:
+        network && !own && m.messageType !== 'system' && !m.deletedAt
+          ? () => setReporting(m)
           : undefined,
     };
   };
@@ -1207,6 +1212,15 @@ function WorkspaceInner({ network }: { network: boolean }) {
             onOpenChange={(o) => !o && setForwarding(null)}
             onForward={(t, c) => void forwardMessage(t, c)}
           />
+          {network && reporting?.messageId ? (
+            <ReportDialog
+              targetType="message"
+              targetId={reporting.messageId}
+              name="this message"
+              open
+              onOpenChange={(o) => !o && setReporting(null)}
+            />
+          ) : null}
           <DeleteMessageDialog
             message={deleting}
             onOpenChange={(o) => !o && setDeleting(null)}

@@ -65,7 +65,8 @@ export class CommunitiesService {
     const c = await net.communities.findOne({
       $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }],
     });
-    if (!c) throw notFound('Community');
+    // A community suspended by a platform operator is closed to everyone until restored.
+    if (!c || c.suspendedAt) throw notFound('Community');
     return c;
   }
 
@@ -169,7 +170,7 @@ export class CommunitiesService {
     };
   }
 
-  private async admins(net: ScopedDb, communityId: string): Promise<string[]> {
+  async admins(net: ScopedDb, communityId: string): Promise<string[]> {
     const rows = await net.community_members
       .find(
         { communityId, status: 'active', role: { $in: ['owner', 'admin', 'moderator'] } },
@@ -404,14 +405,23 @@ export class CommunitiesService {
       .find({ userId: ctx.userId, status: { $in: ['active', 'pending', 'invited'] } })
       .toArray();
     const cs = await net.communities
-      .find({ _id: { $in: rows.map((r) => r.communityId) } }, { sort: { name: 1 } })
+      .find(
+        {
+          _id: { $in: rows.map((r) => r.communityId) },
+          suspendedAt: { $not: { $type: 'date' } },
+        } as never,
+        { sort: { name: 1 } },
+      )
       .toArray();
     return Promise.all(cs.map((c) => this.toDto(net, c, ctx.userId)));
   }
 
   async discover(ctx: TenantContext, q: string | undefined): Promise<Community[]> {
     const net = await this.network.assertNetwork(ctx);
-    const filter: Record<string, unknown> = { visibility: 'public' };
+    const filter: Record<string, unknown> = {
+      visibility: 'public',
+      suspendedAt: { $not: { $type: 'date' } },
+    };
     if (q?.trim())
       filter.$or = [
         { name: new RegExp(escapeRe(q.trim()), 'i') },
@@ -611,7 +621,7 @@ export class CommunitiesService {
     const l = await net.community_links.findOne({ tokenHash: sha256(token) });
     if (!l) throw notFound('Invite link');
     const c = await net.communities.findOne({ _id: l.communityId });
-    if (!c) throw notFound('Invite link');
+    if (!c || c.suspendedAt) throw notFound('Invite link');
     const {
       groups: _g,
       myRole: _r,
@@ -636,7 +646,7 @@ export class CommunitiesService {
     const l = await net.community_links.findOne({ tokenHash: sha256(token) });
     if (!l || !this.linkValid(l)) throw new AppError('NOT_FOUND', 'This invite link has expired');
     const c = await net.communities.findOne({ _id: l.communityId });
-    if (!c) throw notFound('Community');
+    if (!c || c.suspendedAt) throw notFound('Community');
     const m = await this.membership(net, c._id, ctx.userId);
     if (m?.status === 'banned') throw forbidden('You were removed from this community');
     if (m?.status !== 'active') {
@@ -857,12 +867,86 @@ export class CommunitiesService {
     await this.notifyMembers(net, c._id);
   }
 
+  // ─── moderation (reports) ─────────────────────────────────────────────────
+
+  /** The community and your membership, if you are a moderator, admin or owner of it. */
+  async asModerator(ctx: TenantContext, id: string) {
+    const { net, c, m } = await this.visible(ctx, id);
+    return { net, c, m: this.requireRole(m, 'moderator') };
+  }
+
+  /** Platform operators: close a community (hidden, groups archived) until restored. */
+  async suspend(c: CommunityDoc, reason: string): Promise<void> {
+    const net = await this.network.net();
+    if (c.suspendedAt) return;
+    const now = new Date();
+    const open = await net.conversations.find({ communityId: c._id, archivedAt: null }).toArray();
+    await net.communities.updateOne(
+      { _id: c._id },
+      {
+        $set: {
+          suspendedAt: now,
+          suspendedReason: reason,
+          suspendedConversationIds: open.map((x) => x._id),
+          updatedAt: now,
+        },
+      },
+    );
+    await net.conversations.updateMany(
+      { _id: { $in: open.map((x) => x._id) } },
+      { $set: { archivedAt: now } },
+    );
+    await this.announceGroups(
+      c,
+      open.map((x) => ({ ...x, archivedAt: now })),
+    );
+    await this.notifyMembers(net, c._id);
+  }
+
+  async restore(communityId: string): Promise<void> {
+    const net = await this.network.net();
+    const c = await net.communities.findOne({ _id: communityId });
+    if (!c?.suspendedAt) return;
+    const ids = c.suspendedConversationIds ?? [];
+    await net.communities.updateOne(
+      { _id: c._id },
+      {
+        $set: { suspendedAt: null, suspendedReason: '', updatedAt: new Date() },
+        $unset: { suspendedConversationIds: '' },
+      },
+    );
+    await net.conversations.updateMany({ _id: { $in: ids } }, { $set: { archivedAt: null } });
+    const convs = await net.conversations.find({ _id: { $in: ids } }).toArray();
+    await this.announceGroups(c, convs);
+    await this.notifyMembers(net, c._id);
+  }
+
+  /** Sync archived or reopened groups to every member's devices. */
+  private async announceGroups(c: CommunityDoc, convs: ConversationDoc[]) {
+    const { tenantId, workspaceId } = await this.network.ids();
+    for (const conv of convs) {
+      const members = await this.conversations.memberIds(tenantId, conv._id);
+      await this.conversations.announce(
+        {
+          tenantId,
+          workspaceId,
+          userId: c.ownerId,
+          sessionId: 'moderation',
+          deviceId: 'moderation',
+          role: 'guest',
+        },
+        conv,
+        members,
+      );
+    }
+  }
+
   // ─── public page ──────────────────────────────────────────────────────────
 
   async publicPage(slug: string): Promise<PublicCommunity> {
     const net = await this.network.net();
     const c = await net.communities.findOne({ slug: slug.toLowerCase(), visibility: 'public' });
-    if (!c) throw notFound('Community');
+    if (!c || c.suspendedAt) throw notFound('Community');
     const {
       groups: _g,
       myRole: _r,

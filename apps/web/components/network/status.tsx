@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Eye, ImagePlus, Plus, Send, Trash2, Type, Video, X } from 'lucide-react';
+import { Eye, Flag, ImagePlus, Plus, Send, Trash2, Type, Video, X } from 'lucide-react';
 import {
   STATUS_BACKGROUNDS,
   uuidv7,
@@ -28,6 +28,7 @@ import { useNet, useNetwork } from '@/lib/network';
 import { relativeShort } from '../workspace/helpers';
 import { Switch } from './profile';
 import { errorText } from './ui';
+import { ReportDialog } from './people';
 
 export const BACKGROUNDS: Record<(typeof STATUS_BACKGROUNDS)[number], string> = {
   ocean: 'linear-gradient(135deg,#1e3a8a,#5B8CFF)',
@@ -144,6 +145,7 @@ export function StatusViewer({
   const [i, setI] = React.useState(0);
   const [reply, setReply] = React.useState('');
   const [paused, setPaused] = React.useState(false);
+  const [reporting, setReporting] = React.useState(false);
   const [viewers, setViewers] = React.useState<
     { person: NetworkPerson; viewedAt: string }[] | null
   >(null);
@@ -265,6 +267,18 @@ export function StatusViewer({
                 {relativeShort(s.createdAt)} ago · {AUDIENCE_LABEL[s.audience]}
               </p>
             </div>
+            {author.userId !== me ? (
+              <button
+                aria-label="Report status"
+                onClick={() => {
+                  setPaused(true);
+                  setReporting(true);
+                }}
+                className="rounded-full p-1.5 hover:bg-white/10"
+              >
+                <Flag className="size-4" />
+              </button>
+            ) : null}
             <button
               aria-label="Close"
               onClick={onClose}
@@ -273,6 +287,20 @@ export function StatusViewer({
               <X className="size-5" />
             </button>
           </div>
+          {reporting ? (
+            <ReportDialog
+              targetType="status"
+              targetId={s.statusId}
+              name={`${author.displayName.split(' ')[0]}’s status`}
+              open
+              onOpenChange={(o) => {
+                if (!o) {
+                  setReporting(false);
+                  setPaused(false);
+                }
+              }}
+            />
+          ) : null}
           <div
             className="relative flex flex-1 items-center justify-center"
             style={s.kind === 'text' ? { background: BACKGROUNDS[s.background] } : undefined}

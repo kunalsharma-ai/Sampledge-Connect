@@ -21,7 +21,8 @@ export type MessageAction =
   | 'closePoll'
   | 'createTask'
   | 'requestApproval'
-  | 'translate';
+  | 'translate'
+  | 'report';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -34,6 +35,7 @@ export function MessageActions({
   canClosePoll = false,
   canMakeWork = false,
   canForward = false,
+  canReport = false,
   onAction,
   onReact,
   onClose,
@@ -50,6 +52,8 @@ export function MessageActions({
   canMakeWork?: boolean;
   /** A sent message that is not a poll or a call event. */
   canForward?: boolean;
+  /** SampConnect Network: someone else's message, which you can report to moderators. */
+  canReport?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -101,6 +105,8 @@ export function MessageActions({
         ? { key: 'unsave', label: 'Remove from saved', icon: 'bookmark' }
         : { key: 'save', label: 'Save for later', icon: 'bookmark-outline' },
     );
+    if (canReport && !own)
+      rows.push({ key: 'report', label: 'Report message', icon: 'flag-outline', danger: true });
     if (own) {
       rows.push({ key: 'edit', label: 'Edit', icon: 'create-outline' });
       rows.push({

@@ -68,7 +68,8 @@ export class NetworkGate {
     const net = await this.network.scoped();
     const profile = await net.network_profiles.findOne({ userId });
     let reason: string | null = null;
-    if (profile?.homeTenantId && profile.homeUserId) {
+    if (profile?.suspendedAt) reason = 'Your SampConnect Network account is suspended';
+    else if (profile?.homeTenantId && profile.homeUserId) {
       const home = this.db.for(profile.homeTenantId);
       const [user, membership, tenant] = await Promise.all([
         home.users.findOne({ _id: profile.homeUserId }, { projection: { status: 1 } }),
@@ -84,8 +85,9 @@ export class NetworkGate {
     return reason;
   }
 
-  /** Drop cached decisions (after a policy change in this process). */
-  forget() {
-    this.access.clear();
+  /** Drop cached decisions (after a policy change or suspension in this process). */
+  forget(userId?: string) {
+    if (userId) this.access.delete(userId);
+    else this.access.clear();
   }
 }

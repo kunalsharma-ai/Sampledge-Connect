@@ -940,6 +940,9 @@ export interface NetworkProfileDoc extends TenantOwned {
   avatarColor: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Set by a platform operator: the person can't use SampConnect Network until restored. */
+  suspendedAt?: Date | null;
+  suspendedReason?: string;
 }
 
 export interface NetworkRequestDoc extends TenantOwned {
@@ -981,8 +984,20 @@ export interface NetworkReportDoc extends TenantOwned {
   targetId: string;
   reason: string;
   details: string;
-  status: 'open' | 'reviewed';
+  status: 'open' | 'actioned' | 'dismissed';
   createdAt: Date;
+  /** Whose content it is (reported person, author, or community owner). */
+  subjectUserId?: string | null;
+  /** The community it belongs to, so that community's moderators see it. */
+  communityId?: string | null;
+  /** What it said when reported (moderators still see it after removal). */
+  snapshot?: string;
+  resolution?: {
+    action: import('@sampledge/contracts').ModerationActionKind;
+    note: string;
+    byName: string;
+    at: Date;
+  } | null;
 }
 
 export interface NetworkInviteDoc extends TenantOwned {
@@ -1044,6 +1059,11 @@ export interface CommunityDoc extends TenantOwned {
   avatarColor: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Set by a platform operator: hidden and closed until restored. */
+  suspendedAt?: Date | null;
+  suspendedReason?: string;
+  /** Groups the suspension archived (reopened on restore). */
+  suspendedConversationIds?: string[];
 }
 
 export interface CommunityMemberDoc extends TenantOwned {

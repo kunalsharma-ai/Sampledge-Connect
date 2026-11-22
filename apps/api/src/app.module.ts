@@ -115,11 +115,13 @@ import { NetworkPolicyService } from './network/network-policy.service.js';
 import { NetworkGate } from './network/network-gate.js';
 import { NetworkRules } from './network/network-rules.js';
 import { NetworkService } from './network/network.service.js';
+import { ModerationService } from './network/moderation.service.js';
 import { StatusService } from './network/status.service.js';
 import { CommunitiesService } from './network/communities.service.js';
 import {
   NetworkAdminController,
   NetworkController,
+  NetworkModerationController,
   NetworkPublicController,
 } from './network/network.controller.js';
 
@@ -184,6 +186,7 @@ export class AppModule {
         NetworkPublicController,
         NetworkAdminController,
         NetworkController,
+        NetworkModerationController,
         MinutesController,
       ],
       providers: [
@@ -250,6 +253,7 @@ export class AppModule {
         NetworkService,
         StatusService,
         CommunitiesService,
+        ModerationService,
         MinutesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,

@@ -179,6 +179,55 @@ export const CORE_INTEGRATION_PROVIDERS: IntegrationProviderDef[] = [
     ],
   },
   {
+    id: 'sms',
+    label: 'Text messages (SMS)',
+    description:
+      'Sends SampConnect Network invites by text message to people who are not on SampConnect yet.',
+    category: 'communication',
+    scopes: ['tenant', 'platform'],
+    testable: true,
+    fields: [
+      {
+        key: 'provider',
+        label: 'Provider',
+        type: 'select',
+        required: true,
+        default: 'twilio',
+        options: [
+          { value: 'twilio', label: 'Twilio' },
+          { value: 'vonage', label: 'Vonage (Nexmo)' },
+          { value: 'webhook', label: 'Your own SMS gateway (HTTPS)' },
+        ],
+      },
+      {
+        key: 'accountId',
+        label: 'Account SID or API key',
+        type: 'string',
+        help: 'Twilio: Account SID (AC…). Vonage: API key. Not used for your own gateway.',
+      },
+      {
+        key: 'secret',
+        label: 'Auth token, API secret or gateway token',
+        type: 'secret',
+        required: true,
+        help: 'Your own gateway receives it as "Authorization: Bearer <token>".',
+      },
+      {
+        key: 'from',
+        label: 'Sender',
+        type: 'string',
+        help: 'A phone number in international format (+14155550100) or an approved sender name. Twilio also accepts a Messaging Service SID (MG…).',
+      },
+      {
+        key: 'webhookUrl',
+        label: 'Gateway URL',
+        type: 'url',
+        help: 'Your own gateway only. We POST JSON { to, from, text } and expect a 2xx reply.',
+        placeholder: 'https://sms.example.com/send',
+      },
+    ],
+  },
+  {
     id: 'push.expo',
     label: 'Mobile push (Expo)',
     description: 'Push notifications to the iOS and Android apps through Expo Push.',

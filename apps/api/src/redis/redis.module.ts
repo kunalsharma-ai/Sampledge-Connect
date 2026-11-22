@@ -43,6 +43,8 @@ const POLICIES = {
   network_request: { points: 40, duration: 3600 },
   /** Invites to people not on the platform, per user per hour. */
   network_invite: { points: 30, duration: 3600 },
+  /** Invite texts to one phone number per day, whoever sends them (no SMS bombing). */
+  network_sms: { points: 3, duration: 86_400 },
   /** Status updates and community creation, per user per hour. */
   network_post: { points: 60, duration: 3600 },
 } as const;

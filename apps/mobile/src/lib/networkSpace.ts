@@ -41,6 +41,7 @@ export const NETWORK_SCOPES: NetworkScope[] = [
   'statuses',
   'communities',
   'invites',
+  'reports',
 ];
 
 /** Which cached network lists belong to a scope (refetched when the server says it changed). */
@@ -53,6 +54,8 @@ const SCOPE_PATHS: Record<NetworkScope, RegExp> = {
   statuses: /^\/v1\/network\/statuses/,
   communities: /^\/v1\/network\/communit/,
   invites: /^\/v1\/network\/invites/,
+  /** A community's report queue (moderators). */
+  reports: /^\/v1\/network\/communities\/[^/]+\/reports/,
 };
 
 export const pathInScopes = (path: string, scopes: readonly NetworkScope[]): boolean =>

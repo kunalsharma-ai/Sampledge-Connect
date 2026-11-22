@@ -105,6 +105,8 @@ export type ChangeEvent =
       linkId: string;
       reason: 'linked' | 'updated' | 'action';
     }
+  /** Platform operators: the SampConnect Network report queue or suspensions changed. */
+  | { type: 'moderation'; scope: 'reports' | 'suspensions' }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
@@ -293,6 +295,7 @@ export class HttpSocketTransport implements Transport {
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
     s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
+    s.on('moderation:changed', (e) => this.handlers?.onChange?.({ type: 'moderation', ...e }));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
     s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
     s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));
