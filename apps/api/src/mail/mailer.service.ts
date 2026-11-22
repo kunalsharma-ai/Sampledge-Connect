@@ -1,6 +1,7 @@
-import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 
 export interface OutgoingMail {
   to: { name: string; email: string };
@@ -11,53 +12,88 @@ export interface OutgoingMail {
   calendar?: { method: 'REQUEST' | 'CANCEL'; content: string };
 }
 
+interface SmtpSettings {
+  host: string;
+  port: number;
+  security: 'tls' | 'starttls' | 'none';
+  username: string | null;
+  password: string | null;
+  from: string;
+}
+
 /**
- * Outgoing email through the organization's own SMTP server. Nothing is sent (and nothing
- * fails) when SMTP isn't configured: callers check `enabled` and say so in the UI.
+ * Outgoing email through the organization's own SMTP server. Settings come from the database
+ * (Integrations → Email: the organization's own, else the platform default, else legacy env),
+ * and a saved change takes effect on every API node without a restart. Nothing is sent (and
+ * nothing fails) when SMTP isn't configured: callers check `enabled` and say so in the UI.
  */
 @Injectable()
 export class MailerService implements OnApplicationShutdown {
   private readonly log = new Logger(MailerService.name);
-  private transport: Transporter | null = null;
+  /** Pooled transports by settings fingerprint, so tenants sharing a server share a pool. */
+  private readonly transports = new Map<string, Transporter>();
+  private readonly stopListening: () => void;
 
-  constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {}
+  constructor(private readonly settings: IntegrationSettingsService) {
+    // Hot reload: new settings get a new transport; close the old pools.
+    this.stopListening = settings.onChange('smtp', () => this.closeAll());
+  }
 
-  get enabled(): boolean {
-    return !!(this.cfg.SMTP_HOST && this.cfg.SMTP_FROM);
+  private async smtp(tenantId: string | null): Promise<SmtpSettings | null> {
+    const r = await this.settings.get(tenantId, 'smtp');
+    const v = r?.enabled ? r.values : null;
+    if (!v?.host || !v.from) return null;
+    const security = v.security === 'tls' || v.security === 'none' ? v.security : 'starttls';
+    return {
+      host: String(v.host),
+      port: Number(v.port ?? 587),
+      security,
+      username: v.username ? String(v.username) : null,
+      password: v.password ? String(v.password) : null,
+      from: String(v.from),
+    };
+  }
+
+  async enabled(tenantId: string | null): Promise<boolean> {
+    return !!(await this.smtp(tenantId));
   }
 
   /** The From address, for ORGANIZER lines in calendar invites. */
-  get fromAddress(): { name: string; email: string } | null {
-    const from = this.cfg.SMTP_FROM;
+  async fromAddress(tenantId: string | null): Promise<{ name: string; email: string } | null> {
+    const from = (await this.smtp(tenantId))?.from;
     if (!from) return null;
     const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from);
     return m ? { name: m[1]!.trim(), email: m[2]!.trim() } : { name: '', email: from.trim() };
   }
 
-  private get transporter(): Transporter {
-    this.transport ??= nodemailer.createTransport({
-      host: this.cfg.SMTP_HOST,
-      port: this.cfg.SMTP_PORT,
-      secure: this.cfg.SMTP_SECURE,
-      requireTLS: this.cfg.SMTP_REQUIRE_TLS,
-      ...(this.cfg.SMTP_USER
-        ? { auth: { user: this.cfg.SMTP_USER, pass: this.cfg.SMTP_PASSWORD } }
-        : {}),
-      pool: true,
-      maxConnections: 3,
-      connectionTimeout: 15_000,
-      greetingTimeout: 15_000,
-      socketTimeout: 30_000,
-    });
-    return this.transport;
+  private transporter(s: SmtpSettings): Transporter {
+    const key = createHash('sha256').update(JSON.stringify(s)).digest('hex');
+    let t = this.transports.get(key);
+    if (!t) {
+      t = nodemailer.createTransport({
+        host: s.host,
+        port: s.port,
+        secure: s.security === 'tls',
+        requireTLS: s.security === 'starttls',
+        ...(s.username ? { auth: { user: s.username, pass: s.password ?? '' } } : {}),
+        pool: true,
+        maxConnections: 3,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 30_000,
+      });
+      this.transports.set(key, t);
+    }
+    return t;
   }
 
   /** Sends one message. Throws with a short, log-safe reason when the server refuses it. */
-  async send(mail: OutgoingMail): Promise<void> {
-    if (!this.enabled) throw new Error('Email is not configured on this server');
+  async send(tenantId: string | null, mail: OutgoingMail): Promise<void> {
+    const s = await this.smtp(tenantId);
+    if (!s) throw new Error('Email is not configured on this server');
     try {
-      await this.transporter.sendMail({
-        from: this.cfg.SMTP_FROM,
+      await this.transporter(s).sendMail({
+        from: s.from,
         to: { name: mail.to.name, address: mail.to.email },
         subject: mail.subject,
         text: mail.text,
@@ -79,8 +115,14 @@ export class MailerService implements OnApplicationShutdown {
     }
   }
 
+  private closeAll() {
+    for (const t of this.transports.values()) t.close();
+    this.transports.clear();
+  }
+
   onApplicationShutdown() {
-    this.transport?.close();
+    this.stopListening();
+    this.closeAll();
   }
 }
 

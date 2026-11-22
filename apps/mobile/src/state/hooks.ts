@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
-import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
+import type {
+  LocalConversation,
+  LocalMeeting,
+  LocalMessage,
+  LocalNotification,
+  LocalStore,
+} from '../db/store';
+import type { DirectoryUser } from '../sync/transport';
 import type { TenantRole } from '@sampledge/contracts';
-import type { LocalScheduled } from '../db/work';
+import type { LocalBookingPage, LocalScheduled } from '../db/work';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -136,6 +143,83 @@ export interface DirectoryEntry {
   email: string;
   role: string;
   title: string | null;
+  avatarUrl?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  timeZone?: string | null;
+}
+
+/** One shared copy of the photo map per workspace, so a long list does not read it per row. */
+const avatarMaps = new WeakMap<
+  LocalStore,
+  { map: Record<string, string>; subs: Set<(m: Record<string, string>) => void> }
+>();
+function avatarMap(store: LocalStore) {
+  let entry = avatarMaps.get(store);
+  if (!entry) {
+    const e = {
+      map: {} as Record<string, string>,
+      subs: new Set<(m: Record<string, string>) => void>(),
+    };
+    const load = () =>
+      void store.getSetting('avatars').then((raw) => {
+        e.map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+        e.subs.forEach((f) => f(e.map));
+      });
+    load();
+    store.events.on('settings', ({ key }) => key === 'avatars' && load());
+    avatarMaps.set(store, e);
+    entry = e;
+  }
+  return entry;
+}
+
+/**
+ * Someone's profile photo (a full URL, or a data URL for your own photo not sent yet), or null
+ * to show initials. Follows changes made anywhere (directory:updated) and on this phone.
+ */
+export function useAvatarUri(userId?: string | null): string | null {
+  const { store } = useWorkspace();
+  const [map, setMap] = useState<Record<string, string>>(() => avatarMap(store).map);
+  useEffect(() => {
+    const e = avatarMap(store);
+    setMap(e.map);
+    e.subs.add(setMap);
+    return () => void e.subs.delete(setMap);
+  }, [store]);
+  return userId ? (map[userId] ?? null) : null;
+}
+
+/** One person's profile card from the copy on this phone (kept current). */
+export function useProfile(userId: string): DirectoryUser | null {
+  const { store, engine, selfId } = useWorkspace();
+  const [u, setU] = useState<DirectoryUser | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void (
+        userId === selfId
+          ? engine.myProfile()
+          : store
+              .getSetting('directory')
+              .then((raw) =>
+                raw
+                  ? ((JSON.parse(raw) as DirectoryUser[]).find((x) => x.userId === userId) ?? null)
+                  : null,
+              )
+      ).then((x) => alive && setU(x));
+    load();
+    const offs = [
+      store.events.on('settings', ({ key }) => key === 'directory' && load()),
+      engine.events.on('profile', () => load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [store, engine, selfId, userId]);
+  return u;
 }
 
 /**
@@ -374,6 +458,45 @@ export function useWorkList<T>(
 }
 
 /**
+ * Booking pages you host: the copy on this phone at once (with changes made offline), refreshed
+ * when online, and reloaded when one changes here, on another device or by a co-host.
+ */
+export function useBookingPages(): {
+  items: LocalBookingPage[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<LocalBookingPage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = (fresh = false) => {
+      void engine
+        .listBookingPages({ fresh })
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load(true);
+    const offs = [
+      engine.events.on('booking', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'booking' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
+}
+
+/**
  * People you can assign work to or ask for approval: the conversation's members when there is
  * one, else everyone in the workspace. You come first, as "Me".
  */
@@ -391,4 +514,24 @@ export function usePeopleChoices(conversationId?: string): { key: string; label:
       .map((u) => ({ key: u, label: nameOf(u) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
+}
+
+/** Your recent searches, newest first; follows changes here and on your other devices. */
+export function useRecentSearches(): string[] {
+  const { engine } = useWorkspace();
+  const [items, setItems] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void engine.recentSearches().then((r) => alive && setItems(r));
+    load();
+    const offs = [
+      engine.events.on('recentSearches', (r) => alive && setItems(r)),
+      engine.store.work.events.on('changed', (e) => e.kind === 'search' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine]);
+  return items;
 }

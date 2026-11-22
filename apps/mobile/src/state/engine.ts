@@ -1,4 +1,9 @@
 import {
+  effectiveStatus,
+  type UserStatus,
+  type DndSchedule,
+  type PresenceInfo,
+  MAX_FORWARD_TARGETS,
   uuidv7,
   backoffDelay,
   type CreateConversationRequest,
@@ -8,8 +13,15 @@ import {
   type Meeting,
   type MeetingReminderEvent,
   type RsvpResponse,
+  type SeriesScope,
+  MAX_RECENT_SEARCHES,
+  type SearchResponse,
   type UpdateMeetingRequest,
   type WorkingHours,
+  effectiveChatTheme,
+  type ChatThemeId,
+  type ChatThemePolicy,
+  type ChatThemeState,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -17,6 +29,8 @@ import {
   type SendMessageRequest,
   type SetReactionRequest,
   type RecordingList,
+  type FileList,
+  type ListFilesQuery,
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
@@ -25,6 +39,10 @@ import {
   type PostingPolicy,
   type ScheduledMessage,
   type Task,
+  type BookingPage,
+  type CreateBookingPageRequest,
+  type UpdateBookingPageRequest,
+  type UpdateProfileRequest,
   type Approval,
   type AdminOverview,
   type AuditPage,
@@ -53,9 +71,18 @@ import {
   type CreateApprovalRequest,
   type DecideApprovalRequest,
   SCHEDULE_MIN_LEAD_MS,
+  type TenantArea,
 } from '@sampledge/contracts';
 import type { SessionManager } from '../auth/session';
-import type { LocalNotification, LocalStore, PendingFileInput } from '../db/store';
+import type {
+  LocalMessage,
+  LocalNotification,
+  LocalSearch,
+  LocalFile,
+  LocalFilesQuery,
+  LocalStore,
+  PendingFileInput,
+} from '../db/store';
 import {
   approvalMatches,
   isLocalId,
@@ -64,12 +91,15 @@ import {
   type ActionInput,
   type ActionKind,
   type LocalApproval,
+  type LocalBookingPage,
   type LocalBookmark,
+  type LocalKind,
   type LocalScheduled,
   type LocalTask,
   type QueuedAction,
 } from '../db/work';
 import { Emitter } from '../lib/emitter';
+import { forwardSnapshot } from '../lib/forward';
 import type { MarkNotificationsReadRequest } from '../sync/notificationTypes';
 import { deleteLocalFile, pruneLocalFiles } from '../lib/localFiles';
 import { OutboxProcessor } from '../sync/outbox';
@@ -84,6 +114,7 @@ import {
   type ApprovalQuery,
   type RecordingsQuery,
   type TaskQuery,
+  type SearchParams,
 } from '../sync/transport';
 
 /** What the connectivity indicator shows. */
@@ -110,6 +141,12 @@ export interface EngineState {
  * Wires the local store, outbox, cursor sync and realtime link together and reacts
  * to connectivity, app foregrounding and session changes.
  */
+/** Settings key for the server's copy of your recent searches. */
+const HOURS_KEY = 'workingHours';
+/** Settings key for the server's copy of your chat theme and the organization's rules. */
+const THEME_KEY = 'chatTheme';
+const RECENT_KEY = 'search.recent';
+
 export class ConnectEngine {
   readonly events = new Emitter<{
     state: EngineState;
@@ -128,6 +165,20 @@ export class ConnectEngine {
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
+    /** An admin changed an organization setting elsewhere; screens showing it reload. */
+    tenant: { area: TenantArea };
+    /** A project changed (for the projects screen when it ships on mobile). */
+    project: { projectId: string };
+    /** A booking page you host changed here, on another device or by a co-host. */
+    booking: { bookingPageId: string } | null;
+    /** Your own profile changed on this phone, or a change of it reached the server. */
+    profile: null;
+    /** Your recent searches changed here or on another of your devices. */
+    recentSearches: string[];
+    /** Your working hours changed here or on another device. */
+    workingHours: WorkingHours;
+    /** Your chat theme or the organization's rules changed, here or elsewhere. */
+    chatTheme: ChatThemeState;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -159,7 +210,7 @@ export class ConnectEngine {
     private readonly session: SessionManager,
     private readonly realtime: RealtimeClient | null,
   ) {
-    this.sync = new SyncEngine(store, api);
+    this.sync = new SyncEngine(store, api, { overlay: (users) => this.overlayProfile(users) });
     this.calls = new CallController(api, store.selfUserId);
     this.outbox = new OutboxProcessor({
       store,
@@ -231,6 +282,19 @@ export class ConnectEngine {
           ).then(() => this.events.emit('work', { kind: w.kind }));
         }),
         this.realtime.events.on('bookmark', (b) => void this.receiveBookmark(b)),
+        // Names and the people picker follow profile and membership changes made anywhere.
+        this.realtime.events.on('directory', () => void this.sync.refreshDirectory()),
+        this.realtime.events.on('tenant', (e) => void this.receiveTenant(e.area)),
+        this.realtime.events.on('project', (e) => this.events.emit('project', e)),
+        this.realtime.events.on('booking', (e) => void this.receiveBooking(e)),
+        this.realtime.events.on('searchRecent', (e) => void this.receiveRecent(e.recent)),
+        this.realtime.events.on(
+          'chatTheme',
+          () => void this.refreshChatTheme().catch(() => undefined),
+        ),
+        this.realtime.events.on('meetingsChanged', (e) => {
+          if (e.area === 'working_hours') void this.refreshWorkingHours().catch(() => undefined);
+        }),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -426,6 +490,19 @@ export class ConnectEngine {
     }
   }
 
+  /** An admin changed an organization setting on another device: pick it up here. */
+  private async receiveTenant(area: TenantArea): Promise<void> {
+    if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'branding' && this.online) {
+      try {
+        this.events.emit('branding', await this.api.getBranding());
+      } catch {
+        // keep the current look; the next start reloads it
+      }
+    }
+    this.events.emit('tenant', { area });
+  }
+
   /** A save or unsave from another of your devices (or the echo of one made here). */
   private async receiveBookmark(b: {
     messageId: string;
@@ -468,6 +545,16 @@ export class ConnectEngine {
   }
 
   /** Recordings library (needs a connection: recordings are streamed, not cached). */
+  /** The Files screen from the server. Offline, the screen uses {@link filesOnPhone}. */
+  listFiles(q: ListFilesQuery): Promise<FileList> {
+    return this.serverAction(() => this.api.listFiles(q));
+  }
+
+  /** Files in the messages saved on this phone, including ones still waiting to upload. */
+  filesOnPhone(q: LocalFilesQuery): Promise<LocalFile[]> {
+    return this.store.filesOnPhone(q);
+  }
+
   listRecordings(q: RecordingsQuery): Promise<RecordingList> {
     return this.serverAction(() => this.api.listRecordings(q));
   }
@@ -794,16 +881,227 @@ export class ConnectEngine {
     this.events.emit('work', { kind: 'approval' });
   }
 
+  // ------------------------------------------------ booking pages (cached, queued offline)
+
+  /** Booking pages you host: the copy on this phone, refreshed when online. */
+  async listBookingPages(opts: { fresh?: boolean } = {}): Promise<LocalBookingPage[]> {
+    await this.refreshFrom(async () => {
+      const list = await this.api.listBookingPages();
+      await this.store.work.replace<BookingPage>('booking', list, () => true);
+    }, opts.fresh ?? true);
+    return this.store.work.listBookingPages();
+  }
+
+  async getBookingPage(id: string): Promise<LocalBookingPage> {
+    const p = await this.store.work.getBookingPage(id);
+    if (!p) throw new Error('This booking page is not on this phone.');
+    return p;
+  }
+
+  /** Creates a booking page (you are always a host). Works offline. */
+  async createBookingPage(req: CreateBookingPageRequest): Promise<LocalBookingPage> {
+    const localId = `${LOCAL_PREFIX}${uuidv7()}`;
+    await this.queue({ kind: 'booking.create', localId, request: req });
+    this.events.emit('booking', { bookingPageId: localId });
+    return (await this.store.work.getBookingPage(localId))!;
+  }
+
+  async updateBookingPage(id: string, patch: UpdateBookingPageRequest): Promise<void> {
+    await this.queue({ kind: 'booking.update', bookingPageId: id, patch });
+    this.events.emit('booking', { bookingPageId: id });
+  }
+
+  async deleteBookingPage(id: string): Promise<void> {
+    await this.queue({ kind: 'booking.delete', bookingPageId: id });
+    this.events.emit('booking', { bookingPageId: id });
+  }
+
+  private async receiveBooking(e: { bookingPageId: string; page: BookingPage | null }) {
+    if (e.page && e.page.hostIds.includes(this.store.selfUserId))
+      await this.store.work.upsert('booking', [e.page]);
+    else await this.store.work.removeBooking(e.bookingPageId);
+    this.events.emit('booking', { bookingPageId: e.bookingPageId });
+  }
+
+  // ------------------------------------------------ your profile (queued offline, last write wins)
+
+  /** Your profile as everyone will see it, with changes made on this phone applied. */
+  async myProfile(): Promise<DirectoryUser | null> {
+    const raw = await this.store.getSetting('directory');
+    const self = raw
+      ? ((JSON.parse(raw) as DirectoryUser[]).find((u) => u.userId === this.store.selfUserId) ??
+        null)
+      : null;
+    if (self) return self;
+    const u = this.session.current?.user;
+    if (!u) return null;
+    const [mine] = await this.overlayProfile([
+      { ...u, title: u.title ?? null, status: 'active', role: u.role } as DirectoryUser,
+    ]);
+    return mine ?? null;
+  }
+
+  /**
+   * Edits your name, title, department, phone, about and time zone. Works offline: shown at once
+   * on this phone and sent when you reconnect; the newest value of each field wins.
+   */
+  async updateProfile(patch: UpdateProfileRequest): Promise<void> {
+    if (!Object.keys(patch).length) return;
+    await this.queue({ kind: 'profile.update', patch });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /**
+   * Your availability and custom status (emoji, text, when it clears). Works offline: shown at
+   * once on this phone and sent when you reconnect; every device and teammate then updates.
+   */
+  async setStatus(status: UserStatus): Promise<void> {
+    await this.queue({ kind: 'status.set', status });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /** Recurring quiet hours (no push notifications). Works offline like {@link setStatus}. */
+  async setDndSchedule(schedule: DndSchedule): Promise<void> {
+    await this.queue({ kind: 'dnd.set', schedule });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  /** A new photo (already cropped and compressed to a data URL). Works offline. */
+  async setAvatar(image: string): Promise<void> {
+    await this.queue({ kind: 'avatar.set', image });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  async removeAvatar(): Promise<void> {
+    await this.queue({ kind: 'avatar.remove' });
+    await this.sync.rederiveDirectory();
+    this.events.emit('profile', null);
+  }
+
+  // ------------------------------------------------------------ Universal Search
+
+  /**
+   * Everything you may open that matches, from the server (needs a connection). Offline, the
+   * search screen uses {@link searchOnPhone} instead.
+   */
+  search(q: SearchParams): Promise<SearchResponse> {
+    return this.serverAction(() => this.api.search(q));
+  }
+
+  /** Messages saved on this phone that match, including ones not sent yet. */
+  searchOnPhone(q: LocalSearch): Promise<LocalMessage[]> {
+    return this.store.searchMessagesBy(q);
+  }
+
+  /** Your recent searches, newest first: your unsent change, else the server's last copy. */
+  async recentSearches(): Promise<string[]> {
+    const pending = await this.store.work.pendingRecentSearches();
+    if (pending) return pending;
+    const raw = await this.store.getSetting(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  }
+
+  /** Puts a search at the top of your recent ones (on every device; works offline). */
+  async rememberSearch(query: string): Promise<void> {
+    const q = query.trim();
+    if (!q) return;
+    const now = await this.recentSearches();
+    const next = [q, ...now.filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(
+      0,
+      MAX_RECENT_SEARCHES,
+    );
+    if (next.join('\n') === now.join('\n')) return;
+    await this.saveRecent(next);
+  }
+
+  async forgetSearch(query: string): Promise<void> {
+    await this.saveRecent((await this.recentSearches()).filter((x) => x !== query));
+  }
+
+  async clearRecentSearches(): Promise<void> {
+    await this.saveRecent([]);
+  }
+
+  private async saveRecent(recent: string[]): Promise<void> {
+    if (this.session.state === 'demo')
+      await this.store.setSetting(RECENT_KEY, JSON.stringify(recent));
+    else await this.queue({ kind: 'search.recent', recent });
+    this.events.emit('recentSearches', recent);
+  }
+
+  private async receiveRecent(recent: string[]): Promise<void> {
+    await this.store.setSetting(RECENT_KEY, JSON.stringify(recent));
+    await this.emitRecent();
+  }
+
+  private async emitRecent(): Promise<void> {
+    this.events.emit('recentSearches', await this.recentSearches());
+  }
+
+  private async refreshRecentSearches(): Promise<void> {
+    await this.receiveRecent(await this.api.getRecentSearches());
+  }
+
+  /** Lays your unsent profile changes over the server's directory. */
+  private async overlayProfile(users: DirectoryUser[]): Promise<DirectoryUser[]> {
+    const { patch, avatar, status, dndSchedule } = await this.store.work.pendingProfile();
+    if (!Object.keys(patch).length && avatar === undefined && !status && !dndSchedule) return users;
+    const clean = (v: string | null | undefined) =>
+      v === undefined ? undefined : v?.trim() || null;
+    return users.map((u) => {
+      if (u.userId !== this.store.selfUserId) return u;
+      const next: DirectoryUser = { ...u };
+      if (patch.displayName?.trim()) next.displayName = patch.displayName.trim();
+      for (const k of ['title', 'department', 'phone', 'bio', 'timeZone'] as const) {
+        const v = clean(patch[k]);
+        if (v !== undefined) next[k] = v;
+      }
+      if (avatar !== undefined) next.avatarUrl = avatar;
+      if (status) next.userStatus = status;
+      if (dndSchedule) next.dndSchedule = dndSchedule;
+      return next;
+    });
+  }
+
+  private async receivePresence(p: PresenceInfo): Promise<void> {
+    const raw = await this.store.getSetting('directory.server');
+    const list = raw ? (JSON.parse(raw) as DirectoryUser[]) : [];
+    const self = this.store.selfUserId;
+    await this.store.setSetting(
+      'directory.server',
+      JSON.stringify(
+        list.map((u) =>
+          u.userId === self ? { ...u, userStatus: p.status, dndSchedule: p.dndSchedule } : u,
+        ),
+      ),
+    );
+  }
+
+  /** The server answered a profile change: keep its copy of you, then re-apply what is left. */
+  private async receiveSelf(u: DirectoryUser): Promise<void> {
+    const raw = await this.store.getSetting('directory.server');
+    const list = raw ? (JSON.parse(raw) as DirectoryUser[]) : [];
+    const next = list.some((x) => x.userId === u.userId)
+      ? list.map((x) => (x.userId === u.userId ? { ...x, ...u } : x))
+      : [...list, u];
+    await this.store.setSetting('directory.server', JSON.stringify(next));
+  }
+
   /** Try again something created here that the server refused. */
-  async retryLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+  async retryLocal(kind: LocalKind, localId: string): Promise<void> {
     await this.store.work.retry(localId, kind);
     void this.outbox.kick();
   }
 
   /** Forget something created here that the server refused. */
-  async discardLocal(kind: 'task' | 'approval' | 'scheduled', localId: string): Promise<void> {
+  async discardLocal(kind: LocalKind, localId: string): Promise<void> {
     await this.store.work.discard(localId, kind);
-    this.events.emit(kind === 'scheduled' ? 'scheduled' : 'work', null as never);
+    if (kind === 'booking') this.events.emit('booking', null);
+    else this.events.emit(kind === 'scheduled' ? 'scheduled' : 'work', null as never);
   }
 
   /** Sends one queued action and applies the server's answer (called by the outbox). */
@@ -908,6 +1206,78 @@ export class ConnectEngine {
         await w.upsert('scheduled', [await this.api.sendScheduledNow(await need(i.scheduledId))]);
         void this.runSync();
         break;
+      case 'booking.create': {
+        let page: BookingPage;
+        try {
+          page = await this.api.createBookingPage(i.request);
+        } catch (err) {
+          // The link is the page's identity: if the first try reached the server but its answer
+          // was lost, the retry finds our own page under that link.
+          const slug = i.request.slug.trim().toLowerCase();
+          const own =
+            err instanceof TransportError && err.code === 'CONFLICT'
+              ? (await this.api.listBookingPages()).find(
+                  (p) => p.slug === slug && p.createdBy === this.store.selfUserId,
+                )
+              : undefined;
+          if (!own) throw err;
+          page = own;
+        }
+        await w.settleCreate(a, { kind: 'booking', data: page });
+        this.events.emit('booking', { bookingPageId: page.bookingPageId });
+        return;
+      }
+      case 'booking.update': {
+        const page = await this.api.updateBookingPage(await need(i.bookingPageId), i.patch);
+        if (page.hostIds.includes(this.store.selfUserId)) await w.upsert('booking', [page]);
+        else await w.removeBooking(page.bookingPageId);
+        break;
+      }
+      case 'profile.update':
+        await this.receiveSelf(await this.api.updateProfile(i.patch));
+        break;
+      case 'avatar.set':
+        await this.receiveSelf(await this.api.setAvatar(i.image));
+        break;
+      case 'avatar.remove':
+        await this.receiveSelf(await this.api.removeAvatar());
+        break;
+      case 'status.set': {
+        // Queued while offline long enough to have expired: it has cleared itself by now.
+        const s = effectiveStatus(i.status, new Date());
+        await this.receivePresence(await this.api.setStatus(s));
+        break;
+      }
+      case 'dnd.set':
+        await this.receivePresence(await this.api.setDndSchedule(i.schedule));
+        break;
+      case 'theme.set':
+        await this.store.setSetting(
+          THEME_KEY,
+          JSON.stringify(await this.api.setChatTheme(i.themeId)),
+        );
+        break;
+      case 'hours.set':
+        await this.store.setSetting(
+          HOURS_KEY,
+          JSON.stringify(await this.api.setWorkingHours(i.hours)),
+        );
+        break;
+      case 'search.recent':
+        await this.store.setSetting(
+          RECENT_KEY,
+          JSON.stringify(await this.api.setRecentSearches(i.recent)),
+        );
+        break;
+      case 'booking.delete':
+        try {
+          await this.api.deleteBookingPage(await need(i.bookingPageId));
+        } catch (err) {
+          // Already gone (deleted by a co-host): that is what we wanted.
+          if (!(err instanceof TransportError && err.code === 'NOT_FOUND')) throw err;
+        }
+        await w.removeBooking((await w.resolveId(i.bookingPageId)) ?? i.bookingPageId);
+        break;
     }
     await w.complete(a);
     this.afterAction(a);
@@ -941,6 +1311,20 @@ export class ConnectEngine {
     if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
+    if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
+    if (i.kind === 'search.recent') void this.emitRecent();
+    if (i.kind === 'theme.set') void this.emitChatTheme();
+    if (i.kind === 'hours.set')
+      void this.getWorkingHours()
+        .then((h) => this.events.emit('workingHours', h))
+        .catch(() => undefined);
+    if (
+      i.kind === 'profile.update' ||
+      i.kind.startsWith('avatar.') ||
+      i.kind === 'status.set' ||
+      i.kind === 'dnd.set'
+    )
+      void this.sync.rederiveDirectory().then(() => this.events.emit('profile', null));
   }
 
   /**
@@ -958,10 +1342,15 @@ export class ConnectEngine {
           this.listApprovals({ scope: 'requested', status: 'pending' }),
           this.listScheduled(),
           this.listBookmarks(),
+          this.listBookingPages(),
+          this.refreshRecentSearches(),
+          this.refreshWorkingHours(),
+          this.refreshChatTheme(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
         this.events.emit('scheduled', null);
+        this.events.emit('booking', null);
       } finally {
         this.workRun = null;
       }
@@ -1095,6 +1484,13 @@ export class ConnectEngine {
 
   aiTranscript(attachmentId: string, queue = false): Promise<AiTranscript> {
     return this.serverAction(() => this.api.aiTranscript(attachmentId, queue));
+  }
+
+  /** Forwarding out of a private channel or group on or off (owners and moderators). */
+  setForwarding(conversationId: string, allowed: boolean): Promise<void> {
+    return this.serverAction(async () => {
+      await this.store.upsertConversations([await this.api.setForwarding(conversationId, allowed)]);
+    });
   }
 
   /** Announcement channel on or off (channel owners and moderators). */
@@ -1234,9 +1630,13 @@ export class ConnectEngine {
   }
 
   /** Answers an invitation. Works offline: the answer shows at once and is sent when possible. */
-  async rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<void> {
-    if (this.session.state === 'demo') return this.store.applyLocalRsvp(meetingId, response);
-    await this.store.setRsvpLocally(meetingId, response);
+  async rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope: SeriesScope = 'occurrence',
+  ): Promise<void> {
+    if (this.session.state === 'demo') return this.store.applyLocalRsvp(meetingId, response, scope);
+    await this.store.setRsvpLocally(meetingId, response, scope);
     await this.flushRsvps();
   }
 
@@ -1251,16 +1651,22 @@ export class ConnectEngine {
 
   private async sendRsvps(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
-    for (const { meetingId, response } of await this.store.pendingRsvps()) {
+    for (const p of await this.store.pendingRsvps()) {
       try {
-        await this.store.upsertMeetings([await this.api.rsvp(meetingId, response)]);
+        await this.store.upsertMeetings([await this.api.rsvp(p.meetingId, p.response, p.scope)]);
+        // The other meetings of the series changed on the server too.
+        if (p.scope === 'series') {
+          await this.store.settleRsvp(p);
+          void this.refreshMeetings();
+          continue;
+        }
       } catch (err) {
         if (!(err instanceof TransportError) || err.kind === 'network') return;
         if (err.isAuth) return void this.handleAuthError(err);
         if (err.retryable) return;
         // Refused for good (cancelled, or no longer invited): fall back to the server's copy.
       }
-      await this.store.settleRsvp(meetingId, response);
+      await this.store.settleRsvp(p);
     }
   }
 
@@ -1279,13 +1685,17 @@ export class ConnectEngine {
     return this.serverAction(async () => {
       const m = await this.api.updateMeeting(meetingId, req);
       await this.store.upsertMeetings([m]);
+      // A series change recreates or edits the other upcoming meetings too.
+      if (req.scope === 'series') void this.refreshMeetings();
       return m;
     });
   }
 
-  cancelMeeting(meetingId: string): Promise<void> {
+  /** `scope: 'series'` cancels this and every later meeting of a recurring series. */
+  cancelMeeting(meetingId: string, scope: SeriesScope = 'occurrence'): Promise<void> {
     return this.serverAction(async () => {
-      await this.store.upsertMeetings([await this.api.cancelMeeting(meetingId)]);
+      await this.store.upsertMeetings([await this.api.cancelMeeting(meetingId, scope)]);
+      if (scope === 'series') void this.refreshMeetings();
     });
   }
 
@@ -1294,12 +1704,88 @@ export class ConnectEngine {
     return this.serverAction(() => this.api.findTimes(req));
   }
 
-  getWorkingHours(): Promise<WorkingHours> {
-    return this.serverAction(() => this.api.getWorkingHours());
+  /**
+   * Your working hours: your unsent change, else the copy on this phone, else the server's.
+   * Kept on the phone so the screen opens offline; follows changes made on other devices.
+   */
+  async getWorkingHours(): Promise<WorkingHours> {
+    const pending = await this.store.work.pendingWorkingHours();
+    if (pending) return pending;
+    const raw = await this.store.getSetting(HOURS_KEY);
+    if (raw) return JSON.parse(raw) as WorkingHours;
+    return this.serverAction(() => this.refreshWorkingHours());
   }
 
-  setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
-    return this.serverAction(() => this.api.setWorkingHours(hours));
+  /** Saves your working hours. Works offline: shown at once, sent when you reconnect. */
+  async setWorkingHours(hours: WorkingHours): Promise<WorkingHours> {
+    if (this.session.state === 'demo')
+      await this.store.setSetting(HOURS_KEY, JSON.stringify(hours));
+    else await this.queue({ kind: 'hours.set', hours });
+    this.events.emit('workingHours', hours);
+    return hours;
+  }
+
+  private async refreshWorkingHours(): Promise<WorkingHours> {
+    const hours = await this.api.getWorkingHours();
+    await this.store.setSetting(HOURS_KEY, JSON.stringify(hours));
+    this.events.emit('workingHours', (await this.store.work.pendingWorkingHours()) ?? hours);
+    return hours;
+  }
+
+  /**
+   * Your chat theme: the server's copy on this phone with your unsent pick laid over it, so
+   * conversations look right offline. Null before the first load with no connection.
+   */
+  async getChatTheme(): Promise<ChatThemeState | null> {
+    const raw = await this.store.getSetting(THEME_KEY);
+    const saved = raw ? (JSON.parse(raw) as ChatThemeState) : null;
+    const pending = await this.store.work.pendingChatTheme();
+    if (!saved) {
+      if (!pending) return null;
+      const policy: ChatThemePolicy = { defaultThemeId: 'default', allowed: null };
+      return {
+        themeId: pending.themeId,
+        policy,
+        effective: effectiveChatTheme(pending.themeId, policy),
+      };
+    }
+    if (!pending) return saved;
+    return {
+      ...saved,
+      themeId: pending.themeId,
+      effective: effectiveChatTheme(pending.themeId, saved.policy),
+    };
+  }
+
+  /** Picks a chat theme (null: the organization default). Works offline; follows you to every device. */
+  async setChatTheme(themeId: ChatThemeId | null): Promise<void> {
+    if (this.session.state === 'demo') {
+      const cur = await this.getChatTheme();
+      const policy = cur?.policy ?? { defaultThemeId: 'default', allowed: null };
+      await this.store.setSetting(
+        THEME_KEY,
+        JSON.stringify({ themeId, policy, effective: effectiveChatTheme(themeId, policy) }),
+      );
+    } else await this.queue({ kind: 'theme.set', themeId });
+    await this.emitChatTheme();
+  }
+
+  /** Owners and admins: the organization default and which themes people may choose. */
+  async setChatThemePolicy(policy: ChatThemePolicy): Promise<void> {
+    const state = await this.serverAction(() => this.api.setChatThemePolicy(policy));
+    await this.store.setSetting(THEME_KEY, JSON.stringify(state));
+    await this.emitChatTheme();
+  }
+
+  private async refreshChatTheme(): Promise<void> {
+    const state = await this.api.getChatTheme();
+    await this.store.setSetting(THEME_KEY, JSON.stringify(state));
+    await this.emitChatTheme();
+  }
+
+  private async emitChatTheme(): Promise<void> {
+    const s = await this.getChatTheme();
+    if (s) this.events.emit('chatTheme', s);
   }
 
   async send(
@@ -1312,6 +1798,30 @@ export class ConnectEngine {
     } = {},
   ): Promise<void> {
     await this.store.enqueueSend({ conversationId, text, ...opts });
+    void this.outbox.kick();
+  }
+
+  /**
+   * Forwards a message to up to {@link MAX_FORWARD_TARGETS} conversations, each with the same
+   * optional comment. Each is an ordinary queued send, so it shows at once and works offline.
+   */
+  async forward(
+    source: LocalMessage,
+    targets: readonly string[],
+    comment: string,
+    from: string | null,
+  ): Promise<void> {
+    if (!source.messageId) throw new Error('This message has not been sent yet');
+    if (targets.length === 0) throw new Error('Pick where to forward it');
+    if (targets.length > MAX_FORWARD_TARGETS)
+      throw new Error(`You can forward to at most ${MAX_FORWARD_TARGETS} conversations at once`);
+    const snapshot = forwardSnapshot(source, from);
+    for (const conversationId of targets)
+      await this.store.enqueueSend({
+        conversationId,
+        text: comment,
+        forward: { of: source.messageId, snapshot },
+      });
     void this.outbox.kick();
   }
 

@@ -196,11 +196,16 @@ export const SendMessageRequestSchema = z
     replyToMessageId: ServerIdSchema.nullable().default(null),
     /** Client clock at composition time, informational only; ordering uses serverSequence. */
     composedAt: z.string().datetime().optional(),
+    /**
+     * Forward this message (one you can read) into the conversation. Its text and files are
+     * carried as `metadata.forwarded`; `content.text` is your optional comment.
+     */
+    forwardOf: ServerIdSchema.optional(),
   })
-  .refine((r) => r.content.text.trim().length > 0 || (r.attachmentIds?.length ?? 0) > 0, {
-    message: 'message text is empty',
-    path: ['content', 'text'],
-  });
+  .refine(
+    (r) => r.content.text.trim().length > 0 || (r.attachmentIds?.length ?? 0) > 0 || !!r.forwardOf,
+    { message: 'message text is empty', path: ['content', 'text'] },
+  );
 export type SendMessageRequest = z.input<typeof SendMessageRequestSchema>;
 
 export const EditMessageRequestSchema = z.object({
@@ -221,3 +226,23 @@ export const ListMessagesQuerySchema = z.object({
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+
+/** `metadata.forwarded` on a forwarded message: a snapshot of the original. */
+export const ForwardedSnapshotSchema = z.object({
+  messageId: ServerIdSchema,
+  conversationId: ServerIdSchema,
+  senderId: ServerIdSchema,
+  text: z.string(),
+  createdAt: z.string().datetime(),
+  /** Where it came from, e.g. "#fieldwork-germany" or "Ravi Kumar" (DM), as the forwarder saw it. */
+  from: z.string().nullable(),
+});
+export type ForwardedSnapshot = z.infer<typeof ForwardedSnapshotSchema>;
+
+export function forwardedOf(m: { metadata?: Record<string, unknown> }): ForwardedSnapshot | null {
+  const r = ForwardedSnapshotSchema.safeParse(m.metadata?.forwarded);
+  return r.success ? r.data : null;
+}
+
+/** Most conversations one forward can go to. */
+export const MAX_FORWARD_TARGETS = 10;

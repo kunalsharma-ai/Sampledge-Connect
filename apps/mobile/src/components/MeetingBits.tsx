@@ -95,6 +95,17 @@ export function MeetingRow({
           style={cancelled ? { textDecorationLine: 'line-through' } : undefined}
         >
           {m.title}
+          {m.series ? (
+            <Text variant="bodyStrong" tone="accent">
+              {'  '}
+              <Ionicons
+                name="repeat"
+                size={14}
+                color={c.accent}
+                accessibilityLabel={`Repeats: ${m.series.summary}`}
+              />
+            </Text>
+          ) : null}
         </Text>
         <View style={styles.metaRow}>
           <Ionicons

@@ -13,6 +13,7 @@ import {
   type Receipt,
   type ScheduledMessage,
   type SyncResponse,
+  type ForwardedSnapshot,
 } from '@sampledge/contracts';
 import type { NetworkChangedEvent } from '@sampledge/contracts';
 import type {
@@ -333,6 +334,8 @@ export class SyncEngine {
       mentions?: string[];
       replyToMessageId?: string | null;
       attachments?: Attachment[];
+      forwardOf?: string;
+      forwarded?: ForwardedSnapshot;
     } = {},
   ): Promise<LocalMessage> {
     const now = this.now();
@@ -346,6 +349,7 @@ export class SyncEngine {
         replyToMessageId: opts.replyToMessageId ?? null,
         composedAt: new Date(now).toISOString(),
         attachments: opts.attachments ?? [],
+        ...(opts.forwardOf ? { forwardOf: opts.forwardOf, forwarded: opts.forwarded } : {}),
       },
       state: 'queued',
       attempts: 0,
@@ -380,7 +384,7 @@ export class SyncEngine {
       createdAt: it.payload.composedAt,
       editedAt: null,
       deletedAt: null,
-      metadata: {},
+      metadata: it.payload.forwarded ? { forwarded: it.payload.forwarded } : {},
       reactions: [],
       pinned: null,
       status,
@@ -567,15 +571,23 @@ export class SyncEngine {
    * Use `intent` for message changes so `overlayMessage` shows them right away.
    */
   async queueAction(
-    a: Omit<PendingAction, 'state' | 'createdAt' | 'attempts' | 'nextAttemptAt' | 'lastError'>,
+    a: Omit<
+      PendingAction,
+      'state' | 'createdAt' | 'revision' | 'attempts' | 'nextAttemptAt' | 'lastError'
+    >,
   ) {
     const now = this.now();
     // Keep the original position when replacing a queued change, so order is preserved.
+    // A new change always lands after the last one, even within the same millisecond.
     const prev = await this.db.actions.get(a.key);
+    const last = await this.db.actions.orderBy('createdAt').last();
+    const position =
+      prev?.state === 'queued' ? prev.createdAt : Math.max(now, (last?.createdAt ?? 0) + 1e-3);
     await this.db.actions.put({
       ...a,
       state: 'queued',
-      createdAt: prev?.state === 'queued' ? Math.max(prev.createdAt + 1e-3, now) : now,
+      createdAt: position,
+      revision: (prev?.revision ?? 0) + 1,
       attempts: 0,
       nextAttemptAt: now,
       lastError: null,
@@ -626,7 +638,8 @@ export class SyncEngine {
           this.db.outbox,
           async () => {
             const cur = await this.db.actions.get(a.key);
-            if (cur && cur.createdAt === a.createdAt) await this.db.actions.delete(a.key);
+            if (cur && cur.createdAt === a.createdAt && cur.revision === a.revision)
+              await this.db.actions.delete(a.key);
             if (isMessage(result)) await this.upsertServerMessage(result);
           },
         );
@@ -673,6 +686,7 @@ export class SyncEngine {
         replyToMessageId: item.payload.replyToMessageId,
         composedAt: item.payload.composedAt,
         attachmentIds: (item.payload.attachments ?? []).map((a) => a.attachmentId),
+        ...(item.payload.forwardOf ? { forwardOf: item.payload.forwardOf } : {}),
       });
       await this.db.transaction('rw', this.db.outbox, this.db.messages, async () => {
         await this.db.outbox.delete(item.clientMessageId);

@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Chips } from '../../components/Chips';
 import { Glass } from '../../components/Glass';
@@ -126,7 +126,7 @@ export default function Members() {
             accessibilityLabel={`${u.displayName}, ${ROLE_LABEL[u.role as TenantRole] ?? u.role}${u.status === 'deactivated' ? ', deactivated' : ''}`}
           >
             <Glass style={styles.row}>
-              <Avatar name={u.displayName} size={40} />
+              <PersonAvatar userId={u.userId} name={u.displayName} size={40} />
               <View style={{ flex: 1 }}>
                 <Text variant="bodyStrong" numberOfLines={1}>
                   {u.displayName}
@@ -223,7 +223,7 @@ function MemberSheet({
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { backgroundColor: c.surfaceRaised, borderColor: c.border }]}>
           <View style={styles.row}>
-            <Avatar name={m.displayName} size={44} />
+            <PersonAvatar userId={m.userId} name={m.displayName} size={44} />
             <View style={{ flex: 1 }}>
               <Text variant="heading" numberOfLines={1}>
                 {m.displayName}

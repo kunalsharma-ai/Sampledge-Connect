@@ -43,6 +43,13 @@ is updated in place when the call ends, so it syncs like any edit.
 
 ## Configuration you must provide
 
+Connect the API to the media server in **Integrations → Calls (LiveKit)**: public URL, API URL,
+API key and secret (stored encrypted), with **Test connection**. Platform operators set the
+default for everyone; an organization can bring its own server (calls and meetings work;
+recording needs the platform server, see `integrations.md`). Saving takes effect at once on
+every API node. The env variables below still work as a fallback and are what the bundled
+LiveKit container reads.
+
 | Variable              | Where                            | Example                                                                                                                |
 | --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                                                                  |
@@ -58,8 +65,8 @@ Browsers only allow camera and microphone on `https://` (or `localhost`), so pro
 the web app and the SFU URL. For networks that block UDP entirely, enable LiveKit's TURN/TLS on 443 with your
 certificate (`turn.tls_port`, `turn.domain`, `turn.cert_file`, `turn.key_file`).
 
-Without the `LIVEKIT_*` variables the API runs normally, `GET /v1/calls/config` reports `enabled: false`,
-and the call buttons are disabled with an explanation.
+Without a media server (Integrations or `LIVEKIT_*`) the API runs normally, `GET /v1/calls/config`
+reports `enabled: false`, and the call buttons are disabled with an explanation.
 
 ## Built now and planned
 
@@ -68,19 +75,95 @@ screen share (with tab audio), raise hand, mute/camera, active speaker, end for 
 incoming-call push data, reconnect handling, multi-replica safe sweeper.
 
 Also built: scheduled meetings (`meetings.md`), external guests with a lobby (`guests.md`) and recordings
-(`recordings.md`), and chat inside calls (`guests.md`). Planned next: live captions. Mobile call screen
-(`@livekit/react-native`, needs an Expo dev build).
+(`recordings.md`), chat inside calls (`guests.md`) and live captions (below). Mobile call screen
+(`@livekit/react-native`, needs an Expo dev build). On the phone, **Flip** switches between the
+front and back camera mid-call (the preview is mirrored only for the front camera), and **Audio**
+chooses where the call plays: speaker, earpiece, wired headset or Bluetooth on Android; phone or
+speaker on iPhone, plus the system picker for Bluetooth and AirPlay. Video calls start on the speaker
+and voice calls on the earpiece; a connected headset or Bluetooth device is used first. Background
+blur stays web-only.
 
-## Devices and background blur
+## Live captions
 
-The settings button in a call (members and guests) picks the microphone, camera and speaker, and turns
-background blur on or off. Switching happens mid-call without dropping. The choice is saved on that
-device (browser storage) and used for the next call; a guest's lobby preview uses the saved camera too.
+Anyone in a call (members and admitted guests) can press the captions button to see live captions.
+Captions use the organization's own speech-to-text server, the same one saved in Integrations as
+**Speech-to-text server** for recording transcripts (`ai.md`). Without one, the button is hidden.
+
+How it works, with nothing leaving your servers and nothing stored:
+
+1. Turning captions on sets the participant attribute `captions: "1"`. Everyone else sees a notice that
+   speech is being transcribed.
+2. While anyone has captions on, each person's app records its own microphone in 4-second clips and
+   skips clips that are silent (so muted or quiet people send nothing).
+3. Each clip goes to `POST /v1/calls/:callId/captions` (members, must be in the live call) or
+   `POST /v1/guest/:token/captions` (admitted guests) as raw audio (`audio/webm`, `ogg`, `mp4`, `mpeg`,
+   `wav`, `aac`, up to 512 KB). The API forwards it to the speech-to-text server and returns `{ text }`.
+   Rate limit: 40 clips a minute per person. 503 when no server is set up.
+4. The speaker's app shares `{ id, name, text }` with the call on the LiveKit data channel (reliable,
+   topic `captions`). Lines show with the speaker's name for 9 seconds.
+
+When the last person turns captions off, clips stop. `GET /v1/calls/config` has `captionsEnabled`, and the
+guest join state has `captions`, so apps know whether to show the button. A server like Speaches
+(faster-whisper) on a small GPU keeps captions about 4 to 6 seconds behind speech; on CPU use a small
+model.
+
+On mobile, the **Captions** button in a call does the same: it sets the `captions` attribute and shows
+everyone's caption lines over the controls, with the speaker's name. Sending your own speech needs
+MediaRecorder, which the web build has but the native WebRTC module does not yet, so a phone shows
+everyone else's captions and says "your own speech isn't captioned from this phone yet" (planned).
+
+## Devices and backgrounds
+
+The settings button in a call (members and guests) picks the microphone, camera and speaker, and the
+background. Switching happens mid-call without dropping. Devices are saved on that device (browser
+storage) and used for the next call; a guest's lobby preview uses the saved camera too.
 Speaker choice shows only in browsers that can route audio (Chrome, Edge).
 
-Background blur runs entirely in the browser: MediaPipe selfie segmentation (Apache 2.0) over WebGL,
+Background effects run entirely in the browser: MediaPipe selfie segmentation (Apache 2.0) over WebGL,
 through `@livekit/track-processors`. The model (`public/vision/selfie_segmenter.tflite`, 250 KB) is in
 the repository and the WebAssembly runtime is copied from `node_modules` into `public/vision` when the
 web app builds (`scripts/copy-vision-assets.mjs`), so nothing loads from a CDN. The web CSP allows
 `'wasm-unsafe-eval'` for this, which permits compiling WebAssembly only. Blur stays on when the camera
 is turned off and on again. Browsers without WebGL or insertable streams show "Not supported".
+
+### Backgrounds
+
+Choices: none, blur, 20 prebuilt backgrounds (15 office scenes such as a skyline office, boardroom,
+library, glass meeting room, reception and mountain or seaside views, and 5 simple ones), your own
+image, and the company background.
+
+- **Prebuilt images** are original artwork shipped with the web app (`apps/web/public/backgrounds`,
+  1280x720 plus 320x180 thumbnails, about 1 MB in total). They are drawn by
+  `apps/web/scripts/make-call-backgrounds.mjs`, so they can be changed or added there and regenerated
+  (needs Playwright). The list is `CALL_BACKGROUND_PRESETS` in the contracts.
+- **Your own image**: PNG, JPEG or WebP, shrunk in the browser to at most 1920x1080 and stored with
+  your account (up to 2 MB). It is served from an unguessable link like profile photos.
+- **Company background**: drawn in the browser from Branding (logo, colors and organization name),
+  so changing Branding updates it in every call. The logo sits inside the middle of the frame so it
+  stays visible when a call tile crops the picture.
+
+Members' choice is saved to their account, so every device uses it, and a change on one device is
+applied to a call in progress on another. A choice made offline is sent on reconnect. Guests from
+outside pick blur or a prebuilt image, remembered in their browser.
+
+Admins set this in **Administration → Calls**: the default background for people who haven't picked
+one, and **Require the company background**, which puts everyone in the organization on the company
+background and locks the picker (external guests keep their own). Changes reach calls in progress.
+
+Your own preview is mirrored like a mirror, so text in the background reads backwards to you; everyone
+else sees it the right way round.
+
+| Method | Path                                  | Who            | Notes                                                  |
+| ------ | ------------------------------------- | -------------- | ------------------------------------------------------ |
+| GET    | `/v1/me/call-background`              | member         | Choice, what applies now, own image link, rules, brand |
+| PUT    | `/v1/me/call-background`              | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
+| PUT    | `/v1/me/call-background/image`        | member         | Raw PNG/JPEG/WebP body, 2 MB; selects it               |
+| DELETE | `/v1/me/call-background/image`        | member         | Removes it (back to the default if it was in use)      |
+| PUT    | `/v1/admin/call-backgrounds`          | owner, admin   | `{defaultChoice, enforceLogo}`                         |
+| GET    | `/v1/call-backgrounds/:tenantId/:key` | anyone w/ link | The image, 128-bit random key, changes on every upload |
+
+Live updates: `meetings:changed {area: 'call_background'}` to all of my devices, and
+`tenant:updated {area: 'calls'}` (rules) or `{area: 'branding'}` (logo, colors) to everyone.
+
+When an admin turns on **Keep live captions for minutes**, caption lines are saved with speaker
+names for the minutes and the captions notice says so. See `minutes.md`.

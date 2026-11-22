@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { AiService } from './ai.service.js';
@@ -92,6 +103,22 @@ export class AiController {
     return this.ai.confirmProposal(ctx, id, body);
   }
 
+  /** Suggested tasks the caller dismissed, on any of their devices. */
+  @Get('suggestions/dismissed')
+  dismissedSuggestions(@Ctx() ctx: TenantContext) {
+    return this.ai.dismissedSuggestions(ctx);
+  }
+
+  @Put('suggestions/:id/dismissed')
+  dismissSuggestion(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.ai.setSuggestionDismissed(ctx, id, true);
+  }
+
+  @Delete('suggestions/:id/dismissed')
+  restoreSuggestion(@Ctx() ctx: TenantContext, @Param('id') id: string) {
+    return this.ai.setSuggestionDismissed(ctx, id, false);
+  }
+
   @Post('proposals/:id/dismiss')
   @HttpCode(200)
   dismiss(@Ctx() ctx: TenantContext, @Param('id') id: string) {
@@ -109,5 +136,26 @@ export class AiController {
   @HttpCode(202)
   requestTranscript(@Ctx() ctx: TenantContext, @Param('attachmentId') id: string) {
     return this.transcripts.request(ctx, id);
+  }
+
+  /** Correct lines (original or a translation) or mark it checked. Per-line merge. */
+  @Patch('transcripts/:attachmentId')
+  correctTranscript(
+    @Ctx() ctx: TenantContext,
+    @Param('attachmentId') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.transcripts.update(ctx, id, body);
+  }
+
+  /** Translate a finished transcript into another language (or again). */
+  @Post('transcripts/:attachmentId/translations')
+  @HttpCode(202)
+  translateTranscript(
+    @Ctx() ctx: TenantContext,
+    @Param('attachmentId') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.transcripts.translate(ctx, id, body);
   }
 }

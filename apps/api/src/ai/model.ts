@@ -143,17 +143,25 @@ export class ModelEngine implements AiEngineImpl {
 
   async summarize(input: SummarizeInput): Promise<SummaryResult> {
     const members = input.members.map((m) => m.name).join(', ');
+    const lang = input.language
+      ? `Write every value in the language with BCP 47 tag "${input.language}", whatever language the messages are in. Keep names as written.\n`
+      : '';
+    const ask =
+      input.purpose === 'minutes'
+        ? `Write minutes of the meeting "${input.title}" from its transcript and chat. Attendees: ${members}.
+Lines marked (transcript) are speech recognised by a machine and may contain mistakes; do not invent facts.`
+        : `Summarize this conversation "${input.title}" for someone catching up.
+Members: ${members}.`;
     const text = await this.chat(
-      `Summarize this conversation "${input.title}" for someone catching up.
-Members: ${members}.
-${input.agenda ? `<agenda>${input.agenda}</agenda>\n` : ''}<messages>
+      `${ask}
+${lang}${input.agenda ? `<agenda>${input.agenda}</agenda>\n` : ''}<messages>
 ${transcript(input.lines)}
 </messages>
 Reply with JSON only:
 {"summary": "2-3 sentences", "highlights": ["up to 5 key points"], "decisions": ["decisions made"],
  "actionItems": [{"text": "task", "assignee": "member name or null", "due": "due date as written or null", "messageId": "id in brackets or null"}],
  "openQuestions": ["questions nobody answered"]}`,
-      { json: true, maxTokens: 900 },
+      { json: true, maxTokens: input.purpose === 'minutes' ? 1600 : 900 },
     );
     const parsed = SummarySchema.safeParse(extractJson(text));
     if (!parsed.success) throw new ModelUnavailableError('Model summary had the wrong shape');
@@ -220,6 +228,34 @@ Question: <text>${input.question}</text>`,
       { maxTokens: 1200 },
     );
     return out.replace(/^<text>|<\/text>$/g, '').trim();
+  }
+
+  /**
+   * Translates numbered lines (transcript segments) and keeps their order, so timings still
+   * line up. Sent in batches; a reply with the wrong number of lines is an error.
+   */
+  async translateLines(lines: string[], targetLanguage: string): Promise<string[]> {
+    const out: string[] = [];
+    const BATCH = 40;
+    for (let i = 0; i < lines.length; i += BATCH) {
+      const batch = lines.slice(i, i + BATCH);
+      const numbered = batch
+        .map((l, j) => `${j + 1}. ${l.replace(/<\/?text>/gi, '').replace(/\s+/g, ' ')}`)
+        .join('\n');
+      const reply = await this.chat(
+        `Translate each numbered line of this speech transcript into the language with BCP 47 tag "${targetLanguage}". The lines may be in any language, or mix languages. Keep names, numbers and meaning; translate naturally, as a professional interpreter would. Do not merge or split lines.
+<text>
+${numbered}
+</text>
+Reply with JSON only: {"lines": ["translation of line 1", "translation of line 2", ...]} with exactly ${batch.length} entries.`,
+        { json: true, maxTokens: Math.min(4000, 120 + batch.join(' ').length * 2) },
+      );
+      const parsed = z.object({ lines: z.array(z.string()) }).safeParse(extractJson(reply));
+      if (!parsed.success || parsed.data.lines.length !== batch.length)
+        throw new ModelUnavailableError('Model translation had the wrong number of lines');
+      out.push(...parsed.data.lines.map((l) => l.trim()));
+    }
+    return out;
   }
 
   async suggestReplies(input: {

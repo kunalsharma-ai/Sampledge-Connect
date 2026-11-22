@@ -1,5 +1,6 @@
 'use client';
 import type * as React from 'react';
+import { StatusMenu } from './status';
 import { motion } from 'motion/react';
 import { ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
 import { Avatar, Badge, Tooltip, cn } from '@sampledge/ui';
@@ -15,6 +16,7 @@ export function NavRail({
   onToggle,
   tenantName,
   userName,
+  userAvatar,
   isAdmin,
   unreadTotal,
   notificationCount = 0,
@@ -29,6 +31,8 @@ export function NavRail({
   onToggle: () => void;
   tenantName: string;
   userName: string;
+  /** Profile photo URL, or null for initials. */
+  userAvatar?: string | null;
   isAdmin: boolean;
   unreadTotal: number;
   notificationCount?: number;
@@ -134,16 +138,15 @@ export function NavRail({
         </ul>
       </div>
       <div className="flex flex-col gap-1 border-t border-border p-3">
-        <div
-          className={cn(
-            'flex items-center gap-3 rounded-md px-1.5 py-1.5',
-            expanded ? '' : 'justify-center',
-          )}
-        >
-          <Avatar name={userName} size="sm" presence="online" />
+        <div className={cn('flex items-center gap-1 rounded-md', expanded ? '' : 'justify-center')}>
+          <StatusMenu
+            userName={userName}
+            userAvatar={userAvatar}
+            expanded={expanded}
+            onOpenSettings={() => onSelect('settings')}
+          />
           {expanded ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-label text-text">{userName}</span>
               <Tooltip content="Sign out">
                 <button
                   onClick={onSignOut}

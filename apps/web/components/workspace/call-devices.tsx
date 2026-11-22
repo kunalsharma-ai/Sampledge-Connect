@@ -5,12 +5,12 @@ import { Settings2, X } from 'lucide-react';
 import { cn } from '@sampledge/ui';
 import {
   blurSupported,
-  followBlurPref,
   loadDevicePrefs,
   saveDevicePrefs,
-  setBlur,
   type DevicePrefs,
 } from '@/lib/call-devices';
+import { useApplyBackground, type BackgroundController } from '@/lib/call-backgrounds';
+import { BackgroundPicker } from './call-background-picker';
 import { ControlButton } from './calls';
 
 type Kind = 'audioinput' | 'videoinput' | 'audiooutput';
@@ -23,13 +23,18 @@ const select =
   'h-10 w-full rounded-md border border-white/15 bg-black/40 px-2 text-body text-white disabled:opacity-50';
 
 /**
- * In-call settings: pick the microphone, camera and speaker, and blur the background. The
- * choice is saved on this device for later calls. Used by members and guests.
+ * In-call settings: pick the microphone, camera and speaker (saved on this device), and the
+ * background (blur, a prebuilt image, your own image or the company logo). Members and guests.
  */
-export function CallDeviceSettings({ room }: { room: Room }) {
+export function CallDeviceSettings({
+  room,
+  backgrounds,
+}: {
+  room: Room;
+  backgrounds: BackgroundController;
+}) {
   const [open, setOpen] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const onError = setError;
   const [devices, setDevices] = React.useState<Record<Kind, MediaDeviceInfo[]>>({
     audioinput: [],
     videoinput: [],
@@ -38,7 +43,6 @@ export function CallDeviceSettings({ room }: { room: Room }) {
   const [active, setActive] = React.useState<Partial<Record<Kind, string>>>({});
   const [prefs, setPrefs] = React.useState<DevicePrefs>({});
   const [canBlur, setCanBlur] = React.useState<boolean | null>(null);
-  const [blurBusy, setBlurBusy] = React.useState(false);
   const [camOn, setCamOn] = React.useState(room.localParticipant.isCameraEnabled);
   const report = (e: unknown) =>
     setError(e instanceof Error ? e.message : 'That device could not be switched.');
@@ -46,8 +50,8 @@ export function CallDeviceSettings({ room }: { room: Room }) {
   React.useEffect(() => {
     setPrefs(loadDevicePrefs());
     void blurSupported().then(setCanBlur);
-    return followBlurPref(room, () => setError('Background blur could not start on this device.'));
   }, [room]);
+  useApplyBackground(room, backgrounds, setError);
 
   React.useEffect(() => {
     const sync = () => setCamOn(room.localParticipant.isCameraEnabled);
@@ -94,25 +98,8 @@ export function CallDeviceSettings({ room }: { room: Room }) {
     setActive((a) => ({ ...a, [kind]: deviceId }));
     try {
       await room.switchActiveDevice(kind, deviceId);
-      // A new camera device gets a fresh track; keep the blur on it.
-      if (kind === 'videoinput' && prefs.blur) await setBlur(room, true);
     } catch (e) {
       report(e);
-    }
-  };
-
-  const toggleBlur = async () => {
-    const on = !prefs.blur;
-    setError(null);
-    update({ ...prefs, blur: on });
-    setBlurBusy(true);
-    try {
-      await setBlur(room, on);
-    } catch {
-      update({ ...prefs, blur: false });
-      onError('Background blur could not start on this device.');
-    } finally {
-      setBlurBusy(false);
     }
   };
 
@@ -133,7 +120,7 @@ export function CallDeviceSettings({ room }: { room: Room }) {
           role="dialog"
           aria-label="Call settings"
           data-testid="call-devices"
-          className="absolute bottom-14 left-1/2 z-20 w-[min(340px,calc(100vw-2rem))] -translate-x-1/2 space-y-3 rounded-xl border border-white/15 bg-[#0d1424]/95 p-4 text-left shadow-2xl backdrop-blur"
+          className="absolute bottom-14 left-1/2 z-20 max-h-[min(640px,calc(100vh-8rem))] w-[min(400px,calc(100vw-2rem))] -translate-x-1/2 space-y-3 overflow-y-auto rounded-xl border border-white/15 bg-[#0d1424]/95 p-4 text-left shadow-2xl backdrop-blur"
         >
           <div className="flex items-center justify-between">
             <p className="text-label text-white">Devices and background</p>
@@ -173,40 +160,20 @@ export function CallDeviceSettings({ room }: { room: Room }) {
               This browser plays sound on the system’s speaker.
             </p>
           ) : null}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-            <div>
-              <p className="text-label text-white">Blur my background</p>
-              <p className="text-meta text-white/60">
-                {canBlur === false
-                  ? 'Not supported in this browser.'
-                  : !camOn
-                    ? 'Applies when your camera is on.'
-                    : 'Runs on this device, not on a server.'}
-              </p>
-            </div>
-            <button
-              role="switch"
-              aria-checked={!!prefs.blur}
-              aria-label="Blur my background"
-              disabled={canBlur === false || blurBusy}
-              onClick={() => void toggleBlur()}
-              className={cn(
-                'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40',
-                prefs.blur ? 'bg-accent' : 'bg-white/20',
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 size-5 rounded-full bg-white transition-transform',
-                  prefs.blur ? 'translate-x-5' : 'translate-x-0.5',
-                )}
-              />
-            </button>
-          </div>
-          {error ? <p className="text-meta text-[#ff8a8a]">{error}</p> : null}
+          <BackgroundPicker
+            ctl={backgrounds}
+            supported={canBlur}
+            camOn={camOn}
+            onError={setError}
+          />
+          {error || backgrounds.error ? (
+            <p className="text-meta text-[#ff8a8a]">{error ?? backgrounds.error}</p>
+          ) : null}
           {camera?.track?.getProcessor() ? (
-            <p className="text-meta text-white/50" data-testid="blur-active">
-              Background blur is on.
+            <p className="text-meta text-white/50" data-testid="background-active">
+              {backgrounds.effective.kind === 'blur'
+                ? 'Background blur is on.'
+                : 'Your background is on.'}
             </p>
           ) : null}
         </div>

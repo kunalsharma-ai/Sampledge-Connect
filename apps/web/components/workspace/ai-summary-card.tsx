@@ -176,7 +176,13 @@ export function AiSummaryCard({
                 <p className="mb-1.5 text-overline uppercase text-text-subtle">Action items</p>
                 <ul className="space-y-1.5">
                   {summary.actionItems.map((a) => (
-                    <ActionItemRow key={a.text} item={a} directory={directory} me={me} />
+                    <ActionItemRow
+                      key={a.text}
+                      item={a}
+                      directory={directory}
+                      me={me}
+                      conversationId={conversationId}
+                    />
                   ))}
                 </ul>
               </div>
@@ -338,7 +344,13 @@ export function MeetingAiSummary({
           {s.actionItems.length ? (
             <ul className="space-y-1.5">
               {s.actionItems.map((a) => (
-                <ActionItemRow key={a.text} item={a} directory={directory} me={me} />
+                <ActionItemRow
+                  key={a.text}
+                  item={a}
+                  directory={directory}
+                  me={me}
+                  conversationId={s.conversationId}
+                />
               ))}
             </ul>
           ) : null}

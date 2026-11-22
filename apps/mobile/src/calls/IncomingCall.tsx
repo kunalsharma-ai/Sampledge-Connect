@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Avatar } from '../components/Avatar';
+import { PersonAvatar } from '../components/Avatar';
 import { Text } from '../components/Text';
 import { useWorkspace } from '../state/AppProvider';
 import { conversationTitle, useCalls, usePeople } from '../state/hooks';
@@ -52,7 +52,7 @@ export function IncomingCall() {
       >
         <View style={styles.who}>
           <View style={[styles.halo, { borderColor: alpha(c.accent, 0.35) }]}>
-            <Avatar name={caller} size={96} />
+            <PersonAvatar userId={incoming.callerId} name={caller} size={96} />
           </View>
           <Text variant="display" style={{ textAlign: 'center' }}>
             {caller}

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { Avatar, PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { NOTIFY_ICON, NotifyLevelSheet } from '../../components/NotifyLevelSheet';
@@ -10,6 +10,7 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { canInConversation, canSetPostingPolicy, isUnjoinedChannel } from '../../lib/access';
 import { confirmThen } from '../../lib/confirm';
+import { canTurnOffForwarding } from '../../lib/forward';
 import { useApp, useWorkspace } from '../../state/AppProvider';
 import { conversationTitle, useConversation, usePeople, useTenantRole } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
@@ -187,6 +188,23 @@ export default function ConversationInfo() {
             </Pressable>
             <Pressable
               onPress={() =>
+                router.push({ pathname: '/files', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Files in this conversation"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="folder-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Files
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
                 router.push({ pathname: '/recordings', params: { conversationId: id, title } })
               }
               accessibilityRole="button"
@@ -232,6 +250,34 @@ export default function ConversationInfo() {
                 )}
               </View>
             ) : null}
+            {canTurnOffForwarding(conv) && canInConversation(conv, role, 'conversation.rename') ? (
+              <View
+                style={[
+                  styles.row,
+                  { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                ]}
+              >
+                <Ionicons name="arrow-redo-outline" size={20} color={c.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong">Allow forwarding</Text>
+                  <Text variant="meta" tone="muted">
+                    When off, messages here can only be shared again inside this conversation.
+                  </Text>
+                </View>
+                {busy === 'forwarding' ? (
+                  <ActivityIndicator size="small" color={c.accent} />
+                ) : (
+                  <Switch
+                    value={conv.allowForwarding}
+                    disabled={!!blocked}
+                    onValueChange={(on) =>
+                      void run('forwarding', () => engine.setForwarding(id, on))
+                    }
+                    accessibilityLabel="Allow forwarding"
+                  />
+                )}
+              </View>
+            ) : null}
           </Glass>
         ) : null}
 
@@ -267,12 +313,23 @@ export default function ConversationInfo() {
                   },
                 ]}
               >
-                <Avatar name={nameOf(userId, { asWritten: true })} size={36} />
-                <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
-                  {userId === selfId
-                    ? `${nameOf(userId, { asWritten: true })} (you)`
-                    : nameOf(userId)}
-                </Text>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/person/[id]', params: { id: userId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Profile of ${nameOf(userId, { asWritten: true })}`}
+                  style={styles.person}
+                >
+                  <PersonAvatar
+                    userId={userId}
+                    name={nameOf(userId, { asWritten: true })}
+                    size={36}
+                  />
+                  <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+                    {userId === selfId
+                      ? `${nameOf(userId, { asWritten: true })} (you)`
+                      : nameOf(userId)}
+                  </Text>
+                </Pressable>
                 {canRemove && userId !== selfId ? (
                   <Pressable
                     onPress={() => remove(userId)}
@@ -329,6 +386,7 @@ export default function ConversationInfo() {
 }
 
 const styles = StyleSheet.create({
+  person: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
   hero: { alignItems: 'center', gap: space.xs, paddingVertical: space.md },
   row: {
     flexDirection: 'row',

@@ -63,6 +63,7 @@ export default function Pinned() {
           const by = m.pinned!.pinnedBy === selfId ? 'you' : nameOf(m.pinned!.pinnedBy);
           return (
             <SavedMessageCard
+              senderId={guestSenderLabel(m.metadata) ? null : m.senderId}
               senderName={
                 m.senderId === selfId ? 'You' : (guestSenderLabel(m.metadata) ?? nameOf(m.senderId))
               }

@@ -19,6 +19,7 @@ const conv = (over: Partial<LocalConversation> = {}): LocalConversation => ({
   notifyLevel: 'all',
   notifyLevelPending: false,
   postingPolicy: 'everyone',
+  allowForwarding: true,
   ...over,
 });
 

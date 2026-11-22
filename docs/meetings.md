@@ -41,8 +41,11 @@ Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetada
 - RSVPs made offline are saved on the device, shown at once, and sent when the connection returns (latest answer per
   meeting wins; answers the server refuses, such as for a cancelled meeting, are dropped).
 - Scheduling and editing need a connection, so two devices can't create conflicting versions of a meeting.
-- The recordings library refreshes on reconnect, every 20 seconds while open, and when the window comes back to the
-  front.
+- Working hours and booking pages changed on one device (or by another host) update live everywhere with
+  `meetings:changed`; screens refetch after a reconnect.
+- The recordings library updates live when a call recording is saved or any recording is deleted (`recording:changed`
+  to the conversation's members), refreshes on reconnect, and picks up new chat clips within 20 seconds.
+- See `sync-coverage.md` for every action.
 
 ## Recurring meetings
 
@@ -65,6 +68,15 @@ Create a meeting with `recurrence` to repeat it:
 - Guests are added and removed for the whole series. They get one invite with an `RRULE` (local time and
   `VTIMEZONE`), `EXDATE` for cancelled meetings, and a `RECURRENCE-ID` update when one meeting changes. Their
   one join link opens whichever meeting of the series is next, and their RSVP covers the series.
+
+On mobile, Schedule a meeting has a Repeat section (daily, weekly on chosen days, or monthly; every 1 to 30;
+ending never, after a number of meetings, or on a date) with the same plain-English summary. The meeting
+screen shows the rule and lets you answer for "This meeting" or "All upcoming". Answers work offline: an
+all-upcoming answer shows on every upcoming meeting of the series at once, is sent once with
+`scope: 'series'`, and answers are sent in the order you gave them (so declining one meeting after
+accepting the series stays declined). Organizers edit "Only this meeting" or "This and all upcoming"
+(where the rule and guests can change) and can cancel one meeting or all upcoming ones.
+`scripts/e2e-recurring.cjs` runs this against a real server.
 
 ## Booking pages
 
@@ -97,5 +109,7 @@ time with one person or a team. Hosts manage them from Meetings → Booking page
 
 ## Planned next
 
-Booking pages on mobile (the public page already works in a phone browser). Guests from outside the
+Booking pages are on mobile too (Meetings → link icon): create, edit, pause, share and delete,
+offline as well, and every change reaches each host's devices live through `booking:changed`
+`{bookingPageId, page | null}`. The public page itself opens in the phone's browser. Guests from outside the
 organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.

@@ -30,6 +30,32 @@ const session = (token: string): Session => ({
 });
 
 describe('SessionManager', () => {
+  it('finishes single sign-on with the code and the app’s verifier', async () => {
+    const calls: string[] = [];
+    const urls: string[] = [];
+    const api = {
+      ssoExchange: async (code: string, verifier: string) => {
+        calls.push(`${code}:${verifier}`);
+        if (verifier !== 'v'.repeat(43)) throw new TransportError('no', 'api', 'UNAUTHENTICATED');
+        return session('sso');
+      },
+    } as unknown as ApiTransport;
+    const m = new SessionManager(
+      memorySecrets(),
+      (u) => (urls.push(u), api),
+      () => 0,
+    );
+    await m.load();
+    await expect(m.signInWithSso('connect.acme.com', 'code-1', 'x'.repeat(43))).rejects.toThrow();
+    expect(m.state).toBe('signedOut');
+    await m.signInWithSso('connect.acme.com', 'code-2', 'v'.repeat(43));
+    expect(calls).toEqual([`code-1:${'x'.repeat(43)}`, `code-2:${'v'.repeat(43)}`]);
+    expect(urls.every((u) => u === 'https://connect.acme.com')).toBe(true);
+    expect(m.state).toBe('active');
+    expect(m.current?.serverUrl).toBe('https://connect.acme.com');
+    expect(await m.getAccessToken()).toBe('sso');
+  });
+
   it('finishes a two-step sign-in with the code and keeps nothing before it', async () => {
     const calls: string[] = [];
     const api = {

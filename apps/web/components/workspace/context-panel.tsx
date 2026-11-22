@@ -1,12 +1,13 @@
 'use client';
 import type * as React from 'react';
 import { motion } from 'motion/react';
-import { Bot, FileText, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
+import { Bot, FileText, Forward, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { conversationTitle, nameOf } from './helpers';
+import { avatarOf, conversationTitle, nameOf } from './helpers';
 import { WorkContextSection } from './work-context';
+import { presenceOf } from '@/lib/status';
 
 const KIND_LABEL: Record<Conversation['kind'], string> = {
   dm: 'Direct message',
@@ -34,6 +35,7 @@ export function ContextPanel({
   className,
   canManage = false,
   onSetPostingPolicy,
+  onSetForwarding,
   aiCard,
   network = false,
 }: {
@@ -50,10 +52,13 @@ export function ContextPanel({
   /** Channel owner/moderator or tenant admin, while online. */
   canManage?: boolean;
   onSetPostingPolicy?: (policy: 'everyone' | 'moderators') => void;
+  onSetForwarding?: (allowed: boolean) => void;
 }) {
   const isChannel =
     conversation.kind === 'channel_public' || conversation.kind === 'channel_private';
   const announcement = conversation.postingPolicy === 'moderators';
+  const forwardable = conversation.kind === 'channel_private' || conversation.kind === 'group';
+  const forwarding = conversation.allowForwarding !== false;
   const title = conversationTitle(conversation, me, directory);
   const members = [...conversation.memberIds].sort((a, b) => {
     const pa = presence.get(a) === 'online' || a === me ? 0 : 1;
@@ -89,7 +94,14 @@ export function ContextPanel({
         <div className="rounded-xl border border-border bg-surface-raised p-4 shadow-sm">
           <div className="flex items-center gap-3">
             {conversation.kind === 'dm' ? (
-              <Avatar name={title} size="lg" />
+              <Avatar
+                name={title}
+                src={avatarOf(
+                  conversation.memberIds.find((id) => id !== me),
+                  directory,
+                )}
+                size="lg"
+              />
             ) : (
               <span className="flex size-12 items-center justify-center rounded-lg bg-accent-soft text-accent">
                 <Icon className="size-5" />
@@ -134,28 +146,37 @@ export function ContextPanel({
                 </p>
               </div>
               {canManage && onSetPostingPolicy ? (
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={announcement}
-                  aria-label="Announcement channel"
-                  onClick={() => onSetPostingPolicy(announcement ? 'everyone' : 'moderators')}
-                  className={cn(
-                    'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
-                    announcement
-                      ? 'border-accent bg-accent'
-                      : 'border-border-strong bg-surface-raised',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'inline-block size-4 rounded-full shadow transition-transform motion-reduce:transition-none',
-                      announcement ? 'translate-x-6 bg-accent-fg' : 'translate-x-1 bg-text',
-                    )}
-                  />
-                </button>
+                <Switch
+                  on={announcement}
+                  label="Announcement channel"
+                  onChange={(on) => onSetPostingPolicy(on ? 'moderators' : 'everyone')}
+                />
               ) : announcement ? (
                 <Badge tone="accent">On</Badge>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+        {forwardable ? (
+          <section className="rounded-xl border border-border p-4">
+            <div className="flex items-start gap-3">
+              <Forward className="mt-0.5 size-4 text-accent" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-label text-text">Allow forwarding</p>
+                <p className="mt-0.5 text-meta text-text-subtle">
+                  {forwarding
+                    ? 'Members can forward messages and files from here to other conversations.'
+                    : 'Messages from here can’t be forwarded anywhere else.'}
+                </p>
+              </div>
+              {canManage && onSetForwarding ? (
+                <Switch
+                  on={forwarding}
+                  label="Allow forwarding"
+                  onChange={(on) => onSetForwarding(on)}
+                />
+              ) : !forwarding ? (
+                <Badge tone="neutral">Off</Badge>
               ) : null}
             </div>
           </section>
@@ -168,12 +189,14 @@ export function ContextPanel({
             {members.slice(0, 24).map((id) => {
               const u = directory.get(id);
               const online = id === me || presence.get(id) === 'online';
+              const p = presenceOf(u, online, new Date());
               return (
                 <li key={id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
                   <Avatar
                     name={nameOf(id, directory)}
+                    src={avatarOf(id, directory)}
                     size="sm"
-                    presence={online ? 'online' : 'offline'}
+                    presence={p.dot}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-label text-text">
@@ -181,7 +204,11 @@ export function ContextPanel({
                       {id === me ? <span className="text-text-subtle"> (you)</span> : null}
                     </span>
                     <span className="block truncate text-meta text-text-subtle">
-                      {u?.title ?? u?.role ?? ''}
+                      {p.status.text
+                        ? `${p.status.emoji ?? ''} ${p.status.text}`.trim()
+                        : online && p.dot !== 'online'
+                          ? p.label
+                          : (u?.title ?? u?.role ?? '')}
                     </span>
                   </span>
                 </li>
@@ -215,5 +242,36 @@ export function ContextPanel({
         </section>
       </div>
     </motion.aside>
+  );
+}
+
+function Switch({
+  on,
+  label,
+  onChange,
+}: {
+  on: boolean;
+  label: string;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
+        on ? 'border-accent bg-accent' : 'border-border-strong bg-surface-raised',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block size-4 rounded-full shadow transition-transform motion-reduce:transition-none',
+          on ? 'translate-x-6 bg-accent-fg' : 'translate-x-1 bg-text',
+        )}
+      />
+    </button>
   );
 }

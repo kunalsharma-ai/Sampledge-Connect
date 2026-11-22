@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { forwardedOf } from '@sampledge/contracts';
 import { memo } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
@@ -72,6 +73,7 @@ function MessageBubbleImpl({
 
   if (m.messageType === 'system') return <SystemEvent message={m} animate={animate} />;
   const segments = deleted ? [] : segmentMentions(m.text, mentioned);
+  const fwd = forwardedOf(m);
 
   return (
     <Animated.View
@@ -134,6 +136,44 @@ function MessageBubbleImpl({
                 ? 'Message deleted'
                 : (reply.text ?? 'Original message is not saved on this device')}
             </Text>
+          </Pressable>
+        ) : null}
+        {fwd && !deleted ? (
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/conversation/[id]',
+                params: { id: fwd.conversationId, focus: fwd.messageId },
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Forwarded message from ${nameOf(fwd.senderId)}${fwd.from ? ` in ${fwd.from}` : ''}: ${fwd.text}. Double tap to open the original`}
+            style={[
+              styles.quote,
+              {
+                borderLeftColor: own ? alpha(textColor, 0.7) : c.accentSecondary,
+                backgroundColor: alpha(own ? '#000000' : c.accentSecondary, own ? 0.12 : 0.08),
+              },
+            ]}
+          >
+            <View style={styles.fwdHead}>
+              <Ionicons name="arrow-redo" size={12} color={alpha(textColor, 0.75)} />
+              <Text variant="meta" style={{ color: textColor, opacity: 0.75 }} numberOfLines={1}>
+                Forwarded{fwd.from ? ` from ${fwd.from}` : ''}
+              </Text>
+            </View>
+            <Text
+              variant="label"
+              style={{ color: own ? textColor : c.accentSecondary }}
+              numberOfLines={1}
+            >
+              {nameOf(fwd.senderId)}
+            </Text>
+            {fwd.text ? (
+              <Text variant="body" style={{ color: textColor }} numberOfLines={8}>
+                {fwd.text}
+              </Text>
+            ) : null}
           </Pressable>
         ) : null}
         {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
@@ -324,6 +364,7 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
 }
 
 const styles = StyleSheet.create({
+  fwdHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   systemFiles: { marginTop: 6, alignItems: 'center' },
   row: { paddingHorizontal: space.lg, paddingVertical: 1.5 },
   rowOwn: { alignItems: 'flex-end' },

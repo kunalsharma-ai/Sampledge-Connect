@@ -6,6 +6,7 @@ import {
   CreateConversationRequestSchema,
   SetNotifyLevelRequestSchema,
   SetPostingPolicyRequestSchema,
+  SetForwardingRequestSchema,
   conversationCan,
   tenantCan,
   type Conversation,
@@ -113,6 +114,7 @@ export class ConversationsService {
       myRole: mine?.role ?? null,
       myNotifyLevel: mine?.notifyLevel ?? 'all',
       ...(c.postingPolicy ? { postingPolicy: c.postingPolicy } : {}),
+      ...(c.allowForwarding === false ? { allowForwarding: false } : {}),
     };
   }
 
@@ -464,6 +466,37 @@ export class ConversationsService {
       action: 'conversation.posting_policy',
       target: { type: 'conversation', id: conversationId },
       metadata: { policy },
+    });
+    const members = await this.memberIds(ctx.tenantId, conversationId);
+    return this.announce(ctx, updated!, members);
+  }
+
+  /** Private channels and groups: let members forward messages out, or not. */
+  async setForwarding(
+    ctx: TenantContext,
+    conversationId: string,
+    input: unknown,
+  ): Promise<Conversation> {
+    const { allowed } = parse(SetForwardingRequestSchema, input);
+    const { conversation } = await this.authorize(ctx, conversationId, 'conversation.rename');
+    if (conversation.kind !== 'channel_private' && conversation.kind !== 'group')
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Forwarding can be turned off only in private channels and groups',
+      );
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .conversations.findOneAndUpdate(
+        { _id: conversation._id },
+        { $set: { allowForwarding: allowed } },
+        { returnDocument: 'after' },
+      );
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'conversation.forwarding',
+      target: { type: 'conversation', id: conversationId },
+      metadata: { allowed },
     });
     const members = await this.memberIds(ctx.tenantId, conversationId);
     return this.announce(ctx, updated!, members);

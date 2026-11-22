@@ -50,16 +50,27 @@ async function setup(state: 'active' | 'demo' = 'active') {
       if (mode === 'down') throw new TransportError('offline', 'network');
       return server;
     },
-    rsvp: async (id: string, response: 'accepted' | 'tentative' | 'declined') => {
-      sent.push(`${id}:${response}`);
+    rsvp: async (
+      id: string,
+      response: 'accepted' | 'tentative' | 'declined',
+      scope = 'occurrence',
+    ) => {
+      sent.push(`${id}:${response}${scope === 'series' ? ':series' : ''}`);
       if (mode === 'down') throw new TransportError('offline', 'network');
       if (mode === 'refuse') throw new TransportError('cancelled', 'api', 'CONFLICT');
       const m = server.find((x) => x.meetingId === id)!;
-      return {
-        ...m,
-        attendees: m.attendees.map((a) => (a.userId === SELF ? { ...a, response } : a)),
+      const answer = (x: Meeting): Meeting => ({
+        ...x,
+        attendees: x.attendees.map((a) => (a.userId === SELF ? { ...a, response } : a)),
         updatedAt: new Date().toISOString(),
-      };
+      });
+      const sid = m.series?.seriesId;
+      server = server.map((x) =>
+        x.meetingId === id || (scope === 'series' && sid && x.series?.seriesId === sid)
+          ? answer(x)
+          : x,
+      );
+      return server.find((x) => x.meetingId === id)!;
     },
     sync: async () => ({
       conversations: [],
@@ -163,6 +174,67 @@ describe('RSVP', () => {
     const m = await t.store.getMeeting('m1');
     expect(m?.rsvpPending).toBe(false);
     expect(m?.myResponse).toBe('pending');
+  });
+
+  const weekly = (id: string, week: number, seriesId = 's1') =>
+    meeting(id, {
+      startsAt: new Date(T + HOUR + week * 7 * 24 * HOUR).toISOString(),
+      endsAt: new Date(T + 2 * HOUR + week * 7 * 24 * HOUR).toISOString(),
+      series: {
+        seriesId,
+        recurrence: { frequency: 'weekly', interval: 1 },
+        summary: 'Weekly on Tuesday',
+        detached: false,
+      },
+    });
+
+  it('a whole-series answer shows on every upcoming meeting and is sent once', async () => {
+    const t = await setup();
+    const past = meeting('w0', {
+      ...weekly('w0', 0),
+      startsAt: new Date(T - 3 * HOUR).toISOString(),
+      endsAt: new Date(T - 2 * HOUR).toISOString(),
+    });
+    t.setServer([past, weekly('w1', 0), weekly('w2', 1), weekly('w3', 2), weekly('x1', 1, 's2')]);
+    t.engine.setNetworkUp(false);
+    await t.store.upsertMeetings([past, weekly('w1', 0), weekly('w2', 1), weekly('w3', 2)]);
+    await t.store.upsertMeetings([weekly('x1', 1, 's2')]);
+    await t.engine.rsvp('w2', 'accepted', 'series');
+    const mine = async (id: string) => (await t.store.getMeeting(id))?.myResponse;
+    expect(await mine('w1')).toBe('accepted');
+    expect(await mine('w2')).toBe('accepted');
+    expect(await mine('w3')).toBe('accepted');
+    expect(await mine('w0')).toBe('pending'); // already over
+    expect(await mine('x1')).toBe('pending'); // another series
+    expect((await t.store.getMeeting('w3'))?.rsvpPending).toBe(true);
+    t.engine.setNetworkUp(true);
+    await t.engine.resume();
+    await t.engine.refreshMeetings();
+    expect(t.sent).toEqual(['w2:accepted:series']);
+    for (const id of ['w1', 'w2', 'w3']) {
+      const m = await t.store.getMeeting(id);
+      expect(m?.rsvpPending).toBe(false);
+      expect(m?.myResponse).toBe('accepted');
+    }
+  });
+
+  it('answers are sent in the order given: one meeting declined after accepting the series', async () => {
+    const t = await setup();
+    t.setServer([weekly('w1', 0), weekly('w2', 1), weekly('w3', 2)]);
+    await t.store.upsertMeetings([weekly('w1', 0), weekly('w2', 1), weekly('w3', 2)]);
+    // w3 was answered on its own first, then the whole series, then w2 on its own.
+    await t.engine.rsvp('w3', 'tentative');
+    await t.engine.rsvp('w1', 'accepted', 'series');
+    await t.engine.rsvp('w2', 'declined');
+    expect((await t.store.getMeeting('w3'))?.myResponse).toBe('accepted');
+    expect((await t.store.getMeeting('w2'))?.myResponse).toBe('declined');
+    t.engine.setNetworkUp(true);
+    await t.engine.resume();
+    await t.engine.refreshMeetings();
+    expect(t.sent).toEqual(['w1:accepted:series', 'w2:declined']);
+    expect((await t.store.getMeeting('w2'))?.myResponse).toBe('declined');
+    expect((await t.store.getMeeting('w3'))?.myResponse).toBe('accepted');
+    expect((await t.store.getMeeting('w2'))?.rsvpPending).toBe(false);
   });
 
   it('the demo workspace keeps answers on the phone', async () => {

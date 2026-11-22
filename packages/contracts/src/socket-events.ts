@@ -1,3 +1,4 @@
+import type { ChatThemeId } from './chat-themes.js';
 import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
 import type { Ack } from './errors.js';
@@ -13,6 +14,9 @@ import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
 import type { NetworkChangedEvent } from './network.js';
+import type { AiProposal, AiSuggestionEvent, TranscriptChangedEvent } from './ai.js';
+import type { MinutesChangedEvent } from './minutes.js';
+import type { BookingPage } from './booking.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -90,17 +94,58 @@ export interface ServerToClientEvents {
    * in anonymous polls, where `message:updated` carries counts without voter ids.
    */
   'poll:myVote': (e: { messageId: string; optionIds: string[] }) => void;
+  /** Your recent searches changed (sent to all of your devices). */
+  'search:recent': (e: { recent: string[] }) => void;
+  /** You picked another chat theme (sent to all of your devices). null = organization default. */
+  'chat-theme:changed': (e: { themeId: ChatThemeId | null }) => void;
+  /**
+   * A booking page you host (or hosted until now) was created, changed or deleted, by you on
+   * another device or by a co-host. `page` is null when it was deleted; a page whose hostIds no
+   * longer include you was taken off your list. Lists refetch GET /v1/booking-pages on reconnect.
+   */
+  'booking:changed': (e: { bookingPageId: string; page: BookingPage | null }) => void;
   /** Someone in the organization joined, changed role or status, or edited their profile. */
   'directory:updated': (e: { userId: string }) => void;
   /** An organization-wide setting changed; refetch that area. */
   'tenant:updated': (e: { area: TenantArea }) => void;
+  /**
+   * Your working hours or one of your booking pages changed (sent to all of your devices, and
+   * to every host of a booking page). Refetch that area.
+   */
+  'meetings:changed': (e: { area: MeetingsArea }) => void;
+  /** A recording in one of your conversations was added or deleted; refetch the library. */
+  'recording:changed': (e: {
+    recordingId: string;
+    conversationId: string;
+    deleted: boolean;
+  }) => void;
   /** A project was created or changed; refetch it (the list endpoint applies visibility). */
   'project:changed': (e: { projectId: string }) => void;
+  /** One of your AI drafts was created, sent or dismissed (your devices only). */
+  'ai:proposal': (proposal: AiProposal) => void;
+  /** You dismissed a suggested task, or brought it back (your devices only). */
+  'ai:suggestion': (e: AiSuggestionEvent) => void;
+  /** Minutes of a call in this conversation were created, edited, shared or deleted. */
+  'minutes:changed': (e: MinutesChangedEvent) => void;
+  /** A transcript in this conversation finished, was translated, corrected or reviewed. */
+  'transcript:changed': (e: TranscriptChangedEvent) => void;
   /** Access token expired or session revoked; client must refresh and reconnect. */
   'session:expired': (e: { reason: 'token_expired' | 'revoked' }) => void;
 }
 
-export const TENANT_AREAS = ['branding', 'billing', 'integrations', 'ai', 'recordings'] as const;
+export const MEETINGS_AREAS = ['working_hours', 'booking_pages', 'call_background'] as const;
+export type MeetingsArea = (typeof MEETINGS_AREAS)[number];
+
+export const TENANT_AREAS = [
+  'branding',
+  'billing',
+  'integrations',
+  'ai',
+  'recordings',
+  'minutes',
+  'chat_themes',
+  'calls',
+] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
 /** Typing state expires server-side if not refreshed. */

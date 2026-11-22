@@ -122,6 +122,9 @@ export class OutboxProcessor {
           attachmentIds,
           replyToMessageId: msg.replyTo,
           composedAt: msg.createdAt,
+          ...(typeof msg.metadata.forwardOf === 'string'
+            ? { forwardOf: msg.metadata.forwardOf }
+            : {}),
         });
         await store.applyServerMessages([ack.message]);
       } catch (raw) {

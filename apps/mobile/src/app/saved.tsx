@@ -103,6 +103,7 @@ export default function Saved() {
           const m = b.message;
           return (
             <SavedMessageCard
+              senderId={guestSenderLabel(m.metadata) ? null : m.senderId}
               senderName={
                 m.senderId === selfId ? 'You' : (guestSenderLabel(m.metadata) ?? nameOf(m.senderId))
               }

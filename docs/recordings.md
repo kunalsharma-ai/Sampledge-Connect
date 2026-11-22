@@ -67,3 +67,9 @@ Flow: start → egress joins as a hidden participant → `egress_updated` (activ
 or time limit → egress writes the file → `egress_ended` webhook (or the API's sweeper, which
 re-checks with `ListEgress` if a webhook is lost) → the API moves the file into storage, posts
 it in the conversation as a **Call recording** card and deletes the spool copy.
+
+## Minutes and chat export settings
+
+The **Settings & backup** panel also holds the organization's minutes and chat export settings:
+who can export chats, the default minutes template and language, and whether live captions are
+kept for minutes. See `minutes.md`.

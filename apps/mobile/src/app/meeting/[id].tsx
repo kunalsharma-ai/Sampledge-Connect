@@ -3,7 +3,7 @@ import type { RsvpResponse } from '@sampledge/contracts';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { PersonAvatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Glass } from '../../components/Glass';
 import { RSVP_ICON, RSVP_LABEL, useJoinMeeting, useRsvpColor } from '../../components/MeetingBits';
@@ -45,6 +45,8 @@ export default function MeetingDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** For a recurring meeting: answer for this one, or for every upcoming one. */
+  const [answerFor, setAnswerFor] = useState<'occurrence' | 'series'>('occurrence');
 
   if (!m) {
     return (
@@ -127,6 +129,16 @@ export default function MeetingDetail() {
               : 'No reminder'}
             {m.timeZone !== myTz ? ` · Organizer's time zone: ${zoneLabel(m.timeZone)}` : ''}
           </Text>
+          {m.series ? (
+            <View style={styles.seriesLine}>
+              <Ionicons name="repeat" size={15} color={c.accent} />
+              <Text variant="meta" tone="accent" style={{ flex: 1 }}>
+                {m.series.summary}
+                {m.timeZone !== myTz ? ` (${zoneLabel(m.timeZone)})` : ''}
+                {m.series.detached ? ' · This meeting was changed on its own' : ''}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {error ? (
@@ -162,6 +174,38 @@ export default function MeetingDetail() {
             <Text variant="overline" tone="subtle" style={{ marginLeft: space.xs }}>
               Your answer
             </Text>
+            {m.series ? (
+              <View style={styles.scopeRow} accessibilityRole="radiogroup">
+                {(
+                  [
+                    ['occurrence', 'This meeting'],
+                    ['series', 'All upcoming'],
+                  ] as const
+                ).map(([k, label]) => {
+                  const on = answerFor === k;
+                  return (
+                    <Pressable
+                      key={k}
+                      onPress={() => setAnswerFor(k)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                      accessibilityLabel={`Answer for ${label.toLowerCase()}`}
+                      style={[
+                        styles.scopeChip,
+                        {
+                          backgroundColor: on ? alpha(c.accent, 0.16) : 'transparent',
+                          borderColor: on ? c.accent : c.border,
+                        },
+                      ]}
+                    >
+                      <Text variant="label" tone={on ? 'accent' : 'muted'}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
             <View
               style={[styles.segment, { backgroundColor: c.surfaceSunken, borderColor: c.border }]}
             >
@@ -170,7 +214,9 @@ export default function MeetingDetail() {
                 return (
                   <Pressable
                     key={r}
-                    onPress={() => void engine.rsvp(m.meetingId, r)}
+                    onPress={() =>
+                      void engine.rsvp(m.meetingId, r, m.series ? answerFor : 'occurrence')
+                    }
                     accessibilityRole="radio"
                     accessibilityState={{ checked: on }}
                     accessibilityLabel={RSVP_LABEL[r]}
@@ -259,7 +305,11 @@ export default function MeetingDetail() {
                     i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
                   ]}
                 >
-                  <Avatar name={nameOf(a.userId, { asWritten: true })} size={34} />
+                  <PersonAvatar
+                    userId={a.userId}
+                    name={nameOf(a.userId, { asWritten: true })}
+                    size={34}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text variant="bodyStrong" numberOfLines={1}>
                       {nameOf(a.userId)}
@@ -403,7 +453,7 @@ export default function MeetingDetail() {
               disabled={!!blocked}
             />
             <Button
-              title="Cancel meeting"
+              title={m.series ? 'Cancel this meeting' : 'Cancel meeting'}
               kind="danger"
               icon="close-circle-outline"
               busy={busy === 'cancel'}
@@ -411,12 +461,32 @@ export default function MeetingDetail() {
               onPress={() =>
                 confirmThen(
                   `Cancel ${m.title}?`,
-                  'Everyone invited is told, and the card in the meeting chat shows it was cancelled.',
+                  m.series
+                    ? 'Only this meeting is cancelled. The rest of the series goes ahead.'
+                    : 'Everyone invited is told, and the card in the meeting chat shows it was cancelled.',
                   'Cancel meeting',
                   () => void run('cancel', () => engine.cancelMeeting(m.meetingId)),
                 )
               }
             />
+            {m.series ? (
+              <Button
+                title="Cancel all upcoming"
+                kind="danger"
+                icon="repeat"
+                busy={busy === 'cancel-series'}
+                disabled={!!blocked}
+                onPress={() =>
+                  confirmThen(
+                    `Cancel every upcoming ${m.title}?`,
+                    'This and every later meeting of the series are cancelled. Everyone invited, guests too, is told.',
+                    'Cancel all upcoming',
+                    () =>
+                      void run('cancel-series', () => engine.cancelMeeting(m.meetingId, 'series')),
+                  )
+                }
+              />
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -432,6 +502,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   note: { padding: space.md, borderRadius: radius.md },
+  seriesLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  scopeRow: { flexDirection: 'row', gap: space.sm },
+  scopeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   segment: {
     flexDirection: 'row',
     gap: 4,

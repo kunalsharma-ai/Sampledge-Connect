@@ -4,8 +4,10 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar } from '../../components/Avatar';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
+import { StatusLine } from '../../components/StatusLine';
 import { Text } from '../../components/Text';
-import { useApp } from '../../state/AppProvider';
+import { useApp, useWorkspace } from '../../state/AppProvider';
+import { useProfile } from '../../state/hooks';
 import { MODULES } from '../../state/modules';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
@@ -14,7 +16,12 @@ import { useTheme } from '../../theme/ThemeProvider';
 export default function More() {
   const { theme } = useTheme();
   const { session, sessionState, engineState, signOut } = useApp();
-  const name = sessionState === 'demo' ? 'Demo user' : (session?.user.displayName ?? 'Signed in');
+  const { selfId } = useWorkspace();
+  const me = useProfile(selfId);
+  const name =
+    sessionState === 'demo'
+      ? 'Demo user'
+      : (me?.displayName ?? session?.user.displayName ?? 'Signed in');
   const sub =
     sessionState === 'demo'
       ? 'Local demo workspace, no server'
@@ -55,15 +62,23 @@ export default function More() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: 120, gap: space.lg }}>
-        <Glass style={styles.profile}>
-          <Avatar name={name} size={52} />
-          <View style={{ flex: 1 }}>
-            <Text variant="heading">{name}</Text>
-            <Text variant="meta" tone="muted" numberOfLines={1}>
-              {sub}
-            </Text>
-          </View>
-        </Glass>
+        <Pressable
+          onPress={() => router.push('/settings/profile')}
+          accessibilityRole="button"
+          accessibilityLabel={`${name}. Edit profile and photo`}
+        >
+          <Glass style={styles.profile}>
+            <Avatar name={name} size={52} uri={me?.avatarUrl} />
+            <View style={{ flex: 1 }}>
+              <Text variant="heading">{name}</Text>
+              <Text variant="meta" tone="muted" numberOfLines={1}>
+                {me?.title ? `${me.title} · ${session?.tenant.name ?? ''}` : sub}
+              </Text>
+              <StatusLine status={me?.userStatus} schedule={me?.dndSchedule} />
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
+          </Glass>
+        </Pressable>
 
         {groups.map((g) => (
           <View key={g.title} style={{ gap: space.sm }}>
@@ -97,9 +112,27 @@ export default function More() {
           </Text>
           <Glass>
             <Row
+              icon="person-circle-outline"
+              title="Profile and photo"
+              onPress={() => router.push('/settings/profile')}
+            />
+            <Row
+              icon="happy-outline"
+              title="Status and quiet hours"
+              onPress={() => router.push('/settings/status')}
+              divider
+            />
+            <Row
               icon="color-palette-outline"
               title="Appearance"
               onPress={() => router.push('/settings/appearance')}
+              divider
+            />
+            <Row
+              icon="chatbubbles-outline"
+              title="Chat theme"
+              onPress={() => router.push('/settings/chat-theme')}
+              divider
             />
             <Row
               icon="notifications-outline"

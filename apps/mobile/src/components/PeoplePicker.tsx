@@ -4,7 +4,7 @@ import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { DirectoryEntry } from '../state/hooks';
 import { alpha, radius, space, type as typeScale } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
-import { Avatar } from './Avatar';
+import { PersonAvatar } from './Avatar';
 import { Text } from './Text';
 
 /**
@@ -108,7 +108,7 @@ export function PeoplePicker({
               taken && { opacity: 0.5 },
             ]}
           >
-            <Avatar name={item.displayName} size={38} />
+            <PersonAvatar userId={item.userId} name={item.displayName} size={38} />
             <View style={{ flex: 1 }}>
               <Text variant="bodyStrong" numberOfLines={1}>
                 {item.displayName}

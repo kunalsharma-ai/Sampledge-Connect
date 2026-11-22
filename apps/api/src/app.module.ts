@@ -22,6 +22,7 @@ import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
+import { AvatarsController, ProfileController } from './directory/profile.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
   ConversationsController,
@@ -52,6 +53,12 @@ import {
 } from './integration-settings/integration-settings.controller.js';
 import { BookmarksController } from './bookmarks/bookmarks.controller.js';
 import { BookmarksService } from './bookmarks/bookmarks.service.js';
+import { SearchController } from './search/search.controller.js';
+import { SearchService } from './search/search.service.js';
+import { FilesController, FilesService } from './files/files.controller.js';
+import { AnalyticsController, AnalyticsService } from './analytics/analytics.controller.js';
+import { ChatThemesController, ChatThemesService } from './chat-themes/chat-themes.controller.js';
+import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
@@ -60,6 +67,9 @@ import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
 import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
 import { BookingService } from './meetings/booking.service.js';
+import { CaptionsService } from './calls/captions.service.js';
+import { CallBackgroundsController } from './calls/call-backgrounds.controller.js';
+import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
@@ -81,6 +91,8 @@ import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
 import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
+import { MinutesController } from './minutes/minutes.controller.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type { Db } from 'mongodb';
 import { NetworkTenant } from './network/network-tenant.js';
 import { NetworkPolicyService } from './network/network-policy.service.js';
@@ -124,6 +136,8 @@ export class AppModule {
         AdminController,
         RecordingsController,
         DirectoryController,
+        ProfileController,
+        AvatarsController,
         ConversationsController,
         MessagesController,
         SyncController,
@@ -132,8 +146,14 @@ export class AppModule {
         NotificationsController,
         PushController,
         BookmarksController,
+        SearchController,
+        FilesController,
+        AnalyticsController,
+        ChatThemesController,
+        StatusController,
         ScheduledMessagesController,
         CallsController,
+        CallBackgroundsController,
         MeetingsController,
         GuestsController,
         BookingPagesController,
@@ -145,6 +165,7 @@ export class AppModule {
         NetworkPublicController,
         NetworkAdminController,
         NetworkController,
+        MinutesController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -167,11 +188,17 @@ export class AppModule {
         AttachmentsService,
         NotificationsService,
         BookmarksService,
+        SearchService,
+        FilesService,
+        AnalyticsService,
+        ChatThemesService,
         ScheduledMessagesService,
         CallsService,
         MeetingsService,
         GuestsService,
         BookingService,
+        CaptionsService,
+        CallBackgroundsService,
         MailerService,
         WorkStore,
         ModuleSettingsService,
@@ -194,6 +221,7 @@ export class AppModule {
         NetworkService,
         StatusService,
         CommunitiesService,
+        MinutesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

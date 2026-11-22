@@ -37,6 +37,15 @@ describe('HttpTransport', () => {
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer tok');
   });
 
+  it('sends a caption clip as raw audio, not JSON', async () => {
+    const { t, calls } = transport(() => json(200, { text: 'Hello' }));
+    const clip = new Blob([new Uint8Array(8)], { type: 'audio/webm' });
+    expect(await t.transcribeCaption('call 1', clip)).toEqual({ text: 'Hello' });
+    expect(calls[0]!.url).toBe('https://api.example.com/v1/calls/call%201/captions');
+    expect((calls[0]!.init.headers as Record<string, string>)['content-type']).toBe('audio/webm');
+    expect(calls[0]!.init.body).toBe(clip);
+  });
+
   it('maps error envelopes and status codes to retryable or permanent errors', async () => {
     const limited = transport(() =>
       json(429, {

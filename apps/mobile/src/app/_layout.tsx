@@ -69,6 +69,9 @@ function RootStack() {
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="settings/profile" options={{ title: 'Profile' }} />
+          <Stack.Screen name="person/[id]" options={{ title: '' }} />
+          <Stack.Screen name="sso" options={{ headerShown: false }} />
           <Stack.Screen
             name="new-conversation"
             options={{ title: 'New conversation', presentation: 'modal' }}
@@ -80,8 +83,14 @@ function RootStack() {
             options={{ title: 'Schedule a meeting', presentation: 'modal' }}
           />
           <Stack.Screen name="meeting/[id]" options={{ title: 'Meeting' }} />
+          <Stack.Screen name="booking-pages/index" options={{ title: 'Booking pages' }} />
+          <Stack.Screen name="booking-pages/[id]" options={{ title: 'Booking page' }} />
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
+          <Stack.Screen name="settings/status" options={{ title: 'Status' }} />
+          <Stack.Screen name="settings/chat-theme" options={{ title: 'Chat theme' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
+          <Stack.Screen name="files" options={{ title: 'Files' }} />
+          <Stack.Screen name="forward" options={{ title: 'Forward', presentation: 'modal' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
           <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />

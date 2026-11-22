@@ -16,6 +16,11 @@ import { billingMigration } from './021-billing.js';
 import { meetingSeriesMigration } from './030-meeting-series.js';
 import { launchIndexesMigration } from './031-launch-indexes.js';
 import { bookingPagesMigration } from './032-booking-pages.js';
+import { aiSuggestionDismissalsMigration } from './014-ai-suggestion-dismissals.js';
+import { searchMigration } from './040-search.js';
+import { analyticsMigration } from './041-analytics.js';
+import { minutesMigration } from './050-minutes.js';
+import { callBackgroundsMigration } from './042-call-backgrounds.js';
 import { networkMigration } from './033-network.js';
 
 export interface Migration {
@@ -42,6 +47,11 @@ export const MIGRATIONS: Migration[] = [
   meetingSeriesMigration,
   launchIndexesMigration,
   bookingPagesMigration,
+  aiSuggestionDismissalsMigration,
+  searchMigration,
+  analyticsMigration,
+  minutesMigration,
+  callBackgroundsMigration,
   networkMigration,
 ];
 

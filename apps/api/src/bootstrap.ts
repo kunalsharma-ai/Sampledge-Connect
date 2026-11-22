@@ -32,6 +32,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('json', { limit: '256kb' });
   // LiveKit webhooks are verified against a hash of the exact bytes, so keep them raw.
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
+  // Caption clips and call background images are read per route (common/raw-body.ts): a global
+  // audio/* or image/* parser would swallow attachment uploads, which stream their body.
   // Chat widget origins are configured per module in the database (Integrations), not env.
   const moduleSettings = app.get(ModuleSettingsService);
   app.enableCors({

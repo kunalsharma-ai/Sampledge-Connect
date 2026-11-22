@@ -136,6 +136,12 @@ function listNames(names: string[]): string {
   return `${names.slice(0, 2).join(', ')} and ${names.length - 2} others`;
 }
 
+/** The deadline in a sentence: a "by/before/until/due …" phrase wins over "today" or "this week". */
+export function dueHint(sentence: string): string | null {
+  const all = [...sentence.matchAll(new RegExp(DUE_RE.source, 'gi'))].map((m) => m[0]);
+  return all.find((d) => /^(by|before|until|due)\b/i.test(d)) ?? all[0] ?? null;
+}
+
 export function basicSummarize(input: SummarizeInput): SummaryResult {
   const lines = input.lines.filter((l) => l.text.trim());
   if (!lines.length)
@@ -188,7 +194,7 @@ export function basicSummarize(input: SummarizeInput): SummaryResult {
         actionItems.push({
           text: clip(s.replace(/^(ok(ay)?|sure|great|thanks)[,!.]?\s*/i, ''), 200),
           assignee: findAssignee(s, line, input.members),
-          due: s.match(DUE_RE)?.[0] ?? null,
+          due: dueHint(s),
           messageId: line.messageId,
         });
       }
