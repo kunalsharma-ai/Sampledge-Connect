@@ -11,6 +11,7 @@ export type MessageAction =
   | 'reply'
   | 'forward'
   | 'edit'
+  | 'history'
   | 'delete'
   | 'retry'
   | 'discard'
@@ -19,6 +20,7 @@ export type MessageAction =
   | 'save'
   | 'unsave'
   | 'closePoll'
+  | 'editPoll'
   | 'createTask'
   | 'requestApproval'
   | 'translate'
@@ -33,9 +35,12 @@ export function MessageActions({
   saved = false,
   canPin = false,
   canClosePoll = false,
+  canEditPoll = false,
   canMakeWork = false,
   canForward = false,
   canReport = false,
+  canEdit,
+  canSeeHistory = false,
   onAction,
   onReact,
   onClose,
@@ -48,12 +53,18 @@ export function MessageActions({
   canPin?: boolean;
   /** Author or moderator of an open poll. */
   canClosePoll?: boolean;
+  /** Your open poll that nobody has voted on yet. */
+  canEditPoll?: boolean;
   /** A member here, so you can turn the message into a task or approval. */
   canMakeWork?: boolean;
   /** A sent message that is not a poll or a call event. */
   canForward?: boolean;
   /** SampConnect Network: someone else's message, which you can report to moderators. */
   canReport?: boolean;
+  /** Your own message that the organization's editing rules still let you change (default: own). */
+  canEdit?: boolean;
+  /** An edited message whose earlier versions you may open. */
+  canSeeHistory?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -82,6 +93,7 @@ export function MessageActions({
   } else if (!deleted) {
     rows.push({ key: 'reply', label: 'Reply', icon: 'arrow-undo-outline' });
     if (canForward) rows.push({ key: 'forward', label: 'Forward', icon: 'arrow-redo-outline' });
+    if (canEditPoll) rows.push({ key: 'editPoll', label: 'Edit poll', icon: 'create-outline' });
     if (canClosePoll)
       rows.push({ key: 'closePoll', label: 'Close poll', icon: 'lock-closed-outline' });
     if (canPin)
@@ -107,8 +119,15 @@ export function MessageActions({
     );
     if (canReport && !own)
       rows.push({ key: 'report', label: 'Report message', icon: 'flag-outline', danger: true });
+    if (canSeeHistory && message.editedAt)
+      rows.push({ key: 'history', label: 'Edit history', icon: 'time-outline' });
+    if (own && (canEdit ?? true) && !message.poll)
+      rows.push({
+        key: 'edit',
+        label: !message.text.trim() && message.attachments.length ? 'Add a caption' : 'Edit',
+        icon: 'create-outline',
+      });
     if (own) {
-      rows.push({ key: 'edit', label: 'Edit', icon: 'create-outline' });
       rows.push({
         key: 'delete',
         label: 'Delete for everyone',

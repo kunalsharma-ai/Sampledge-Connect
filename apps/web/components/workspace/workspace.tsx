@@ -49,7 +49,10 @@ import {
   useUnreadCounts,
 } from '@/lib/engine';
 import { overlayMessage, type LocalMessage } from '@sampledge/offline';
-import { DeleteMessageDialog, EditMessageDialog } from './message-edit';
+import { DeleteMessageDialog, EditHistoryDialog, EditMessageDialog } from './message-edit';
+import { useMessageEditing } from '@/lib/message-editing';
+import { EditConversationDialog } from './edit-dialogs';
+import { editBlockedReason } from '@sampledge/contracts';
 import { CommandPalette } from './command-palette';
 import { Composer } from './composer';
 import { ContextPanel } from './context-panel';
@@ -255,6 +258,9 @@ function WorkspaceInner({ network }: { network: boolean }) {
     );
   }, [rawMessages, pendingMessageActions, me]);
   const [editing, setEditing] = React.useState<LocalMessage | null>(null);
+  const [historyOf, setHistoryOf] = React.useState<string | null>(null);
+  const [editingConversation, setEditingConversation] = React.useState<Conversation | null>(null);
+  const editRules = useMessageEditing();
   const [deleting, setDeleting] = React.useState<LocalMessage | null>(null);
   const [forwarding, setForwarding] = React.useState<LocalMessage | null>(null);
   const [reporting, setReporting] = React.useState<LocalMessage | null>(null);
@@ -493,14 +499,29 @@ function WorkspaceInner({ network }: { network: boolean }) {
     : false;
   const messageActions = (m: LocalMessage) => {
     const own = m.senderId === me;
-    const editable = own && !readOnly && m.messageType !== 'system' && !m.poll && !m.deletedAt;
+    const editable =
+      own &&
+      !readOnly &&
+      m.messageType !== 'system' &&
+      !m.poll &&
+      !m.deletedAt &&
+      !editBlockedReason(m.createdAt, editRules);
+    const moderatorOrSender = own || canModerate;
     return {
       onThread: () => setThreadRootId(m.messageId),
       pinned: !!m.pinned,
       onPin: readOnly ? undefined : (on: boolean) => pin(m, on),
       saved: bookmarks.ids.has(m.messageId!),
       onSave: (on: boolean) => void bookmark(m, on),
-      onEdit: editable && m.content.text ? () => setEditing(m) : undefined,
+      // Text, or a file sent without words (editing adds a caption).
+      onEdit:
+        editable && (m.content.text || m.attachments?.length) ? () => setEditing(m) : undefined,
+      onHistory:
+        m.editedAt &&
+        m.messageId &&
+        (editRules.policy.historyVisibleTo === 'everyone' || moderatorOrSender)
+          ? () => setHistoryOf(m.messageId!)
+          : undefined,
       onDelete:
         (own || canModerate) && m.messageType !== 'system' && !m.deletedAt && !readOnly
           ? () => setDeleting(m)
@@ -1097,6 +1118,13 @@ function WorkspaceInner({ network }: { network: boolean }) {
                       presence={engine.presence}
                       onClose={() => setPanelOpen(false)}
                       canManage={canModerate && !offline && !active.archivedAt}
+                      onEdit={
+                        (active.myRole === 'owner' || active.myRole === 'moderator') &&
+                        !active.archivedAt &&
+                        active.kind !== 'dm'
+                          ? () => setEditingConversation(active)
+                          : undefined
+                      }
                       onSetPostingPolicy={(policy) =>
                         void pollsApi
                           .setPostingPolicy(getAccessToken, active.conversationId, policy)
@@ -1242,8 +1270,18 @@ function WorkspaceInner({ network }: { network: boolean }) {
           />
           <EditMessageDialog
             message={editing}
+            policy={editRules.policy}
             onOpenChange={(o) => !o && setEditing(null)}
             onSave={editMessage}
+          />
+          <EditConversationDialog
+            conversation={editingConversation}
+            onOpenChange={(o) => !o && setEditingConversation(null)}
+          />
+          <EditHistoryDialog
+            messageId={historyOf}
+            load={editRules.history}
+            onOpenChange={(o) => !o && setHistoryOf(null)}
           />
           <ForwardDialog
             message={forwarding}

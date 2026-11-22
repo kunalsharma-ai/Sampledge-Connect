@@ -33,6 +33,8 @@ export const TENANT_PERMISSIONS = [
   'analytics.org', // organization-wide analytics
   'themes.manage', // chat theme rules for everyone
   'work.manage', // see and manage everyone's tasks and approvals
+  'messages.edit', // edit their own messages (also needs the organization's editing switch on)
+  'messages.manage', // message editing rules: on/off, time limit, who sees earlier versions
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',
@@ -63,6 +65,7 @@ export const TENANT_ROLE_GRANTS: Record<TenantRole, readonly TenantPermission[]>
   owner: ALL_TENANT,
   admin: ALL_TENANT.filter((p) => p !== 'tenant.manage'),
   member: [
+    'messages.edit',
     'directory.read',
     'inbox.access',
     'conversation.dm.create',
@@ -73,7 +76,7 @@ export const TENANT_ROLE_GRANTS: Record<TenantRole, readonly TenantPermission[]>
   ],
   // Guests (e.g. external suppliers) can talk in conversations they were added to,
   // and start DMs, but cannot browse the directory or create channels.
-  guest: ['conversation.dm.create'],
+  guest: ['messages.edit', 'conversation.dm.create'],
 };
 
 export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly ConversationPermission[]> =
@@ -116,6 +119,14 @@ export const TenantPermissionPolicySchema = z.object({
   guest: PermissionList,
 });
 
+/**
+ * Permissions that existed before policies were saved with `_known` (a stored policy lists the
+ * permissions it was saved with). A permission added later is missing from an older saved
+ * policy, so it gets the built-in grant instead of being taken away from everyone.
+ */
+export const TENANT_PERMISSIONS_BEFORE_KNOWN_LIST: readonly TenantPermission[] =
+  TENANT_PERMISSIONS.filter((p) => p !== 'messages.edit' && p !== 'messages.manage');
+
 /** The built-in policy, used until a super admin changes it. */
 export const DEFAULT_TENANT_POLICY: TenantPermissionPolicy = Object.fromEntries(
   TENANT_ROLES.map((r) => [r, [...TENANT_ROLE_GRANTS[r]]]),
@@ -151,6 +162,11 @@ export const TENANT_PERMISSION_INFO: Record<TenantPermission, { label: string; g
     group: 'Organization',
   },
   'work.manage': { label: 'Manage everyone’s tasks and approvals', group: 'People' },
+  'messages.edit': { label: 'Edit their own messages', group: 'Conversations' },
+  'messages.manage': {
+    label: 'Set message editing rules (on or off, time limit, history)',
+    group: 'Conversations',
+  },
   'directory.read': { label: 'See the member directory', group: 'People' },
   'conversation.dm.create': { label: 'Start direct messages', group: 'Conversations' },
   'conversation.group.create': { label: 'Start group conversations', group: 'Conversations' },

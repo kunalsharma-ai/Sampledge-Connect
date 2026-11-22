@@ -7,6 +7,8 @@ import {
   SetNotifyLevelRequestSchema,
   SetPostingPolicyRequestSchema,
   SetForwardingRequestSchema,
+  UpdateConversationRequestSchema,
+  isValidChannelName,
   conversationCan,
   tenantCan,
   type Conversation,
@@ -438,6 +440,48 @@ export class ConversationsService {
       actorId: ctx.userId,
       action: archived ? 'conversation.archived' : 'conversation.unarchived',
       target: { type: 'conversation', id: conversationId },
+    });
+    const members = await this.memberIds(ctx.tenantId, conversationId);
+    return this.announce(ctx, updated!, members);
+  }
+
+  /** Rename a group or channel, or change its description. Everyone sees it live. */
+  async rename(ctx: TenantContext, conversationId: string, input: unknown): Promise<Conversation> {
+    const req = parse(UpdateConversationRequestSchema, input);
+    const { conversation } = await this.authorize(ctx, conversationId, 'conversation.rename');
+    const channel =
+      conversation.kind === 'channel_public' || conversation.kind === 'channel_private';
+    if (!channel && conversation.kind !== 'group')
+      throw new AppError('VALIDATION_FAILED', 'This conversation can’t be renamed');
+    const set: { name?: string | null; topic?: string | null } = {};
+    if (req.name !== undefined) {
+      if (channel && !isValidChannelName(req.name))
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'Channel names use letters, numbers, spaces, - _ and .',
+        );
+      set.name = req.name || null;
+    }
+    if (req.topic !== undefined) {
+      if (!channel) throw new AppError('VALIDATION_FAILED', 'Only channels have a description');
+      set.topic = req.topic || null;
+    }
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .conversations.findOneAndUpdate(
+        { _id: conversation._id },
+        { $set: set },
+        { returnDocument: 'after' },
+      );
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'conversation.renamed',
+      target: { type: 'conversation', id: conversationId },
+      metadata: {
+        ...(set.name !== undefined ? { from: conversation.name, to: set.name } : {}),
+        ...(set.topic !== undefined ? { topicChanged: true } : {}),
+      },
     });
     const members = await this.memberIds(ctx.tenantId, conversationId);
     return this.announce(ctx, updated!, members);

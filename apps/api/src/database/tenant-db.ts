@@ -182,6 +182,7 @@ export class TenantDb {
       conversations: c('conversations'),
       conversation_members: c('conversation_members'),
       messages: c('messages'),
+      message_edits: c('message_edits'),
       message_receipts: c('message_receipts'),
       devices: c('devices'),
       sync_checkpoints: c('sync_checkpoints'),

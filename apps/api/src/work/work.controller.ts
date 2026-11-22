@@ -63,6 +63,10 @@ export class WorkController {
   decide(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
     return this.approvals.decide(ctx, id, body);
   }
+  @Patch('approvals/:id')
+  updateApproval(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.approvals.update(ctx, id, body);
+  }
   @Post('approvals/:id/cancel')
   @HttpCode(200)
   cancel(@Ctx() ctx: TenantContext, @Param('id') id: string) {
@@ -80,5 +84,9 @@ export class WorkController {
   @Get('projects/:id')
   getProject(@Ctx() ctx: TenantContext, @Param('id') id: string) {
     return this.projects.get(ctx, id);
+  }
+  @Patch('projects/:id')
+  updateProject(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.projects.update(ctx, id, body);
   }
 }

@@ -133,7 +133,7 @@ export const FEATURE_HELP = [
       'Type @ to mention someone so they are notified.',
       'You can edit or delete your own messages after sending. Everyone sees the update.',
     ],
-    related: ['threads', 'files', 'forwarding', 'scheduled-messages'],
+    related: ['threads', 'files', 'forwarding', 'scheduled-messages', 'editing'],
   },
   {
     id: 'channels',
@@ -240,6 +240,30 @@ export const FEATURE_HELP = [
       'Post it. Results update for everyone as votes come in.',
     ],
     related: ['channels'],
+  },
+  {
+    id: 'editing',
+    title: 'Editing and edit history',
+    category: 'messaging',
+    audience: 'everyone',
+    summary: 'Fix a message, poll, task or request after sending, and see what it said before.',
+    what: 'Edit your own messages (or add a caption to a file), polls before the first vote, tasks, approval requests before anyone decides, projects, channel names and descriptions, and status updates. Every message edit keeps the earlier text.',
+    why: 'Mistakes get fixed in place instead of with a follow-up message, and nobody loses track of what was said, because earlier versions stay readable.',
+    where: {
+      web: 'Hover a message and choose the pencil. Select (edited) on a message to see earlier versions. Tasks, approvals, projects and channel details have an Edit button.',
+      mobile:
+        'Long-press a message and choose Edit or Edit history. Tasks, approvals and channel info have Edit at the top.',
+    },
+    how: [
+      'Open the item and choose Edit.',
+      'Change the text and save. Everyone sees the update live, even if you were offline when you saved.',
+      'To see what a message said before, select (edited) next to it.',
+    ],
+    tips: [
+      'Your organization can turn editing off, set a time limit, or limit edit history to moderators and admins.',
+      'Polls can only be edited until someone votes, and approval requests until someone decides.',
+    ],
+    related: ['messages', 'polls', 'tasks', 'admin'],
   },
   {
     id: 'greeting-cards',
@@ -784,7 +808,7 @@ export const FEATURE_HELP = [
     where: { web: 'Administration in the left navigation.', mobile: 'More > Administration.' },
     how: [
       'Open Members to invite people, change roles or deactivate accounts.',
-      'Use the other tabs for devices, calls and network rules.',
+      'Use the other tabs for devices, message editing rules, calls and network rules.',
       'Check the audit log to review important changes.',
     ],
     related: ['integrations', 'branding', 'billing'],

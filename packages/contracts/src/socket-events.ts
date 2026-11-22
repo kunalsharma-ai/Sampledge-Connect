@@ -162,6 +162,8 @@ export const TENANT_AREAS = [
   'calls',
   /** Client Inbox channels (connectors), reply templates and inbox settings (SLA, teams). */
   'inbox',
+  /** Message editing rules (on/off, time limit, history) or what a role may do changed. */
+  'messages',
   /** Greeting card rules (on/off, hidden categories). */
   'greetings',
 ] as const;

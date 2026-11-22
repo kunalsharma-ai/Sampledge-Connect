@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FolderKanban,
   MessageSquare,
+  Pencil,
   Plus,
   Search,
   Stamp,
@@ -17,6 +18,8 @@ import type { DirectoryEntry } from '@/lib/engine';
 import { dueLabel, useProjects } from '@/lib/work';
 import { relativeShort } from './helpers';
 import { NewProjectDialog } from './work-dialogs';
+import { EditProjectDialog, canEditProject } from './edit-dialogs';
+import { useAuth } from '@/lib/auth';
 import { PeopleStack } from './work-ui';
 import { FeatureHelp } from '../feature-help';
 
@@ -64,6 +67,9 @@ export function ProjectsScreen({
   const [filter, setFilter] = React.useState<Filter>('open');
   const [q, setQ] = React.useState('');
   const [creating, setCreating] = React.useState(false);
+  const [editing, setEditing] = React.useState<Project | null>(null);
+  const { session } = useAuth();
+  const isAdmin = session?.user.role === 'owner' || session?.user.role === 'admin';
 
   const shown = (items ?? []).filter((p) => {
     if (filter === 'open' && (p.status === 'completed' || p.status === 'cancelled')) return false;
@@ -200,6 +206,7 @@ export function ProjectsScreen({
                 key={p.projectId}
                 p={p}
                 directory={directory}
+                onEdit={canEditProject(p, me, isAdmin) ? () => setEditing(p) : undefined}
                 onOpen={() => p.conversationId && onOpenConversation(p.conversationId)}
               />
             ))}
@@ -207,6 +214,7 @@ export function ProjectsScreen({
         )}
       </div>
 
+      <EditProjectDialog project={editing} onOpenChange={(o) => !o && setEditing(null)} />
       <NewProjectDialog
         open={creating}
         onOpenChange={setCreating}
@@ -254,10 +262,12 @@ function ProjectCard({
   p,
   directory,
   onOpen,
+  onEdit,
 }: {
   p: Project;
   directory: Map<string, DirectoryEntry>;
   onOpen: () => void;
+  onEdit?: () => void;
 }) {
   const s = STATUS[p.status];
   const due = p.status === 'completed' || p.status === 'cancelled' ? null : dueLabel(p.dueAt);
@@ -356,6 +366,11 @@ function ProjectCard({
             <a href={p.url} target="_blank" rel="noreferrer noopener">
               <ExternalLink /> Samptrek
             </a>
+          </Button>
+        ) : null}
+        {onEdit ? (
+          <Button variant="ghost" size="sm" onClick={onEdit}>
+            <Pencil /> Edit
           </Button>
         ) : null}
         {p.conversationId ? (

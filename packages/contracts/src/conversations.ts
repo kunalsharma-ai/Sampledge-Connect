@@ -88,6 +88,23 @@ export const CreateConversationRequestSchema = z.discriminatedUnion('kind', [
 ]);
 export type CreateConversationRequest = z.input<typeof CreateConversationRequestSchema>;
 
+/**
+ * PATCH /v1/conversations/:id with a name or topic: rename a group or channel, or change its
+ * description (needs `conversation.rename`: owners and moderators). Direct messages have
+ * neither. An empty group name goes back to the members' names.
+ */
+export const UpdateConversationRequestSchema = z
+  .object({
+    name: z.string().trim().max(80),
+    topic: z.string().trim().max(250).nullable(),
+  })
+  .partial()
+  .refine((r) => r.name !== undefined || r.topic !== undefined, 'nothing to update');
+export type UpdateConversationRequest = z.input<typeof UpdateConversationRequestSchema>;
+
+/** Same rule as creating a channel. */
+export const isValidChannelName = (name: string) => ChannelName.safeParse(name).success;
+
 export const AddMembersRequestSchema = z.object({
   userIds: z.array(ServerIdSchema).min(1).max(500),
 });

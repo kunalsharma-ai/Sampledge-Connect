@@ -18,6 +18,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '@/lib/auth';
 import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { pollsApi, scheduledApi } from '@/lib/polls';
+import { useMessageEditing } from '@/lib/message-editing';
+import { editBlockedReason } from '@sampledge/contracts';
 import { avatarOf, nameOf } from './helpers';
 
 const when = new Intl.DateTimeFormat(undefined, {
@@ -53,6 +55,8 @@ export function PollCard({
   const { db, engine } = useEngine();
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const editRules = useMessageEditing();
   const [anonMine, setAnonMine] = React.useState<string[] | null>(null);
   const closed = !!poll.closedAt;
   const id = message.messageId!;
@@ -221,6 +225,20 @@ export function PollCard({
           {!showResults && !closed ? ' · vote to see results' : ''}
           {pendingVote ? ' · your vote is waiting to sync' : ''}
         </span>
+        {!closed &&
+        own &&
+        poll.totalVoters === 0 &&
+        !pendingVote &&
+        !editBlockedReason(message.createdAt, editRules) ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            title="You can change the poll until someone votes"
+            className="ml-auto rounded-sm px-1 font-medium text-text-muted hover:text-text"
+          >
+            Edit poll
+          </button>
+        ) : null}
         {!closed && (message.senderId === me || canModerate) ? (
           <button
             type="button"
@@ -232,21 +250,39 @@ export function PollCard({
           </button>
         ) : null}
       </div>
+      <CreatePollDialog
+        open={editing}
+        onOpenChange={setEditing}
+        conversationId={message.conversationId}
+        editing={{ messageId: id, poll }}
+      />
     </div>
   );
 }
 
-/** Ask a question with 2 to 10 answers. */
+/** "2026-11-22T17:30" for a datetime-local input, in this device's time zone. */
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/** Ask a question with 2 to 10 answers, or change one nobody has voted on yet. */
 export function CreatePollDialog({
   open,
   onOpenChange,
   conversationId,
+  editing,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   conversationId: string;
+  /** Edit this poll instead of creating one (queued, so it works offline too). */
+  editing?: { messageId: string; poll: Poll };
 }) {
   const { getAccessToken } = useAuth();
+  const { engine } = useEngine();
   const { toast } = useToast();
   const [question, setQuestion] = React.useState('');
   const [options, setOptions] = React.useState(['', '']);
@@ -258,12 +294,14 @@ export function CreatePollDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    setQuestion('');
-    setOptions(['', '']);
-    setMultiple(false);
-    setAnonymous(false);
-    setClosesAt('');
+    setQuestion(editing?.poll.question ?? '');
+    setOptions(editing ? editing.poll.options.map((o) => o.text) : ['', '']);
+    setMultiple(editing?.poll.multiple ?? false);
+    setAnonymous(editing?.poll.anonymous ?? false);
+    setClosesAt(toLocalInput(editing?.poll.closesAt ?? null));
     setError(null);
+    // Only when opening: a live update must not wipe what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const filled = options.map((o) => o.trim()).filter(Boolean);
@@ -275,6 +313,31 @@ export function CreatePollDialog({
     if (!valid) return;
     setBusy(true);
     setError(null);
+    if (editing) {
+      await engine.queueAction({
+        key: `poll-edit|${editing.messageId}`,
+        method: 'PATCH',
+        path: `/v1/messages/${editing.messageId}/poll`,
+        body: {
+          question: question.trim(),
+          options: filled,
+          multiple,
+          anonymous,
+          closesAt: closesAt ? new Date(closesAt).toISOString() : null,
+        },
+        label: 'Edit poll',
+        conversationId,
+        messageId: editing.messageId,
+      });
+      toast({
+        title: 'Poll updated',
+        description: 'Everyone sees the new version.',
+        tone: 'success',
+      });
+      setBusy(false);
+      onOpenChange(false);
+      return;
+    }
     try {
       await pollsApi.create(getAccessToken, conversationId, {
         question: question.trim(),
@@ -295,8 +358,12 @@ export function CreatePollDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="Create a poll"
-        description="Everyone in this conversation can vote. Results update live."
+        title={editing ? 'Edit poll' : 'Create a poll'}
+        description={
+          editing
+            ? 'You can change the poll until the first vote. After that, close it and start a new one.'
+            : 'Everyone in this conversation can vote. Results update live.'
+        }
       >
         <form onSubmit={submit} className="flex flex-col gap-4" data-testid="create-poll">
           <Field label="Question" htmlFor="poll-q">
@@ -386,7 +453,7 @@ export function CreatePollDialog({
               Cancel
             </Button>
             <Button type="submit" loading={busy} disabled={!valid}>
-              Post poll
+              {editing ? 'Save changes' : 'Post poll'}
             </Button>
           </div>
         </form>

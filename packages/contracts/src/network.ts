@@ -273,6 +273,21 @@ export const CreateStatusSchema = z
   });
 export type CreateStatus = z.input<typeof CreateStatusSchema>;
 
+/**
+ * PATCH /v1/network/statuses/:id — fix a status you posted: its words (a photo or video's
+ * caption), the background of a text status, and whether people can reply. Who sees it and
+ * when it disappears stay as posted.
+ */
+export const EditStatusSchema = z
+  .object({
+    text: z.string().trim().max(700),
+    background: z.enum(STATUS_BACKGROUNDS),
+    allowReplies: z.boolean(),
+  })
+  .partial()
+  .refine((r) => Object.keys(r).length > 0, 'nothing to update');
+export type EditStatus = z.input<typeof EditStatusSchema>;
+
 export interface NetworkStatus {
   statusId: string;
   clientStatusId: string;
@@ -284,6 +299,8 @@ export interface NetworkStatus {
   audience: (typeof STATUS_AUDIENCES)[number];
   allowReplies: boolean;
   createdAt: string;
+  /** Set when the author changed it after posting. */
+  editedAt?: string | null;
   expiresAt: string;
   viewedByMe: boolean;
   /** Only on your own statuses. */

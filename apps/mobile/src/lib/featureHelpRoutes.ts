@@ -12,6 +12,8 @@ export const ROUTE_HELP: Record<string, FeatureHelpId> = {
   saved: 'threads',
   scheduled: 'scheduled-messages',
   'poll/new': 'polls',
+  'message-history/[id]': 'editing',
+  'admin/messages': 'editing',
   forward: 'forwarding',
   tasks: 'tasks',
   assistant: 'ai',

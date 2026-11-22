@@ -3,6 +3,7 @@ import type { Redis } from 'ioredis';
 import {
   DEFAULT_TENANT_POLICY,
   TENANT_PERMISSIONS,
+  TENANT_PERMISSIONS_BEFORE_KNOWN_LIST,
   TENANT_ROLES,
   type TenantPermission,
   type TenantPermissionPolicy,
@@ -14,20 +15,35 @@ import { TenantDb } from '../database/tenant-db.js';
 const TTL_S = 30;
 const VERSION_KEY = 'tenant-perms:ver';
 
-/** Keeps only known permissions and fills missing roles from the built-in rules. */
+/**
+ * Keeps only known permissions and fills missing roles from the built-in rules. A permission
+ * the saved policy didn't know about yet (added to SampConnect after it was saved, see
+ * `_known`) keeps its built-in grant.
+ */
 export function cleanPolicy(
   raw: Record<string, string[]> | null | undefined,
 ): TenantPermissionPolicy | null {
   if (!raw) return null;
-  const known = new Set<string>(TENANT_PERMISSIONS);
+  const savedWith = new Set<string>(
+    Array.isArray(raw._known) ? raw._known : TENANT_PERMISSIONS_BEFORE_KNOWN_LIST,
+  );
   return Object.fromEntries(
     TENANT_ROLES.map((r) => [
       r,
       Array.isArray(raw[r])
-        ? TENANT_PERMISSIONS.filter((p) => raw[r]!.includes(p) && known.has(p))
+        ? TENANT_PERMISSIONS.filter((p) =>
+            savedWith.has(p) ? raw[r]!.includes(p) : DEFAULT_TENANT_POLICY[r].includes(p),
+          )
         : [...DEFAULT_TENANT_POLICY[r]],
     ]),
   ) as TenantPermissionPolicy;
+}
+
+/** What to store: the policy plus the permissions it was saved with. */
+export function storedPolicy(
+  policy: TenantPermissionPolicy | null,
+): Record<string, string[]> | null {
+  return policy ? { ...policy, _known: [...TENANT_PERMISSIONS] } : null;
 }
 
 /**

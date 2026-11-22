@@ -82,7 +82,27 @@ export default function TaskDetail() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: TASK_KIND_LABEL[t.kind] }} />
+      <Stack.Screen
+        options={{
+          title: TASK_KIND_LABEL[t.kind],
+          headerRight:
+            canEdit && !t.syncError && t.status !== 'cancelled' && t.origin !== 'module'
+              ? () => (
+                  <Pressable
+                    onPress={() =>
+                      router.push({ pathname: '/task/new', params: { edit: t.taskId } })
+                    }
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit task"
+                    style={{ paddingHorizontal: space.sm }}
+                  >
+                    <Ionicons name="create-outline" size={22} color={c.accent} />
+                  </Pressable>
+                )
+              : undefined,
+        }}
+      />
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: 80 }}>
         <View style={{ gap: space.sm }}>
           <Text variant="title" accessibilityRole="header">

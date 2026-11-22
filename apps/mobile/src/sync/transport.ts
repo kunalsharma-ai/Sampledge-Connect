@@ -50,6 +50,12 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type MessageEditHistory,
+  type EditPollRequest,
+  type UpdateApprovalRequest,
+  type UpdateConversationRequest,
+  type MessageEditingPolicy,
+  type MessageEditingState,
   type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
@@ -240,6 +246,15 @@ export interface ApiTransport {
   setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
   /** Owners and admins: the default theme and which themes people may choose. */
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** The organization's message editing rules and what they mean for you. */
+  getMessageEditing(): Promise<MessageEditingState>;
+  /** Owners and admins (messages.manage): editing on/off, time limit, history audience. */
+  setMessageEditing(policy: MessageEditingPolicy): Promise<MessageEditingState>;
+  /** Every version of an edited message, oldest first. */
+  messageHistory(messageId: string): Promise<MessageEditHistory>;
+  editPoll(messageId: string, req: EditPollRequest): Promise<Message>;
+  updateConversation(conversationId: string, req: UpdateConversationRequest): Promise<Conversation>;
+  updateApproval(approvalId: string, req: UpdateApprovalRequest): Promise<Approval>;
   /** Greeting card rules: on/off and hidden categories. */
   getGreetingPolicy(): Promise<GreetingPolicyState>;
   /** Owners and admins. */
@@ -693,6 +708,33 @@ export class HttpTransport implements ApiTransport {
 
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
     return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getMessageEditing(): Promise<MessageEditingState> {
+    return this.request('GET', '/v1/message-editing', undefined);
+  }
+
+  setMessageEditing(policy: MessageEditingPolicy): Promise<MessageEditingState> {
+    return this.request('PUT', '/v1/admin/message-editing', policy);
+  }
+
+  messageHistory(messageId: string): Promise<MessageEditHistory> {
+    return this.request('GET', `/v1/messages/${encodeURIComponent(messageId)}/edits`, undefined);
+  }
+
+  editPoll(messageId: string, req: EditPollRequest): Promise<Message> {
+    return this.request('PATCH', `/v1/messages/${encodeURIComponent(messageId)}/poll`, req);
+  }
+
+  updateConversation(
+    conversationId: string,
+    req: UpdateConversationRequest,
+  ): Promise<Conversation> {
+    return this.request('PATCH', `/v1/conversations/${encodeURIComponent(conversationId)}`, req);
+  }
+
+  updateApproval(approvalId: string, req: UpdateApprovalRequest): Promise<Approval> {
+    return this.request('PATCH', `/v1/approvals/${encodeURIComponent(approvalId)}`, req);
   }
 
   getGreetingPolicy(): Promise<GreetingPolicyState> {
@@ -1638,6 +1680,12 @@ export class NoServerTransport implements ApiTransport {
   getChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getMessageEditing = async (): Promise<MessageEditingState> => this.fail();
+  setMessageEditing = async (): Promise<MessageEditingState> => this.fail();
+  messageHistory = async (): Promise<MessageEditHistory> => this.fail();
+  editPoll = async (): Promise<Message> => this.fail();
+  updateConversation = async (): Promise<Conversation> => this.fail();
+  updateApproval = async (): Promise<Approval> => this.fail();
   getGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
   setGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
   getCallBackground = async (): Promise<CallBackgroundState> => this.fail();

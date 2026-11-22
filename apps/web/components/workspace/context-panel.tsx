@@ -1,7 +1,7 @@
 'use client';
 import type * as React from 'react';
 import { motion } from 'motion/react';
-import { Bot, FileText, Forward, Hash, Lock, Megaphone, Users, X } from 'lucide-react';
+import { Bot, FileText, Forward, Hash, Lock, Megaphone, Pencil, Users, X } from 'lucide-react';
 import type { Conversation } from '@sampledge/contracts';
 import { Avatar, Badge, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -39,7 +39,10 @@ export function ContextPanel({
   onSetForwarding,
   aiCard,
   network = false,
+  onEdit,
 }: {
+  /** Owners and moderators of a group or channel: rename it or change its description. */
+  onEdit?: () => void;
   /** SampConnect Network conversation: no organization work (tasks, approvals, modules). */
   network?: boolean;
   /** The AI summary card (right-panel AI), rendered above members. */
@@ -108,10 +111,20 @@ export function ContextPanel({
                 <Icon className="size-5" />
               </span>
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate font-display text-h3 text-text">{title}</p>
               <p className="text-meta text-text-subtle">{KIND_LABEL[conversation.kind]}</p>
             </div>
+            {onEdit ? (
+              <button
+                onClick={onEdit}
+                aria-label={isChannel ? 'Edit channel details' : 'Rename group'}
+                title={isChannel ? 'Edit name and description' : 'Rename group'}
+                className="rounded-sm p-1.5 text-text-subtle hover:bg-surface hover:text-text"
+              >
+                <Pencil className="size-4" />
+              </button>
+            ) : null}
           </div>
           {conversation.topic ? (
             <p className="mt-3 text-label font-normal text-text-muted">{conversation.topic}</p>

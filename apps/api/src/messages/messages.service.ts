@@ -5,6 +5,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   AckReceiptRequestSchema,
   CreatePollRequestSchema,
+  EditPollRequestSchema,
   PollVoteRequestSchema,
   type MyPollVote,
   EditMessageRequestSchema,
@@ -30,6 +31,8 @@ import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
 import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
+import { MessageEditingService } from './message-editing.service.js';
+import { AuditService } from '../audit/audit.service.js';
 import { GreetingsService } from '../greetings/greetings.controller.js';
 
 @Injectable()
@@ -44,6 +47,8 @@ export class MessagesService {
     private readonly rateLimit: RateLimitService,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly webhooks: WebhooksService,
+    private readonly editing: MessageEditingService,
+    private readonly audit: AuditService,
     private readonly greetings: GreetingsService,
   ) {}
 
@@ -282,17 +287,27 @@ export class MessagesService {
     if (m.poll)
       throw new AppError('CONFLICT', 'Polls can’t be edited. Close it and start a new one.');
     if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    await this.editing.assertCanEdit(ctx, m);
+    let version = 0;
     const updated = await withLock(
       this.redis,
       this.lockKey(ctx.tenantId, m.conversationId),
       async () => {
+        // Re-read under the lock: the version kept must be the text this edit replaces.
+        const cur = await t.messages.findOne({ _id: messageId, deletedAt: null });
+        if (!cur) return null;
+        const mentions = req.content.mentions ?? [];
+        // A retried request (same text) changes nothing and keeps no extra version.
+        if (cur.content.text === req.content.text) return cur;
+        const at = new Date();
+        version = await this.editing.keepVersion(ctx.tenantId, cur, ctx.userId, at);
         const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
         return t.messages.findOneAndUpdate(
           { _id: messageId, deletedAt: null },
           {
             $set: {
-              content: { text: req.content.text, mentions: req.content.mentions ?? [] },
-              editedAt: new Date(),
+              content: { text: req.content.text, mentions },
+              editedAt: at,
               changeSequence: seq,
             },
           },
@@ -301,6 +316,7 @@ export class MessagesService {
       },
     );
     if (!updated) throw new AppError('CONFLICT', 'Message was deleted');
+    if (version) await this.editing.recordEdit(ctx, updated, version);
     const dto = toMessage(updated);
     this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
     return dto;
@@ -498,6 +514,7 @@ export class MessagesService {
     );
     const dto = toMessage(updated!);
     this.realtime.toConversation(tenantId, m.conversationId, 'message:updated', dto);
+    await this.editing.forget(tenantId, m._id);
     await this.notifications.onMessageDeleted(tenantId, m._id);
     return dto;
   }
@@ -618,6 +635,68 @@ export class MessagesService {
       this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
     }
     return message;
+  }
+
+  /** Change a poll nobody has voted on yet (question, options, settings). */
+  async editPoll(ctx: TenantContext, messageId: string, input: unknown): Promise<Message> {
+    const req = parse(EditPollRequestSchema, input);
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m?.poll) throw notFound('Poll');
+    await this.conversations.authorize(ctx, m.conversationId, 'message.edit.own');
+    if (m.senderId !== ctx.userId) throw forbidden('Only the person who asked can edit the poll');
+    if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    await this.editing.assertCanEdit(ctx, m);
+    const closesAt = req.closesAt ? new Date(req.closesAt) : null;
+    if (closesAt && closesAt.getTime() < Date.now() + 60_000)
+      throw new AppError('VALIDATION_FAILED', 'The closing time must be at least a minute away');
+    const doc = await withLock(
+      this.redis,
+      this.lockKey(ctx.tenantId, m.conversationId),
+      async () => {
+        const cur = await t.messages.findOne({ _id: messageId });
+        if (!cur?.poll || cur.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+        if (pollClosedAt(cur.poll)) throw new AppError('CONFLICT', 'This poll is closed');
+        if (cur.poll.votes.length)
+          throw new AppError(
+            'CONFLICT',
+            'People have already voted, so the poll can’t change. Close it and start a new one.',
+          );
+        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        return t.messages.findOneAndUpdate(
+          { _id: messageId, 'poll.votes': { $size: 0 } },
+          {
+            $set: {
+              content: { text: `📊 ${req.question}`, mentions: [] },
+              poll: {
+                ...cur.poll,
+                question: req.question,
+                // Fresh ids: nobody has voted, so nothing points at the old ones.
+                options: req.options.map((text, i) => ({ optionId: `o${i + 1}`, text })),
+                multiple: req.multiple,
+                anonymous: req.anonymous,
+                closesAt,
+              },
+              editedAt: new Date(),
+              changeSequence: seq,
+            },
+          },
+          { returnDocument: 'after' },
+        );
+      },
+    );
+    if (!doc)
+      throw new AppError('CONFLICT', 'Someone voted at the same time; reload and try again');
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'poll.edited',
+      target: { type: 'message', id: messageId },
+      metadata: { conversationId: m.conversationId, options: req.options.length },
+    });
+    const dto = toMessage(doc);
+    this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    return dto;
   }
 
   /** Replace the caller's vote. An empty list withdraws it. */

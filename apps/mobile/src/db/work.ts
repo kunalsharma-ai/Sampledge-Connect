@@ -15,6 +15,9 @@ import {
   type ScheduledMessage,
   type Task,
   type UpdateTaskRequest,
+  type EditPollRequest,
+  type UpdateApprovalRequest,
+  type UpdateConversationRequest,
   type UpdateProfileRequest,
   type UserStatus,
   type DndSchedule,
@@ -49,11 +52,17 @@ export type ActionInput =
   | { kind: 'poll.create'; conversationId: string; request: CreatePollRequest }
   | { kind: 'poll.vote'; messageId: string; conversationId: string; optionIds: string[] }
   | { kind: 'poll.close'; messageId: string; conversationId: string }
+  /** Change a poll nobody has voted on (docs/editing.md). */
+  | { kind: 'poll.edit'; messageId: string; conversationId: string; request: EditPollRequest }
+  /** Rename a group or channel, or change a channel's description. */
+  | { kind: 'conversation.update'; conversationId: string; patch: UpdateConversationRequest }
   | { kind: 'task.create'; localId: string; request: CreateTaskRequest }
   | { kind: 'task.update'; taskId: string; patch: UpdateTaskRequest }
   | { kind: 'approval.create'; localId: string; request: CreateApprovalRequest }
   | { kind: 'approval.decide'; approvalId: string; request: DecideApprovalRequest }
   | { kind: 'approval.cancel'; approvalId: string }
+  /** The requester fixes a request before anyone decided. */
+  | { kind: 'approval.update'; approvalId: string; patch: UpdateApprovalRequest }
   | {
       kind: 'scheduled.create';
       localId: string;
@@ -258,6 +267,10 @@ const targetOf = (a: ActionInput): string => {
       return `vote:${a.messageId}`;
     case 'poll.close':
       return `close:${a.messageId}`;
+    case 'poll.edit':
+      return `polledit:${a.messageId}`;
+    case 'conversation.update':
+      return `conversation:${a.conversationId}`;
     case 'task.create':
       return `task:${a.localId}`;
     case 'task.update':
@@ -266,6 +279,7 @@ const targetOf = (a: ActionInput): string => {
       return `approval:${a.localId}`;
     case 'approval.decide':
     case 'approval.cancel':
+    case 'approval.update':
       return `approval:${a.approvalId}`;
     case 'scheduled.create':
       return `scheduled:${a.localId}`;
@@ -328,7 +342,7 @@ const kindOfCache = (k: ActionKind): CacheKind =>
   k === 'theme.set' ||
   k.startsWith('callbg.')
     ? 'profile'
-    : k === 'pin' || k === 'poll.create' || k === 'poll.close'
+    : k === 'pin' || k === 'poll.create' || k === 'poll.close' || k === 'poll.edit'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
       : k === 'bookmark'
         ? 'bookmark'
@@ -336,7 +350,9 @@ const kindOfCache = (k: ActionKind): CacheKind =>
           ? 'vote'
           : k === 'net.act'
             ? 'network'
-            : (k.split('.')[0] as CacheKind); // inbox.* -> 'inbox'
+            : k === 'conversation.update'
+              ? 'vote'
+              : (k.split('.')[0] as CacheKind); // inbox.* -> 'inbox'
 
 interface ActionRow {
   id: string;
@@ -522,6 +538,16 @@ export class WorkStore {
         case 'poll.close':
           if (!waiting.length) await insert(input);
           break;
+        case 'poll.edit':
+        case 'conversation.update': {
+          // Only the latest version matters (each one replaces the whole value it sets).
+          const prior = waiting.find((a) => a.state === 'pending' && a.input.kind === input.kind);
+          if (prior?.input.kind === 'conversation.update' && input.kind === 'conversation.update')
+            await rewrite(prior, { ...input, patch: { ...prior.input.patch, ...input.patch } });
+          else if (prior) await rewrite(prior, input);
+          else await insert(input);
+          break;
+        }
         case 'poll.create':
         case 'net.act':
         case 'inbox.reply':
@@ -716,6 +742,33 @@ export class WorkStore {
         case 'approval.decide':
           await insert(input);
           break;
+        case 'approval.update': {
+          if (create?.input.kind === 'approval.create' && create.state === 'pending') {
+            // Not on the server yet: fold the change into the request.
+            const p = input.patch;
+            await rewrite(create, {
+              ...create.input,
+              request: {
+                ...create.input.request,
+                ...(p.title !== undefined ? { title: p.title } : {}),
+                ...(p.description !== undefined ? { description: p.description } : {}),
+                ...(p.amount !== undefined ? { amount: p.amount } : {}),
+                ...(p.dueAt !== undefined ? { dueAt: p.dueAt } : {}),
+              },
+            });
+            break;
+          }
+          const prior = waiting.find(
+            (a) => a.input.kind === 'approval.update' && a.state === 'pending',
+          );
+          if (prior?.input.kind === 'approval.update')
+            await rewrite(prior, {
+              ...prior.input,
+              patch: { ...prior.input.patch, ...input.patch },
+            });
+          else await insert(input);
+          break;
+        }
         case 'approval.cancel':
           if (create) {
             // Never reached anyone: forget it here.
@@ -1415,6 +1468,16 @@ export class WorkStore {
           ...out,
           ...applyDecision(out, this.selfId, a.input.request, new Date(a.enqueuedAt).toISOString()),
         };
+      if (a.input.kind === 'approval.update') {
+        const p = a.input.patch;
+        out = {
+          ...out,
+          ...(p.title !== undefined ? { title: p.title } : {}),
+          ...(p.description !== undefined ? { description: p.description } : {}),
+          ...(p.amount !== undefined ? { amount: p.amount } : {}),
+          ...(p.dueAt !== undefined ? { dueAt: p.dueAt } : {}),
+        };
+      }
       if (a.input.kind === 'approval.cancel' && out.status === 'pending')
         out = { ...out, status: 'cancelled', decidedAt: new Date(a.enqueuedAt).toISOString() };
     }

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { LocalApproval } from '../../db/work';
+import type { UpdateApprovalRequest } from '@sampledge/contracts';
 import { SyncBanner } from '../../components/SyncBanner';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -24,6 +25,7 @@ import {
   approvalProgress,
   formatMoney,
   isMyTurn,
+  parseAmount,
 } from '../../lib/work';
 import { useWorkspace } from '../../state/AppProvider';
 import {
@@ -54,6 +56,9 @@ export default function ApprovalDetail() {
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [edit, setEdit] = useState<{ title: string; description: string; amount: string } | null>(
+    null,
+  );
   const blocked = engine.queueBlocker();
 
   if (!a)
@@ -78,6 +83,44 @@ export default function ApprovalDetail() {
     !a.syncError &&
     (a.requesterId === selfId || role === 'owner' || role === 'admin');
   const who = (u: string) => (u === selfId ? 'You' : nameOf(u));
+  // Yours, still pending, and nobody has decided: you can still fix it.
+  const canEdit =
+    a.requesterId === selfId &&
+    a.status === 'pending' &&
+    a.decisions.length === 0 &&
+    a.origin !== 'module' &&
+    !a.syncError;
+  const saveEdit = async () => {
+    if (!edit) return;
+    if (!edit.title.trim()) return setError('Say what needs approving.');
+    const minor = edit.amount.trim() ? parseAmount(edit.amount) : null;
+    if (edit.amount.trim() && minor === null) return setError('Enter the amount as a number.');
+    const patch: UpdateApprovalRequest = {};
+    if (edit.title.trim() !== a.title) patch.title = edit.title.trim();
+    if (edit.description.trim() !== a.description) patch.description = edit.description.trim();
+    if ((minor ?? null) !== (a.amount?.amountMinor ?? null))
+      patch.amount =
+        minor === null ? null : { amountMinor: minor, currency: a.amount?.currency ?? 'USD' };
+    setError(null);
+    try {
+      if (Object.keys(patch).length) await engine.updateApproval(a.approvalId, patch);
+      setEdit(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const input = [
+    typeScale.body,
+    {
+      color: c.text,
+      backgroundColor: c.surfaceSunken,
+      borderColor: c.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      paddingVertical: 10,
+    },
+  ];
   const conv = a.conversationId
     ? conversations.find((x) => x.conversationId === a.conversationId)
     : undefined;
@@ -98,7 +141,31 @@ export default function ApprovalDetail() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'Approval' }} />
+      <Stack.Screen
+        options={{
+          title: 'Approval',
+          headerRight:
+            canEdit && !edit
+              ? () => (
+                  <Pressable
+                    onPress={() =>
+                      setEdit({
+                        title: a.title,
+                        description: a.description,
+                        amount: a.amount ? (a.amount.amountMinor / 100).toFixed(2) : '',
+                      })
+                    }
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit request"
+                    style={{ paddingHorizontal: space.sm }}
+                  >
+                    <Ionicons name="create-outline" size={22} color={c.accent} />
+                  </Pressable>
+                )
+              : undefined,
+        }}
+      />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -107,6 +174,48 @@ export default function ApprovalDetail() {
           contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: 80 }}
           keyboardShouldPersistTaps="handled"
         >
+          {edit ? (
+            <Glass style={{ padding: space.md, gap: space.md }}>
+              <Text variant="meta" tone="muted">
+                You can change the request until someone decides.
+              </Text>
+              <TextInput
+                value={edit.title}
+                onChangeText={(title) => setEdit({ ...edit, title })}
+                maxLength={200}
+                accessibilityLabel="What needs approving"
+                style={input}
+              />
+              <TextInput
+                value={edit.description}
+                onChangeText={(description) => setEdit({ ...edit, description })}
+                maxLength={4000}
+                multiline
+                placeholder="Details"
+                placeholderTextColor={c.textSubtle}
+                accessibilityLabel="Details"
+                style={[input, { minHeight: 72, textAlignVertical: 'top' }]}
+              />
+              <TextInput
+                value={edit.amount}
+                onChangeText={(amount) => setEdit({ ...edit, amount })}
+                keyboardType="decimal-pad"
+                placeholder={`Amount (${a.amount?.currency ?? 'USD'})`}
+                placeholderTextColor={c.textSubtle}
+                accessibilityLabel="Amount"
+                style={input}
+              />
+              <View style={{ flexDirection: 'row', gap: space.sm }}>
+                <Button
+                  title="Cancel"
+                  kind="quiet"
+                  onPress={() => setEdit(null)}
+                  style={{ flex: 1 }}
+                />
+                <Button title="Save changes" onPress={() => void saveEdit()} style={{ flex: 1 }} />
+              </View>
+            </Glass>
+          ) : null}
           <View style={{ gap: space.sm }}>
             <Text variant="title" accessibilityRole="header">
               {a.title}

@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Eye, Flag, ImagePlus, Plus, Send, Trash2, Type, Video, X } from 'lucide-react';
+import { Eye, Flag, ImagePlus, Pencil, Plus, Send, Trash2, Type, Video, X } from 'lucide-react';
 import {
   STATUS_BACKGROUNDS,
   uuidv7,
@@ -146,6 +146,7 @@ export function StatusViewer({
   const [reply, setReply] = React.useState('');
   const [paused, setPaused] = React.useState(false);
   const [reporting, setReporting] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
   const [viewers, setViewers] = React.useState<
     { person: NetworkPerson; viewedAt: string }[] | null
   >(null);
@@ -265,6 +266,7 @@ export function StatusViewer({
               </p>
               <p className="text-meta text-white/70">
                 {relativeShort(s.createdAt)} ago · {AUDIENCE_LABEL[s.audience]}
+                {s.editedAt ? ' · edited' : ''}
               </p>
             </div>
             {author.userId !== me ? (
@@ -287,6 +289,15 @@ export function StatusViewer({
               <X className="size-5" />
             </button>
           </div>
+          {editing ? (
+            <EditStatusDialog
+              status={s}
+              onDone={() => {
+                setEditing(false);
+                setPaused(false);
+              }}
+            />
+          ) : null}
           {reporting ? (
             <ReportDialog
               targetType="status"
@@ -369,6 +380,15 @@ export function StatusViewer({
                 </button>
                 <button
                   onClick={() => {
+                    setPaused(true);
+                    setEditing(true);
+                  }}
+                  className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-1.5 text-label hover:bg-white/10"
+                >
+                  <Pencil className="size-4" /> Edit
+                </button>
+                <button
+                  onClick={() => {
                     void net.act({
                       method: 'DELETE',
                       path: `/v1/network/statuses/${s.statusId}`,
@@ -377,7 +397,7 @@ export function StatusViewer({
                     });
                     onClose();
                   }}
-                  className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-1.5 text-label text-red-300 hover:bg-white/10"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-label text-red-300 hover:bg-white/10"
                 >
                   <Trash2 className="size-4" /> Delete
                 </button>
@@ -411,6 +431,87 @@ export function StatusViewer({
         </div>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+/**
+ * Fix a status you posted: its words (a photo's caption), the colour of a text status, and
+ * replies on or off. Queued, so it works offline; everyone who can see it gets the new version.
+ */
+function EditStatusDialog({ status, onDone }: { status: NetworkStatus; onDone: () => void }) {
+  const net = useNetwork();
+  const [text, setText] = React.useState(status.text);
+  const [background, setBackground] = React.useState(status.background);
+  const [allowReplies, setAllowReplies] = React.useState(status.allowReplies);
+  const body: Record<string, unknown> = {};
+  if (text.trim() !== status.text) body.text = text.trim();
+  if (status.kind === 'text' && background !== status.background) body.background = background;
+  if (allowReplies !== status.allowReplies) body.allowReplies = allowReplies;
+  const valid = status.kind !== 'text' || text.trim().length > 0;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onDone()}>
+      <DialogContent
+        title="Edit status"
+        description="Who sees it and when it disappears stay the same."
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void net.act({
+              method: 'PATCH',
+              path: `/v1/network/statuses/${status.statusId}`,
+              body,
+              label: 'Edit status',
+              scopes: ['statuses'],
+            });
+            onDone();
+          }}
+        >
+          <Field label={status.kind === 'text' ? 'Text' : 'Caption'} htmlFor="edit-status-text">
+            <Textarea
+              id="edit-status-text"
+              rows={3}
+              maxLength={700}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              autoFocus
+            />
+          </Field>
+          {status.kind === 'text' ? (
+            <div className="flex gap-2" role="radiogroup" aria-label="Background">
+              {STATUS_BACKGROUNDS.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  role="radio"
+                  aria-checked={background === b}
+                  aria-label={b}
+                  onClick={() => setBackground(b)}
+                  className={cn(
+                    'size-8 rounded-full ring-offset-2 ring-offset-surface',
+                    background === b && 'ring-2 ring-accent',
+                  )}
+                  style={{ background: BACKGROUNDS[b] }}
+                />
+              ))}
+            </div>
+          ) : null}
+          <label className="flex items-center justify-between gap-3 text-label text-text">
+            Let people reply privately
+            <Switch checked={allowReplies} onChange={setAllowReplies} label="Allow replies" />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid || Object.keys(body).length === 0}>
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

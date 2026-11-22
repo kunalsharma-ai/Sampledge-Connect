@@ -63,10 +63,14 @@ export class ConversationsController {
     return this.conversations.removeMember(ctx, id, userId);
   }
 
+  /** `{ archived }` archives or restores; `{ name, topic }` renames or changes the description. */
   @Patch(':id')
-  archive(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
-    const { archived } = parse(z.object({ archived: z.boolean() }), body);
-    return this.conversations.archive(ctx, id, archived);
+  update(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    if (body && typeof body === 'object' && 'archived' in body) {
+      const { archived } = parse(z.object({ archived: z.boolean() }), body);
+      return this.conversations.archive(ctx, id, archived);
+    }
+    return this.conversations.rename(ctx, id, body);
   }
 
   /** Announcement channels: only moderators post. */
@@ -156,6 +160,11 @@ export class MessagesController {
   @Put(':id/poll/vote')
   vote(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
     return this.messages.votePoll(ctx, id, body);
+  }
+
+  @Patch(':id/poll')
+  editPoll(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.messages.editPoll(ctx, id, body);
   }
 
   @Get(':id/poll/vote')

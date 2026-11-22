@@ -11,6 +11,7 @@ import {
   DEFAULT_TENANT_POLICY,
   PlatformActivityQuerySchema,
   SetPermissionPolicySchema,
+  TENANT_PERMISSIONS,
   TENANT_ROLES,
   type ActivityRetention,
   type ForcedPasswordReset,
@@ -28,7 +29,7 @@ import { AuthService, type RequestMeta } from '../auth/auth.service.js';
 import type { AuditLogDoc } from '../database/documents.js';
 import { TenantDb } from '../database/tenant-db.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
-import { PermissionPolicy, cleanPolicy } from './permission-policy.service.js';
+import { PermissionPolicy, cleanPolicy, storedPolicy } from './permission-policy.service.js';
 import { PlatformAdmins } from './platform-admins.js';
 import { PlatformAudit } from './platform-audit.service.js';
 
@@ -92,10 +93,10 @@ export class PlatformControlService implements OnModuleInit, OnModuleDestroy {
   async setDefaults(ctx: TenantContext, body: unknown, ip: string | null) {
     await this.admins.assert(ctx, 'permissions.manage');
     const req = parse(SetPermissionPolicySchema, body);
-    const policy = cleanPolicy(req.policy);
+    const policy = cleanPolicy(req.policy && { ...req.policy, _known: [...TENANT_PERMISSIONS] });
     await this.db.platformSettings.updateOne(
       { _id: 'permissions' },
-      { $set: { policy, updatedAt: new Date(), updatedBy: ctx.userId } },
+      { $set: { policy: storedPolicy(policy), updatedAt: new Date(), updatedBy: ctx.userId } },
       { upsert: true },
     );
     await this.policy.bump();
@@ -124,8 +125,11 @@ export class PlatformControlService implements OnModuleInit, OnModuleDestroy {
     await this.admins.assert(ctx, 'permissions.manage');
     const t = await this.tenant(tenantId);
     const req = parse(SetPermissionPolicySchema, body);
-    const policy = cleanPolicy(req.policy);
-    await this.db.tenants.updateOne({ _id: tenantId }, { $set: { permissions: policy } });
+    const policy = cleanPolicy(req.policy && { ...req.policy, _known: [...TENANT_PERMISSIONS] });
+    await this.db.tenants.updateOne(
+      { _id: tenantId },
+      { $set: { permissions: storedPolicy(policy) } },
+    );
     await this.policy.bump();
     await this.audit.record({
       ctx,
@@ -137,6 +141,8 @@ export class PlatformControlService implements OnModuleInit, OnModuleDestroy {
       orgAction: 'tenant.permissions_changed_by_platform',
     });
     this.realtime.toPlatform('platform:changed', { area: 'permissions', tenantId });
+    // People's apps re-check what they may do (e.g. whether Edit shows on their messages).
+    this.realtime.toTenant(tenantId, 'tenant:updated', { area: 'messages' });
     return this.orgPermissions(ctx, tenantId);
   }
 

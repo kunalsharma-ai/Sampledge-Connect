@@ -22,6 +22,13 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  DEFAULT_MESSAGE_EDITING_STATE,
+  type EditPollRequest,
+  type UpdateApprovalRequest,
+  type UpdateConversationRequest,
+  type MessageEditHistory,
+  type MessageEditingPolicy,
+  type MessageEditingState,
   type CallAppearance,
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
@@ -186,6 +193,8 @@ export interface EngineState {
 const HOURS_KEY = 'workingHours';
 /** Settings key for the server's copy of your chat theme and the organization's rules. */
 const THEME_KEY = 'chatTheme';
+/** Settings key for the organization's message editing rules (docs/editing.md). */
+const EDITING_KEY = 'messageEditing';
 const GREETING_KEY = 'greetingPolicy';
 const RECENT_KEY = 'search.recent';
 /** Settings key for the server's copy of your call background, the rules and the branding. */
@@ -247,6 +256,8 @@ export class ConnectEngine {
     workingHours: WorkingHours;
     /** Your chat theme or the organization's rules changed, here or elsewhere. */
     chatTheme: ChatThemeState;
+    /** The organization's message editing rules, or what your role may do, changed. */
+    messageEditing: MessageEditingState;
     /** The organization's greeting card rules changed. */
     greetingPolicy: GreetingPolicy;
     /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
@@ -612,6 +623,7 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'messages') void this.refreshMessageEditing().catch(() => undefined);
     if (area === 'greetings') void this.refreshGreetingPolicy().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
     if (area === 'inbox') void this.refreshInboxAdmin();
@@ -853,6 +865,21 @@ export class ConnectEngine {
     await this.queue({ kind: 'poll.vote', messageId, conversationId: m.conversationId, optionIds });
   }
 
+  /** Change a poll nobody has voted on yet. Queued; the server refuses once someone votes. */
+  async editPoll(messageId: string, request: EditPollRequest): Promise<void> {
+    const m = await this.store.getMessageByServerId(messageId);
+    if (!m) throw new Error('This poll is not on this device.');
+    await this.queue({ kind: 'poll.edit', messageId, conversationId: m.conversationId, request });
+  }
+
+  /** Rename a group or channel, or change its description. Queued, so it works offline. */
+  async updateConversation(
+    conversationId: string,
+    patch: UpdateConversationRequest,
+  ): Promise<void> {
+    await this.queue({ kind: 'conversation.update', conversationId, patch });
+  }
+
   async closePoll(messageId: string): Promise<void> {
     const m = await this.store.getMessageByServerId(messageId);
     if (!m) throw new Error('This poll is not on this device.');
@@ -998,6 +1025,12 @@ export class ConnectEngine {
 
   async decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<void> {
     await this.queue({ kind: 'approval.decide', approvalId, request: req });
+    this.events.emit('work', { kind: 'approval' });
+  }
+
+  /** Fix your request before anyone decides (queued; shows at once). */
+  async updateApproval(approvalId: string, patch: UpdateApprovalRequest): Promise<void> {
+    await this.queue({ kind: 'approval.update', approvalId, patch });
     this.events.emit('work', { kind: 'approval' });
   }
 
@@ -1275,6 +1308,14 @@ export class ConnectEngine {
       case 'poll.close':
         await this.store.applyServerMessages([await this.api.closePoll(i.messageId)]);
         break;
+      case 'poll.edit':
+        await this.store.applyServerMessages([await this.api.editPoll(i.messageId, i.request)]);
+        break;
+      case 'conversation.update':
+        await this.store.upsertConversations([
+          await this.api.updateConversation(i.conversationId, i.patch),
+        ]);
+        break;
       case 'task.create':
         await w.settleCreate(a, { kind: 'task', data: await this.api.createTask(i.request) });
         this.events.emit('work', { kind: 'task' });
@@ -1296,6 +1337,11 @@ export class ConnectEngine {
         break;
       case 'approval.cancel':
         await w.upsert('approval', [await this.api.cancelApproval(await need(i.approvalId))]);
+        break;
+      case 'approval.update':
+        await w.upsert('approval', [
+          await this.api.updateApproval(await need(i.approvalId), i.patch),
+        ]);
         break;
       case 'scheduled.create':
         try {
@@ -1597,6 +1643,7 @@ export class ConnectEngine {
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
+          this.refreshMessageEditing(),
           this.refreshGreetingPolicy(),
           this.refreshCallBackground(),
           this.refreshInbox(null),
@@ -2364,6 +2411,36 @@ export class ConnectEngine {
     const state = await this.serverAction(() => this.api.setChatThemePolicy(policy));
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
     await this.emitChatTheme();
+  }
+
+  // ------------------------------------------------------------ message editing rules
+
+  /**
+   * The organization's editing rules as last seen (kept on the phone so Edit shows or hides
+   * correctly offline). The server checks them again when a queued edit is sent.
+   */
+  async getMessageEditing(): Promise<MessageEditingState> {
+    const raw = await this.store.getSetting(EDITING_KEY);
+    return raw ? (JSON.parse(raw) as MessageEditingState) : DEFAULT_MESSAGE_EDITING_STATE;
+  }
+
+  /** Owners and admins: turn editing on or off, set a time limit, choose who sees history. */
+  async setMessageEditing(policy: MessageEditingPolicy): Promise<void> {
+    const state = await this.serverAction(() => this.api.setMessageEditing(policy));
+    await this.store.setSetting(EDITING_KEY, JSON.stringify(state));
+    this.events.emit('messageEditing', state);
+  }
+
+  /** Every version of an edited message (needs a connection). */
+  messageHistory(messageId: string): Promise<MessageEditHistory> {
+    return this.serverAction(() => this.api.messageHistory(messageId));
+  }
+
+  private async refreshMessageEditing(): Promise<void> {
+    if (this.session.state === 'demo') return;
+    const state = await this.api.getMessageEditing();
+    await this.store.setSetting(EDITING_KEY, JSON.stringify(state));
+    this.events.emit('messageEditing', state);
   }
 
   /** Greeting card rules as last seen (cached for offline use). */

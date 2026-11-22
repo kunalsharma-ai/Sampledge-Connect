@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { MAX_POLL_OPTIONS } from '@sampledge/contracts';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -28,9 +28,16 @@ const CLOSES: { key: string; label: string; ms: number | null }[] = [
   { key: '1w', label: '1 week', ms: 7 * 86_400_000 },
 ];
 
-/** New poll for a conversation. Works offline: it shows at once and is posted on reconnect. */
+/**
+ * New poll for a conversation, or (with `edit`) changes to one nobody has voted on yet.
+ * Works offline: it shows at once and is sent on reconnect.
+ */
 export default function NewPoll() {
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { conversationId, edit } = useLocalSearchParams<{
+    conversationId: string;
+    /** Server id of the poll message to change. */
+    edit?: string;
+  }>();
   const { theme } = useTheme();
   const c = theme.colors;
   const { engine } = useWorkspace();
@@ -42,6 +49,33 @@ export default function NewPoll() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const blocked = engine.queueBlocker();
+  // When editing: keep the current closing time unless another one is picked.
+  const [keepCloses, setKeepCloses] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!edit) return;
+    void engine.store.getMessageByServerId(edit).then((m) => {
+      if (!m?.poll) return;
+      setQuestion(m.poll.question);
+      setOptions(m.poll.options.map((o) => o.text));
+      setMultiple(m.poll.multiple);
+      setAnonymous(m.poll.anonymous);
+      if (m.poll.closesAt) {
+        setKeepCloses(m.poll.closesAt);
+        setCloses('keep');
+      }
+    });
+  }, [edit, engine]);
+  const closeChoices = keepCloses
+    ? [
+        {
+          key: 'keep',
+          label: `Keep (${new Date(keepCloses).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })})`,
+          ms: null,
+        },
+        ...CLOSES,
+      ]
+    : CLOSES;
 
   const input = [
     typeScale.body,
@@ -52,9 +86,26 @@ export default function NewPoll() {
   const post = async () => {
     const problem = pollDraftProblem(question, options);
     if (problem) return setError(problem);
-    const ms = CLOSES.find((x) => x.key === closes)!.ms;
+    const ms = CLOSES.find((x) => x.key === closes)?.ms ?? null;
     setBusy(true);
     setError(null);
+    if (edit) {
+      try {
+        await engine.editPoll(edit, {
+          question: question.trim(),
+          options: options.map((o) => o.trim()).filter(Boolean),
+          multiple,
+          anonymous,
+          closesAt:
+            closes === 'keep' ? keepCloses : ms ? new Date(Date.now() + ms).toISOString() : null,
+        });
+        router.back();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setBusy(false);
+      }
+      return;
+    }
     try {
       await engine.createPoll(conversationId, {
         question: question.trim(),
@@ -72,7 +123,7 @@ export default function NewPoll() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'New poll' }} />
+      <Stack.Screen options={{ title: edit ? 'Edit poll' : 'New poll' }} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -168,7 +219,7 @@ export default function NewPoll() {
               Voting closes
             </Text>
             <View style={styles.chips} accessibilityRole="radiogroup">
-              {CLOSES.map((x) => {
+              {closeChoices.map((x) => {
                 const on = x.key === closes;
                 return (
                   <Pressable
@@ -198,7 +249,7 @@ export default function NewPoll() {
             </Text>
           ) : null}
           <Button
-            title="Post poll"
+            title={edit ? 'Save changes' : 'Post poll'}
             icon="stats-chart"
             busy={busy}
             disabled={!!blocked}

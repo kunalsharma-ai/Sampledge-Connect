@@ -3,9 +3,11 @@ import {
   TASK_PRIORITIES,
   type TaskKind,
   type TaskPriority,
+  type UpdateTaskRequest,
 } from '@sampledge/contracts';
+import type { LocalTask } from '../../db/work';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -24,18 +26,26 @@ import { useMessages, usePeopleChoices } from '../../state/hooks';
 import { radius, space, type as typeScale } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
-/** New task, from a message (chat-to-task) or on its own. Works offline: it is created on reconnect. */
+/**
+ * New task, from a message (chat-to-task) or on its own, or (with `edit`) changes to one.
+ * Works offline: it is created or changed on reconnect.
+ */
 export default function NewTask() {
   const {
-    conversationId,
+    conversationId: convParam,
     messageId,
     title: titleParam,
+    edit,
   } = useLocalSearchParams<{
     conversationId?: string;
     messageId?: string;
     /** Suggested title, e.g. an AI action item. */
     title?: string;
+    /** Edit this task instead of making one. */
+    edit?: string;
   }>();
+  const [original, setOriginal] = useState<LocalTask | null>(null);
+  const conversationId = convParam ?? original?.conversationId ?? undefined;
   const { theme } = useTheme();
   const c = theme.colors;
   const { engine } = useWorkspace();
@@ -55,6 +65,50 @@ export default function NewTask() {
   const blocked = engine.queueBlocker();
   const shownTitle = title ?? (titleParam ? titleParam.slice(0, 200) : titleFrom(source?.text));
 
+  useEffect(() => {
+    if (!edit) return;
+    void engine.getTask(edit).then((t) => {
+      setOriginal(t);
+      setTitle(t.title);
+      setDescription(t.description);
+      setAssignees(t.assigneeIds);
+      setPriority(t.priority);
+      setKind(t.kind);
+      setDueKey(t.dueAt ? 'keep' : 'none');
+    });
+  }, [edit, engine]);
+  const dueOptions = original?.dueAt
+    ? [
+        {
+          key: 'keep',
+          label: `Keep ${new Date(original.dueAt).toLocaleDateString([], { day: 'numeric', month: 'short' })}`,
+          at: new Date(original.dueAt),
+        },
+        ...due,
+      ]
+    : due;
+
+  const saveEdit = async (t: LocalTask) => {
+    if (!shownTitle.trim()) return setError('Give the task a title.');
+    const at =
+      dueKey === 'keep' ? t.dueAt : (due.find((d) => d.key === dueKey)?.at?.toISOString() ?? null);
+    const patch: UpdateTaskRequest = {};
+    if (shownTitle.trim() !== t.title) patch.title = shownTitle.trim();
+    if (description.trim() !== t.description) patch.description = description.trim();
+    if (priority !== t.priority) patch.priority = priority;
+    if (at !== t.dueAt) patch.dueAt = at;
+    if (assignees.join() !== t.assigneeIds.join()) patch.assigneeIds = assignees;
+    if (!Object.keys(patch).length) return router.back();
+    setBusy(true);
+    try {
+      await engine.updateTask(t.taskId, patch);
+      router.back();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
   const input = [
     typeScale.body,
     styles.input,
@@ -62,6 +116,7 @@ export default function NewTask() {
   ];
 
   const save = async () => {
+    if (original) return saveEdit(original);
     if (!shownTitle.trim()) return setError('Give the task a title.');
     setBusy(true);
     setError(null);
@@ -86,7 +141,7 @@ export default function NewTask() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'New task' }} />
+      <Stack.Screen options={{ title: edit ? 'Edit task' : 'New task' }} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -152,7 +207,7 @@ export default function NewTask() {
             <Text variant="label" tone="muted">
               Due
             </Text>
-            <Chips label="Due" options={due} selected={[dueKey]} onToggle={setDueKey} />
+            <Chips label="Due" options={dueOptions} selected={[dueKey]} onToggle={setDueKey} />
           </View>
           <View style={{ gap: 6 }}>
             <Text variant="label" tone="muted">
@@ -165,27 +220,29 @@ export default function NewTask() {
               onToggle={setPriority}
             />
           </View>
-          <View style={{ gap: 6 }}>
-            <Text variant="label" tone="muted">
-              Kind
-            </Text>
-            <Chips
-              label="Kind"
-              options={TASK_KINDS.map((k) => ({ key: k, label: TASK_KIND_LABEL[k] }))}
-              selected={[kind]}
-              onToggle={setKind}
-            />
-          </View>
+          {edit ? null : (
+            <View style={{ gap: 6 }}>
+              <Text variant="label" tone="muted">
+                Kind
+              </Text>
+              <Chips
+                label="Kind"
+                options={TASK_KINDS.map((k) => ({ key: k, label: TASK_KIND_LABEL[k] }))}
+                selected={[kind]}
+                onToggle={setKind}
+              />
+            </View>
+          )}
           {error || blocked ? (
             <Text variant="meta" tone="danger" accessibilityLiveRegion="polite">
               {error ?? `${blocked}`}
             </Text>
           ) : null}
           <Button
-            title="Create task"
+            title={edit ? 'Save changes' : 'Create task'}
             icon="checkbox-outline"
             busy={busy}
-            disabled={!!blocked}
+            disabled={!!blocked || (!!edit && !original)}
             onPress={() => void save()}
           />
         </ScrollView>
