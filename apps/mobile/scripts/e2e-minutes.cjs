@@ -181,7 +181,6 @@ const login = async (email) =>
   m = await server();
   check('summary saved', m.summary === 'We agreed the Q1 field plan and the launch date.');
   check('agenda saved', m.agenda === 'Q1 fieldwork, launch date');
-  if (process.env.DEBUG) { console.log('agenda now', JSON.stringify(m.agenda), m.revision, 'ui', await p.getByLabel('Agenda', { exact: true }).inputValue()); await p.waitForTimeout(8000); console.log('agenda later', JSON.stringify((await server()).agenda)); }
 
   // Offline: add a decision and an action; they go up on reconnect.
   await ctx.setOffline(true);
@@ -220,8 +219,7 @@ const login = async (email) =>
     (await p.getByLabel('Notes', { exact: true }).inputValue()) === 'Budget review next week.',
   );
   await shot(p, '02-draft', true);
-  const ai = p.getByRole('heading', { name: 'Action items' });
-  await ai.scrollIntoViewIfNeeded();
+  await p.getByLabel('Notes', { exact: true }).scrollIntoViewIfNeeded();
   await shot(p, '03-actions');
 
   // Share, and the card shows in the conversation.

@@ -580,7 +580,7 @@ function LinesField({
   return (
     <View style={{ gap: space.sm }}>
       {draft.map((l, i) => (
-        <View key={i} style={styles.rowWrap}>
+        <View key={i} style={styles.row}>
           <TextInput
             value={l}
             onChangeText={(t) => setDraft(draft.map((x, j) => (j === i ? t : x)))}
@@ -590,7 +590,7 @@ function LinesField({
               onSave(draft);
             }}
             accessibilityLabel={`${label} ${i + 1}`}
-            style={[...inputStyle, { flex: 1 }]}
+            style={[...inputStyle, { flex: 1, minWidth: 0 }]}
           />
           <Pressable
             onPress={() => {
@@ -661,7 +661,7 @@ function ActionItems({
       placeholder={label}
       placeholderTextColor={c.textSubtle}
       accessibilityLabel={label}
-      style={[...inputStyle, { flex }]}
+      style={[...inputStyle, { flex, minWidth: 0 }]}
     />
   );
   if (!editable && !items.length) return <Text tone="subtle">None.</Text>;
@@ -669,7 +669,7 @@ function ActionItems({
     <View style={{ gap: space.md }}>
       {(editable ? draft : items).map((a) => (
         <View key={a.id} style={[styles.action, { borderColor: c.border }]}>
-          <View style={styles.rowWrap}>
+          <View style={styles.row}>
             <Pressable
               onPress={() => {
                 if (!editable) return;
@@ -699,9 +699,9 @@ function ActionItems({
             )}
           </View>
           {editable ? (
-            <View style={styles.rowWrap}>
+            <View style={styles.row}>
               {field(a, 'ownerName', 'Owner')}
-              {field(a, 'due', 'Due')}
+              {field(a, 'due', 'Due', 0.7)}
               <Pressable
                 onPress={() => {
                   const next = draft.filter((x) => x.id !== a.id);
@@ -742,6 +742,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   rowWrap: { flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
