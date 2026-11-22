@@ -24,10 +24,12 @@ import { Avatar, Badge, Button, Input, StateView, cn, useToast } from '@sampledg
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
-import { relativeShort } from './helpers';
+import { avatarUrl, relativeShort } from './helpers';
+import { CallBackgroundsAdmin } from './call-backgrounds-admin';
 import type { ModuleId } from './modules';
+import { NetworkPolicyTab } from '../network/admin-policy';
 
-type Tab = 'overview' | 'members' | 'devices' | 'audit';
+type Tab = 'overview' | 'members' | 'devices' | 'calls' | 'audit' | 'network';
 interface Device {
   sessionId: string;
   userId: string;
@@ -86,7 +88,7 @@ function useAdminApi() {
   }, [getAccessToken]);
 }
 
-/** Administration: overview, members, devices and the audit log for owners and admins. */
+/** Administration: overview, members, devices, call backgrounds and the audit log for owners and admins. */
 export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => void }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const [auditActor, setAuditActor] = React.useState<string | null>(null);
@@ -94,7 +96,9 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     { id: 'overview', label: 'Overview' },
     { id: 'members', label: 'Members' },
     { id: 'devices', label: 'Devices' },
+    { id: 'calls', label: 'Calls' },
     { id: 'audit', label: 'Audit log' },
+    { id: 'network', label: 'SampConnect Network' },
   ];
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="admin-screen">
@@ -132,6 +136,10 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
             />
           ) : tab === 'devices' ? (
             <DevicesTab />
+          ) : tab === 'calls' ? (
+            <CallBackgroundsAdmin />
+          ) : tab === 'network' ? (
+            <NetworkPolicyTab />
           ) : (
             <AuditTab actorId={auditActor} onClearActor={() => setAuditActor(null)} />
           )}
@@ -410,7 +418,7 @@ function MembersTab({ onShowActivity }: { onShowActivity: (userId: string) => vo
                 u.status !== 'active' && 'opacity-60',
               )}
             >
-              <Avatar name={u.displayName} size="sm" />
+              <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-label text-text">
                   {u.displayName} {me ? <span className="text-text-subtle">(you)</span> : null}

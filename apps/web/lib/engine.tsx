@@ -16,6 +16,8 @@ import {
 } from '@sampledge/offline';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
+import { loadSession } from './auth-store';
+import Dexie from 'dexie';
 import { API_URL } from './config';
 
 export type DirectoryEntry = UserSummary & { presence?: string };
@@ -26,6 +28,11 @@ interface EngineContextValue {
   state: EngineState;
   directory: Map<string, DirectoryEntry>;
   refreshDirectory(): Promise<void>;
+  /**
+   * Shows a change to someone's directory entry straight away (e.g. your own status while it
+   * waits in the offline queue). The next directory fetch replaces it with the server's copy.
+   */
+  patchDirectory(userId: string, patch: Partial<DirectoryEntry>): void;
   /** Signs out and wipes this identity's local data. */
   signOut(): Promise<void>;
 }
@@ -123,10 +130,27 @@ export function EngineProvider({
 
       const signOut = async () => {
         engine.stop();
+        // Both spaces (organization and SampConnect Network) live on this device: wipe them all.
+        const others = (await Promise.all([loadSession('current'), loadSession('network')]))
+          .filter((s) => !!s)
+          .flatMap((s) => [
+            dbNameFor(s.tenant.tenantId, s.user.userId),
+            `sampledge-connect:network:${s.tenant.tenantId}:${s.user.userId}`,
+          ])
+          .filter((n) => n !== db.name);
         await auth.logout();
         await wipeLocalData(db);
+        await Promise.all(others.map((n) => Dexie.delete(n).catch(() => undefined)));
       };
-      setValue({ db, engine, refreshDirectory, signOut });
+      const patchDirectory = (userId: string, patch: Partial<DirectoryEntry>) =>
+        setDirectory((cur) => {
+          const u = cur.get(userId);
+          if (!u) return cur;
+          const next = new Map(cur).set(userId, { ...u, ...patch });
+          void db.meta.put({ key: 'directory', value: [...next.values()] });
+          return next;
+        });
+      setValue({ db, engine, refreshDirectory, patchDirectory, signOut });
       cleanup = () => {
         unsub();
         unsubChange();
@@ -136,7 +160,9 @@ export function EngineProvider({
         window.removeEventListener('offline', offline);
         document.removeEventListener('visibilitychange', onFocus);
         engine.stop();
-        db.close();
+        // Close after the old screens unmount, so their live queries don't hit a closed DB.
+        setValue(null);
+        setTimeout(() => db.close(), 1000);
       };
     })();
     return () => {

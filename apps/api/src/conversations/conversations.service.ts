@@ -6,6 +6,7 @@ import {
   CreateConversationRequestSchema,
   SetNotifyLevelRequestSchema,
   SetPostingPolicyRequestSchema,
+  SetForwardingRequestSchema,
   conversationCan,
   tenantCan,
   type Conversation,
@@ -19,6 +20,7 @@ import type { ConversationDoc, ConversationMemberDoc } from '../database/documen
 import { TenantDb } from '../database/tenant-db.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { NetworkRules } from '../network/network-rules.js';
 
 export interface LoadedConversation {
   conversation: ConversationDoc;
@@ -32,6 +34,7 @@ export class ConversationsService {
     private readonly db: TenantDb,
     private readonly audit: AuditService,
     private readonly realtime: RealtimePublisher,
+    private readonly networkRules: NetworkRules,
   ) {}
 
   /**
@@ -67,6 +70,10 @@ export class ConversationsService {
     ) {
       throw forbidden('Only moderators can post in this announcement channel');
     }
+    if (permission === 'message.send')
+      await this.networkRules.assertCanSend(ctx, conversation, () =>
+        this.memberIds(ctx.tenantId, conversationId),
+      );
     return { conversation, membership, access };
   }
 
@@ -107,6 +114,7 @@ export class ConversationsService {
       myRole: mine?.role ?? null,
       myNotifyLevel: mine?.notifyLevel ?? 'all',
       ...(c.postingPolicy ? { postingPolicy: c.postingPolicy } : {}),
+      ...(c.allowForwarding === false ? { allowForwarding: false } : {}),
     };
   }
 
@@ -186,6 +194,7 @@ export class ConversationsService {
     if (req.kind === 'dm') {
       if (others.length !== 1)
         throw new AppError('VALIDATION_FAILED', 'A direct message needs exactly one other person');
+      await this.networkRules.assertCanDm(ctx, others[0]!);
       const dmKey = [ctx.userId, others[0]!].sort().join(':');
       const existing = await t.conversations.findOne({ dmKey });
       if (existing) return this.toDto(ctx, existing);
@@ -259,7 +268,8 @@ export class ConversationsService {
     return this.announce(ctx, c, members);
   }
 
-  private async announce(ctx: TenantContext, c: ConversationDoc, members: string[]) {
+  /** Joins members' sockets to the conversation and sends each of them the conversation. */
+  async announce(ctx: TenantContext, c: ConversationDoc, members: string[]) {
     for (const userId of members) {
       this.realtime.joinConversation(ctx.tenantId, userId, c._id);
       const membership = await this.db
@@ -351,6 +361,7 @@ export class ConversationsService {
       );
     const t = this.db.for(ctx.tenantId);
     const unique = [...new Set(userIds)];
+    await this.networkRules.assertCanAdd(ctx, conversation, unique);
     const found = await t.users.countDocuments({ _id: { $in: unique }, status: 'active' });
     if (found !== unique.length)
       throw new AppError('VALIDATION_FAILED', 'One or more members do not exist');
@@ -455,6 +466,37 @@ export class ConversationsService {
       action: 'conversation.posting_policy',
       target: { type: 'conversation', id: conversationId },
       metadata: { policy },
+    });
+    const members = await this.memberIds(ctx.tenantId, conversationId);
+    return this.announce(ctx, updated!, members);
+  }
+
+  /** Private channels and groups: let members forward messages out, or not. */
+  async setForwarding(
+    ctx: TenantContext,
+    conversationId: string,
+    input: unknown,
+  ): Promise<Conversation> {
+    const { allowed } = parse(SetForwardingRequestSchema, input);
+    const { conversation } = await this.authorize(ctx, conversationId, 'conversation.rename');
+    if (conversation.kind !== 'channel_private' && conversation.kind !== 'group')
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Forwarding can be turned off only in private channels and groups',
+      );
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .conversations.findOneAndUpdate(
+        { _id: conversation._id },
+        { $set: { allowForwarding: allowed } },
+        { returnDocument: 'after' },
+      );
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'conversation.forwarding',
+      target: { type: 'conversation', id: conversationId },
+      metadata: { allowed },
     });
     const members = await this.memberIds(ctx.tenantId, conversationId);
     return this.announce(ctx, updated!, members);

@@ -16,6 +16,7 @@ import { alpha, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { AudioClip, DeletedClip, RECORDING_LABEL, VideoClip } from './MediaClips';
 import { Text } from './Text';
+import { TranscriptButton } from './TranscriptButton';
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -33,12 +34,13 @@ const ICONS: [RegExp, keyof typeof Ionicons.glyphMap][] = [
   [/^audio\//, 'musical-notes-outline'],
   [/^video\//, 'videocam-outline'],
 ];
-const iconFor = (mime: string) => ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
+export const iconFor = (mime: string) =>
+  ICONS.find(([re]) => re.test(mime))?.[1] ?? 'attach-outline';
 
 // Signed links are valid for ten minutes; reuse them for a little less.
 const urlCache = new Map<string, { url: string; until: number }>();
 
-function useSignedUrl(attachmentId: string | null, enabled: boolean) {
+export function useSignedUrl(attachmentId: string | null, enabled: boolean) {
   const { engine } = useWorkspace();
   const cached = attachmentId ? urlCache.get(attachmentId) : undefined;
   const [url, setUrl] = useState<string | null>(
@@ -62,8 +64,8 @@ function useSignedUrl(attachmentId: string | null, enabled: boolean) {
   return { url, failed };
 }
 
-async function openAttachment(
-  a: LocalAttachment,
+export async function openAttachment(
+  a: Pick<LocalAttachment, 'attachmentId' | 'localUri'>,
   getUrl: (id: string) => Promise<string>,
 ): Promise<void> {
   const target = a.attachmentId ? await getUrl(a.attachmentId) : a.localUri;
@@ -170,10 +172,18 @@ export function AttachmentList({ items, own }: { items: LocalAttachment[]; own: 
         if (isImageAttachment(a)) return <ImageAttachment key={key} a={a} own={own} />;
         if (isAudioAttachment(a))
           return (
-            <AudioClip key={key} source={a} durationMs={a.durationMs} own={own} label={label} />
+            <View key={key} style={styles.clip}>
+              <AudioClip source={a} durationMs={a.durationMs} own={own} label={label} />
+              <TranscriptButton attachmentId={a.attachmentId} title={label} own={own} />
+            </View>
           );
         if (isVideoAttachment(a))
-          return <VideoClip key={key} source={a} durationMs={a.durationMs} label={label} />;
+          return (
+            <View key={key} style={styles.clip}>
+              <VideoClip source={a} durationMs={a.durationMs} label={label} />
+              <TranscriptButton attachmentId={a.attachmentId} title={label} own={own} />
+            </View>
+          );
         return <FileAttachment key={key} a={a} own={own} />;
       })}
     </View>
@@ -182,6 +192,7 @@ export function AttachmentList({ items, own }: { items: LocalAttachment[]; own: 
 
 const styles = StyleSheet.create({
   list: { gap: 6, marginBottom: 6 },
+  clip: { gap: 4 },
   image: { borderRadius: radius.md, overflow: 'hidden', maxWidth: '100%' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
   badge: {

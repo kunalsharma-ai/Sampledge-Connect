@@ -1,11 +1,13 @@
 'use client';
+import type * as React from 'react';
+import { StatusMenu } from './status';
 import { motion } from 'motion/react';
 import { ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
 import { Avatar, Badge, Tooltip, cn } from '@sampledge/ui';
 import { motion as tokens } from '@sampledge/design-tokens';
 import { LogoMark } from '../brand';
 import { OrgLogo } from '@/lib/org-branding';
-import { MODULES, type ModuleId } from './modules';
+import { MODULES, type ModuleDef, type ModuleId } from './modules';
 
 export function NavRail({
   active,
@@ -14,10 +16,14 @@ export function NavRail({
   onToggle,
   tenantName,
   userName,
+  userAvatar,
   isAdmin,
   unreadTotal,
   notificationCount = 0,
   onSignOut,
+  modules: override,
+  spaceSwitcher,
+  networkBadge = 0,
 }: {
   active: ModuleId;
   onSelect: (m: ModuleId) => void;
@@ -25,12 +31,20 @@ export function NavRail({
   onToggle: () => void;
   tenantName: string;
   userName: string;
+  /** Profile photo URL, or null for initials. */
+  userAvatar?: string | null;
   isAdmin: boolean;
   unreadTotal: number;
   notificationCount?: number;
   onSignOut: () => void;
+  /** SampConnect Network shows its own module list. */
+  modules?: ModuleDef[];
+  /** Work ⇄ Network switcher under the header. */
+  spaceSwitcher?: React.ReactNode;
+  /** Requests waiting in the network (shown on its entry). */
+  networkBadge?: number;
 }) {
-  const modules = MODULES.filter((m) => !m.adminOnly || isAdmin);
+  const modules = (override ?? MODULES).filter((m) => !m.adminOnly || isAdmin);
   return (
     <motion.nav
       aria-label="Modules"
@@ -46,17 +60,26 @@ export function NavRail({
         {expanded ? (
           <div className="min-w-0">
             <p className="truncate text-label text-text">{tenantName}</p>
-            <p className="text-meta text-text-subtle">Workspace</p>
+            <p className="text-meta text-text-subtle">
+              {override ? 'Across organizations' : 'Workspace'}
+            </p>
           </div>
         ) : null}
       </div>
+      {spaceSwitcher}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
         <ul className="flex flex-col gap-0.5">
           {modules.map((m) => {
             const Icon = m.icon;
             const isActive = active === m.id;
             const count =
-              m.id === 'messages' ? unreadTotal : m.id === 'notifications' ? notificationCount : 0;
+              m.id === 'messages'
+                ? unreadTotal
+                : m.id === 'notifications'
+                  ? notificationCount
+                  : m.id === 'network' || m.id === 'people'
+                    ? networkBadge
+                    : 0;
             const item = (
               <button
                 onClick={() => onSelect(m.id)}
@@ -115,16 +138,15 @@ export function NavRail({
         </ul>
       </div>
       <div className="flex flex-col gap-1 border-t border-border p-3">
-        <div
-          className={cn(
-            'flex items-center gap-3 rounded-md px-1.5 py-1.5',
-            expanded ? '' : 'justify-center',
-          )}
-        >
-          <Avatar name={userName} size="sm" presence="online" />
+        <div className={cn('flex items-center gap-1 rounded-md', expanded ? '' : 'justify-center')}>
+          <StatusMenu
+            userName={userName}
+            userAvatar={userAvatar}
+            expanded={expanded}
+            onOpenSettings={() => onSelect('settings')}
+          />
           {expanded ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-label text-text">{userName}</span>
               <Tooltip content="Sign out">
                 <button
                   onClick={onSignOut}

@@ -13,10 +13,11 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { apiRequest } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
-import { useTenantChange, type DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import { attachmentUrl, formatBytes } from '@/lib/uploads';
 import { KIND_ICON, KIND_LABEL, RecordingAttachment } from './recordings';
 import { nameOf } from './helpers';
+import { MinutesSettingsPanel } from './minutes-settings';
 
 const FILTERS: { id: RecordingKind | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -107,8 +108,10 @@ export function RecordingsScreen({
     if (online) void load();
   }, [load, online]);
   useTenantChange('recordings', () => void load());
-  // Stay in step with other devices: new recordings and deletions show within 20 seconds,
-  // and at once when this window comes back to the front.
+  // Call recordings added and any recording deleted (on any device) arrive live.
+  useEngineChange(['recording'], () => void load());
+  // Voice and video clips sent in chat show within 20 seconds, and at once when this window
+  // comes back to the front.
   React.useEffect(() => {
     if (!online) return;
     const tick = () => {
@@ -161,9 +164,9 @@ export function RecordingsScreen({
             size="sm"
             onClick={() => setAdminOpen((o) => !o)}
             aria-expanded={adminOpen}
-            aria-label="Retention & backup"
+            aria-label="Settings & backup"
           >
-            <ShieldCheck /> <span className="hidden sm:inline">Retention & backup</span>
+            <ShieldCheck /> <span className="hidden sm:inline">Settings & backup</span>
           </Button>
         ) : null}
       </header>
@@ -321,7 +324,7 @@ export function RecordingsScreen({
         {isAdmin && adminOpen ? (
           <aside className="fixed inset-0 z-40 overflow-y-auto border-l border-border bg-surface p-5 md:static md:z-auto md:w-[360px] md:shrink-0">
             <div className="mb-4 flex items-center justify-between md:hidden">
-              <h2 className="text-h3 text-text">Retention & backup</h2>
+              <h2 className="text-h3 text-text">Settings & backup</h2>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -334,6 +337,8 @@ export function RecordingsScreen({
             <RetentionSettings api={api} onSaved={() => void load()} />
             <div className="my-6 h-px bg-border" />
             <ExportPanel api={api} />
+            <div className="my-6 h-px bg-border" />
+            <MinutesSettingsPanel />
           </aside>
         ) : null}
       </div>

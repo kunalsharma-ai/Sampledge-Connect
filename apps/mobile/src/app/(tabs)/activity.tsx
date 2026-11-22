@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
-import { Avatar } from '../../components/Avatar';
+import { PersonAvatar } from '../../components/Avatar';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
@@ -113,7 +113,7 @@ export default function Activity() {
                 ]}
               >
                 <View>
-                  <Avatar name={nameOf(item.actorId)} size={38} />
+                  <PersonAvatar userId={item.actorId} name={nameOf(item.actorId)} size={38} />
                   <View
                     style={[
                       styles.kindBadge,

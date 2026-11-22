@@ -57,6 +57,12 @@ describe('booking pages', () => {
   let page: BookingPage;
 
   it('hosts create a page with a public link; links are unique', async () => {
+    const miaSocket = await connect(h, mia.accessToken);
+    const live = Promise.all([
+      nextEvent(raviSocket, 'meetings:changed', (e) => e.area === 'booking_pages'),
+      nextEvent(miaSocket, 'meetings:changed', (e) => e.area === 'booking_pages'),
+    ]);
+    const pageLive = nextEvent(raviSocket, 'booking:changed');
     const res = await api<BookingPage>(h, 'POST', '/v1/booking-pages', {
       token: ravi.accessToken,
       body: {
@@ -72,8 +78,13 @@ describe('booking pages', () => {
     });
     expect(res.status).toBe(201);
     page = res.body;
+    // Both hosts' devices hear about the new page live.
+    await live;
+    miaSocket.disconnect();
     expect(page.hostIds).toEqual([ravi.user.userId, mia.user.userId]);
     expect(page.url).toBe(`https://connect.acme.test/book/${slug}`);
+    // Ravi's other devices see the new page live.
+    expect(await pageLive).toEqual({ bookingPageId: page.bookingPageId, page });
     const dup = await api(h, 'POST', '/v1/booking-pages', {
       token: owner.accessToken,
       body: { slug: slug.toUpperCase(), title: 'x' },
@@ -145,10 +156,13 @@ describe('booking pages', () => {
   });
 
   it('"all" pages need every host free; bad times and disabled pages are refused', async () => {
+    // A co-host's change reaches Ravi live.
+    const changed = nextEvent(raviSocket, 'booking:changed', (e) => e.page?.mode === 'all');
     await api(h, 'PATCH', `/v1/booking-pages/${page.bookingPageId}`, {
       token: mia.accessToken,
       body: { mode: 'all' },
     });
+    expect((await changed).bookingPageId).toBe(page.bookingPageId);
     const slots = (await pub<BookingSlotsResponse>('GET', `${slug}/slots?${range()}`)).body.slots;
     const res = await pub<BookingConfirmation>('POST', slug, {
       startsAt: slots[0]!.startsAt,
@@ -179,9 +193,26 @@ describe('booking pages', () => {
       body: { enabled: false },
     });
     expect((await pub('GET', slug)).status).toBe(404);
+    const gone = nextEvent(raviSocket, 'booking:changed', (e) => e.page === null);
     const del = await api(h, 'DELETE', `/v1/booking-pages/${page.bookingPageId}`, {
       token: ravi.accessToken,
     });
     expect(del.status).toBe(200);
+    expect(await gone).toEqual({ bookingPageId: page.bookingPageId, page: null });
+  });
+});
+
+describe('working hours', () => {
+  it('a change reaches all of my devices live', async () => {
+    const live = nextEvent(raviSocket, 'meetings:changed', (e) => e.area === 'working_hours');
+    const res = await api(h, 'PUT', '/v1/me/working-hours', {
+      token: ravi.accessToken,
+      body: {
+        timeZone: 'Asia/Kolkata',
+        days: [1, 2, 3, 4, 5].map((day) => ({ day, start: '10:00', end: '18:00' })),
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await live).toEqual({ area: 'working_hours' });
   });
 });

@@ -27,7 +27,7 @@ import { useWorkspace } from '../state/AppProvider';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { formatSendAt } from '../lib/schedule';
-import { Avatar } from './Avatar';
+import { PersonAvatar } from './Avatar';
 import { ScheduleSheet } from './ScheduleSheet';
 import { Text } from './Text';
 import { useVoiceRecorder, VoiceRecordBar } from './VoiceRecorder';
@@ -343,7 +343,7 @@ export function Composer({
                 pressed && { backgroundColor: alpha(c.accent, 0.1) },
               ]}
             >
-              <Avatar name={m.name} size={28} />
+              <PersonAvatar userId={m.userId} name={m.name} size={28} />
               <Text variant="bodyStrong">{m.name}</Text>
             </Pressable>
           ))}

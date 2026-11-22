@@ -78,3 +78,14 @@ describe('model server settings', () => {
     expect(() => extractJson('no json')).toThrow();
   });
 });
+
+describe('dueHint', () => {
+  it('prefers the deadline phrase over an earlier "today"', async () => {
+    const { dueHint } = await import('./basic.js');
+    expect(dueHint('I’ll chase the client today and send the grid by Thursday.')).toBe(
+      'by Thursday',
+    );
+    expect(dueHint('Can you do it today?')).toBe('today');
+    expect(dueHint('No date here.')).toBeNull();
+  });
+});

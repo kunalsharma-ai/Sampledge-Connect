@@ -75,6 +75,12 @@ export class ConversationsController {
     return this.conversations.setPostingPolicy(ctx, id, body);
   }
 
+  /** Private channels and groups: allow or stop forwarding messages out. */
+  @Put(':id/forwarding')
+  setForwarding(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.conversations.setForwarding(ctx, id, body);
+  }
+
   /** The caller's notification level for this conversation: all, mentions or none. */
   @Put(':id/notify-level')
   setNotifyLevel(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {

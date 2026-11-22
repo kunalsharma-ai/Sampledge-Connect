@@ -1,8 +1,10 @@
 'use client';
 import * as React from 'react';
 import type {
+  ActionItem,
   AiAskResponse,
   AiDigest,
+  AiDismissedSuggestions,
   AiDuplicates,
   AiMeetingSummary,
   AiPrioritizedNotifications,
@@ -18,15 +20,18 @@ import type {
   SummaryRange,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
-import { useAuth } from './auth';
-import { useEngine, useTenantChange } from './engine';
+import { isNetworkSession, useAuth } from './auth';
+import { useEngine, useEngineChange, useTenantChange } from './engine';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 /**
  * The private AI assistant client. Every call is an explicit user action over REST; nothing
  * here runs on the chat path, and failures never affect sending or reading messages.
  */
 export function useAi() {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, session } = useAuth();
+  // The AI assistant belongs to the organization; SampConnect Network has none.
+  const network = isNetworkSession(session);
   const { state } = useEngine();
   const online = state.connectivity === 'online';
   const [status, setStatus] = React.useState<AiStatus | null>(null);
@@ -38,12 +43,13 @@ export function useAi() {
   );
 
   const refreshStatus = React.useCallback(async () => {
+    if (network) return setStatus(null);
     try {
       setStatus(await call<AiStatus>('GET', '/status'));
     } catch {
       /* offline or AI unavailable: keep the last known status */
     }
-  }, [call]);
+  }, [call, network]);
 
   React.useEffect(() => {
     if (online) void refreshStatus();
@@ -102,6 +108,21 @@ export type AiApi = ReturnType<typeof useAi>;
 export const AiContext = React.createContext<AiApi | null>(null);
 export const useAiContext = () => React.useContext(AiContext);
 
+/**
+ * Turning a suggested task into a real one. It only opens the task form, prefilled; the person
+ * reviews it and presses Create. The assistant never creates tasks by itself.
+ */
+export interface AiTaskActions {
+  createTask: (item: ActionItem, conversationId: string) => void;
+  isCreated: (item: ActionItem, conversationId: string) => boolean;
+  /** "Not needed": hidden on all of the person's devices until they undo it. */
+  isDismissed: (item: ActionItem, conversationId: string) => boolean;
+  setDismissed: (item: ActionItem, conversationId: string, dismissed: boolean) => void;
+}
+export const AiTaskContext = React.createContext<AiTaskActions | null>(null);
+export const suggestionKey = (item: ActionItem, conversationId: string) =>
+  `${conversationId}|${item.messageId ?? ''}|${item.text}`;
+
 export function aiErrorText(e: unknown): string {
   if (e instanceof ApiFailure) {
     if (e.error.code === 'RATE_LIMITED') return 'Too many AI requests. Try again in a minute.';
@@ -129,3 +150,88 @@ export const ENGINE_LABEL: Record<AiStatus['engine'], string> = {
   basic: 'Built-in (no model)',
   model: 'Your model server',
 };
+
+const DISMISSED_CACHE_KEY = 'ai-dismissed-suggestions';
+
+/**
+ * Suggested tasks the person dismissed. Cached in this identity's IndexedDB, changed through
+ * the engine's action queue (so it works offline), and kept in step with their other devices
+ * by `ai:suggestion`. Queued changes count at once, so a row never flicks back.
+ */
+export function useAiDismissals() {
+  const { db, engine, state } = useEngine();
+  const { getAccessToken, session } = useAuth();
+  const network = isNetworkSession(session); // no AI in SampConnect Network
+  const [ids, setIds] = React.useState<Set<string>>(() => new Set());
+  const online = state.connectivity === 'online';
+  const store = React.useCallback(
+    (next: Set<string>) => {
+      setIds(next);
+      void db.meta.put({ key: DISMISSED_CACHE_KEY, value: [...next] });
+    },
+    [db],
+  );
+  const refresh = React.useCallback(async () => {
+    if (network) return;
+    try {
+      const r = await apiRequest<AiDismissedSuggestions>('GET', '/v1/ai/suggestions/dismissed', {
+        token: await getAccessToken(),
+      });
+      store(new Set(r.suggestionIds));
+    } catch {
+      /* offline or AI unavailable: keep the cached set */
+    }
+  }, [getAccessToken, store, network]);
+  React.useEffect(() => {
+    void db.meta.get(DISMISSED_CACHE_KEY).then((row) => {
+      if (row) setIds((s) => (s.size ? s : new Set(row.value as string[])));
+    });
+  }, [db]);
+  React.useEffect(() => {
+    if (online) void refresh();
+  }, [online, refresh]);
+  useEngineChange(['aiSuggestion', 'action'], (e) => {
+    if (e.type === 'aiSuggestion')
+      setIds((prev) => {
+        const next = new Set(prev);
+        if (e.dismissed) next.add(e.suggestionId);
+        else next.delete(e.suggestionId);
+        void db.meta.put({ key: DISMISSED_CACHE_KEY, value: [...next] });
+        return next;
+      });
+    else if (e.type === 'reconnected' || (e.type === 'action' && e.key.startsWith('aisuggestion|')))
+      void refresh();
+  });
+  const pending = useLiveQuery(
+    () =>
+      db.actions
+        .where('key')
+        .startsWith('aisuggestion|')
+        .filter((a) => a.state === 'queued')
+        .toArray(),
+    [db],
+  );
+  const isDismissed = React.useCallback(
+    (id: string) => {
+      const queued = pending?.find((a) => a.key === `aisuggestion|${id}`);
+      return queued ? queued.method === 'PUT' : ids.has(id);
+    },
+    [ids, pending],
+  );
+  const setDismissed = React.useCallback(
+    (id: string, dismissed: boolean) => {
+      const next = new Set(ids);
+      if (dismissed) next.add(id);
+      else next.delete(id);
+      store(next);
+      void engine.queueAction({
+        key: `aisuggestion|${id}`,
+        method: dismissed ? 'PUT' : 'DELETE',
+        path: `/v1/ai/suggestions/${id}/dismissed`,
+        label: dismissed ? 'Dismiss suggested task' : 'Restore suggested task',
+      });
+    },
+    [ids, store, engine],
+  );
+  return { isDismissed, setDismissed };
+}

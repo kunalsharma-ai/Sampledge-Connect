@@ -1,10 +1,13 @@
 import {
   deriveConfirmedStatus,
+  fileKindOf,
+  type FileKind,
   uuidv7,
   type Conversation,
   type ConversationKind,
   type ConversationRole,
   type Attachment,
+  type ForwardedSnapshot,
   type Meeting,
   type Message,
   type MessageStatus,
@@ -77,6 +80,39 @@ export interface MessagePin {
 }
 
 /** A file on a message: from the server snapshot, from this device, or both. */
+/** A search of the messages on this phone (terms lower-case; dates ISO). */
+export interface LocalSearch {
+  terms: string[];
+  from?: string;
+  in?: string;
+  hasFile?: boolean;
+  after?: string;
+  before?: string;
+  limit?: number;
+}
+
+/** Filters for {@link LocalStore.filesOnPhone}, the same as GET /v1/files. */
+export interface LocalFilesQuery {
+  q?: string;
+  kind?: FileKind;
+  in?: string;
+  from?: string;
+  before?: string;
+  limit?: number;
+}
+
+/** A file in a message stored on this phone. */
+export interface LocalFile extends LocalAttachment {
+  kind: FileKind;
+  messageId: string | null;
+  clientId: string;
+  /** Its place among the message's files. */
+  position: number;
+  conversationId: string;
+  uploaderId: string;
+  createdAt: string;
+}
+
 export interface LocalAttachment {
   /** Null until the upload completes. */
   attachmentId: string | null;
@@ -205,6 +241,8 @@ export interface LocalConversation {
   notifyLevelPending: boolean;
   /** 'moderators' makes a channel an announcement channel. */
   postingPolicy: PostingPolicy;
+  /** False when owners turned forwarding out of this private channel or group off. */
+  allowForwarding: boolean;
 }
 
 export interface OutboxItem {
@@ -245,6 +283,13 @@ export interface LocalMeeting extends Meeting {
 }
 
 type SentRsvp = Exclude<RsvpResponse, 'pending'>;
+/** An answer waiting to be sent: for one meeting, or for every upcoming meeting of its series. */
+export interface PendingRsvp {
+  meetingId: string;
+  response: SentRsvp;
+  scope: 'occurrence' | 'series';
+  seq: number;
+}
 
 interface MessageRow {
   client_id: string;
@@ -489,16 +534,19 @@ export class LocalStore {
     replyTo?: string | null;
     mentions?: readonly string[];
     files?: readonly PendingFileInput[];
+    /** Forward this message (by its server id); the snapshot shows until the server answers. */
+    forward?: { of: string; snapshot: ForwardedSnapshot };
   }): Promise<LocalMessage> {
     const text = input.text.trim();
     const files = input.files ?? [];
-    if (!text && files.length === 0) throw new Error('Cannot send an empty message');
+    const forward = input.forward;
+    if (!text && files.length === 0 && !forward) throw new Error('Cannot send an empty message');
     const clientId = uuidv7(this.now());
     const createdAt = new Date(this.now()).toISOString();
     await this.db.transaction(async (tx) => {
       await tx.run(
-        `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, reply_to, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
+        `INSERT INTO messages (client_id, conversation_id, sender_id, text, mentions, reply_to, status, created_at, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
         [
           clientId,
           input.conversationId,
@@ -507,6 +555,7 @@ export class LocalStore {
           JSON.stringify([...new Set(input.mentions ?? [])]),
           input.replyTo ?? null,
           createdAt,
+          JSON.stringify(forward ? { forwarded: forward.snapshot, forwardOf: forward.of } : {}),
         ],
       );
       await tx.run(
@@ -534,7 +583,11 @@ export class LocalStore {
       await tx.run('DELETE FROM drafts WHERE conversation_id = ?', [input.conversationId]);
       await tx.run(
         'UPDATE conversations SET last_preview = ?, last_message_at = ? WHERE conversation_id = ?',
-        [text || filesPreview(files), createdAt, input.conversationId],
+        [
+          text || (forward ? `Forwarded: ${forward.snapshot.text}` : filesPreview(files)),
+          createdAt,
+          input.conversationId,
+        ],
       );
     });
     this.events.emit('messages', { conversationId: input.conversationId });
@@ -1189,12 +1242,12 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       for (const c of conversations) {
         await tx.run(
-          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO conversations (conversation_id, kind, name, topic, member_ids, archived_at, my_role, last_change_seq, last_message_at, notify_level, posting_policy, allow_forwarding)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id) DO UPDATE SET
              kind = excluded.kind, name = excluded.name, topic = excluded.topic, member_ids = excluded.member_ids,
              archived_at = excluded.archived_at, my_role = excluded.my_role, notify_level = excluded.notify_level,
-             posting_policy = excluded.posting_policy,
+             posting_policy = excluded.posting_policy, allow_forwarding = excluded.allow_forwarding,
              last_change_seq = MAX(conversations.last_change_seq, excluded.last_change_seq),
              last_message_at = COALESCE(MAX(conversations.last_message_at, excluded.last_message_at), excluded.last_message_at, conversations.last_message_at)`,
           [
@@ -1209,6 +1262,7 @@ export class LocalStore {
             c.lastMessageAt,
             c.myNotifyLevel ?? 'all',
             c.postingPolicy ?? 'everyone',
+            c.allowForwarding === false ? 0 : 1,
           ],
         );
       }
@@ -1375,6 +1429,7 @@ export class LocalStore {
       notify_level: NotifyLevel;
       pending_notify_level: NotifyLevel | null;
       posting_policy: PostingPolicy | null;
+      allow_forwarding: number | null;
     }>(
       `SELECT c.*,
          CASE WHEN c.kind = 'channel_public' AND c.my_role IS NULL THEN 0 ELSE
@@ -1402,6 +1457,7 @@ export class LocalStore {
       notifyLevel: r.pending_notify_level ?? r.notify_level,
       notifyLevelPending: r.pending_notify_level != null,
       postingPolicy: r.posting_policy ?? 'everyone',
+      allowForwarding: r.allow_forwarding !== 0,
     }));
   }
 
@@ -1449,6 +1505,96 @@ export class LocalStore {
     return (await this.listConversations()).find((c) => c.conversationId === id);
   }
 
+  /**
+   * Universal Search on this phone: messages (and their file names) where every term appears,
+   * newest first, with the same filters as the server. Includes messages not sent yet.
+   */
+  async searchMessagesBy(q: LocalSearch): Promise<LocalMessage[]> {
+    const where = ['m.deleted_at IS NULL'];
+    const args: (string | number)[] = [];
+    const like = (t: string) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    for (const t of q.terms) {
+      where.push("(m.text LIKE ? ESCAPE '\\' OR m.attachments LIKE ? ESCAPE '\\')");
+      args.push(like(t), like(t));
+    }
+    if (q.from) {
+      where.push('m.sender_id = ?');
+      args.push(q.from);
+    }
+    if (q.in) {
+      where.push('m.conversation_id = ?');
+      args.push(q.in);
+    }
+    if (q.after) {
+      where.push('m.created_at >= ?');
+      args.push(q.after);
+    }
+    if (q.before) {
+      where.push('m.created_at < ?');
+      args.push(q.before);
+    }
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC LIMIT ?`,
+      [...args, 400],
+    );
+    const out = (await this.hydrate(rows)).filter((m) => {
+      if (q.hasFile && m.attachments.length === 0) return false;
+      const hay = [m.text, ...m.attachments.map((f) => f.fileName)].join('\n').toLowerCase();
+      return q.terms.every((t) => hay.includes(t));
+    });
+    return out.slice(0, q.limit ?? 50);
+  }
+
+  /**
+   * The Files screen on this phone: every file in the messages stored here (and files still
+   * waiting to upload), newest first, with the same filters as GET /v1/files. Recordings are left
+   * out, as they are on the server, because they have their own screen.
+   */
+  async filesOnPhone(q: LocalFilesQuery): Promise<LocalFile[]> {
+    const where = [
+      'm.deleted_at IS NULL',
+      "(m.attachments <> '[]' OR EXISTS (SELECT 1 FROM message_files f WHERE f.client_id = m.client_id))",
+    ];
+    const args: (string | number)[] = [];
+    if (q.in) {
+      where.push('m.conversation_id = ?');
+      args.push(q.in);
+    }
+    if (q.from) {
+      where.push('m.sender_id = ?');
+      args.push(q.from);
+    }
+    if (q.before) {
+      where.push('m.created_at < ?');
+      args.push(q.before);
+    }
+    const rows = await this.db.all<MessageRow>(
+      `${MESSAGE_SELECT} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC LIMIT ?`,
+      [...args, 500],
+    );
+    const terms = (q.q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    const out: LocalFile[] = [];
+    for (const m of await this.hydrate(rows))
+      for (const [position, a] of m.attachments.entries()) {
+        if (a.recording || a.deletedAt) continue;
+        const kind = fileKindOf(a.mimeType, a.fileName);
+        if (q.kind && kind !== q.kind) continue;
+        const name = a.fileName.toLowerCase();
+        if (!terms.every((t) => name.includes(t))) continue;
+        out.push({
+          ...a,
+          kind,
+          messageId: m.messageId,
+          clientId: m.clientId,
+          position,
+          conversationId: m.conversationId,
+          uploaderId: m.senderId,
+          createdAt: m.createdAt,
+        });
+      }
+    return out.slice(0, q.limit ?? 200);
+  }
+
   async searchMessages(query: string, limit = 50): Promise<LocalMessage[]> {
     const q = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     return this.hydrate(
@@ -1464,6 +1610,20 @@ export class LocalStore {
   async getSetting(key: string): Promise<string | undefined> {
     return (await this.db.get<{ value: string }>('SELECT value FROM kv WHERE key = ?', [key]))
       ?.value;
+  }
+
+  /** Keys of the settings that start with `prefix`. */
+  async settingKeys(prefix: string): Promise<string[]> {
+    const rows = await this.db.all<{ key: string }>(
+      `SELECT key FROM kv WHERE substr(key, 1, ?) = ?`,
+      [prefix.length, prefix],
+    );
+    return rows.map((r) => r.key);
+  }
+
+  async deleteSetting(key: string): Promise<void> {
+    await this.db.run('DELETE FROM kv WHERE key = ?', [key]);
+    this.events.emit('settings', { key });
   }
 
   async setSetting(key: string, value: string): Promise<void> {
@@ -1658,43 +1818,112 @@ export class LocalStore {
     return { ...m, myResponse: r.pending_rsvp ?? mine, rsvpPending: r.pending_rsvp != null };
   }
 
-  /** Records your answer here at once; it is sent when online (last choice wins). */
-  async setRsvpLocally(meetingId: string, response: SentRsvp): Promise<void> {
-    await this.db.run('UPDATE meetings SET pending_rsvp = ? WHERE meeting_id = ?', [
-      response,
-      meetingId,
-    ]);
+  /** The other meetings of a series that a whole-series answer covers (not ended, not cancelled). */
+  private async seriesSiblings(meetingId: string, now: number): Promise<string[]> {
+    const m = await this.getMeeting(meetingId);
+    const seriesId = m?.series?.seriesId;
+    if (!seriesId) return [];
+    const rows = await this.db.all<{ meeting_id: string; data: string }>(
+      "SELECT meeting_id, data FROM meetings WHERE ends_at > ? AND status = 'scheduled' AND meeting_id != ?",
+      [new Date(now).toISOString(), meetingId],
+    );
+    return rows
+      .filter((r) => (JSON.parse(r.data) as Meeting).series?.seriesId === seriesId)
+      .map((r) => r.meeting_id);
+  }
+
+  /**
+   * Records your answer here at once; it is sent when online, in the order given. A
+   * whole-series answer also shows on every upcoming meeting of the series.
+   */
+  async setRsvpLocally(
+    meetingId: string,
+    response: SentRsvp,
+    scope: 'occurrence' | 'series' = 'occurrence',
+    now = Date.now(),
+  ): Promise<void> {
+    const siblings = scope === 'series' ? await this.seriesSiblings(meetingId, now) : [];
+    await this.db.transaction(async (tx) => {
+      const seq =
+        ((await tx.get<{ n: number | null }>('SELECT MAX(rsvp_seq) AS n FROM meetings'))?.n ?? 0) +
+        1;
+      await tx.run(
+        'UPDATE meetings SET pending_rsvp = ?, rsvp_scope = ?, rsvp_seq = ? WHERE meeting_id = ?',
+        [response, scope, seq, meetingId],
+      );
+      for (const id of siblings)
+        await tx.run(
+          "UPDATE meetings SET pending_rsvp = ?, rsvp_scope = 'shadow', rsvp_seq = ? WHERE meeting_id = ?",
+          [response, seq, id],
+        );
+    });
     this.events.emit('meetings', undefined);
   }
 
-  async pendingRsvps(): Promise<{ meetingId: string; response: SentRsvp }[]> {
-    const rows = await this.db.all<{ meeting_id: string; pending_rsvp: SentRsvp }>(
-      'SELECT meeting_id, pending_rsvp FROM meetings WHERE pending_rsvp IS NOT NULL',
+  /** Answers to send, oldest first. Shadows of a series answer are not sent on their own. */
+  async pendingRsvps(): Promise<PendingRsvp[]> {
+    const rows = await this.db.all<{
+      meeting_id: string;
+      pending_rsvp: SentRsvp;
+      rsvp_scope: string | null;
+      rsvp_seq: number | null;
+    }>(
+      `SELECT meeting_id, pending_rsvp, rsvp_scope, rsvp_seq FROM meetings
+       WHERE pending_rsvp IS NOT NULL AND (rsvp_scope IS NULL OR rsvp_scope != 'shadow')
+       ORDER BY rsvp_seq`,
     );
-    return rows.map((r) => ({ meetingId: r.meeting_id, response: r.pending_rsvp }));
+    return rows.map((r) => ({
+      meetingId: r.meeting_id,
+      response: r.pending_rsvp,
+      scope: r.rsvp_scope === 'series' ? 'series' : 'occurrence',
+      seq: r.rsvp_seq ?? 0,
+    }));
   }
 
   /** Demo workspace only: there is no server, so the answer is written straight into the copy. */
-  async applyLocalRsvp(meetingId: string, response: SentRsvp): Promise<void> {
-    const m = await this.getMeeting(meetingId);
-    if (!m) return;
-    const { myResponse: _r, rsvpPending: _p, ...meeting } = m;
-    const attendees = meeting.attendees.map((a) =>
-      a.userId === this.selfId ? { ...a, response } : a,
-    );
-    await this.db.run('UPDATE meetings SET data = ?, pending_rsvp = NULL WHERE meeting_id = ?', [
-      JSON.stringify({ ...meeting, attendees }),
+  async applyLocalRsvp(
+    meetingId: string,
+    response: SentRsvp,
+    scope: 'occurrence' | 'series' = 'occurrence',
+    now = Date.now(),
+  ): Promise<void> {
+    const ids = [
       meetingId,
-    ]);
+      ...(scope === 'series' ? await this.seriesSiblings(meetingId, now) : []),
+    ];
+    for (const id of ids) {
+      const m = await this.getMeeting(id);
+      if (!m) continue;
+      const { myResponse: _r, rsvpPending: _p, ...meeting } = m;
+      const attendees = meeting.attendees.map((a) =>
+        a.userId === this.selfId ? { ...a, response } : a,
+      );
+      await this.db.run(
+        'UPDATE meetings SET data = ?, pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL WHERE meeting_id = ?',
+        [JSON.stringify({ ...meeting, attendees }), id],
+      );
+    }
     this.events.emit('meetings', undefined);
   }
 
-  /** Clears a sent (or refused) answer, unless a newer one was chosen while it was in flight. */
-  async settleRsvp(meetingId: string, sent: SentRsvp): Promise<void> {
-    await this.db.run(
-      'UPDATE meetings SET pending_rsvp = NULL WHERE meeting_id = ? AND pending_rsvp = ?',
-      [meetingId, sent],
-    );
+  /**
+   * Clears a sent (or refused) answer, unless a newer one was chosen while it was in flight.
+   * A whole-series answer also clears the shadows it put on the other meetings.
+   */
+  async settleRsvp(sent: PendingRsvp): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE meetings SET pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL
+         WHERE meeting_id = ? AND rsvp_seq = ?`,
+        [sent.meetingId, sent.seq],
+      );
+      if (sent.scope === 'series')
+        await tx.run(
+          `UPDATE meetings SET pending_rsvp = NULL, rsvp_scope = NULL, rsvp_seq = NULL
+           WHERE rsvp_scope = 'shadow' AND rsvp_seq = ?`,
+          [sent.seq],
+        );
+    });
     this.events.emit('meetings', undefined);
   }
 

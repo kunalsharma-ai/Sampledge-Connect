@@ -14,9 +14,9 @@ import {
   Textarea,
   cn,
 } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import { useMeetingsApi } from '@/lib/meetings';
-import { nameOf } from './helpers';
+import { avatarOf, avatarUrl, nameOf } from './helpers';
 
 const select =
   'h-10 w-full rounded-md border border-border bg-surface-sunken px-2 text-body text-text';
@@ -78,10 +78,13 @@ export function BookingPagesDialog({
     setDraft(null);
     setError(null);
     void load();
-    // Other hosts may change a shared page: stay current while the dialog is open.
-    const t = setInterval(() => void load(), 20_000);
-    return () => clearInterval(t);
   }, [open, load]);
+  // Changes by any host, on any device, arrive live (and everything refetches after a reconnect).
+  useEngineChange(['meetings'], (e) => {
+    if (!open) return;
+    if (e.type === 'reconnected' || (e.type === 'meetings' && e.area === 'booking_pages'))
+      void load();
+  });
 
   const startNew = () =>
     setDraft({
@@ -174,7 +177,7 @@ export function BookingPagesDialog({
                     key={id}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised py-0.5 pl-1 pr-2 text-meta text-text"
                   >
-                    <Avatar name={nameOf(id, directory)} size="xs" />
+                    <Avatar name={nameOf(id, directory)} src={avatarOf(id, directory)} size="xs" />
                     {id === me ? 'You' : nameOf(id, directory)}
                     {draft.hostIds.length > 1 ? (
                       <button
@@ -210,7 +213,7 @@ export function BookingPagesDialog({
                           setQ('');
                         }}
                       >
-                        <Avatar name={u.displayName} size="xs" />
+                        <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="xs" />
                         <span className="text-label text-text">{u.displayName}</span>
                       </button>
                     </li>

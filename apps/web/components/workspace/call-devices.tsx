@@ -5,12 +5,17 @@ import { Settings2, X } from 'lucide-react';
 import { cn } from '@sampledge/ui';
 import {
   blurSupported,
-  followBlurPref,
   loadDevicePrefs,
   saveDevicePrefs,
-  setBlur,
   type DevicePrefs,
 } from '@/lib/call-devices';
+import {
+  useApplyAppearance,
+  useApplyBackground,
+  type BackgroundController,
+} from '@/lib/call-backgrounds';
+import { AppearancePicker } from './call-appearance-picker';
+import { BackgroundPicker } from './call-background-picker';
 import { ControlButton } from './calls';
 
 type Kind = 'audioinput' | 'videoinput' | 'audiooutput';
@@ -19,17 +24,30 @@ const KINDS: { kind: Kind; label: string; id: string }[] = [
   { kind: 'videoinput', label: 'Camera', id: 'dev-cam' },
   { kind: 'audiooutput', label: 'Speaker', id: 'dev-out' },
 ];
+const TABS = [
+  { id: 'devices', label: 'Devices' },
+  { id: 'background', label: 'Background' },
+  { id: 'appearance', label: 'Appearance' },
+] as const;
+type Tab = (typeof TABS)[number]['id'];
 const select =
   'h-10 w-full rounded-md border border-white/15 bg-black/40 px-2 text-body text-white disabled:opacity-50';
 
 /**
- * In-call settings: pick the microphone, camera and speaker, and blur the background. The
- * choice is saved on this device for later calls. Used by members and guests.
+ * In-call settings: pick the microphone, camera and speaker (saved on this device), the
+ * background (blur, a prebuilt image, your own image or the company logo) and how you look
+ * (looks, light and colour, touch-up, face shaping). Members and guests.
  */
-export function CallDeviceSettings({ room }: { room: Room }) {
+export function CallDeviceSettings({
+  room,
+  backgrounds,
+}: {
+  room: Room;
+  backgrounds: BackgroundController;
+}) {
   const [open, setOpen] = React.useState(false);
+  const [tab, setTab] = React.useState<Tab>('devices');
   const [error, setError] = React.useState<string | null>(null);
-  const onError = setError;
   const [devices, setDevices] = React.useState<Record<Kind, MediaDeviceInfo[]>>({
     audioinput: [],
     videoinput: [],
@@ -38,7 +56,6 @@ export function CallDeviceSettings({ room }: { room: Room }) {
   const [active, setActive] = React.useState<Partial<Record<Kind, string>>>({});
   const [prefs, setPrefs] = React.useState<DevicePrefs>({});
   const [canBlur, setCanBlur] = React.useState<boolean | null>(null);
-  const [blurBusy, setBlurBusy] = React.useState(false);
   const [camOn, setCamOn] = React.useState(room.localParticipant.isCameraEnabled);
   const report = (e: unknown) =>
     setError(e instanceof Error ? e.message : 'That device could not be switched.');
@@ -46,8 +63,9 @@ export function CallDeviceSettings({ room }: { room: Room }) {
   React.useEffect(() => {
     setPrefs(loadDevicePrefs());
     void blurSupported().then(setCanBlur);
-    return followBlurPref(room, () => setError('Background blur could not start on this device.'));
   }, [room]);
+  useApplyBackground(room, backgrounds, setError);
+  useApplyAppearance(room, backgrounds.appearance, setError);
 
   React.useEffect(() => {
     const sync = () => setCamOn(room.localParticipant.isCameraEnabled);
@@ -94,25 +112,8 @@ export function CallDeviceSettings({ room }: { room: Room }) {
     setActive((a) => ({ ...a, [kind]: deviceId }));
     try {
       await room.switchActiveDevice(kind, deviceId);
-      // A new camera device gets a fresh track; keep the blur on it.
-      if (kind === 'videoinput' && prefs.blur) await setBlur(room, true);
     } catch (e) {
       report(e);
-    }
-  };
-
-  const toggleBlur = async () => {
-    const on = !prefs.blur;
-    setError(null);
-    update({ ...prefs, blur: on });
-    setBlurBusy(true);
-    try {
-      await setBlur(room, on);
-    } catch {
-      update({ ...prefs, blur: false });
-      onError('Background blur could not start on this device.');
-    } finally {
-      setBlurBusy(false);
     }
   };
 
@@ -123,7 +124,7 @@ export function CallDeviceSettings({ room }: { room: Room }) {
     <span className="relative">
       <ControlButton
         on={open ? true : undefined}
-        label={open ? 'Close settings' : 'Devices and background'}
+        label={open ? 'Close settings' : 'Devices, background and appearance'}
         onClick={() => setOpen((o) => !o)}
       >
         <Settings2 className={cn(open && 'text-accent')} />
@@ -133,10 +134,10 @@ export function CallDeviceSettings({ room }: { room: Room }) {
           role="dialog"
           aria-label="Call settings"
           data-testid="call-devices"
-          className="absolute bottom-14 left-1/2 z-20 w-[min(340px,calc(100vw-2rem))] -translate-x-1/2 space-y-3 rounded-xl border border-white/15 bg-[#0d1424]/95 p-4 text-left shadow-2xl backdrop-blur"
+          className="absolute bottom-14 left-1/2 z-20 max-h-[min(640px,calc(100vh-8rem))] w-[min(400px,calc(100vw-2rem))] -translate-x-1/2 space-y-3 overflow-y-auto rounded-xl border border-white/15 bg-[#0d1424]/95 p-4 text-left shadow-2xl backdrop-blur"
         >
           <div className="flex items-center justify-between">
-            <p className="text-label text-white">Devices and background</p>
+            <p className="text-label text-white">Call settings</p>
             <button
               aria-label="Close"
               onClick={() => setOpen(false)}
@@ -145,68 +146,85 @@ export function CallDeviceSettings({ room }: { room: Room }) {
               <X className="size-4" />
             </button>
           </div>
-          {KINDS.filter((k) => k.kind !== 'audiooutput' || outputs).map((k) => {
-            const list = devices[k.kind];
-            const value = active[k.kind] ?? prefs[k.kind] ?? list[0]?.deviceId ?? '';
-            return (
-              <label key={k.kind} htmlFor={k.id} className="block space-y-1">
-                <span className="text-meta text-white/70">{k.label}</span>
-                <select
-                  id={k.id}
-                  className={select}
-                  value={list.some((d) => d.deviceId === value) ? value : ''}
-                  disabled={list.length === 0}
-                  onChange={(e) => void pick(k.kind, e.target.value)}
-                >
-                  {list.length === 0 ? <option value="">None found</option> : null}
-                  {list.map((d, i) => (
-                    <option key={d.deviceId || i} value={d.deviceId}>
-                      {d.label || `${k.label} ${i + 1}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            );
-          })}
-          {!outputs ? (
+          <div
+            role="tablist"
+            aria-label="Settings"
+            className="grid grid-cols-3 gap-1 rounded-lg bg-white/5 p-1"
+          >
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                data-testid={`settings-tab-${t.id}`}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  'h-8 rounded-md text-meta font-medium transition',
+                  tab === t.id ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {tab === 'devices'
+            ? KINDS.filter((k) => k.kind !== 'audiooutput' || outputs).map((k) => {
+                const list = devices[k.kind];
+                const value = active[k.kind] ?? prefs[k.kind] ?? list[0]?.deviceId ?? '';
+                return (
+                  <label key={k.kind} htmlFor={k.id} className="block space-y-1">
+                    <span className="text-meta text-white/70">{k.label}</span>
+                    <select
+                      id={k.id}
+                      className={select}
+                      value={list.some((d) => d.deviceId === value) ? value : ''}
+                      disabled={list.length === 0}
+                      onChange={(e) => void pick(k.kind, e.target.value)}
+                    >
+                      {list.length === 0 ? <option value="">None found</option> : null}
+                      {list.map((d, i) => (
+                        <option key={d.deviceId || i} value={d.deviceId}>
+                          {d.label || `${k.label} ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              })
+            : null}
+          {tab === 'devices' && !outputs ? (
             <p className="text-meta text-white/50">
               This browser plays sound on the system’s speaker.
             </p>
           ) : null}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-            <div>
-              <p className="text-label text-white">Blur my background</p>
-              <p className="text-meta text-white/60">
-                {canBlur === false
-                  ? 'Not supported in this browser.'
-                  : !camOn
-                    ? 'Applies when your camera is on.'
-                    : 'Runs on this device, not on a server.'}
-              </p>
-            </div>
-            <button
-              role="switch"
-              aria-checked={!!prefs.blur}
-              aria-label="Blur my background"
-              disabled={canBlur === false || blurBusy}
-              onClick={() => void toggleBlur()}
-              className={cn(
-                'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40',
-                prefs.blur ? 'bg-accent' : 'bg-white/20',
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 size-5 rounded-full bg-white transition-transform',
-                  prefs.blur ? 'translate-x-5' : 'translate-x-0.5',
-                )}
-              />
-            </button>
-          </div>
-          {error ? <p className="text-meta text-[#ff8a8a]">{error}</p> : null}
-          {camera?.track?.getProcessor() ? (
-            <p className="text-meta text-white/50" data-testid="blur-active">
-              Background blur is on.
+          {tab === 'background' ? (
+            <BackgroundPicker
+              ctl={backgrounds}
+              supported={canBlur}
+              camOn={camOn}
+              onError={setError}
+            />
+          ) : null}
+          {tab === 'appearance' ? (
+            <AppearancePicker
+              room={room}
+              appearance={backgrounds.appearance}
+              onChange={backgrounds.setAppearance}
+              supported={canBlur}
+              camOn={camOn}
+            />
+          ) : null}
+          {error || backgrounds.error ? (
+            <p className="text-meta text-[#ff8a8a]">{error ?? backgrounds.error}</p>
+          ) : null}
+          {tab === 'background' &&
+          camera?.track?.getProcessor() &&
+          backgrounds.effective.kind !== 'none' ? (
+            <p className="text-meta text-white/50" data-testid="background-active">
+              {backgrounds.effective.kind === 'blur'
+                ? 'Background blur is on.'
+                : 'Your background is on.'}
             </p>
           ) : null}
         </div>

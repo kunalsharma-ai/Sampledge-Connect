@@ -34,6 +34,8 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('raw', { type: 'application/webhook+json', limit: '64kb' });
   // WeChat webhooks are XML.
   app.useBodyParser('text', { type: ['text/xml', 'application/xml'], limit: '256kb' });
+  // Caption clips and call background images are read per route (common/raw-body.ts): a global
+  // audio/* or image/* parser would swallow attachment uploads, which stream their body.
   // Chat widget origins are configured per module in the database (Integrations), not env.
   const moduleSettings = app.get(ModuleSettingsService);
   app.enableCors({

@@ -1,10 +1,12 @@
 import {
   ERROR_CODES,
+  type NetworkSignupRequest,
   type AdminOverview,
   type AuditPage,
   type AuditQuery,
   type InviteMemberRequest,
   type UserSummary,
+  type UpdateProfileRequest,
   type BrandingInput,
   type BrandingView,
   type AiAskRequest,
@@ -19,6 +21,7 @@ import {
   type AiSuggestedReplies,
   type AiSummary,
   type AiTranscript,
+  type UpdateTranscriptRequest,
   type AiTranslation,
   type ConfirmAiProposalRequest,
   type SummaryRange,
@@ -44,19 +47,47 @@ import {
   type CallJoinResponse,
   type CallMedia,
   type CallsConfig,
+  type ChatThemeId,
+  type ChatThemePolicy,
+  type ChatThemeState,
+  type CallAppearance,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicyInput,
+  type CallBackgroundState,
+  type CallCaptionResponse,
+  type CallMinutesResponse,
+  type ChatExportAccess,
+  type ChatExportRequest,
+  type GenerateMinutesRequest,
+  type MeetingMinutes,
+  type MinutesConfig,
+  type MinutesDocumentQuery,
+  type UpdateMinutesRequest,
   type IntegrationTestResult,
   type IntegrationValues,
   type IntegrationView,
   type Recording,
   type RecordingKind,
   type RecordingList,
+  type FileList,
+  type UserStatus,
+  type DndSchedule,
+  type PresenceInfo,
+  type ListFilesQuery,
   type Conversation,
   type CreateConversationRequest,
   type CreateMeetingRequest,
+  type BookingPage,
+  type CreateBookingPageRequest,
+  type UpdateBookingPageRequest,
   type FindTimesRequest,
   type FindTimesResponse,
   type Meeting,
   type RsvpResponse,
+  type SeriesScope,
+  type RecentSearches,
+  type SearchResponse,
+  type SearchType,
   type UpdateMeetingRequest,
   type WorkingHours,
   type NotifyLevel,
@@ -76,7 +107,7 @@ import {
   type SyncResponse,
 } from '@sampledge/contracts';
 
-import { putFileBytes } from '../lib/localFiles';
+import { downloadDocument, putFileBytes } from '../lib/localFiles';
 import type {
   ListNotificationsQuery,
   ListNotificationsResponse,
@@ -84,6 +115,7 @@ import type {
   MarkNotificationsReadResponse,
 } from './notificationTypes';
 
+import { networkAllows } from '../lib/networkSpace';
 /** Why a request failed, in terms the offline queue can act on. */
 export interface TaskQuery {
   scope: 'mine' | 'created' | 'conversation' | 'all';
@@ -126,12 +158,47 @@ export class TransportError extends Error {
   }
 }
 
+/** GET /v1/search parameters (operators typed in the box are resolved before this). */
+export interface SearchParams {
+  q?: string;
+  types?: SearchType[];
+  from?: string;
+  in?: string;
+  hasFile?: boolean;
+  after?: string;
+  before?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface StatusMediaMeta {
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+export type NetworkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export interface DeviceRegistration {
+  deviceId: string;
+  name: string;
+  platform: 'ios' | 'android';
+}
+
 /** The REST surface the mobile app uses. */
 export interface ApiTransport {
   /** A Session, or a two-step challenge to finish with verifyMfa. */
   login(req: LoginRequest): Promise<LoginResponse>;
   verifyMfa(challengeId: string, code: string): Promise<Session>;
+  /** Swaps the one-time code from a single sign-on return for the session. */
+  ssoExchange(code: string, codeVerifier: string): Promise<Session>;
   refresh(refreshToken: string): Promise<Session>;
+  /** Work session → its SampConnect Network session (linked once). */
+  linkNetwork(req: { device: DeviceRegistration }): Promise<Session>;
+  /** Free personal SampConnect Network account. */
+  signUpPersonal(req: NetworkSignupRequest): Promise<Session>;
+  /** Any SampConnect Network call (`/v1/network/...`): the screens read and act through it. */
+  network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
+  /** Uploads a status photo or video; returns its attachment id for POST /v1/network/statuses. */
+  uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
@@ -143,12 +210,45 @@ export interface ApiTransport {
   /** Short-lived signed download URL, absolute. */
   attachmentUrl(attachmentId: string): Promise<AttachmentUrl>;
   listUsers(): Promise<DirectoryUser[]>;
+  /** Your own profile fields (PATCH /v1/me/profile); "" or null clears one. */
+  updateProfile(req: UpdateProfileRequest): Promise<DirectoryUser>;
+  /** A cropped, compressed square photo as a data URL (PUT /v1/me/avatar). */
+  setAvatar(image: string): Promise<DirectoryUser>;
+  removeAvatar(): Promise<DirectoryUser>;
   listNotifications(q?: ListNotificationsQuery): Promise<ListNotificationsResponse>;
   markNotificationsRead(req: MarkNotificationsReadRequest): Promise<MarkNotificationsReadResponse>;
   setNotifyLevel(conversationId: string, level: NotifyLevel): Promise<Conversation>;
   pushStatus(): Promise<PushStatus>;
   registerPushToken(req: RegisterPushTokenRequest): Promise<PushStatus>;
   callsConfig(): Promise<CallsConfig>;
+  /** Your chat theme, the organization's rules and the theme in effect. */
+  getChatTheme(): Promise<ChatThemeState>;
+  setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
+  /** Owners and admins: the default theme and which themes people may choose. */
+  setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** Your background in calls, the organization rules and the branding for the company one. */
+  getCallBackground(): Promise<CallBackgroundState>;
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
+  /** Sends a JPEG kept on this device as your own background (selects it). */
+  uploadCallBackground(localUri: string, name?: string): Promise<CallBackgroundState>;
+  removeCallBackgroundImage(imageId?: string): Promise<CallBackgroundState>;
+  setCallAppearance(appearance: CallAppearance): Promise<CallBackgroundState>;
+  addOrganizationCallBackground(localUri: string, name?: string): Promise<CallBackgroundState>;
+  removeOrganizationCallBackground(imageId: string): Promise<CallBackgroundState>;
+  /** Owners and admins: the organization default and whether the company background is required. */
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState>;
+  minutesConfig(): Promise<MinutesConfig>;
+  callMinutes(callId: string): Promise<CallMinutesResponse>;
+  generateMinutes(callId: string, req: GenerateMinutesRequest): Promise<MeetingMinutes>;
+  listMinutes(conversationId: string): Promise<MeetingMinutes[]>;
+  updateMinutes(minutesId: string, req: UpdateMinutesRequest): Promise<MeetingMinutes>;
+  shareMinutes(minutesId: string): Promise<MeetingMinutes>;
+  deleteMinutes(minutesId: string): Promise<void>;
+  /** Saves the minutes as PDF or Word on this device; returns where. */
+  downloadMinutes(minutesId: string, q: MinutesDocumentQuery, fileName: string): Promise<string>;
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess>;
+  /** Saves the conversation as PDF, Word or text on this device; returns where. */
+  exportChat(conversationId: string, req: ChatExportRequest, fileName: string): Promise<string>;
   activeCalls(): Promise<Call[]>;
   getCall(callId: string): Promise<Call>;
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
@@ -173,13 +273,25 @@ export interface ApiTransport {
   getMeeting(meetingId: string): Promise<Meeting>;
   createMeeting(req: CreateMeetingRequest): Promise<Meeting>;
   updateMeeting(meetingId: string, req: UpdateMeetingRequest): Promise<Meeting>;
-  cancelMeeting(meetingId: string): Promise<Meeting>;
-  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting>;
+  /** `scope: 'series'` cancels every upcoming meeting of a recurring series. */
+  cancelMeeting(meetingId: string, scope?: SeriesScope): Promise<Meeting>;
+  /** `scope: 'series'` answers for every upcoming meeting of a recurring series. */
+  rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope?: SeriesScope,
+  ): Promise<Meeting>;
   findTimes(req: FindTimesRequest): Promise<FindTimesResponse>;
   getWorkingHours(): Promise<WorkingHours>;
   setWorkingHours(hours: WorkingHours): Promise<WorkingHours>;
   /** Recordings library, newest first; page with `before` = the previous page's nextBefore. */
   listRecordings(q: RecordingsQuery): Promise<RecordingList>;
+  /** GET /v1/files: every file in conversations you can read, newest first. */
+  listFiles(q: ListFilesQuery): Promise<FileList>;
+  /** PUT /v1/me/status: replaces your availability and custom status. */
+  setStatus(status: UserStatus): Promise<PresenceInfo>;
+  /** PUT /v1/me/dnd-schedule: replaces your quiet hours. */
+  setDndSchedule(schedule: DndSchedule): Promise<PresenceInfo>;
   /** Pins or unpins for everyone in the conversation; returns the updated message. */
   pinMessage(messageId: string, pinned: boolean): Promise<Message>;
   /** Messages you saved for later, newest first. */
@@ -200,6 +312,8 @@ export interface ApiTransport {
   cancelScheduled(id: string): Promise<ScheduledMessage>;
   sendScheduledNow(id: string): Promise<ScheduledMessage>;
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation>;
+  /** PUT /v1/conversations/:id/forwarding (private channels and groups). */
+  setForwarding(conversationId: string, allowed: boolean): Promise<Conversation>;
   listTasks(q: TaskQuery): Promise<Task[]>;
   getTask(taskId: string): Promise<Task>;
   createTask(req: CreateTaskRequest): Promise<Task>;
@@ -209,6 +323,14 @@ export interface ApiTransport {
   createApproval(req: CreateApprovalRequest): Promise<Approval>;
   decideApproval(approvalId: string, req: DecideApprovalRequest): Promise<Approval>;
   cancelApproval(approvalId: string): Promise<Approval>;
+  listBookingPages(): Promise<BookingPage[]>;
+  /** Universal Search: only what you may open (docs/search.md). */
+  search(q: SearchParams): Promise<SearchResponse>;
+  getRecentSearches(): Promise<string[]>;
+  setRecentSearches(recent: readonly string[]): Promise<string[]>;
+  createBookingPage(req: CreateBookingPageRequest): Promise<BookingPage>;
+  updateBookingPage(id: string, req: UpdateBookingPageRequest): Promise<BookingPage>;
+  deleteBookingPage(id: string): Promise<{ deleted: true }>;
   getBranding(): Promise<BrandingView>;
   adminOverview(): Promise<AdminOverview>;
   auditLog(q: AuditQuery): Promise<AuditPage>;
@@ -233,9 +355,13 @@ export interface ApiTransport {
   aiConfirm(proposalId: string, req: ConfirmAiProposalRequest): Promise<AiProposal>;
   aiDismiss(proposalId: string): Promise<AiProposal>;
   aiTranscript(attachmentId: string, queue?: boolean): Promise<AiTranscript>;
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript>;
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript>;
   deleteRecording(recordingId: string): Promise<void>;
   startCallRecording(callId: string): Promise<Call>;
   stopCallRecording(callId: string): Promise<Call>;
+  /** Live captions: a few seconds of my own microphone, sent as raw audio; returns the text. */
+  transcribeCaption(callId: string, clip: Blob): Promise<CallCaptionResponse>;
   /** Let a guest in from the lobby, or turn them away (anyone in the call; first answer wins). */
   lobbyDecision(callId: string, guestId: string, decision: 'admit' | 'deny'): Promise<Call>;
   guestLink(meetingId: string, guestId: string): Promise<{ url: string }>;
@@ -282,6 +408,17 @@ export interface DirectoryUser {
   title: string | null;
   status: string;
   presence?: string;
+  /** Profile photo as a full URL (resolved against the server address), or null for initials. */
+  avatarUrl?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  /** IANA time zone, e.g. "Asia/Kolkata". */
+  timeZone?: string | null;
+  /** Availability and custom status (absent on older servers). */
+  userStatus?: UserStatus | null;
+  /** Quiet hours, when set. */
+  dndSchedule?: DndSchedule | null;
 }
 
 export interface HttpTransportOptions {
@@ -289,6 +426,8 @@ export interface HttpTransportOptions {
   getAccessToken: () => Promise<string | undefined>;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** A SampConnect Network session: organization-only routes are refused without a request. */
+  networkSpace?: boolean;
 }
 
 /** fetch-based client for the SampConnect API (`/v1/...`). */
@@ -307,8 +446,25 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', '/v1/auth/mfa/verify', { challengeId, code }, false);
   }
 
+  ssoExchange(code: string, codeVerifier: string): Promise<Session> {
+    return this.request('POST', '/v1/auth/sso/exchange', { code, codeVerifier }, false);
+  }
+
   refresh(refreshToken: string): Promise<Session> {
     return this.request('POST', '/v1/auth/refresh', { refreshToken }, false);
+  }
+
+  linkNetwork(req: { device: DeviceRegistration }): Promise<Session> {
+    return this.request('POST', '/v1/network/link', req);
+  }
+
+  signUpPersonal(req: NetworkSignupRequest): Promise<Session> {
+    return this.request('POST', '/v1/network/public/signup', req, false);
+  }
+
+  network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
+    if (!path.startsWith('/v1/network/')) throw new Error(`Not a network path: ${path}`);
+    return this.request<T>(method, path, body).then((r) => withAbsoluteMedia(r, this.opts.baseUrl));
   }
 
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck> {
@@ -343,16 +499,44 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  async uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string> {
+    const ticket = await this.request<UploadTicket>('POST', '/v1/network/status-media', meta);
+    await this.putRaw(ticket.uploadUrl, localUri, 'application/octet-stream');
+    await this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+    return ticket.uploadId;
+  }
+
   async uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment> {
     const ticket = await this.request<UploadTicket>('POST', '/v1/uploads', req);
+    await this.putRaw(ticket.uploadUrl, localUri, 'application/octet-stream');
+    return this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+  }
+
+  /** Streams a file on this device as the raw request body. Returns the response text. */
+  private async putRaw(
+    path: string,
+    localUri: string,
+    contentType: string,
+    method: 'PUT' | 'POST' = 'PUT',
+  ): Promise<string> {
     const token = await this.opts.getAccessToken();
     if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
     let res: { status: number; body: string };
     try {
-      res = await putFileBytes(new URL(ticket.uploadUrl, this.opts.baseUrl).toString(), localUri, {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/octet-stream',
-      });
+      res = await putFileBytes(
+        new URL(path, this.opts.baseUrl).toString(),
+        localUri,
+        { authorization: `Bearer ${token}`, 'content-type': contentType },
+        method,
+      );
     } catch (err) {
       throw new TransportError(err instanceof Error ? err.message : 'Upload failed', 'network');
     }
@@ -370,11 +554,7 @@ export class HttpTransport implements ApiTransport {
         error?.retryAfterMs,
       );
     }
-    return this.request(
-      'POST',
-      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
-      undefined,
-    );
+    return res.body;
   }
 
   async attachmentUrl(attachmentId: string): Promise<AttachmentUrl> {
@@ -388,7 +568,34 @@ export class HttpTransport implements ApiTransport {
 
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
   listUsers(): Promise<DirectoryUser[]> {
-    return this.request('GET', '/v1/users', undefined);
+    return this.request<DirectoryUser[]>('GET', '/v1/users', undefined).then((l) =>
+      l.map((u) => this.withAvatar(u)),
+    );
+  }
+
+  /** Photo paths come relative to the server; images need the full address. */
+  private withAvatar<T extends { avatarUrl?: string | null }>(u: T): T {
+    return u.avatarUrl
+      ? { ...u, avatarUrl: new URL(u.avatarUrl, this.opts.baseUrl).toString() }
+      : u;
+  }
+
+  updateProfile(req: UpdateProfileRequest): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('PATCH', '/v1/me/profile', req).then((u) =>
+      this.withAvatar(u),
+    );
+  }
+
+  setAvatar(image: string): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('PUT', '/v1/me/avatar', { image }).then((u) =>
+      this.withAvatar(u),
+    );
+  }
+
+  removeAvatar(): Promise<DirectoryUser> {
+    return this.request<DirectoryUser>('DELETE', '/v1/me/avatar', undefined).then((u) =>
+      this.withAvatar(u),
+    );
   }
 
   /** Mentions and replies addressed to you, newest first. */
@@ -422,6 +629,189 @@ export class HttpTransport implements ApiTransport {
   }
 
   /** Whether this deployment has a media server (calls are hidden when it does not). */
+  getChatTheme(): Promise<ChatThemeState> {
+    return this.request('GET', '/v1/me/chat-theme', undefined);
+  }
+
+  setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState> {
+    return this.request('PUT', '/v1/me/chat-theme', { themeId });
+  }
+
+  setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
+    return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getCallBackground(): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('GET', '/v1/me/call-background', undefined).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/me/call-background', choice).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  async uploadCallBackground(localUri: string, name?: string): Promise<CallBackgroundState> {
+    const q = name ? `?name=${encodeURIComponent(name)}` : '';
+    const body = await this.putRaw(`/v1/me/call-backgrounds${q}`, localUri, 'image/jpeg', 'POST');
+    return this.withBackgroundUrl(JSON.parse(body) as CallBackgroundState);
+  }
+
+  removeCallBackgroundImage(imageId?: string): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>(
+      'DELETE',
+      imageId
+        ? `/v1/me/call-backgrounds/${encodeURIComponent(imageId)}`
+        : '/v1/me/call-background/image',
+      undefined,
+    ).then((s) => this.withBackgroundUrl(s));
+  }
+
+  setCallAppearance(appearance: CallAppearance): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/me/call-appearance', appearance).then(
+      (s) => this.withBackgroundUrl(s),
+    );
+  }
+
+  async addOrganizationCallBackground(
+    localUri: string,
+    name?: string,
+  ): Promise<CallBackgroundState> {
+    const q = name ? `?name=${encodeURIComponent(name)}` : '';
+    const body = await this.putRaw(
+      `/v1/admin/call-backgrounds/images${q}`,
+      localUri,
+      'image/jpeg',
+      'POST',
+    );
+    return this.withBackgroundUrl(JSON.parse(body) as CallBackgroundState);
+  }
+
+  removeOrganizationCallBackground(imageId: string): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>(
+      'DELETE',
+      `/v1/admin/call-backgrounds/images/${encodeURIComponent(imageId)}`,
+      undefined,
+    ).then((s) => this.withBackgroundUrl(s));
+  }
+
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/admin/call-backgrounds', policy).then(
+      (s) => this.withBackgroundUrl(s),
+    );
+  }
+
+  minutesConfig(): Promise<MinutesConfig> {
+    return this.request('GET', '/v1/minutes/config', undefined);
+  }
+
+  callMinutes(callId: string): Promise<CallMinutesResponse> {
+    return this.request('GET', `/v1/calls/${encodeURIComponent(callId)}/minutes`, undefined);
+  }
+
+  generateMinutes(callId: string, req: GenerateMinutesRequest): Promise<MeetingMinutes> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/minutes`, req);
+  }
+
+  async listMinutes(conversationId: string): Promise<MeetingMinutes[]> {
+    const r = await this.request<{ items: MeetingMinutes[] }>(
+      'GET',
+      `/v1/minutes?conversationId=${encodeURIComponent(conversationId)}`,
+      undefined,
+    );
+    return r.items;
+  }
+
+  updateMinutes(minutesId: string, req: UpdateMinutesRequest): Promise<MeetingMinutes> {
+    return this.request('PATCH', `/v1/minutes/${encodeURIComponent(minutesId)}`, req);
+  }
+
+  shareMinutes(minutesId: string): Promise<MeetingMinutes> {
+    return this.request('POST', `/v1/minutes/${encodeURIComponent(minutesId)}/share`, {});
+  }
+
+  async deleteMinutes(minutesId: string): Promise<void> {
+    await this.request('DELETE', `/v1/minutes/${encodeURIComponent(minutesId)}`, undefined);
+  }
+
+  async downloadMinutes(
+    minutesId: string,
+    q: MinutesDocumentQuery,
+    fileName: string,
+  ): Promise<string> {
+    const qs = new URLSearchParams({
+      format: q.format ?? 'pdf',
+      ...(q.template ? { template: q.template } : {}),
+      ...(q.transcript ? { transcript: '1' } : {}),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    return this.document(
+      `/v1/minutes/${encodeURIComponent(minutesId)}/document?${qs}`,
+      'GET',
+      undefined,
+      fileName,
+    );
+  }
+
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess> {
+    return this.request(
+      'GET',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/export`,
+      undefined,
+    );
+  }
+
+  exportChat(conversationId: string, req: ChatExportRequest, fileName: string): Promise<string> {
+    return this.document(
+      `/v1/conversations/${encodeURIComponent(conversationId)}/export`,
+      'POST',
+      req,
+      fileName,
+    );
+  }
+
+  private async document(
+    path: string,
+    method: string,
+    body: unknown,
+    fileName: string,
+  ): Promise<string> {
+    const token = await this.opts.getAccessToken();
+    if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
+    try {
+      return await downloadDocument(
+        new URL(path, this.opts.baseUrl).toString(),
+        {
+          method,
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(body ? { 'content-type': 'application/json' } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        },
+        fileName,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed';
+      const status = (err as { status?: number }).status;
+      // The API answered (a refusal): its own words. Otherwise the connection failed.
+      throw status
+        ? new TransportError(msg, 'api', codeForStatus(status))
+        : new TransportError(msg, 'network');
+    }
+  }
+
+  private withBackgroundUrl(s: CallBackgroundState): CallBackgroundState {
+    const abs = (u: string) => new URL(u, this.opts.baseUrl).toString();
+    return {
+      ...s,
+      customImageUrl: s.customImageUrl ? abs(s.customImageUrl) : null,
+      uploads: (s.uploads ?? []).map((u) => ({ ...u, url: abs(u.url) })),
+    };
+  }
+
   callsConfig(): Promise<CallsConfig> {
     return this.request('GET', '/v1/calls/config', undefined);
   }
@@ -516,13 +906,20 @@ export class HttpTransport implements ApiTransport {
     return this.request('PATCH', `/v1/meetings/${encodeURIComponent(meetingId)}`, req);
   }
 
-  cancelMeeting(meetingId: string): Promise<Meeting> {
-    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/cancel`, {});
+  cancelMeeting(meetingId: string, scope: SeriesScope = 'occurrence'): Promise<Meeting> {
+    return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/cancel`, {
+      scope,
+    });
   }
 
-  rsvp(meetingId: string, response: Exclude<RsvpResponse, 'pending'>): Promise<Meeting> {
+  rsvp(
+    meetingId: string,
+    response: Exclude<RsvpResponse, 'pending'>,
+    scope: SeriesScope = 'occurrence',
+  ): Promise<Meeting> {
     return this.request('POST', `/v1/meetings/${encodeURIComponent(meetingId)}/rsvp`, {
       response,
+      scope,
     });
   }
 
@@ -545,6 +942,24 @@ export class HttpTransport implements ApiTransport {
     if (q.before) p.set('before', q.before);
     p.set('limit', String(q.limit ?? 30));
     return this.request('GET', `/v1/recordings?${p.toString()}`, undefined);
+  }
+
+  setStatus(status: UserStatus): Promise<PresenceInfo> {
+    return this.request('PUT', '/v1/me/status', status);
+  }
+
+  setDndSchedule(schedule: DndSchedule): Promise<PresenceInfo> {
+    return this.request('PUT', '/v1/me/dnd-schedule', schedule);
+  }
+
+  listFiles(q: ListFilesQuery): Promise<FileList> {
+    const p = new URLSearchParams();
+    for (const k of ['q', 'kind', 'in', 'from', 'before'] as const) {
+      const v = q[k];
+      if (v) p.set(k, String(v));
+    }
+    p.set('limit', String(q.limit ?? 40));
+    return this.request('GET', `/v1/files?${p.toString()}`, undefined);
   }
 
   deleteRecording(recordingId: string): Promise<void> {
@@ -636,6 +1051,38 @@ export class HttpTransport implements ApiTransport {
 
   listApprovals(q: ApprovalQuery): Promise<Approval[]> {
     return this.request('GET', `/v1/approvals?${workQuery(q)}`, undefined);
+  }
+
+  search(q: SearchParams): Promise<SearchResponse> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q))
+      if (v !== undefined && v !== null && v !== '')
+        p.set(k, Array.isArray(v) ? v.join(',') : String(v));
+    return this.request('GET', `/v1/search?${p.toString()}`, undefined);
+  }
+
+  async getRecentSearches(): Promise<string[]> {
+    return (await this.request<RecentSearches>('GET', '/v1/search/recent', undefined)).recent;
+  }
+
+  async setRecentSearches(recent: readonly string[]): Promise<string[]> {
+    return (await this.request<RecentSearches>('PUT', '/v1/search/recent', { recent })).recent;
+  }
+
+  listBookingPages(): Promise<BookingPage[]> {
+    return this.request('GET', '/v1/booking-pages', undefined);
+  }
+
+  createBookingPage(req: CreateBookingPageRequest): Promise<BookingPage> {
+    return this.request('POST', '/v1/booking-pages', req);
+  }
+
+  updateBookingPage(id: string, req: UpdateBookingPageRequest): Promise<BookingPage> {
+    return this.request('PATCH', `/v1/booking-pages/${encodeURIComponent(id)}`, req);
+  }
+
+  deleteBookingPage(id: string): Promise<{ deleted: true }> {
+    return this.request('DELETE', `/v1/booking-pages/${encodeURIComponent(id)}`, undefined);
   }
 
   getApproval(approvalId: string): Promise<Approval> {
@@ -759,6 +1206,26 @@ export class HttpTransport implements ApiTransport {
     );
   }
 
+  updateTranscript(attachmentId: string, req: UpdateTranscriptRequest): Promise<AiTranscript> {
+    return this.request('PATCH', `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}`, req);
+  }
+
+  translateTranscript(attachmentId: string, language: string): Promise<AiTranscript> {
+    return this.request(
+      'POST',
+      `/v1/ai/transcripts/${encodeURIComponent(attachmentId)}/translations`,
+      { language },
+    );
+  }
+
+  setForwarding(conversationId: string, allowed: boolean): Promise<Conversation> {
+    return this.request(
+      'PUT',
+      `/v1/conversations/${encodeURIComponent(conversationId)}/forwarding`,
+      { allowed },
+    );
+  }
+
   setPostingPolicy(conversationId: string, policy: PostingPolicy): Promise<Conversation> {
     return this.request(
       'PUT',
@@ -773,6 +1240,10 @@ export class HttpTransport implements ApiTransport {
       `/v1/messages/${encodeURIComponent(messageId)}/bookmark`,
       undefined,
     );
+  }
+
+  transcribeCaption(callId: string, clip: Blob): Promise<CallCaptionResponse> {
+    return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/captions`, clip);
   }
 
   startCallRecording(callId: string): Promise<Call> {
@@ -840,9 +1311,14 @@ export class HttpTransport implements ApiTransport {
   }
 
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
+    if (this.opts.networkSpace && !networkAllows(method, path))
+      throw new TransportError('This is not available in SampConnect Network', 'api', 'FORBIDDEN');
     const hasBody = method !== 'GET' && body !== undefined;
     const headers: Record<string, string> = { accept: 'application/json' };
-    if (hasBody) headers['content-type'] = 'application/json';
+    // Audio clips go as they are; everything else as JSON.
+    const raw = typeof Blob !== 'undefined' && body instanceof Blob;
+    if (hasBody)
+      headers['content-type'] = raw ? body.type || 'application/octet-stream' : 'application/json';
     if (auth) {
       const token = await this.opts.getAccessToken();
       if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
@@ -855,7 +1331,7 @@ export class HttpTransport implements ApiTransport {
       res = await this.fetchImpl(new URL(path, this.opts.baseUrl).toString(), {
         method,
         headers,
-        body: hasBody ? JSON.stringify(body) : undefined,
+        body: hasBody ? (raw ? body : JSON.stringify(body)) : undefined,
         signal: controller.signal,
       });
     } catch (err) {
@@ -918,7 +1394,12 @@ export class NoServerTransport implements ApiTransport {
   }
   login = async (): Promise<LoginResponse> => this.fail();
   verifyMfa = async (): Promise<Session> => this.fail();
+  ssoExchange = async (): Promise<Session> => this.fail();
   refresh = async (): Promise<Session> => this.fail();
+  linkNetwork = async (): Promise<Session> => this.fail();
+  signUpPersonal = async (): Promise<Session> => this.fail();
+  network = async <T>(): Promise<T> => this.fail();
+  uploadStatusMedia = async (): Promise<string> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
   ackReceipt = async (): Promise<Receipt> => this.fail();
@@ -928,6 +1409,9 @@ export class NoServerTransport implements ApiTransport {
   uploadFile = async (): Promise<Attachment> => this.fail();
   attachmentUrl = async (): Promise<AttachmentUrl> => this.fail();
   listUsers = async (): Promise<DirectoryUser[]> => this.fail();
+  updateProfile = async (): Promise<DirectoryUser> => this.fail();
+  setAvatar = async (): Promise<DirectoryUser> => this.fail();
+  removeAvatar = async (): Promise<DirectoryUser> => this.fail();
   listNotifications = async (): Promise<ListNotificationsResponse> => this.fail();
   markNotificationsRead = async (): Promise<MarkNotificationsReadResponse> => this.fail();
   setNotifyLevel = async (): Promise<Conversation> => this.fail();
@@ -958,6 +1442,9 @@ export class NoServerTransport implements ApiTransport {
   getWorkingHours = async (): Promise<WorkingHours> => this.fail();
   setWorkingHours = async (): Promise<WorkingHours> => this.fail();
   listRecordings = async (): Promise<RecordingList> => this.fail();
+  listFiles = async (): Promise<FileList> => this.fail();
+  setStatus = async (): Promise<PresenceInfo> => this.fail();
+  setDndSchedule = async (): Promise<PresenceInfo> => this.fail();
   deleteRecording = async (): Promise<void> => this.fail();
   pinMessage = async (): Promise<Message> => this.fail();
   listBookmarks = async (): Promise<Bookmark[]> => this.fail();
@@ -972,6 +1459,7 @@ export class NoServerTransport implements ApiTransport {
   cancelScheduled = async (): Promise<ScheduledMessage> => this.fail();
   sendScheduledNow = async (): Promise<ScheduledMessage> => this.fail();
   setPostingPolicy = async (): Promise<Conversation> => this.fail();
+  setForwarding = async (): Promise<Conversation> => this.fail();
   listTasks = async (): Promise<Task[]> => this.fail();
   getTask = async (): Promise<Task> => this.fail();
   createTask = async (): Promise<Task> => this.fail();
@@ -981,6 +1469,13 @@ export class NoServerTransport implements ApiTransport {
   createApproval = async (): Promise<Approval> => this.fail();
   decideApproval = async (): Promise<Approval> => this.fail();
   cancelApproval = async (): Promise<Approval> => this.fail();
+  listBookingPages = async (): Promise<BookingPage[]> => this.fail();
+  search = async (): Promise<SearchResponse> => this.fail();
+  getRecentSearches = async (): Promise<string[]> => this.fail();
+  setRecentSearches = async (): Promise<string[]> => this.fail();
+  createBookingPage = async (): Promise<BookingPage> => this.fail();
+  updateBookingPage = async (): Promise<BookingPage> => this.fail();
+  deleteBookingPage = async (): Promise<{ deleted: true }> => this.fail();
   getBranding = async (): Promise<BrandingView> => this.fail();
   adminOverview = async (): Promise<AdminOverview> => this.fail();
   auditLog = async (): Promise<AuditPage> => this.fail();
@@ -1002,8 +1497,32 @@ export class NoServerTransport implements ApiTransport {
   aiConfirm = async (): Promise<AiProposal> => this.fail();
   aiDismiss = async (): Promise<AiProposal> => this.fail();
   aiTranscript = async (): Promise<AiTranscript> => this.fail();
+  updateTranscript = async (): Promise<AiTranscript> => this.fail();
+  translateTranscript = async (): Promise<AiTranscript> => this.fail();
   startCallRecording = async (): Promise<Call> => this.fail();
   stopCallRecording = async (): Promise<Call> => this.fail();
+  transcribeCaption = async (): Promise<CallCaptionResponse> => this.fail();
+  getChatTheme = async (): Promise<ChatThemeState> => this.fail();
+  setChatTheme = async (): Promise<ChatThemeState> => this.fail();
+  setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  removeCallBackgroundImage = async (): Promise<CallBackgroundState> => this.fail();
+  setCallAppearance = async (): Promise<CallBackgroundState> => this.fail();
+  addOrganizationCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  removeOrganizationCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackgroundPolicy = async (): Promise<CallBackgroundState> => this.fail();
+  minutesConfig = async (): Promise<MinutesConfig> => this.fail();
+  callMinutes = async (): Promise<CallMinutesResponse> => this.fail();
+  generateMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  listMinutes = async (): Promise<MeetingMinutes[]> => this.fail();
+  updateMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  shareMinutes = async (): Promise<MeetingMinutes> => this.fail();
+  deleteMinutes = async (): Promise<void> => this.fail();
+  downloadMinutes = async (): Promise<string> => this.fail();
+  chatExportAccess = async (): Promise<ChatExportAccess> => this.fail();
+  exportChat = async (): Promise<string> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();
@@ -1011,4 +1530,29 @@ export class NoServerTransport implements ApiTransport {
   saveIntegration = async (): Promise<IntegrationView> => this.fail();
   testIntegration = async (): Promise<IntegrationTestResult> => this.fail();
   resetIntegration = async (): Promise<IntegrationView> => this.fail();
+}
+
+/**
+ * Status media come back with a signed path that is relative when the server has no public API
+ * URL set; the phone needs it absolute to show the photo or video.
+ */
+export function withAbsoluteMedia<T>(value: T, baseUrl: string): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object') return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (
+        k === 'media' &&
+        x &&
+        typeof x === 'object' &&
+        typeof (x as { url?: unknown }).url === 'string'
+      ) {
+        const m = x as { url: string };
+        out[k] = { ...m, url: m.url.startsWith('/') ? new URL(m.url, baseUrl).toString() : m.url };
+      } else out[k] = walk(x);
+    }
+    return out;
+  };
+  return walk(value) as T;
 }

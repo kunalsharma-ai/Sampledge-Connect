@@ -102,6 +102,14 @@ phone could register the same scheme, the app adds its own PKCE on top:
 4. The app calls `POST /v1/auth/sso/exchange` with `{ code, codeVerifier }` and gets the usual
    session. A wrong or missing verifier answers 401 and revokes the session that code was for.
 
+In the app, the sign-in screen asks `GET /v1/auth/sso/:slug` once the server and workspace are
+typed. When SSO is on it shows the button with the admin's label. An SSO-only workspace hides the
+password form behind "Workspace owner? Sign in with a password". Closing the browser just returns
+to the sign-in screen, and the server's reason for a refusal (for example, not a member) is
+shown under the button. The helpers are in `apps/mobile/src/lib/sso.ts`, the browser flow in
+`apps/mobile/src/auth/ssoFlow.ts`, and `scripts/e2e-sso.cjs` runs the whole flow against a small
+test identity provider.
+
 Allowed app schemes: `sampledge://` always; `exp://` (Expo Go) only when `NODE_ENV` isn't
 `production`. Any other scheme is treated as an unknown web origin and sent to the web login
 page. No setting is needed at your identity provider: it still only redirects to
@@ -109,7 +117,6 @@ page. No setting is needed at your identity provider: it still only redirects to
 
 ## Planned
 
-- The SSO button in the mobile app (the server side above is ready).
 - SAML 2.0 and SCIM provisioning.
 - Passkeys and security keys (WebAuthn).
 - An organization policy that requires two-step verification for admins or everyone.

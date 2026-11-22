@@ -38,7 +38,14 @@ const PUBLIC = new Set([
   'POST /v1/connectors/webhooks/:key', // provider signature; unknown keys answer 404
   'GET /v1/connectors/webhooks/:key', // WeChat URL verification (signed query)
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
+  'GET /v1/avatars/:tenantId/:key', // profile photo, 128-bit random key per photo
+  'GET /v1/call-backgrounds/:tenantId/:key', // call background image, 128-bit random key
   'GET /v1/recordings/export/:tenantId', // signed, expiring URL
+  'POST /v1/network/public/signup', // free personal account (rate limited)
+  'GET /v1/network/public/profiles/:handle', // public profile page, only what the owner made public
+  'GET /v1/network/public/communities/:slug', // public community page
+  'GET /v1/network/public/invites/:token', // invite link token
+  'GET /v1/network/public/community-links/:token', // community invite link token
   'GET /v1/book/:slug', // public booking page (rate limited)
   'GET /v1/book/:slug/slots',
   'POST /v1/book/:slug',
@@ -46,6 +53,7 @@ const PUBLIC = new Set([
   'GET /v1/guest/:token/calendar.ics',
   'GET /v1/guest/:token/chat',
   'POST /v1/guest/:token/chat',
+  'POST /v1/guest/:token/captions',
   'GET /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby/leave',

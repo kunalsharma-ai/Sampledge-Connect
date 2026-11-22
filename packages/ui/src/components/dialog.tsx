@@ -14,10 +14,13 @@ export function DialogContent({
   children,
   title,
   description,
+  bodyClassName,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   title: string;
   description?: string;
+  /** Classes for the wrapper around children (e.g. a flex column for a scrolling body). */
+  bodyClassName?: string;
 }) {
   return (
     <DialogPrimitive.Portal>
@@ -38,7 +41,7 @@ export function DialogContent({
         ) : (
           <DialogPrimitive.Description className="sr-only">{title}</DialogPrimitive.Description>
         )}
-        <div className="mt-5">{children}</div>
+        <div className={cn('mt-5', bodyClassName)}>{children}</div>
         <DialogPrimitive.Close
           className="absolute right-4 top-4 rounded-sm p-1 text-text-subtle hover:bg-surface-raised hover:text-text"
           aria-label="Close"

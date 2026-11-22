@@ -1,14 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
+import { forwardedOf } from '@sampledge/contracts';
 import { memo } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LocalMessage } from '../db/store';
 import { segmentMentions, type MentionCandidate } from '../lib/mentions';
-import { callMeta, meetingMeta, recordingMeta, systemText } from '../lib/systemMessages';
+import {
+  callMeta,
+  meetingMeta,
+  minutesMeta,
+  recordingMeta,
+  systemText,
+} from '../lib/systemMessages';
 import { workMeta } from '../lib/work';
 import { alpha, fonts, radius, space } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
+import { useChatHalo } from './ChatBackdrop';
 import { AttachmentList } from './Attachments';
 import { PollCard } from './PollCard';
 import { STATUS_LABEL, StatusIcon } from './StatusIcon';
@@ -62,6 +70,7 @@ function MessageBubbleImpl({
   nameOf,
 }: Props) {
   const { theme, motion } = useTheme();
+  const halo = useChatHalo();
   const c = theme.colors;
   const unsent = m.status === 'queued' || m.status === 'sending' || m.status === 'failed';
   const deleted = !!m.deletedAt;
@@ -72,6 +81,7 @@ function MessageBubbleImpl({
 
   if (m.messageType === 'system') return <SystemEvent message={m} animate={animate} />;
   const segments = deleted ? [] : segmentMentions(m.text, mentioned);
+  const fwd = forwardedOf(m);
 
   return (
     <Animated.View
@@ -83,7 +93,7 @@ function MessageBubbleImpl({
       ]}
     >
       {showSender && !own ? (
-        <Text variant="label" tone="muted" style={styles.sender}>
+        <Text variant="label" tone="muted" style={[styles.sender, halo]}>
           {senderName}
         </Text>
       ) : null}
@@ -134,6 +144,44 @@ function MessageBubbleImpl({
                 ? 'Message deleted'
                 : (reply.text ?? 'Original message is not saved on this device')}
             </Text>
+          </Pressable>
+        ) : null}
+        {fwd && !deleted ? (
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/conversation/[id]',
+                params: { id: fwd.conversationId, focus: fwd.messageId },
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Forwarded message from ${nameOf(fwd.senderId)}${fwd.from ? ` in ${fwd.from}` : ''}: ${fwd.text}. Double tap to open the original`}
+            style={[
+              styles.quote,
+              {
+                borderLeftColor: own ? alpha(textColor, 0.7) : c.accentSecondary,
+                backgroundColor: alpha(own ? '#000000' : c.accentSecondary, own ? 0.12 : 0.08),
+              },
+            ]}
+          >
+            <View style={styles.fwdHead}>
+              <Ionicons name="arrow-redo" size={12} color={alpha(textColor, 0.75)} />
+              <Text variant="meta" style={{ color: textColor, opacity: 0.75 }} numberOfLines={1}>
+                Forwarded{fwd.from ? ` from ${fwd.from}` : ''}
+              </Text>
+            </View>
+            <Text
+              variant="label"
+              style={{ color: own ? textColor : c.accentSecondary }}
+              numberOfLines={1}
+            >
+              {nameOf(fwd.senderId)}
+            </Text>
+            {fwd.text ? (
+              <Text variant="body" style={{ color: textColor }} numberOfLines={8}>
+                {fwd.text}
+              </Text>
+            ) : null}
           </Pressable>
         ) : null}
         {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
@@ -257,6 +305,7 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
   const call = callMeta(m.metadata);
   const meeting = meetingMeta(m.metadata);
   const rec = recordingMeta(m.metadata);
+  const mins = minutesMeta(m.metadata);
   const missed =
     call?.status === 'missed' ||
     call?.status === 'declined' ||
@@ -272,9 +321,49 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
         ? 'calendar'
         : 'information-circle-outline';
   const label = systemText(m.text, m.metadata);
+  const minutesCallId =
+    mins && !mins.deleted ? mins.callId : call?.status === 'ended' ? call.callId : undefined;
   const openMeeting = meeting?.meetingId
     ? () => router.push({ pathname: '/meeting/[id]', params: { id: meeting.meetingId! } })
-    : undefined;
+    : minutesCallId
+      ? () => router.push({ pathname: '/minutes/[callId]', params: { callId: minutesCallId } })
+      : undefined;
+  if (mins)
+    return (
+      <Animated.View
+        entering={animate && motion.base ? FadeInDown.duration(motion.base) : undefined}
+        style={styles.systemRow}
+      >
+        <Pressable
+          onPress={openMeeting}
+          disabled={!openMeeting}
+          accessibilityRole={openMeeting ? 'button' : 'text'}
+          accessibilityLabel={
+            mins.deleted
+              ? 'Minutes of meeting deleted'
+              : `Minutes of meeting, ${mins.title ?? ''}. Open minutes`
+          }
+          style={[styles.minutesCard, { borderColor: c.border, backgroundColor: c.surface }]}
+        >
+          <Ionicons
+            name={mins.deleted ? 'document-outline' : 'document-text'}
+            size={22}
+            color={mins.deleted ? c.textSubtle : c.accent}
+          />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" tone={mins.deleted ? 'subtle' : undefined} numberOfLines={1}>
+              {mins.deleted ? 'Minutes of meeting deleted' : (mins.title ?? 'Minutes of meeting')}
+            </Text>
+            <Text variant="meta" tone="muted">
+              {mins.deleted
+                ? time(m.createdAt)
+                : `Minutes · ${mins.decisions ?? 0} decision${mins.decisions === 1 ? '' : 's'} · ${mins.actionItems ?? 0} action${mins.actionItems === 1 ? '' : 's'} · ${time(m.createdAt)}`}
+            </Text>
+          </View>
+          {openMeeting ? <Ionicons name="chevron-forward" size={14} color={c.textSubtle} /> : null}
+        </Pressable>
+      </Animated.View>
+    );
   if (work)
     return (
       <Animated.View
@@ -293,7 +382,7 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
         onPress={openMeeting}
         disabled={!openMeeting}
         accessibilityRole={openMeeting ? 'button' : 'text'}
-        accessibilityLabel={`${label}, ${time(m.createdAt)}${openMeeting ? '. Open meeting' : ''}`}
+        accessibilityLabel={`${label}, ${time(m.createdAt)}${openMeeting ? (meeting ? '. Open meeting' : '. Minutes') : ''}`}
       >
         <View
           style={[
@@ -324,7 +413,18 @@ function SystemEvent({ message: m, animate }: { message: LocalMessage; animate: 
 }
 
 const styles = StyleSheet.create({
+  fwdHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   systemFiles: { marginTop: 6, alignItems: 'center' },
+  minutesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    width: '86%',
+    maxWidth: 420,
+  },
   row: { paddingHorizontal: space.lg, paddingVertical: 1.5 },
   rowOwn: { alignItems: 'flex-end' },
   rowOther: { alignItems: 'flex-start' },

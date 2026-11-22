@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ServerIdSchema } from './ids.js';
+import { MilestoneSchema, ProjectSchema } from './work.js';
 
 /**
  * Private AI assistant (Phase 4). Optional, self-hosted, and never on the chat path.
@@ -54,6 +55,13 @@ export const AiStatusSchema = z.object({
     configured: z.boolean(),
     autoTranscribeCalls: z.boolean(),
     autoTranscribeVoice: z.boolean(),
+    /** Languages every transcript is also translated into (Integrations › Speech-to-text). */
+    translateTo: z.array(z.string()).default([]),
+    /**
+     * What can translate transcripts: `model` (the organization's model server, any language),
+     * `english` (the speech-to-text server's translate mode, English only) or `none`.
+     */
+    translation: z.enum(['model', 'english', 'none']).default('none'),
   }),
 });
 export type AiStatus = z.infer<typeof AiStatusSchema>;
@@ -200,6 +208,25 @@ export const AiDigestRequestSchema = z.object({
     .default(24 * 7),
 });
 export type AiDigestRequest = z.input<typeof AiDigestRequestSchema>;
+/** The project linked to a conversation (Samptrek or Connect), as the caller may see it. */
+export const AiProjectStatusSchema = z.object({
+  projectId: ServerIdSchema,
+  name: z.string(),
+  source: ProjectSchema.shape.source,
+  status: ProjectSchema.shape.status,
+  url: z.string().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  /** The next milestone not yet reached, soonest first. */
+  nextMilestone: MilestoneSchema.nullable(),
+  missedMilestones: z.number().int().nonnegative(),
+  openTasks: z.number().int().nonnegative(),
+  overdueTasks: z.number().int().nonnegative(),
+  pendingApprovals: z.number().int().nonnegative(),
+  /** Plain reasons the project needs attention (empty when on track). */
+  concerns: z.array(z.string()),
+});
+export type AiProjectStatus = z.infer<typeof AiProjectStatusSchema>;
+
 export const AiDigestSchema = z.object({
   items: z.array(
     z.object({
@@ -208,9 +235,11 @@ export const AiDigestSchema = z.object({
       status: z.enum(['on_track', 'needs_attention', 'quiet']),
       actionItems: z.array(ActionItemSchema),
       messageCount: z.number().int().nonnegative(),
+      /** Linked project status (Samptrek projects and Connect projects). */
+      project: AiProjectStatusSchema.nullable().default(null),
     }),
   ),
-  /** Suggested tasks gathered from every item (create-task arrives with Tasks in Phase 2). */
+  /** Suggested tasks from every item. "Create task" opens the task form for the person to confirm. */
   suggestedTasks: z.array(ActionItemSchema.extend({ conversationId: ServerIdSchema })),
   since: z.string().datetime(),
   engine: AiEngineSchema,
@@ -345,6 +374,25 @@ export const TranscriptSegmentSchema = z.object({
 });
 export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
 
+/** A translation of a transcript. Segments keep the original timings. */
+export const TranscriptTranslationSchema = z.object({
+  language: z.string(),
+  status: z.enum(['queued', 'processing', 'done', 'failed']),
+  text: z.string().nullable(),
+  segments: z.array(TranscriptSegmentSchema),
+  /** `model`: the organization's model server. `stt`: the speech-to-text server (English). */
+  engine: z.enum(['model', 'stt']).nullable(),
+  error: z.string().nullable(),
+  /** A person corrected at least one line. */
+  edited: z.boolean(),
+  reviewedBy: ServerIdSchema.nullable(),
+  reviewedAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime(),
+  /** The original was corrected after this was translated: translate again to pick it up. */
+  outdated: z.boolean().default(false),
+});
+export type TranscriptTranslation = z.infer<typeof TranscriptTranslationSchema>;
+
 /** GET /v1/ai/transcripts/:attachmentId and POST (queue one). */
 export const AiTranscriptSchema = z.object({
   attachmentId: ServerIdSchema,
@@ -359,8 +407,147 @@ export const AiTranscriptSchema = z.object({
   /** Why the last attempt failed, in plain words. */
   error: z.string().nullable(),
   updatedAt: z.string().datetime().nullable(),
+  /** Translations, requested or automatic (Integrations › Speech-to-text › Also translate to). */
+  translations: z.array(TranscriptTranslationSchema).default([]),
+  /** Bumped by every correction; send it back as `baseRevision`. */
+  revision: z.number().int().nonnegative().default(0),
+  /** A person corrected at least one line of the original. */
+  edited: z.boolean().default(false),
+  /** Someone checked the original against the recording. */
+  reviewedBy: ServerIdSchema.nullable().default(null),
+  reviewedAt: z.string().datetime().nullable().default(null),
+  /** The caller may correct it (who recorded it, people in the call, moderators, admins). */
+  canEdit: z.boolean().default(false),
 });
 export type AiTranscript = z.infer<typeof AiTranscriptSchema>;
 
+/**
+ * PATCH /v1/ai/transcripts/:attachmentId: correct lines of the original (`language` omitted)
+ * or of a translation, and/or mark it reviewed. Lines someone else changed since
+ * `baseRevision` are a conflict (409); other lines merge. Offline corrections replay through
+ * the action queue (`transcript|<attachmentId>|<language>`).
+ */
+export const UpdateTranscriptRequestSchema = z
+  .object({
+    baseRevision: z.number().int().nonnegative(),
+    /** A translation's language; omit for the original. */
+    language: z.string().trim().toLowerCase().min(2).max(12).optional(),
+    segments: z
+      .array(z.object({ index: z.number().int().nonnegative(), text: z.string().max(4000) }))
+      .max(5000)
+      .optional(),
+    /** Replace the whole text (transcripts without timed lines). */
+    text: z.string().max(1_900_000).optional(),
+    reviewed: z.boolean().optional(),
+  })
+  .refine(
+    (v) => v.segments !== undefined || v.text !== undefined || v.reviewed !== undefined,
+    'Nothing to change',
+  );
+export type UpdateTranscriptRequest = z.input<typeof UpdateTranscriptRequestSchema>;
+
+/** POST /v1/ai/transcripts/:attachmentId/translations */
+export const TranslateTranscriptRequestSchema = z.object({
+  language: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/, 'a language code such as en or hi'),
+});
+export type TranslateTranscriptRequest = z.infer<typeof TranslateTranscriptRequestSchema>;
+
+/** Payload of `transcript:changed` (conversation room): refetch the transcript. */
+export interface TranscriptChangedEvent {
+  attachmentId: string;
+  conversationId: string;
+  revision: number;
+}
+
 /** Largest recording sent to the speech-to-text server (bytes are buffered in memory). */
 export const TRANSCRIPT_MAX_BYTES = 200 * 1024 * 1024;
+
+// ---------- suggested task → real task ----------
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+/**
+ * Turns a free-text due hint from an action item ("by Thursday", "EOD", "next week",
+ * "Dec 3") into a calendar date (YYYY-MM-DD) in the runtime's local time zone, or null when
+ * it can't tell. Used only to prefill the task form; the person checks it before creating.
+ */
+export function resolveDueHint(hint: string | null | undefined, now = new Date()): string | null {
+  if (!hint) return null;
+  const h = hint.toLowerCase();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const iso = h.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (/\b(today|tonight|eod|end of (the )?day|asap|right away|immediately)\b/.test(h))
+    return ymd(today);
+  if (/\btomorrow\b/.test(h)) return ymd(addDays(today, 1));
+  if (/\bnext week\b/.test(h)) return ymd(addDays(today, (8 - today.getDay()) % 7 || 7));
+  if (/\b(this week|end of (the )?week|eow)\b/.test(h)) {
+    const d = today.getDay();
+    return ymd(d === 0 || d === 6 ? today : addDays(today, 5 - d));
+  }
+  const wd = WEEKDAYS.findIndex((w) =>
+    new RegExp(`\\b${w.slice(0, 3)}(${w.slice(3)})?\\b`).test(h),
+  );
+  if (wd >= 0) {
+    let diff = (wd - today.getDay() + 7) % 7;
+    if (/\bnext\b/.test(h) && diff === 0) diff = 7;
+    return ymd(addDays(today, diff));
+  }
+  const m1 = h.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\b/);
+  const m2 = h.match(/\b([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  const pick =
+    m1 && MONTHS.includes(m1[2]!)
+      ? { day: +m1[1]!, mon: MONTHS.indexOf(m1[2]!) }
+      : m2 && MONTHS.includes(m2[1]!)
+        ? { day: +m2[2]!, mon: MONTHS.indexOf(m2[1]!) }
+        : null;
+  if (pick && pick.day >= 1 && pick.day <= 31) {
+    let d = new Date(today.getFullYear(), pick.mon, pick.day);
+    if (d < today) d = new Date(today.getFullYear() + 1, pick.mon, pick.day);
+    return ymd(d);
+  }
+  return null;
+}
+
+/**
+ * A stable id for a suggested task, the same on every device and on the server: two 32-bit
+ * FNV-1a hashes of the conversation, source message and text. Used to remember a dismissal.
+ */
+export function aiSuggestionId(
+  conversationId: string,
+  messageId: string | null | undefined,
+  text: string,
+): string {
+  const input = `${conversationId}|${messageId ?? ''}|${text.trim()}`;
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995);
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  return hex(a) + hex(b);
+}
+export const AiSuggestionIdSchema = z.string().regex(/^[0-9a-f]{16}$/);
+
+/** GET /v1/ai/suggestions/dismissed: the caller's dismissed suggestions, newest first. */
+export const AiDismissedSuggestionsSchema = z.object({
+  suggestionIds: z.array(AiSuggestionIdSchema),
+});
+export type AiDismissedSuggestions = z.infer<typeof AiDismissedSuggestionsSchema>;
+
+/** `ai:suggestion`: sent to the person's own devices after PUT or DELETE /dismissed. */
+export interface AiSuggestionEvent {
+  suggestionId: string;
+  dismissed: boolean;
+}

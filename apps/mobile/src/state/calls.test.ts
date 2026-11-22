@@ -146,6 +146,21 @@ describe('calls', () => {
     expect(asked).toEqual(['start', 'stop']);
   });
 
+  it('sends a caption clip for the call you are in', async () => {
+    const sent: string[] = [];
+    const t = setup({
+      transcribeCaption: async (callId: string, clip: Blob) => {
+        sent.push(`${callId} ${clip.type} ${clip.size}`);
+        return { text: '  Hello team  ' };
+      },
+    });
+    const clip = new Blob([new Uint8Array(10)], { type: 'audio/webm' });
+    expect(await t.calls.transcribeCaption(clip)).toBe(''); // not in a call
+    await t.calls.start('c1', 'video');
+    expect(await t.calls.transcribeCaption(clip)).toBe('Hello team');
+    expect(sent).toEqual([`${t.calls.state.current!.call.callId} audio/webm 10`]);
+  });
+
   it('says why recording could not start', async () => {
     const t = setup({
       startCallRecording: async () => {

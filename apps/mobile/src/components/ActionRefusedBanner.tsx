@@ -26,6 +26,24 @@ const WHAT: Record<ActionKind, string> = {
   'scheduled.update': 'New send time',
   'scheduled.cancel': 'Deleting the scheduled message',
   'scheduled.sendNow': 'Send now',
+  'booking.create': 'New booking page',
+  'booking.update': 'Booking page change',
+  'booking.delete': 'Deleting the booking page',
+  'profile.update': 'Profile change',
+  'avatar.set': 'New profile photo',
+  'avatar.remove': 'Removing your photo',
+  'search.recent': 'Saving your recent searches',
+  'status.set': 'Changing your status',
+  'dnd.set': 'Changing your quiet hours',
+  'hours.set': 'Saving your working hours',
+  'theme.set': 'Changing your chat theme',
+  'callbg.set': 'Changing your call background',
+  'callbg.image': 'Uploading your call background',
+  'callbg.imageRemove': 'Removing your call background',
+  'callbg.appearance': 'Saving how you look on camera',
+  'minutes.update': 'Saving the minutes',
+  'transcript.update': 'Correcting the transcript',
+  'net.act': 'SampConnect Network change',
 };
 
 /**
@@ -37,7 +55,9 @@ export function ActionRefusedBanner() {
   const c = theme.colors;
   const insets = useSafeAreaInsets();
   const { engine } = useWorkspace();
-  const [shown, setShown] = useState<{ kind: ActionKind; reason: string } | null>(null);
+  const [shown, setShown] = useState<{ kind: ActionKind; reason: string; label?: string } | null>(
+    null,
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -53,7 +73,7 @@ export function ActionRefusedBanner() {
 
   if (!shown) return null;
   const create = shown.kind.endsWith('.create');
-  const text = `${WHAT[shown.kind]} not ${create ? 'sent' : 'applied'}: ${shown.reason}`;
+  const text = `${shown.label ?? WHAT[shown.kind]} not ${create || shown.label ? 'sent' : 'applied'}: ${shown.reason}`;
   return (
     <Animated.View
       entering={motion.base ? FadeInUp.duration(motion.base) : undefined}

@@ -35,6 +35,7 @@ export function Chips<K extends string>({
             onPress={() => onToggle(x.key)}
             accessibilityRole={multi ? 'checkbox' : 'radio'}
             accessibilityState={{ checked: on }}
+            aria-checked={on}
             style={[
               styles.chip,
               {

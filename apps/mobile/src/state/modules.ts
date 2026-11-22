@@ -91,8 +91,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'files',
     title: 'Files',
     icon: 'folder-outline',
-    status: 'planned',
-    summary: 'Nextcloud-backed files and resumable attachment upload.',
+    status: 'available',
+    href: '/files',
+    summary:
+      'Every file shared in your conversations, with search and filters by type. Works offline from the files saved on this phone.',
   },
   {
     key: 'tasks',
@@ -169,5 +171,13 @@ export const MODULES: ModuleEntry[] = [
     status: 'available',
     href: '/settings/appearance',
     summary: 'Themes, offline storage and account.',
+  },
+  {
+    key: 'communities',
+    title: 'Communities',
+    icon: 'people-circle-outline',
+    status: 'planned',
+    summary:
+      'Public and private communities with Announcements and General groups, roles, invite links and join approval. Available on the web now; coming to the phone next.',
   },
 ];

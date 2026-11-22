@@ -7,6 +7,7 @@ import { uuidv7 } from '@sampledge/contracts';
 import type {
   Call,
   CallJoinResponse,
+  CallsConfig,
   GuestChatResponse,
   Message,
   GuestJoinState,
@@ -17,6 +18,7 @@ import type {
 } from '@sampledge/contracts';
 import { CallsService } from '../src/calls/calls.service.js';
 import { GuestsService } from '../src/meetings/guests.service.js';
+import { TranscriptsService } from '../src/ai/transcripts.service.js';
 import {
   api,
   connect,
@@ -446,6 +448,63 @@ describe('the lobby', () => {
     expect((await guestPost(tokens.eli!, '/chat', { text: 'let me in' })).status).toBe(403);
     expect((await guestPost(tokens.dana!, '/chat', { text: '' })).status).toBe(400);
 
+    // Live captions: off until the organization has a speech-to-text server.
+    const clip = (path: string, opts: { token?: string; type?: string } = {}) =>
+      fetch(h.url + path, {
+        method: 'POST',
+        headers: {
+          'content-type': opts.type ?? 'audio/webm;codecs=opus',
+          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        },
+        body: new Uint8Array(Buffer.from('fake opus audio')),
+      });
+    const cfgOf = async () =>
+      (await api<CallsConfig>(h, 'GET', '/v1/calls/config', { token: owner.accessToken })).body;
+    expect((await cfgOf()).captionsEnabled).toBe(false);
+    expect(
+      (await clip(`/v1/calls/${call.callId}/captions`, { token: owner.accessToken })).status,
+    ).toBe(503);
+    const transcripts = h.app.get(TranscriptsService);
+    const clips: string[] = [];
+    transcripts.fetchImpl = (async (_url: string, init: RequestInit) => {
+      const form = init.body as FormData;
+      const file = form.get('file') as File;
+      clips.push(`${file.name} ${file.type}`);
+      return new Response(JSON.stringify({ text: ' Quotas look good. ', segments: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const stt = await api(h, 'PUT', '/v1/admin/integrations/ai.transcription', {
+      token: owner.accessToken,
+      body: { enabled: true, values: { baseUrl: 'http://stt.acme.test', model: 'whisper-small' } },
+    });
+    expect(stt.status).toBe(200);
+    expect((await cfgOf()).captionsEnabled).toBe(true);
+    expect((await guestGet<GuestJoinState>(tokens.dana!, '/lobby')).body.captions).toBe(true);
+    const mine = await clip(`/v1/calls/${call.callId}/captions`, { token: owner.accessToken });
+    expect(mine.status).toBe(200);
+    expect(await mine.json()).toEqual({ text: 'Quotas look good.' });
+    const hers = await clip(`/v1/guest/${tokens.dana!}/captions`, { type: 'audio/mp4' });
+    expect(await hers.json()).toEqual({ text: 'Quotas look good.' });
+    expect(clips).toEqual(['clip.webm audio/webm', 'clip.m4a audio/mp4']);
+    // Not in the call, not audio, or a denied guest: refused.
+    expect(
+      (await clip(`/v1/calls/${call.callId}/captions`, { token: mia.accessToken })).status,
+    ).toBe(403);
+    expect(
+      (
+        await clip(`/v1/calls/${call.callId}/captions`, {
+          token: owner.accessToken,
+          type: 'text/plain',
+        })
+      ).status,
+    ).toBe(400);
+    expect((await clip(`/v1/guest/${tokens.eli!}/captions`)).status).toBe(403);
+    await api(h, 'PUT', '/v1/admin/integrations/ai.transcription', {
+      token: owner.accessToken,
+      body: { enabled: false, values: {} },
+    });
+
     // The SFU reports Dana connecting: she shows as joined, and keeps the call alive.
     const calls = h.app.get(CallsService);
     const room = `sc_${owner.tenant.tenantId}_${call.callId}`;
@@ -575,5 +634,74 @@ describe('without SMTP configured', () => {
       `/v1/guest/${link.body.url.split('/join/')[1]}`,
     );
     expect(view.body.title).toBe('No mail here');
+  });
+
+  it('uses email and call servers saved in Integrations, with no restart and no env', async () => {
+    const t = await registerTenant(bare);
+    const token = t.session.accessToken;
+    const cfg = async () =>
+      (await api<CallsConfig>(bare, 'GET', '/v1/calls/config', { token })).body;
+    expect((await cfg()).enabled).toBe(false);
+    const saveSmtp = await api(bare, 'PUT', '/v1/admin/integrations/smtp', {
+      token,
+      body: {
+        enabled: true,
+        values: {
+          host: '127.0.0.1',
+          port: (smtp.server.server.address() as AddressInfo).port,
+          security: 'none',
+          from: 'Northwind <meet@northwind.test>',
+        },
+      },
+    });
+    expect(saveSmtp.status).toBe(200);
+    const saveLk = await api(bare, 'PUT', '/v1/admin/integrations/livekit', {
+      token,
+      body: {
+        enabled: true,
+        values: {
+          publicUrl: 'ws://rtc.northwind.test',
+          apiUrl: `http://127.0.0.1:${(sfu.server.address() as AddressInfo).port}`,
+          apiKey: KEY,
+          apiSecret: SECRET,
+        },
+      },
+    });
+    expect(saveLk.status).toBe(200);
+    // The organization's own server: calls work, recording stays off (it needs the shared spool).
+    expect(await cfg()).toMatchObject({
+      enabled: true,
+      provider: 'livekit',
+      recordingEnabled: false,
+    });
+
+    const before = smtp.inbox.length;
+    const res = await api<Meeting>(bare, 'POST', '/v1/meetings', {
+      token,
+      body: {
+        title: 'Mail from the database',
+        startsAt: inMinutes(60),
+        endsAt: inMinutes(90),
+        guests: [{ email: 'db@client.example', name: 'Dee' }],
+      },
+    });
+    expect(res.body.guests![0]!.invite.status).toBe('sending');
+    await flush(bare);
+    const got = smtp.inbox.slice(before).find((m) => m.to.includes('db@client.example'));
+    expect(got?.raw).toMatch(/From: Northwind <meet@northwind\.test>/);
+
+    // Another organization on the same server still has neither.
+    const other = await registerTenant(bare, 'Other Co');
+    const otherCfg = await api<CallsConfig>(bare, 'GET', '/v1/calls/config', {
+      token: other.session.accessToken,
+    });
+    expect(otherCfg.body.enabled).toBe(false);
+
+    // Turning it off applies at once.
+    await api(bare, 'PUT', '/v1/admin/integrations/livekit', {
+      token,
+      body: { enabled: false, values: {} },
+    });
+    expect((await cfg()).enabled).toBe(false);
   });
 });

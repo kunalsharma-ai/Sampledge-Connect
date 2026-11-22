@@ -232,6 +232,21 @@ export const MIGRATIONS: ReadonlyArray<(tx: SqlExecutor) => Promise<void>> = [
       );
     `);
   },
+  // v13: recurring meetings. An answer can cover the whole series ('series'); the other
+  // meetings of that series then show it ('shadow') without sending it again. rsvp_seq keeps
+  // answers in the order they were given.
+  async (tx) => {
+    await tx.exec(`
+      ALTER TABLE meetings ADD COLUMN rsvp_scope TEXT;
+      ALTER TABLE meetings ADD COLUMN rsvp_seq INTEGER;
+    `);
+  },
+  // v14: private channels and groups can stop messages being forwarded out.
+  async (tx) => {
+    await tx.exec(
+      'ALTER TABLE conversations ADD COLUMN allow_forwarding INTEGER NOT NULL DEFAULT 1;',
+    );
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
