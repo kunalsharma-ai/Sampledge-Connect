@@ -1951,6 +1951,21 @@ export class ConnectEngine {
     });
   }
 
+  /**
+   * Makes sure a conversation you were just added to elsewhere (a community group) is on the
+   * phone before it opens. False when it is not here yet and there is no connection.
+   */
+  async ensureConversation(conversationId: string): Promise<boolean> {
+    if (await this.store.getConversation(conversationId)) return true;
+    if (!this.online) return false;
+    try {
+      await this.store.upsertConversations([await this.api.getConversation(conversationId)]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Joins a public channel you could already read. */
   joinChannel(conversationId: string): Promise<void> {
     return this.serverAction(async () => {

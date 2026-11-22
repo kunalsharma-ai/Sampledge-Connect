@@ -1,9 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ConnectionRequest, MyNetworkProfile } from '@sampledge/contracts';
+import type { Community, ConnectionRequest, MyNetworkProfile } from '@sampledge/contracts';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { isUnjoinedChannel } from '../lib/access';
-import { count, withPendingProfile, withPendingRequests } from '../lib/network';
+import {
+  count,
+  pendingForCommunity,
+  withPendingCommunities,
+  withPendingProfile,
+  withPendingRequests,
+} from '../lib/network';
 import { useApp, useWorkspace } from '../state/AppProvider';
 import { useConversations, usePeople } from '../state/hooks';
 import { useNet, useNetPending } from '../state/useNetwork';
@@ -12,7 +18,15 @@ import { useTheme } from '../theme/ThemeProvider';
 import { ConnectivityBanner } from './Connectivity';
 import { ConversationRow } from './ConversationRow';
 import { Glass } from './Glass';
-import { Empty, PersonRow, Section, SmallButton, Tag } from './NetworkBits';
+import {
+  CommunityAvatar,
+  Empty,
+  PersonRow,
+  QueuedTag,
+  Section,
+  SmallButton,
+  Tag,
+} from './NetworkBits';
 import { Screen } from './Screen';
 import { StatusStrip } from './StatusStrip';
 import { Text } from './Text';
@@ -30,6 +44,8 @@ export function NetworkHome() {
   const req = useNet<{ incoming: ConnectionRequest[]; outgoing: ConnectionRequest[] }>(
     '/v1/network/requests',
   );
+  const communities = useNet<Community[]>('/v1/network/communities');
+  const mine = withPendingCommunities(communities.data ?? [], pending).slice(0, 3);
   const profile = me.data ? withPendingProfile(me.data, pending) : null;
   const incoming = req.data ? withPendingRequests(req.data, pending).incoming : [];
   const recent = conversations.filter((x) => !isUnjoinedChannel(x)).slice(0, 5);
@@ -87,6 +103,7 @@ export function NetworkHome() {
                 'Message a connection',
                 () => router.push({ pathname: '/people', params: { tab: 'connections' } }),
               ],
+              ['people-circle-outline', 'Communities', () => router.push('/network/communities')],
               ['id-card-outline', 'My profile', () => router.push('/network/profile')],
             ] as const
           ).map(([icon, label, go]) => (
@@ -153,12 +170,50 @@ export function NetworkHome() {
           )}
         </Section>
 
-        <Glass style={styles.planned}>
-          <Ionicons name="sparkles-outline" size={18} color={c.accentSecondary} />
-          <Text variant="meta" tone="muted" style={{ flex: 1 }}>
-            Communities are coming to the phone next. They already work on the web.
-          </Text>
-        </Glass>
+        <Section
+          title="Communities"
+          right={
+            <SmallButton title="See all" onPress={() => router.push('/network/communities')} />
+          }
+        >
+          {mine.length ? (
+            mine.map((x, i) => (
+              <Pressable
+                key={x.communityId}
+                onPress={() =>
+                  router.push({
+                    pathname: '/network/communities/[id]',
+                    params: { id: x.communityId },
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={x.name}
+                style={[
+                  styles.community,
+                  i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                ]}
+              >
+                <CommunityAvatar name={x.name} color={x.avatarColor} size={38} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong" numberOfLines={1}>
+                    {x.name}
+                  </Text>
+                  <Text variant="meta" tone="muted">
+                    {count(x.memberCount, 'member')}
+                    {x.myStatus === 'pending' ? ' · waiting for approval' : ''}
+                  </Text>
+                </View>
+                {pendingForCommunity(x.communityId, pending) ? <QueuedTag /> : null}
+              </Pressable>
+            ))
+          ) : (
+            <Empty
+              icon="people-circle-outline"
+              title="No communities yet"
+              body="Create one, or discover public communities."
+            />
+          )}
+        </Section>
       </ScrollView>
     </Screen>
   );
@@ -176,5 +231,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  planned: { flexDirection: 'row', gap: space.md, padding: space.md, alignItems: 'center' },
+  community: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
 });

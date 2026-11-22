@@ -35,6 +35,8 @@ const PUBLIC = new Set([
   'POST /v1/billing/stripe/webhook', // Stripe signature
   'GET /v1/branding/public/:slug', // sign-in page branding
   'POST /v1/calls/livekit/webhook', // LiveKit signature
+  'POST /v1/connectors/webhooks/:key', // provider signature; unknown keys answer 404
+  'GET /v1/connectors/webhooks/:key', // WeChat URL verification (signed query)
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
   'GET /v1/avatars/:tenantId/:key', // profile photo, 128-bit random key per photo
   'GET /v1/call-backgrounds/:tenantId/:key', // call background image, 128-bit random key

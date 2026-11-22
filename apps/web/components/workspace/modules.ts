@@ -66,7 +66,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'network', label: 'SampConnect Network', icon: Globe, built: true },
   { id: 'channels', label: 'Teams & Channels', icon: Hash, built: true },
   { id: 'projects', label: 'Projects', icon: FolderKanban, built: true },
-  { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: false, phase: 'Phase 3' },
+  { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: true },
   { id: 'meetings', label: 'Meetings', icon: CalendarClock, built: true },
   { id: 'recordings', label: 'Recordings', icon: Clapperboard, built: true },
   { id: 'files', label: 'Files', icon: FolderOpen, built: true },

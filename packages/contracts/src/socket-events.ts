@@ -1,3 +1,4 @@
+import type { InboxChangedEvent } from './client-inbox.js';
 import type { ChatThemeId } from './chat-themes.js';
 import type { ScheduledMessage } from './scheduled-messages.js';
 import type { Call, CallRingingEvent } from './calls.js';
@@ -69,6 +70,8 @@ export interface ServerToClientEvents {
   'meeting:upsert': (meeting: Meeting) => void;
   /** A meeting you're attending starts soon. */
   'meeting:reminder': (e: MeetingReminderEvent) => void;
+  /** A Client Inbox conversation you can see changed. Refetch it. */
+  'inbox:changed': (e: InboxChangedEvent) => void;
   /** A task you're assigned to or created was created or changed. */
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */

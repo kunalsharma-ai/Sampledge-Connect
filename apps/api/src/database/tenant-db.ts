@@ -108,6 +108,21 @@ export type ScopedDb = { [K in keyof TenantCollections]: TenantCollection<Tenant
 export class TenantDb {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Cross-tenant lookups that cannot know the tenant up front: the public webhook endpoint
+   * (resolves a connector by its random webhook key) and the outbound worker (claims queued
+   * replies from every tenant). Callers must switch to `for(tenantId)` straight after.
+   */
+  get unscoped() {
+    return {
+      connectors: this.db.collection<TenantCollections['connectors']>('connectors'),
+      external_messages:
+        this.db.collection<TenantCollections['external_messages']>('external_messages'),
+      external_conversations:
+        this.db.collection<TenantCollections['external_conversations']>('external_conversations'),
+    };
+  }
+
   /** Global (non-tenant) collection. Only auth/tenancy bootstrap code uses this. */
   get tenants(): Collection<TenantDoc> {
     return this.db.collection<TenantDoc>('tenants');
@@ -148,6 +163,15 @@ export class TenantDb {
       booking_pages: c('booking_pages'),
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
+      connectors: c('connectors'),
+      external_accounts: c('external_accounts'),
+      client_profiles: c('client_profiles'),
+      external_conversations: c('external_conversations'),
+      external_messages: c('external_messages'),
+      inbox_notes: c('inbox_notes'),
+      inbox_activity: c('inbox_activity'),
+      inbox_templates: c('inbox_templates'),
+      inbox_settings: c('inbox_settings'),
       bookmarks: c('bookmarks'),
       search_history: c('search_history'),
       user_avatars: c('user_avatars'),
