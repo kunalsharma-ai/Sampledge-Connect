@@ -173,19 +173,11 @@ export const MODULES: ModuleEntry[] = [
     summary: 'Themes, offline storage and account.',
   },
   {
-    key: 'network-status',
-    title: 'Status updates',
-    icon: 'radio-outline',
-    status: 'planned',
-    summary:
-      'Text, photo and video updates for your connections, followers or everyone, with replies and viewers. Available on the web now; coming to the phone next.',
-  },
-  {
     key: 'communities',
     title: 'Communities',
     icon: 'people-circle-outline',
     status: 'planned',
     summary:
-      'Public and private communities with Announcements and General groups, roles, invite links and join approval. Available on the web now; coming to the phone after status updates.',
+      'Public and private communities with Announcements and General groups, roles, invite links and join approval. Available on the web now; coming to the phone next.',
   },
 ];

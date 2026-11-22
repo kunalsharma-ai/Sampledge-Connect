@@ -66,8 +66,14 @@ Every network action is idempotent and synced everywhere:
   tab takes the place of the Client Inbox (Find, Requests, Connections, Followers), and a person's
   page has Connect (with a circle and a note), Accept / Decline / Withdraw, Message, Follow,
   Move between circles, Remove, Block and Report. _More_ has Invite (link, email or text from your
-  own phone), Network profile and privacy, and Blocked people. Status updates and communities are
-  marked Planned on the phone.
+  own phone), Network profile and privacy, and Blocked people. Communities are marked Planned on
+  the phone.
+- **Status updates.** Home has a status strip: your own status, then each person with new ones.
+  _New status_ posts text on a colour, or a photo or video with a caption, to an audience with an
+  expiry and a replies switch. The viewer goes through a person's statuses with progress bars,
+  records your view, and sends replies to their chat. On your own you see _Seen by_ (the viewers
+  list) and _Delete_. A status made offline, photo or video included, shows at once with a
+  _Queued_ tag; the file is kept on the phone, uploaded first on reconnect, then posted.
 - **Offline and sync.** Every list is cached by path and shown offline. Every change goes through
   the phone's action queue as one ordered `net.act` (with the same `clientActionId` bodies as the
   web), shows at once with a _Queued_ tag, and is sent on reconnect. A refused change is dropped and
@@ -124,4 +130,4 @@ Types and schemas are in `packages/contracts/src/network.ts`.
 - Sending SMS invites through an SMS provider (today the phone's own SMS app sends the link)
 - A moderation console for reports (reports are stored and audited, but there is no review screen yet)
 - Presence for people other than your connections, and group chats outside communities
-- Status updates and communities on mobile
+- Communities on mobile

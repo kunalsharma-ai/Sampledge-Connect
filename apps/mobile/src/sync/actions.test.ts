@@ -159,7 +159,12 @@ async function setup(opts: { network?: boolean } = {}) {
     ]),
     seq: 100,
     /** SampConnect Network: who you follow, and a profile someone else can change. */
-    net: { following: new Set<string>(), headline: 'Partnerships', requests: [] as string[] },
+    net: {
+      following: new Set<string>(),
+      headline: 'Partnerships',
+      requests: [] as string[],
+      statuses: [] as Record<string, unknown>[],
+    },
   };
   const step = (name: string) => {
     calls.push(name);
@@ -520,6 +525,10 @@ async function setup(opts: { network?: boolean } = {}) {
       server.booking.set(id, p);
       return p;
     },
+    uploadStatusMedia: async (meta: { fileName: string }, localUri: string) => {
+      step(`uploadStatusMedia ${meta.fileName} ${localUri}`);
+      return 'att-1';
+    },
     network: async (method: string, path: string, body?: { toUserId?: string }) => {
       step(`net ${method} ${path}`);
       const n = server.net;
@@ -531,6 +540,10 @@ async function setup(opts: { network?: boolean } = {}) {
           throw new TransportError('You can’t send a request to this person', 'api', 'FORBIDDEN');
         n.requests.push(body!.toUserId!);
         return { requestId: `r${n.requests.length}` };
+      }
+      if (path === '/v1/network/statuses' && method === 'POST') {
+        n.statuses.push(body as Record<string, unknown>);
+        return {};
       }
       const person = /^\/v1\/network\/people\/(.+)$/.exec(path)?.[1];
       if (person && method === 'GET')
@@ -1646,6 +1659,35 @@ describe('SampConnect Network offline', () => {
     ]);
     // The refusal doesn't hold back the next change.
     expect(t.server.net.requests).toEqual([MARIA]);
+    expect(await t.engine.netPending()).toEqual([]);
+  });
+
+  it('a photo status made offline uploads first, then posts with its attachment, once', async () => {
+    const t = await setup({ network: true });
+    t.setDown(true);
+    await t.engine.netAct({
+      method: 'POST',
+      path: '/v1/network/statuses',
+      body: { clientStatusId: 's1', kind: 'image', text: 'Expo day', attachmentId: null },
+      label: 'New photo status',
+      scopes: ['statuses'],
+      media: {
+        localUri: 'file:///status.jpg',
+        fileName: 'status.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 10,
+      },
+    });
+    expect((await t.engine.netPending())[0]?.media?.localUri).toBe('file:///status.jpg');
+    t.calls.length = 0;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('upload') || c.startsWith('net POST'))).toEqual([
+      'uploadStatusMedia status.jpg file:///status.jpg',
+      'net POST /v1/network/statuses',
+    ]);
+    expect(t.server.net.statuses).toEqual([
+      { clientStatusId: 's1', kind: 'image', text: 'Expo day', attachmentId: 'att-1' },
+    ]);
     expect(await t.engine.netPending()).toEqual([]);
   });
 });

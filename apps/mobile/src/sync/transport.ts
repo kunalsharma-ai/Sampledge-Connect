@@ -171,6 +171,11 @@ export interface SearchParams {
   offset?: number;
 }
 
+export interface StatusMediaMeta {
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
 export type NetworkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface DeviceRegistration {
   deviceId: string;
@@ -192,6 +197,8 @@ export interface ApiTransport {
   signUpPersonal(req: NetworkSignupRequest): Promise<Session>;
   /** Any SampConnect Network call (`/v1/network/...`): the screens read and act through it. */
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
+  /** Uploads a status photo or video; returns its attachment id for POST /v1/network/statuses. */
+  uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
@@ -457,7 +464,7 @@ export class HttpTransport implements ApiTransport {
 
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
     if (!path.startsWith('/v1/network/')) throw new Error(`Not a network path: ${path}`);
-    return this.request(method, path, body);
+    return this.request<T>(method, path, body).then((r) => withAbsoluteMedia(r, this.opts.baseUrl));
   }
 
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck> {
@@ -490,6 +497,17 @@ export class HttpTransport implements ApiTransport {
       `/v1/messages/${encodeURIComponent(req.messageId)}/reactions/${encodeURIComponent(req.emoji)}`,
       undefined,
     );
+  }
+
+  async uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string> {
+    const ticket = await this.request<UploadTicket>('POST', '/v1/network/status-media', meta);
+    await this.putRaw(ticket.uploadUrl, localUri, 'application/octet-stream');
+    await this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+    return ticket.uploadId;
   }
 
   async uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment> {
@@ -1381,6 +1399,7 @@ export class NoServerTransport implements ApiTransport {
   linkNetwork = async (): Promise<Session> => this.fail();
   signUpPersonal = async (): Promise<Session> => this.fail();
   network = async <T>(): Promise<T> => this.fail();
+  uploadStatusMedia = async (): Promise<string> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
   ackReceipt = async (): Promise<Receipt> => this.fail();
@@ -1511,4 +1530,29 @@ export class NoServerTransport implements ApiTransport {
   saveIntegration = async (): Promise<IntegrationView> => this.fail();
   testIntegration = async (): Promise<IntegrationTestResult> => this.fail();
   resetIntegration = async (): Promise<IntegrationView> => this.fail();
+}
+
+/**
+ * Status media come back with a signed path that is relative when the server has no public API
+ * URL set; the phone needs it absolute to show the photo or video.
+ */
+export function withAbsoluteMedia<T>(value: T, baseUrl: string): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object') return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (
+        k === 'media' &&
+        x &&
+        typeof x === 'object' &&
+        typeof (x as { url?: unknown }).url === 'string'
+      ) {
+        const m = x as { url: string };
+        out[k] = { ...m, url: m.url.startsWith('/') ? new URL(m.url, baseUrl).toString() : m.url };
+      } else out[k] = walk(x);
+    }
+    return out;
+  };
+  return walk(value) as T;
 }

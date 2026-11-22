@@ -75,6 +75,14 @@ function RootStack() {
           <Stack.Screen name="network/invite" options={{ title: 'Invite to SampConnect' }} />
           <Stack.Screen name="network/blocked" options={{ title: 'Blocked people' }} />
           <Stack.Screen name="network/profile" options={{ title: 'Network profile' }} />
+          <Stack.Screen
+            name="network/status/new"
+            options={{ title: 'New status', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="network/status/[userId]"
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
           <Stack.Screen name="sso" options={{ headerShown: false }} />
           <Stack.Screen
             name="new-conversation"

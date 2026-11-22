@@ -300,6 +300,7 @@ export class ConnectEngine {
     const live = await this.store.liveFileUris();
     for (const p of await this.store.work.pendingCallBackground())
       if (p.kind === 'callbg.image') live.add(p.localUri);
+    for (const p of await this.store.work.pendingNetwork()) if (p.media) live.add(p.media.localUri);
     pruneLocalFiles(live);
     this.patch({ lastSyncAt: (await this.store.getSetting('sync.lastSuccessAt')) ?? null });
     await this.refreshPending();
@@ -1363,9 +1364,17 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setWorkingHours(i.hours)),
         );
         break;
-      case 'net.act':
-        await this.api.network(i.method, i.path, i.body);
+      case 'net.act': {
+        let body = i.body;
+        if (i.media) {
+          const { localUri, ...meta } = i.media;
+          const attachmentId = await this.api.uploadStatusMedia(meta, localUri);
+          body = { ...(body as object), attachmentId };
+        }
+        await this.api.network(i.method, i.path, body);
+        if (i.media) deleteLocalFile(i.media.localUri);
         break;
+      }
       case 'search.recent':
         await this.store.setSetting(
           RECENT_KEY,

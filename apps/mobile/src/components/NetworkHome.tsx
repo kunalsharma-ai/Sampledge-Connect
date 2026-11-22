@@ -14,6 +14,7 @@ import { ConversationRow } from './ConversationRow';
 import { Glass } from './Glass';
 import { Empty, PersonRow, Section, SmallButton, Tag } from './NetworkBits';
 import { Screen } from './Screen';
+import { StatusStrip } from './StatusStrip';
 import { Text } from './Text';
 
 /** Home in SampConnect Network: requests waiting, recent chats and the way back to work. */
@@ -51,6 +52,7 @@ export function NetworkHome() {
           </Text>
         </View>
         <ConnectivityBanner />
+        <StatusStrip me={profile} />
 
         {work ? (
           <Pressable
@@ -154,8 +156,7 @@ export function NetworkHome() {
         <Glass style={styles.planned}>
           <Ionicons name="sparkles-outline" size={18} color={c.accentSecondary} />
           <Text variant="meta" tone="muted" style={{ flex: 1 }}>
-            Status updates and communities are coming to the phone next. They already work on the
-            web.
+            Communities are coming to the phone next. They already work on the web.
           </Text>
         </Glass>
       </ScrollView>
