@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
+import type { SupportChangedEvent } from '@sampledge/contracts';
 import type {
   InboxChangedEvent,
   MinutesChangedEvent,
@@ -85,6 +86,8 @@ type RealtimeEvents = {
   platform: PlatformChangedEvent;
   /** A Client Inbox conversation you can see changed (or you read it on another device). */
   inbox: InboxChangedEvent;
+  /** A Help center query you asked or handle changed. */
+  support: SupportChangedEvent;
 };
 
 /**
@@ -172,6 +175,7 @@ export class RealtimeClient {
     socket.on('moderation:changed', (e) => this.events.emit('moderation', e));
     socket.on('platform:changed', (e) => this.events.emit('platform', e));
     socket.on('inbox:changed', (e) => this.events.emit('inbox', e));
+    socket.on('support:changed', (e) => this.events.emit('support', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

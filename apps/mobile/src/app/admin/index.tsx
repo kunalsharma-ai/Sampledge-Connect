@@ -64,6 +64,7 @@ export default function Admin() {
     { label: 'Messages', icon: 'create-outline', href: '/admin/messages' },
     { label: 'Integrations', icon: 'extension-puzzle-outline', href: '/admin/integrations' },
     { label: 'Branding', icon: 'color-palette-outline', href: '/admin/branding' },
+    { label: 'Greeting cards', icon: 'gift-outline', href: '/admin/greetings' as Href },
     { label: 'Recordings', icon: 'recording-outline', href: '/recordings' },
     ...(canModerate
       ? [

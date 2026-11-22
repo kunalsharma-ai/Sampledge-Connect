@@ -79,6 +79,26 @@ describe('offline-first outbox', () => {
     ]);
   });
 
+  it('queues a greeting card offline, shows it at once and sends it on reconnect', async () => {
+    const server = new FakeServer();
+    server.addConversation('c1', ['me', 'b']);
+    const { db, engine } = await setup(server);
+    const greeting = {
+      occasionId: 'holi',
+      styleId: 'festive',
+      title: 'Happy Holi',
+      to: null,
+    } as const;
+    const m = await engine.compose('c1', 'Rang barse!', { greeting });
+    expect(m.metadata.greeting).toEqual(greeting);
+    expect(server.sendCalls).toBe(0);
+    engine.setNetworkAvailable(true);
+    await waitFor(async () => (await db.outbox.count()) === 0);
+    expect(server.messages[0]!.metadata.greeting).toEqual(greeting);
+    const [local] = await listConversationMessages(db, 'c1');
+    expect(local!.metadata.greeting).toEqual(greeting);
+  });
+
   it('does not duplicate when the ack is lost after the server committed', async () => {
     const server = new FakeServer();
     server.addConversation('c1', ['me', 'b']);

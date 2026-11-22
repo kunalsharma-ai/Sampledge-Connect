@@ -123,6 +123,14 @@ export type ActionInput =
    * shares one queue so they reach the server in the order you made them; each carries an
    * idempotency key (or sets a state), so sending one again never does it twice.
    */
+  /** A Help center question, reply or status change (sent in order, offline too). */
+  | {
+      kind: 'support.act';
+      method: 'POST' | 'PATCH';
+      path: string;
+      body: unknown;
+      label: string;
+    }
   | {
       kind: 'net.act';
       method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -234,7 +242,8 @@ type CacheKind =
   | 'minutes'
   | 'transcript'
   | 'network'
-  | 'inbox';
+  | 'inbox'
+  | 'support';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -311,6 +320,8 @@ const targetOf = (a: ActionInput): string => {
       return transcriptTarget(a.attachmentId, a.language);
     case 'net.act':
       return 'network';
+    case 'support.act':
+      return 'support';
     case 'inbox.reply':
     case 'inbox.note':
       return `inbox:${a.inboxId}|post`;
@@ -1235,6 +1246,17 @@ export class WorkStore {
   }
 
   /** SampConnect Network changes still waiting, oldest first (shown as "Queued"). */
+  /** Help center questions and replies made here that have not reached the server yet. */
+  async pendingSupport(): Promise<Extract<ActionInput, { kind: 'support.act' }>[]> {
+    return (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'support' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    )
+      .map(toAction)
+      .flatMap((a) => (a.input.kind === 'support.act' ? [a.input] : []));
+  }
+
   async pendingNetwork(): Promise<Extract<ActionInput, { kind: 'net.act' }>[]> {
     return (
       await this.db.all<ActionRow>(

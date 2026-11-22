@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardedOf } from '@sampledge/contracts';
+import { forwardedOf, greetingOf } from '@sampledge/contracts';
+import { GreetingCard } from './GreetingCard';
 import { memo } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text as RNText, StyleSheet, View } from 'react-native';
@@ -82,6 +83,7 @@ function MessageBubbleImpl({
   if (m.messageType === 'system') return <SystemEvent message={m} animate={animate} />;
   const segments = deleted ? [] : segmentMentions(m.text, mentioned);
   const fwd = forwardedOf(m);
+  const greeting = deleted ? null : greetingOf(m);
 
   return (
     <Animated.View
@@ -113,6 +115,8 @@ function MessageBubbleImpl({
           },
           mentionsMe && { borderWidth: 1 },
           m.status === 'failed' && { borderColor: c.danger, borderWidth: 1 },
+          // A greeting card is its own bubble.
+          greeting && styles.cardBubble,
         ]}
       >
         {reply && !deleted ? (
@@ -187,6 +191,8 @@ function MessageBubbleImpl({
         {!deleted ? <AttachmentList items={m.attachments} own={own} /> : null}
         {m.poll && !deleted ? (
           <PollCard messageId={m.messageId} poll={m.poll} own={own} nameOf={nameOf} />
+        ) : greeting ? (
+          <GreetingCard card={greeting} text={m.text} from={own ? null : senderName} width={272} />
         ) : deleted || m.text ? (
           <Text
             variant="body"
@@ -438,6 +444,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   bubbleOwn: { borderBottomRightRadius: 6 },
+  cardBubble: {
+    backgroundColor: 'transparent',
+    padding: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderWidth: 0,
+  },
   bubbleOther: { borderBottomLeftRadius: 6 },
   quote: {
     borderLeftWidth: 3,

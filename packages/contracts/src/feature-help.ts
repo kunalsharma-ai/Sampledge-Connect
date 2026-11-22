@@ -266,6 +266,30 @@ export const FEATURE_HELP = [
     related: ['messages', 'polls', 'tasks', 'admin'],
   },
   {
+    id: 'greeting-cards',
+    title: 'Greeting cards',
+    category: 'messaging',
+    audience: 'everyone',
+    summary: 'Send a beautiful card for a festival or special moment.',
+    what: 'Ready-made cards for 84 occasions, from Diwali, Holi, Eid and Onam to Lunar New Year, Hanukkah, Halloween, Earth Day and birthdays, promotions, farewells and get-well wishes, in five styles with heartfelt messages you can edit.',
+    why: 'Show people you care in a few seconds, with words that feel personal and a card that looks lovely on every device.',
+    where: {
+      web: 'The gift button in the message box.',
+      mobile: 'The plus button in the message box > Greeting card.',
+    },
+    how: [
+      'Pick an occasion. Coming up shows the festivals of this month and next, or search by name.',
+      'Choose a style and one of the messages: warm, for colleagues and clients, playful or poetic.',
+      'Edit the headline, who it is for and the words as you like. The preview updates as you type.',
+      'Send it. It works offline too and sends when you reconnect.',
+    ],
+    tips: [
+      'Surprise me picks a different message and style.',
+      'Admins can turn greeting cards off or hide categories in Administration > Greeting cards.',
+    ],
+    related: ['polls', 'messages'],
+  },
+  {
     id: 'chat-themes',
     title: 'Chat themes',
     category: 'personal',

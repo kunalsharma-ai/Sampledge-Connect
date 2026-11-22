@@ -100,6 +100,10 @@ import {
   SCHEDULE_MIN_LEAD_MS,
   type TenantArea,
   type PlatformChangedEvent,
+  DEFAULT_GREETING_POLICY,
+  GreetingPolicySchema,
+  type GreetingCard,
+  type GreetingPolicy,
 } from '@sampledge/contracts';
 import { isNetworkTenant } from '../auth/session';
 import { NETWORK_SCOPES, pathInScopes, type NetworkScope } from '../lib/networkSpace';
@@ -191,6 +195,7 @@ const HOURS_KEY = 'workingHours';
 const THEME_KEY = 'chatTheme';
 /** Settings key for the organization's message editing rules (docs/editing.md). */
 const EDITING_KEY = 'messageEditing';
+const GREETING_KEY = 'greetingPolicy';
 const RECENT_KEY = 'search.recent';
 /** Settings key for the server's copy of your call background, the rules and the branding. */
 const CALL_BG_KEY = 'callBackground';
@@ -199,6 +204,9 @@ const MINUTES_CONFIG_KEY = 'minutes.config';
 const TRANSCRIPTION_KEY = 'ai.transcription';
 const transcriptKey = (attachmentId: string) => `transcript.${attachmentId}`;
 const NET_PREFIX = 'net:';
+/** Settings keys for Help center questions, by their API path. */
+const SUPPORT_PREFIX = 'support:';
+const supportKey = (path: string) => `${SUPPORT_PREFIX}${path}`;
 const netKey = (path: string) => `${NET_PREFIX}${path}`;
 const minutesKey = (callId: string) => `minutes.call.${callId}`;
 const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
@@ -250,6 +258,8 @@ export class ConnectEngine {
     chatTheme: ChatThemeState;
     /** The organization's message editing rules, or what your role may do, changed. */
     messageEditing: MessageEditingState;
+    /** The organization's greeting card rules changed. */
+    greetingPolicy: GreetingPolicy;
     /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
     callBackground: CallBackgroundState;
     /** Minutes of a call changed here, on another device or by someone else. */
@@ -261,6 +271,8 @@ export class ConnectEngine {
      * another of your devices or by another agent. Screens re-read the cache.
      */
     inbox: { conversationId: string | null };
+    /** Help center questions changed (here, on another device, or by an admin or support). */
+    support: { queryId: string | null };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -392,6 +404,7 @@ export class ConnectEngine {
           (s) => s === 'connected' && this.events.emit('moderation', { scope: null }),
         ),
         this.realtime.events.on('platform', (e) => this.events.emit('platform', e)),
+        this.realtime.events.on('support', (e) => void this.refreshSupport(e.queryId)),
         this.realtime.events.on(
           'state',
           (s) => s === 'connected' && this.events.emit('platform', { area: null }),
@@ -456,7 +469,11 @@ export class ConnectEngine {
     if (this.inNetwork) {
       // SampConnect Network has chat, calls and its own lists, but no meetings or work items.
       await Promise.all([
-        this.outbox.kick().then(() => Promise.all([this.refreshWork(), this.refreshNetwork()])),
+        this.outbox
+          .kick()
+          .then(() =>
+            Promise.all([this.refreshWork(), this.refreshNetwork(), this.refreshSupport()]),
+          ),
         this.runSync(),
         this.refreshNotifications(),
         this.flushNotifyLevels(),
@@ -466,7 +483,7 @@ export class ConnectEngine {
     }
     await Promise.all([
       // Queued changes go first, then the lists are re-read so they reflect them.
-      this.outbox.kick().then(() => this.refreshWork()),
+      this.outbox.kick().then(() => Promise.all([this.refreshWork(), this.refreshSupport()])),
       this.runSync(),
       this.refreshNotifications(),
       this.flushNotifyLevels(),
@@ -607,6 +624,7 @@ export class ConnectEngine {
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
     if (area === 'messages') void this.refreshMessageEditing().catch(() => undefined);
+    if (area === 'greetings') void this.refreshGreetingPolicy().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
     if (area === 'inbox') void this.refreshInboxAdmin();
     if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
@@ -1477,6 +1495,9 @@ export class ConnectEngine {
           JSON.stringify(await this.api.inbox('PUT', '/v1/inbox/settings', i.settings)),
         );
         break;
+      case 'support.act':
+        await this.api.support(i.method, i.path, i.body);
+        break;
       case 'net.act': {
         let body = i.body;
         if (i.media) {
@@ -1516,6 +1537,14 @@ export class ConnectEngine {
     const reason =
       err.code === 'FORBIDDEN' ? 'You do not have permission to do that.' : err.message;
     const i = a.input;
+    if (i.kind === 'support.act') {
+      // A question is kept (Retry or Discard) so nothing written is lost; a status change drops.
+      if (i.method === 'POST') await this.store.work.fail(a, reason);
+      else await this.store.work.complete(a);
+      this.afterAction(a);
+      this.events.emit('actionRefused', { kind: i.kind, reason, label: i.label });
+      return;
+    }
     if (i.kind === 'net.act') {
       // The server's copy shows again (they blocked you, the request was already answered...).
       await this.store.work.complete(a);
@@ -1554,6 +1583,7 @@ export class ConnectEngine {
     const i = a.input;
     if ('conversationId' in i) this.store.notifyMessages(i.conversationId);
     if (i.kind === 'bookmark') void this.emitSaved();
+    if (i.kind === 'support.act') void this.refreshSupport();
     if (i.kind === 'net.act') {
       this.events.emit('network', { scope: null });
       void this.refreshNetwork(i.scopes);
@@ -1614,6 +1644,7 @@ export class ConnectEngine {
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
           this.refreshMessageEditing(),
+          this.refreshGreetingPolicy(),
           this.refreshCallBackground(),
           this.refreshInbox(null),
         ]);
@@ -1798,6 +1829,45 @@ export class ConnectEngine {
   }
 
   // ------------------------------------------------------------------ SampConnect Network
+
+  // ------------------------------------------------------------ Help center questions
+
+  /** The cached copy of a Help center list or question (shown at once, and offline). */
+  async supportCached<T>(path: string): Promise<T | undefined> {
+    const raw = await this.store.getSetting(supportKey(path));
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  }
+
+  /** Reads a Help center path from the server and caches it; offline it keeps the cached copy. */
+  async supportLoad<T>(path: string): Promise<T | undefined> {
+    if (this.online) {
+      try {
+        const value = await this.api.support<T>('GET', path);
+        await this.store.setSetting(supportKey(path), JSON.stringify(value));
+      } catch (err) {
+        if (err instanceof TransportError && (err.code === 'NOT_FOUND' || err.code === 'FORBIDDEN'))
+          await this.store.deleteSetting(supportKey(path));
+      }
+    }
+    return this.supportCached<T>(path);
+  }
+
+  /** Queues a question, reply or status change; it sends in order when possible. */
+  async supportAct(input: Omit<Extract<ActionInput, { kind: 'support.act' }>, 'kind'>) {
+    await this.queue({ kind: 'support.act', ...input });
+    this.events.emit('support', { queryId: null });
+  }
+
+  supportPending(): Promise<Extract<ActionInput, { kind: 'support.act' }>[]> {
+    return this.store.work.pendingSupport();
+  }
+
+  /** Re-reads every cached Help center path (after a live change, a send or a reconnect). */
+  async refreshSupport(queryId: string | null = null): Promise<void> {
+    const keys = await this.store.settingKeys(SUPPORT_PREFIX);
+    await Promise.allSettled(keys.map((k) => this.supportLoad(k.slice(SUPPORT_PREFIX.length))));
+    this.events.emit('support', { queryId });
+  }
 
   /** True when this workspace is SampConnect Network (a personal account, or the linked space). */
   get inNetwork(): boolean {
@@ -2373,6 +2443,26 @@ export class ConnectEngine {
     this.events.emit('messageEditing', state);
   }
 
+  /** Greeting card rules as last seen (cached for offline use). */
+  async getGreetingPolicy(): Promise<GreetingPolicy> {
+    const raw = await this.store.getSetting(GREETING_KEY);
+    const r = GreetingPolicySchema.safeParse(raw ? JSON.parse(raw) : {});
+    return r.success ? r.data : DEFAULT_GREETING_POLICY;
+  }
+
+  /** Owners and admins: turn greeting cards on or off, or hide categories. Needs a connection. */
+  async setGreetingPolicy(policy: GreetingPolicy): Promise<void> {
+    const r = await this.serverAction(() => this.api.setGreetingPolicy(policy));
+    await this.store.setSetting(GREETING_KEY, JSON.stringify(r.policy));
+    this.events.emit('greetingPolicy', r.policy);
+  }
+
+  private async refreshGreetingPolicy(): Promise<void> {
+    const r = await this.api.getGreetingPolicy();
+    await this.store.setSetting(GREETING_KEY, JSON.stringify(r.policy));
+    this.events.emit('greetingPolicy', r.policy);
+  }
+
   private async refreshChatTheme(): Promise<void> {
     const state = await this.api.getChatTheme();
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
@@ -2756,6 +2846,8 @@ export class ConnectEngine {
       replyTo?: string | null;
       mentions?: readonly string[];
       files?: readonly PendingFileInput[];
+      /** Send as a greeting card. Queued like any message, so it works offline. */
+      greeting?: GreetingCard;
     } = {},
   ): Promise<void> {
     await this.store.enqueueSend({ conversationId, text, ...opts });

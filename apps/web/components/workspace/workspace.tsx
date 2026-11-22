@@ -72,6 +72,7 @@ import { NavRail } from './nav-rail';
 import { Timeline } from './timeline';
 import { PinsMenu, SavedScreen, ThreadPanel } from './threads';
 import { CreatePollDialog, ScheduledBar } from './polls';
+import { GreetingComposerDialog } from './greetings';
 import { pollsApi, scheduledApi, useScheduled } from '@/lib/polls';
 import { MeetingReminderToast, MeetingsScreen, NewMeetingDialog } from './meetings';
 import { RecordingsScreen } from './recordings-screen';
@@ -110,6 +111,7 @@ import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
 import { FeatureGuideHost, openFeatureGuide } from '../feature-help';
+import { HelpCenter } from './help-center';
 
 const LS_RAIL = 'sampledge.rail';
 const LS_PANEL = 'sampledge.panel';
@@ -266,6 +268,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
   const pendingReactions = usePendingReactions(activeId);
   const [replyTo, setReplyTo] = React.useState<LocalMessage | null>(null);
   const [pollOpen, setPollOpen] = React.useState(false);
+  const [greetingOpen, setGreetingOpen] = React.useState(false);
   // Scheduled messages are an organization feature; not in SampConnect Network.
   const scheduled = useScheduled(network ? null : activeId);
   const [threadRootId, setThreadRootId] = React.useState<string | null>(null);
@@ -687,6 +690,13 @@ function WorkspaceInner({ network }: { network: boolean }) {
                 setModule('meetings');
               }}
             />
+          ) : module === 'help' ? (
+            <HelpCenter
+              myName={session!.user.displayName}
+              isAdmin={isAdmin}
+              online={state.connectivity === 'online'}
+              network={network}
+            />
           ) : module === 'analytics' ? (
             <AnalyticsScreen
               me={me}
@@ -948,6 +958,25 @@ function WorkspaceInner({ network }: { network: boolean }) {
                       onOpenChange={setPollOpen}
                       conversationId={active.conversationId}
                     />
+                    <GreetingComposerDialog
+                      open={greetingOpen}
+                      onOpenChange={setGreetingOpen}
+                      offline={offline}
+                      senderName={nameOf(me, directory).split(' ')[0] ?? ''}
+                      recipientName={
+                        active.kind === 'dm'
+                          ? conversationTitle(active, me, directory).split(' ')[0]
+                          : null
+                      }
+                      onSend={async (card, text) => {
+                        const reply = replyTo?.messageId ?? null;
+                        setReplyTo(null);
+                        await engine.compose(active.conversationId, text, {
+                          replyToMessageId: reply,
+                          greeting: card,
+                        });
+                      }}
+                    />
                     <Composer
                       placeholder={`Message ${active.kind === 'dm' ? conversationTitle(active, me, directory) : '#' + conversationTitle(active, me, directory)}`}
                       disabled={readOnly}
@@ -959,6 +988,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
                             : 'Join this channel to send messages.'
                       }
                       onCreatePoll={() => setPollOpen(true)}
+                      onGreeting={() => setGreetingOpen(true)}
                       onSchedule={
                         network
                           ? undefined
@@ -1334,6 +1364,12 @@ function WorkspaceInner({ network }: { network: boolean }) {
                 label: 'Feature guides: how each feature works',
                 icon: BookOpen,
                 run: () => openFeatureGuide(),
+              },
+              {
+                id: 'a:help-center',
+                label: 'Help center: FAQs and ask a question',
+                icon: BookOpen,
+                run: () => setModule('help'),
               },
               {
                 id: 'a:theme',

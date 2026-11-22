@@ -117,6 +117,8 @@ import {
   type SetReactionRequest,
   type SyncRequest,
   type SyncResponse,
+  type GreetingPolicy,
+  type GreetingPolicyState,
 } from '@sampledge/contracts';
 
 import { downloadDocument, putFileBytes } from '../lib/localFiles';
@@ -213,6 +215,8 @@ export interface ApiTransport {
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   /** Any Client Inbox call (`/v1/inbox/...`, `/v1/connectors...`). */
   inbox<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
+  /** Help center queries (`/v1/support/...`). */
+  support<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   /** Uploads a status photo or video; returns its attachment id for POST /v1/network/statuses. */
   uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
@@ -251,6 +255,10 @@ export interface ApiTransport {
   editPoll(messageId: string, req: EditPollRequest): Promise<Message>;
   updateConversation(conversationId: string, req: UpdateConversationRequest): Promise<Conversation>;
   updateApproval(approvalId: string, req: UpdateApprovalRequest): Promise<Approval>;
+  /** Greeting card rules: on/off and hidden categories. */
+  getGreetingPolicy(): Promise<GreetingPolicyState>;
+  /** Owners and admins. */
+  setGreetingPolicy(policy: GreetingPolicy): Promise<GreetingPolicyState>;
   /** Your background in calls, the organization rules and the branding for the company one. */
   getCallBackground(): Promise<CallBackgroundState>;
   setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
@@ -522,6 +530,12 @@ export class HttpTransport implements ApiTransport {
     return this.request<T>(method, path, body);
   }
 
+  /** Help center queries (`/v1/support/...`). */
+  support<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
+    if (!path.startsWith('/v1/support/')) throw new Error(`Not a support path: ${path}`);
+    return this.request<T>(method, path, body);
+  }
+
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck> {
     return this.request(
       'POST',
@@ -721,6 +735,14 @@ export class HttpTransport implements ApiTransport {
 
   updateApproval(approvalId: string, req: UpdateApprovalRequest): Promise<Approval> {
     return this.request('PATCH', `/v1/approvals/${encodeURIComponent(approvalId)}`, req);
+  }
+
+  getGreetingPolicy(): Promise<GreetingPolicyState> {
+    return this.request('GET', '/v1/greetings/policy', undefined);
+  }
+
+  setGreetingPolicy(policy: GreetingPolicy): Promise<GreetingPolicyState> {
+    return this.request('PUT', '/v1/admin/greetings', policy);
   }
 
   getCallBackground(): Promise<CallBackgroundState> {
@@ -1549,6 +1571,7 @@ export class NoServerTransport implements ApiTransport {
   signUpPersonal = async (): Promise<Session> => this.fail();
   network = async <T>(): Promise<T> => this.fail();
   inbox = async <T>(): Promise<T> => this.fail();
+  support = async <T>(): Promise<T> => this.fail();
   uploadStatusMedia = async (): Promise<string> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
@@ -1663,6 +1686,8 @@ export class NoServerTransport implements ApiTransport {
   editPoll = async (): Promise<Message> => this.fail();
   updateConversation = async (): Promise<Conversation> => this.fail();
   updateApproval = async (): Promise<Approval> => this.fail();
+  getGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
+  setGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
   getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();

@@ -157,7 +157,10 @@ export const TENANT_PERMISSION_INFO: Record<TenantPermission, { label: string; g
   'connectors.manage': { label: 'Connect messaging channels', group: 'Client Inbox' },
   'ai.manage': { label: 'Turn the AI assistant on or off', group: 'Organization' },
   'analytics.org': { label: 'See organization-wide analytics', group: 'Organization' },
-  'themes.manage': { label: 'Set chat theme rules for everyone', group: 'Organization' },
+  'themes.manage': {
+    label: 'Set chat theme and greeting card rules for everyone',
+    group: 'Organization',
+  },
   'work.manage': { label: 'Manage everyone’s tasks and approvals', group: 'People' },
   'messages.edit': { label: 'Edit their own messages', group: 'Conversations' },
   'messages.manage': {

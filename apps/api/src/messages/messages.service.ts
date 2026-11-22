@@ -33,6 +33,7 @@ import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 import { MessageEditingService } from './message-editing.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { GreetingsService } from '../greetings/greetings.controller.js';
 
 @Injectable()
 export class MessagesService {
@@ -48,6 +49,7 @@ export class MessagesService {
     private readonly webhooks: WebhooksService,
     private readonly editing: MessageEditingService,
     private readonly audit: AuditService,
+    private readonly greetings: GreetingsService,
   ) {}
 
   private lockKey(tenantId: string, conversationId: string) {
@@ -117,6 +119,11 @@ export class MessagesService {
       );
     }
     const ordered = attachmentIds.map((id) => files.find((f) => f._id === id)!);
+    if (req.greeting) {
+      if (req.forwardOf)
+        throw new AppError('VALIDATION_FAILED', 'A greeting card can’t also be a forward');
+      await this.greetings.assertAllowed(ctx.tenantId, req.greeting);
+    }
     const forward = req.forwardOf
       ? await this.prepareForward(ctx, req.forwardOf, req.conversationId, ordered.length)
       : null;
@@ -153,6 +160,7 @@ export class MessagesService {
           metadata: {
             ...(req.composedAt ? { composedAt: req.composedAt } : {}),
             ...(forward ? { forwarded: forward.snapshot } : {}),
+            ...(req.greeting ? { greeting: req.greeting } : {}),
           },
         });
       });

@@ -193,12 +193,13 @@ export const HelpMark = React.forwardRef<
   );
 });
 
-function GuideBody({
+export function GuideBody({
   entry,
   onBack,
   onRelated,
   onAll,
   primary = true,
+  closable = true,
 }: {
   entry: FeatureHelpEntry;
   onBack?: () => void;
@@ -206,6 +207,8 @@ function GuideBody({
   onAll?: () => void;
   /** false inside the full guide, which owns the dialog title. */
   primary?: boolean;
+  /** false outside a dialog (the Help center page). */
+  closable?: boolean;
 }) {
   const audience = FEATURE_HELP_AUDIENCE_LABELS[entry.audience];
   const Title = primary ? DialogPrimitive.Title : 'h2';
@@ -244,12 +247,14 @@ function GuideBody({
               </span>
             ) : null}
           </div>
-          <DialogPrimitive.Close
-            aria-label="Close"
-            className="rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white"
-          >
-            <X className="size-4" />
-          </DialogPrimitive.Close>
+          {closable ? (
+            <DialogPrimitive.Close
+              aria-label="Close"
+              className="rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white"
+            >
+              <X className="size-4" />
+            </DialogPrimitive.Close>
+          ) : null}
         </div>
         <div
           aria-hidden

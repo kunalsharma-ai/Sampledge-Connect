@@ -40,9 +40,11 @@ import { CallBackgroundsAdmin } from './call-backgrounds-admin';
 import { MessageEditingAdmin } from './message-editing-admin';
 import type { ModuleId } from './modules';
 import { NetworkPolicyTab } from '../network/admin-policy';
+import { GreetingsAdmin } from './greetings';
 import { FeatureHelp } from '../feature-help';
 
-type Tab = 'overview' | 'members' | 'devices' | 'messages' | 'calls' | 'audit' | 'network';
+type Tab =
+  'overview' | 'members' | 'devices' | 'messages' | 'calls' | 'audit' | 'network' | 'greetings';
 interface Device {
   sessionId: string;
   userId: string;
@@ -117,6 +119,7 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
     { id: 'calls', label: 'Calls' },
     { id: 'audit', label: 'Audit log' },
     { id: 'network', label: 'SampConnect Network' },
+    { id: 'greetings', label: 'Greeting cards' },
   ];
   return (
     <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0" data-testid="admin-screen">
@@ -163,6 +166,8 @@ export function AdminScreen({ onOpenModule }: { onOpenModule: (m: ModuleId) => v
             <CallBackgroundsAdmin />
           ) : tab === 'network' ? (
             <NetworkPolicyTab />
+          ) : tab === 'greetings' ? (
+            <GreetingsAdmin />
           ) : (
             <AuditTab actorId={auditActor} onClearActor={() => setAuditActor(null)} />
           )}

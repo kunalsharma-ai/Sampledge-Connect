@@ -10,6 +10,8 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_CLIP_DURATION_MS,
   MAX_MESSAGE_LENGTH,
+  offeredOccasions,
+  type GreetingPolicy,
 } from '@sampledge/contracts';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -64,6 +66,13 @@ export function Composer({
   const [files, setFiles] = useState<PendingFileInput[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
+  // Greeting cards follow the organization's switch, live.
+  const [greetingsOn, setGreetingsOn] = useState(true);
+  useEffect(() => {
+    const apply = (p: GreetingPolicy) => setGreetingsOn(offeredOccasions(p).length > 0);
+    void engine.getGreetingPolicy().then(apply);
+    return engine.events.on('greetingPolicy', apply);
+  }, [engine]);
   const loaded = useRef(false);
   const typingSent = useRef(false);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
@@ -515,6 +524,23 @@ export function Composer({
             <Ionicons name="stats-chart-outline" size={20} color={c.accent} />
             <Text variant="bodyStrong">Poll</Text>
           </Pressable>
+          {greetingsOn ? (
+            <Pressable
+              onPress={() => {
+                setAttachOpen(false);
+                router.push({ pathname: '/greeting/new', params: { conversationId } });
+              }}
+              accessibilityRole="button"
+              testID="greeting-button"
+              style={[
+                styles.attachRow,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+              ]}
+            >
+              <Ionicons name="gift-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong">Greeting card</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => void suggestReplies()}
             accessibilityRole="button"

@@ -135,6 +135,7 @@ const LABELS: Record<string, string> = {
   'tenant.chat_themes_updated': 'Changed chat theme rules',
   'tenant.message_editing_updated': 'Changed message editing rules',
   'message.edited': 'Edited a message',
+  'tenant.greetings_updated': 'Changed greeting card rules',
   'member.invited': 'Added a member',
   'member.updated': 'Changed a member',
   'member.created_by_sso': 'Joined through single sign-on',

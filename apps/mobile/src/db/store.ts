@@ -8,6 +8,7 @@ import {
   type ConversationRole,
   type Attachment,
   type ForwardedSnapshot,
+  type GreetingCard,
   type Meeting,
   type Message,
   type MessageStatus,
@@ -536,6 +537,8 @@ export class LocalStore {
     files?: readonly PendingFileInput[];
     /** Forward this message (by its server id); the snapshot shows until the server answers. */
     forward?: { of: string; snapshot: ForwardedSnapshot };
+    /** Send as a greeting card (`metadata.greeting`); the text is the card's message. */
+    greeting?: GreetingCard;
   }): Promise<LocalMessage> {
     const text = input.text.trim();
     const files = input.files ?? [];
@@ -555,7 +558,10 @@ export class LocalStore {
           JSON.stringify([...new Set(input.mentions ?? [])]),
           input.replyTo ?? null,
           createdAt,
-          JSON.stringify(forward ? { forwarded: forward.snapshot, forwardOf: forward.of } : {}),
+          JSON.stringify({
+            ...(forward ? { forwarded: forward.snapshot, forwardOf: forward.of } : {}),
+            ...(input.greeting ? { greeting: input.greeting } : {}),
+          }),
         ],
       );
       await tx.run(
