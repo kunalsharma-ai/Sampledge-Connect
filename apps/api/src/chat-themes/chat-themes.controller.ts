@@ -3,6 +3,7 @@ import {
   ChatThemePolicySchema,
   DEFAULT_CHAT_THEME_POLICY,
   SetChatThemeRequestSchema,
+  customImagesAllowed,
   effectiveChatTheme,
   type ChatThemeId,
   type ChatThemePolicy,
@@ -34,7 +35,9 @@ export class ChatThemesService {
       { projection: { chatThemePolicy: 1 } },
     );
     const r = ChatThemePolicySchema.safeParse(t?.chatThemePolicy ?? DEFAULT_CHAT_THEME_POLICY);
-    return r.success ? r.data : DEFAULT_CHAT_THEME_POLICY;
+    return r.success
+      ? { ...r.data, allowCustomImages: customImagesAllowed(r.data) }
+      : DEFAULT_CHAT_THEME_POLICY;
   }
 
   async state(ctx: TenantContext): Promise<ChatThemeState> {
@@ -66,13 +69,21 @@ export class ChatThemesService {
       throw forbidden('Only owners and admins can set chat theme rules');
     const p = parse(ChatThemePolicySchema, body);
     const allowed = p.allowed ? [...new Set([p.defaultThemeId, ...p.allowed])] : null;
-    const policy: ChatThemePolicy = { defaultThemeId: p.defaultThemeId, allowed };
+    const policy: ChatThemePolicy = {
+      defaultThemeId: p.defaultThemeId,
+      allowed,
+      allowCustomImages: customImagesAllowed(p),
+    };
     await this.db.tenants.updateOne({ _id: ctx.tenantId }, { $set: { chatThemePolicy: policy } });
     await this.audit.record({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,
       action: 'tenant.chat_themes_updated',
-      metadata: { defaultThemeId: policy.defaultThemeId, allowed: policy.allowed?.length ?? 'all' },
+      metadata: {
+        defaultThemeId: policy.defaultThemeId,
+        allowed: policy.allowed?.length ?? 'all',
+        allowCustomImages: policy.allowCustomImages,
+      },
     });
     this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'chat_themes' });
     return this.state(ctx);
