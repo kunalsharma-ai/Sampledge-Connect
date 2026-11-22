@@ -65,6 +65,7 @@ import { SearchService } from './search/search.service.js';
 import { FilesController, FilesService } from './files/files.controller.js';
 import { AnalyticsController, AnalyticsService } from './analytics/analytics.controller.js';
 import { ChatThemesController, ChatThemesService } from './chat-themes/chat-themes.controller.js';
+import { GreetingsController, GreetingsService } from './greetings/greetings.controller.js';
 import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
@@ -175,6 +176,7 @@ export class AppModule {
         FilesController,
         AnalyticsController,
         ChatThemesController,
+        GreetingsController,
         StatusController,
         ScheduledMessagesController,
         CallsController,
@@ -228,6 +230,7 @@ export class AppModule {
         FilesService,
         AnalyticsService,
         ChatThemesService,
+        GreetingsService,
         ScheduledMessagesService,
         CallsService,
         MeetingsService,

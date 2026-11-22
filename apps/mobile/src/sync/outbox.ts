@@ -4,6 +4,7 @@ import {
   type SendMessageAck,
   type SendMessageRequest,
   type SetReactionRequest,
+  greetingOf,
 } from '@sampledge/contracts';
 import type { LocalStore, MessageOp, PendingFile } from '../db/store';
 import type { QueuedAction } from '../db/work';
@@ -125,6 +126,7 @@ export class OutboxProcessor {
           ...(typeof msg.metadata.forwardOf === 'string'
             ? { forwardOf: msg.metadata.forwardOf }
             : {}),
+          ...(greetingOf(msg) ? { greeting: greetingOf(msg)! } : {}),
         });
         await store.applyServerMessages([ack.message]);
       } catch (raw) {

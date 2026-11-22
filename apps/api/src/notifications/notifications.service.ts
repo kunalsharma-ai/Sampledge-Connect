@@ -6,6 +6,8 @@ import {
   NOTIFICATION_PREVIEW_LENGTH,
   type Notification,
   type NotificationPage,
+  greetingOf,
+  greetingPreview,
   type CallPushData,
   type PushData,
 } from '@sampledge/contracts';
@@ -38,7 +40,12 @@ export function previewOf(
   m: Pick<MessageDoc, 'content' | 'attachments'> & { metadata?: Record<string, unknown> },
 ): string {
   const fwd = m.metadata?.forwarded as { text?: string } | undefined;
-  const text = (m.content.text || (fwd ? `Forwarded: ${fwd.text ?? ''}` : ''))
+  const card = greetingOf(m);
+  const text = (
+    card
+      ? greetingPreview(card, m.content.text)
+      : m.content.text || (fwd ? `Forwarded: ${fwd.text ?? ''}` : '')
+  )
     .replace(/\s+/g, ' ')
     .trim();
   if (text) {

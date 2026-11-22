@@ -155,6 +155,8 @@ export const TENANT_AREAS = [
   'calls',
   /** Client Inbox channels (connectors), reply templates and inbox settings (SLA, teams). */
   'inbox',
+  /** Greeting card rules (on/off, hidden categories). */
+  'greetings',
 ] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 

@@ -93,6 +93,10 @@ import {
   SCHEDULE_MIN_LEAD_MS,
   type TenantArea,
   type PlatformChangedEvent,
+  DEFAULT_GREETING_POLICY,
+  GreetingPolicySchema,
+  type GreetingCard,
+  type GreetingPolicy,
 } from '@sampledge/contracts';
 import { isNetworkTenant } from '../auth/session';
 import { NETWORK_SCOPES, pathInScopes, type NetworkScope } from '../lib/networkSpace';
@@ -182,6 +186,7 @@ export interface EngineState {
 const HOURS_KEY = 'workingHours';
 /** Settings key for the server's copy of your chat theme and the organization's rules. */
 const THEME_KEY = 'chatTheme';
+const GREETING_KEY = 'greetingPolicy';
 const RECENT_KEY = 'search.recent';
 /** Settings key for the server's copy of your call background, the rules and the branding. */
 const CALL_BG_KEY = 'callBackground';
@@ -239,6 +244,8 @@ export class ConnectEngine {
     workingHours: WorkingHours;
     /** Your chat theme or the organization's rules changed, here or elsewhere. */
     chatTheme: ChatThemeState;
+    /** The organization's greeting card rules changed. */
+    greetingPolicy: GreetingPolicy;
     /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
     callBackground: CallBackgroundState;
     /** Minutes of a call changed here, on another device or by someone else. */
@@ -595,6 +602,7 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'greetings') void this.refreshGreetingPolicy().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
     if (area === 'inbox') void this.refreshInboxAdmin();
     if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
@@ -1567,6 +1575,7 @@ export class ConnectEngine {
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
+          this.refreshGreetingPolicy(),
           this.refreshCallBackground(),
           this.refreshInbox(null),
         ]);
@@ -2296,6 +2305,26 @@ export class ConnectEngine {
     await this.emitChatTheme();
   }
 
+  /** Greeting card rules as last seen (cached for offline use). */
+  async getGreetingPolicy(): Promise<GreetingPolicy> {
+    const raw = await this.store.getSetting(GREETING_KEY);
+    const r = GreetingPolicySchema.safeParse(raw ? JSON.parse(raw) : {});
+    return r.success ? r.data : DEFAULT_GREETING_POLICY;
+  }
+
+  /** Owners and admins: turn greeting cards on or off, or hide categories. Needs a connection. */
+  async setGreetingPolicy(policy: GreetingPolicy): Promise<void> {
+    const r = await this.serverAction(() => this.api.setGreetingPolicy(policy));
+    await this.store.setSetting(GREETING_KEY, JSON.stringify(r.policy));
+    this.events.emit('greetingPolicy', r.policy);
+  }
+
+  private async refreshGreetingPolicy(): Promise<void> {
+    const r = await this.api.getGreetingPolicy();
+    await this.store.setSetting(GREETING_KEY, JSON.stringify(r.policy));
+    this.events.emit('greetingPolicy', r.policy);
+  }
+
   private async refreshChatTheme(): Promise<void> {
     const state = await this.api.getChatTheme();
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
@@ -2679,6 +2708,8 @@ export class ConnectEngine {
       replyTo?: string | null;
       mentions?: readonly string[];
       files?: readonly PendingFileInput[];
+      /** Send as a greeting card. Queued like any message, so it works offline. */
+      greeting?: GreetingCard;
     } = {},
   ): Promise<void> {
     await this.store.enqueueSend({ conversationId, text, ...opts });

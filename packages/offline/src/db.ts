@@ -7,6 +7,7 @@ import type {
   MessageStatus,
   Receipt,
   ForwardedSnapshot,
+  GreetingCard,
 } from '@sampledge/contracts';
 
 /** A message as stored locally: either server-confirmed or still pending on this device. */
@@ -44,6 +45,8 @@ export interface OutboxItem {
     forwardOf?: string;
     /** Forwarding: what the optimistic copy shows until the server confirms it. */
     forwarded?: ForwardedSnapshot;
+    /** Sent as a festival or occasion card (`metadata.greeting`). */
+    greeting?: GreetingCard;
   };
   state: OutboxState;
   attempts: number;

@@ -133,6 +133,7 @@ function RootStack() {
           <Stack.Screen name="forward" options={{ title: 'Forward', presentation: 'modal' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
+          <Stack.Screen name="admin/greetings" options={{ title: 'Greeting cards' }} />
           <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />
           <Stack.Screen name="admin/members" options={{ title: 'Members' }} />
           <Stack.Screen
@@ -154,6 +155,10 @@ function RootStack() {
           <Stack.Screen name="help" options={{ title: 'Feature guides' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
           <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
+          <Stack.Screen
+            name="greeting/new"
+            options={{ title: 'Greeting card', presentation: 'modal' }}
+          />
           <Stack.Screen name="tasks" options={{ title: 'Tasks & Approvals' }} />
           <Stack.Screen name="inbox/[id]" options={{ title: '' }} />
           <Stack.Screen name="inbox/details/[id]" options={{ title: 'Details' }} />

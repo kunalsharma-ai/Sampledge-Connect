@@ -30,6 +30,7 @@ import { REDIS, RateLimitService } from '../redis/redis.module.js';
 import { withLock } from '../redis/lock.js';
 import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
+import { GreetingsService } from '../greetings/greetings.controller.js';
 
 @Injectable()
 export class MessagesService {
@@ -43,6 +44,7 @@ export class MessagesService {
     private readonly rateLimit: RateLimitService,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly webhooks: WebhooksService,
+    private readonly greetings: GreetingsService,
   ) {}
 
   private lockKey(tenantId: string, conversationId: string) {
@@ -112,6 +114,11 @@ export class MessagesService {
       );
     }
     const ordered = attachmentIds.map((id) => files.find((f) => f._id === id)!);
+    if (req.greeting) {
+      if (req.forwardOf)
+        throw new AppError('VALIDATION_FAILED', 'A greeting card can’t also be a forward');
+      await this.greetings.assertAllowed(ctx.tenantId, req.greeting);
+    }
     const forward = req.forwardOf
       ? await this.prepareForward(ctx, req.forwardOf, req.conversationId, ordered.length)
       : null;
@@ -148,6 +155,7 @@ export class MessagesService {
           metadata: {
             ...(req.composedAt ? { composedAt: req.composedAt } : {}),
             ...(forward ? { forwarded: forward.snapshot } : {}),
+            ...(req.greeting ? { greeting: req.greeting } : {}),
           },
         });
       });

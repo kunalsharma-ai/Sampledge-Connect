@@ -77,7 +77,7 @@ export class FakeServer {
       createdAt: new Date().toISOString(),
       editedAt: null,
       deletedAt: null,
-      metadata: {},
+      metadata: req.greeting ? { greeting: req.greeting } : {},
       reactions: [],
       pinned: null,
     };

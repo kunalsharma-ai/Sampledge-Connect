@@ -15,6 +15,7 @@ import {
   type ScheduledMessage,
   type SyncResponse,
   type ForwardedSnapshot,
+  type GreetingCard,
 } from '@sampledge/contracts';
 import type { NetworkChangedEvent } from '@sampledge/contracts';
 import type {
@@ -346,6 +347,8 @@ export class SyncEngine {
       attachments?: Attachment[];
       forwardOf?: string;
       forwarded?: ForwardedSnapshot;
+      /** Send as a greeting card; the text is the card's message. */
+      greeting?: GreetingCard;
     } = {},
   ): Promise<LocalMessage> {
     const now = this.now();
@@ -360,6 +363,7 @@ export class SyncEngine {
         composedAt: new Date(now).toISOString(),
         attachments: opts.attachments ?? [],
         ...(opts.forwardOf ? { forwardOf: opts.forwardOf, forwarded: opts.forwarded } : {}),
+        ...(opts.greeting ? { greeting: opts.greeting } : {}),
       },
       state: 'queued',
       attempts: 0,
@@ -394,7 +398,10 @@ export class SyncEngine {
       createdAt: it.payload.composedAt,
       editedAt: null,
       deletedAt: null,
-      metadata: it.payload.forwarded ? { forwarded: it.payload.forwarded } : {},
+      metadata: {
+        ...(it.payload.forwarded ? { forwarded: it.payload.forwarded } : {}),
+        ...(it.payload.greeting ? { greeting: it.payload.greeting } : {}),
+      },
       reactions: [],
       pinned: null,
       status,
@@ -697,6 +704,7 @@ export class SyncEngine {
         composedAt: item.payload.composedAt,
         attachmentIds: (item.payload.attachments ?? []).map((a) => a.attachmentId),
         ...(item.payload.forwardOf ? { forwardOf: item.payload.forwardOf } : {}),
+        ...(item.payload.greeting ? { greeting: item.payload.greeting } : {}),
       });
       await this.db.transaction('rw', this.db.outbox, this.db.messages, async () => {
         await this.db.outbox.delete(item.clientMessageId);

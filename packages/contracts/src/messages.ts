@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ClientIdSchema, ServerIdSchema } from './ids.js';
 import { AttachmentSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
+import { GreetingCardSchema } from './greetings.js';
 
 /**
  * Outgoing message lifecycle as shown to the sender.
@@ -201,6 +202,12 @@ export const SendMessageRequestSchema = z
      * carried as `metadata.forwarded`; `content.text` is your optional comment.
      */
     forwardOf: ServerIdSchema.optional(),
+    /**
+     * Send as a greeting card (festival or occasion). `content.text` is the card's message;
+     * the server stores this as `metadata.greeting`. Refused when the organization turned
+     * greeting cards off or hid that category.
+     */
+    greeting: GreetingCardSchema.optional(),
   })
   .refine(
     (r) => r.content.text.trim().length > 0 || (r.attachmentIds?.length ?? 0) > 0 || !!r.forwardOf,
