@@ -13,6 +13,7 @@ import { z } from 'zod';
 export const GREETING_CATEGORIES = [
   { id: 'india', name: 'Festivals of India' },
   { id: 'world', name: 'Festivals around the world' },
+  { id: 'days', name: 'Special days' },
   { id: 'life', name: 'Life moments' },
   { id: 'work', name: 'At work' },
   { id: 'care', name: 'Care and support' },
@@ -588,7 +589,7 @@ export const GREETING_OCCASIONS = [
     category: 'india',
     emoji: '🌙',
     months: [3, 4],
-    keywords: ['eid', 'eid mubarak', 'ramzan', 'ramadan'],
+    keywords: ['eid', 'eid mubarak', 'ramzan', 'ramadan', 'hari raya', 'bayram'],
     titles: ['Eid Mubarak', 'Wishing you a blessed Eid'],
     messages: [
       {
@@ -1121,6 +1122,684 @@ export const GREETING_OCCASIONS = [
       {
         tone: 'poetic',
         text: 'A good teacher lights a lamp and walks on. The light stays. Thank you for mine.',
+      },
+    ],
+  }),
+
+  o({
+    id: 'mid-autumn',
+    name: 'Mid-Autumn Festival',
+    category: 'world',
+    emoji: '🥮',
+    months: [9, 10],
+    keywords: ['mooncake', 'moon festival', 'zhongqiu', 'trung thu'],
+    titles: ['Happy Mid-Autumn Festival', 'Under the same moon'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a full moon, a full table and a home full of the people you love. Happy Mid-Autumn Festival!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes for the Mid-Autumn Festival. May the full moon bring you and your family harmony, good health and success.',
+      },
+      {
+        tone: 'playful',
+        text: 'May your mooncakes have double yolks and your lanterns never tip over. Happy Mid-Autumn Festival!',
+      },
+      {
+        tone: 'poetic',
+        text: 'However far apart we are tonight, we are looking at the same bright moon. Sending you its light, and mine.',
+      },
+    ],
+  }),
+  o({
+    id: 'chuseok',
+    name: 'Chuseok',
+    category: 'world',
+    emoji: '🌕',
+    months: [9, 10],
+    keywords: ['korean thanksgiving', 'hangawi', 'harvest moon'],
+    titles: ['Happy Chuseok', 'A bountiful Chuseok to you'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a Chuseok as full and bright as the harvest moon, with plenty of songpyeon and time with family. Happy Chuseok!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm Chuseok greetings to you and your family. May this harvest season bring abundance, health and happiness.',
+      },
+      {
+        tone: 'playful',
+        text: 'May your songpyeon be perfectly shaped and your travel home traffic-free. Happy Chuseok!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Not more, not less, may every day be like Hangawi: full of gratitude, family and a moon that lights the way home.',
+      },
+    ],
+  }),
+  o({
+    id: 'rosh-hashanah',
+    name: 'Rosh Hashanah',
+    category: 'world',
+    emoji: '🍎',
+    months: [9, 10],
+    keywords: ['jewish new year', 'shana tova'],
+    titles: ['Shana Tova', 'A sweet new year'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Shana Tova! Wishing you and your family a sweet, healthy and happy new year, as sweet as apples dipped in honey.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes for Rosh Hashanah. May the new year bring you peace, good health and success.',
+      },
+      {
+        tone: 'playful',
+        text: 'Here’s to a new year with more honey than vinegar. Shana Tova!',
+      },
+      {
+        tone: 'poetic',
+        text: 'The shofar sounds, the year turns, and every heart gets a fresh beginning. May yours be written in sweetness.',
+      },
+    ],
+  }),
+  o({
+    id: 'passover',
+    name: 'Passover',
+    category: 'world',
+    emoji: '🍷',
+    months: [3, 4],
+    keywords: ['pesach', 'seder', 'chag sameach'],
+    titles: ['Chag Pesach Sameach', 'Happy Passover'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a joyful Passover, a warm seder table and the company of everyone you love. Chag Pesach Sameach!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes to you and your family for a meaningful and happy Passover.',
+      },
+      {
+        tone: 'playful',
+        text: 'May you find the afikoman first and never run out of matzah ball soup. Happy Passover!',
+      },
+      {
+        tone: 'poetic',
+        text: 'A story of freedom, told again around the table. May its hope and courage stay with you all year.',
+      },
+    ],
+  }),
+  o({
+    id: 'kwanzaa',
+    name: 'Kwanzaa',
+    category: 'world',
+    emoji: '🕯️',
+    months: [12],
+    keywords: ['kinara', 'habari gani'],
+    titles: ['Happy Kwanzaa', 'Joyous Kwanzaa'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a joyous Kwanzaa full of family, community and seven days of light and celebration.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm Kwanzaa wishes to you and your loved ones. May the principles of unity and purpose guide the year ahead.',
+      },
+      {
+        tone: 'playful',
+        text: 'Seven candles, seven days, and at least seven reasons to celebrate. Happy Kwanzaa!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Unity, purpose, creativity, faith: one candle at a time, the light grows. May it shine on you all year.',
+      },
+    ],
+  }),
+  o({
+    id: 'st-patricks-day',
+    name: 'St Patrick’s Day',
+    category: 'world',
+    emoji: '☘️',
+    months: [3],
+    keywords: ['paddy', 'irish', 'shamrock'],
+    titles: ['Happy St Patrick’s Day', 'Lá Fhéile Pádraig sona duit'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you good friends, good music and good luck today and every day. Happy St Patrick’s Day!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on St Patrick’s Day. May the luck of the Irish be with you in everything you do.',
+      },
+      {
+        tone: 'playful',
+        text: 'Wear green or get pinched. Those are the rules. Happy St Patrick’s Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'May the road rise to meet you and the wind be always at your back. Happy St Patrick’s Day.',
+      },
+    ],
+  }),
+  o({
+    id: 'carnival',
+    name: 'Carnival',
+    category: 'world',
+    emoji: '🎭',
+    months: [2, 3],
+    keywords: ['carnaval', 'mardi gras', 'rio'],
+    titles: ['Happy Carnival', 'Let the party begin!'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you music, colour, dancing and endless joy. Have the most wonderful Carnival!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes for a joyful Carnival season to you and your family.',
+      },
+      {
+        tone: 'playful',
+        text: 'Feathers on, glitter everywhere, sleep optional. Happy Carnival!',
+      },
+      {
+        tone: 'poetic',
+        text: 'For a few bright days the whole city dances as one. May that rhythm stay in your step all year.',
+      },
+    ],
+  }),
+  o({
+    id: 'halloween',
+    name: 'Halloween',
+    category: 'world',
+    emoji: '🎃',
+    months: [10],
+    keywords: ['trick or treat', 'spooky'],
+    titles: ['Happy Halloween', 'Have a spooktacular day'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a Halloween full of fun, laughter and just the right amount of spooky. Happy Halloween!',
+      },
+      {
+        tone: 'formal',
+        text: 'Wishing you and your family a happy and safe Halloween.',
+      },
+      {
+        tone: 'playful',
+        text: 'I’m not saying the chocolate is the only reason I like Halloween. But it is a big reason. Have a spooktacular day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Lanterns grinning in the dark, leaves whispering underfoot. May the only fright tonight be a happy one.',
+      },
+    ],
+  }),
+  o({
+    id: 'day-of-the-dead',
+    name: 'Day of the Dead',
+    category: 'world',
+    emoji: '🌼',
+    months: [10, 11],
+    keywords: ['dia de los muertos', 'día de muertos', 'ofrenda'],
+    titles: ['Feliz Día de Muertos', 'Remembering with love'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a beautiful Día de Muertos, full of warm memories of the people you love and the joy they brought.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on Día de Muertos to you and your family, as you honour and celebrate your loved ones.',
+      },
+      {
+        tone: 'playful',
+        text: 'Marigolds, pan de muerto and stories that make everyone laugh. Feliz Día de Muertos!',
+      },
+      {
+        tone: 'poetic',
+        text: 'A path of marigolds, a candle in the window, and love that remembers the way home. They are never truly gone.',
+      },
+    ],
+  }),
+  o({
+    id: 'songkran',
+    name: 'Songkran',
+    category: 'world',
+    emoji: '💦',
+    months: [4],
+    keywords: ['thai new year', 'water festival'],
+    titles: ['Happy Songkran', 'Sawasdee Pee Mai'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you a fresh start, cool water and a happy new year full of blessings. Happy Songkran!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes for Songkran and the Thai New Year. May the year ahead bring you good fortune and happiness.',
+      },
+      {
+        tone: 'playful',
+        text: 'Fair warning: I have a water gun and excellent aim. Happy Songkran!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Water to wash away the old year, and blessings poured gently for the new. May yours be clear and bright.',
+      },
+    ],
+  }),
+  o({
+    id: 'loy-krathong',
+    name: 'Loy Krathong',
+    category: 'world',
+    emoji: '🪷',
+    months: [11],
+    keywords: ['yi peng', 'lantern festival', 'thailand'],
+    titles: ['Happy Loy Krathong', 'Let your wishes float'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'May your krathong carry away every worry and bring back luck, love and light. Happy Loy Krathong!',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on Loy Krathong. May the year ahead bring you peace and good fortune.',
+      },
+      {
+        tone: 'playful',
+        text: 'Wishing you a krathong that floats straight and a wish that comes true. Happy Loy Krathong!',
+      },
+      {
+        tone: 'poetic',
+        text: 'A small lotus of light on dark water, carrying a wish downstream. May every wish you make tonight find its way.',
+      },
+    ],
+  }),
+
+  // ---------------- Special days ----------------
+  o({
+    id: 'earth-day',
+    name: 'Earth Day',
+    category: 'days',
+    emoji: '🌍',
+    months: [4],
+    keywords: ['planet', 'climate', '22 april'],
+    titles: ['Happy Earth Day', 'For our only home'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Earth Day! Here’s to the small things we do every day to look after the only home we all share.',
+      },
+      {
+        tone: 'formal',
+        text: 'On Earth Day, we reaffirm our commitment to a sustainable future. Thank you for every effort you make for the planet.',
+      },
+      {
+        tone: 'playful',
+        text: 'Reminder from the planet: please water the plants, switch off the lights and hug a tree (optional). Happy Earth Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Blue oceans, green forests, one small round home spinning through the dark. Let’s keep it beautiful.',
+      },
+    ],
+  }),
+  o({
+    id: 'environment-day',
+    name: 'World Environment Day',
+    category: 'days',
+    emoji: '🌱',
+    months: [6],
+    keywords: ['5 june', 'green', 'sustainability', 'paryavaran'],
+    titles: ['Happy World Environment Day', 'Plant a little hope'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy World Environment Day! Every tree planted and every bottle saved is a gift to the people who come after us.',
+      },
+      {
+        tone: 'formal',
+        text: 'On World Environment Day, let us keep working together for cleaner air, water and a greener tomorrow.',
+      },
+      {
+        tone: 'playful',
+        text: 'Today’s challenge: one plant, zero plastic bottles, and a smug feeling all day. Happy World Environment Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Plant a seed today and someone you’ll never meet will sit in its shade. That is the quietest kind of love.',
+      },
+    ],
+  }),
+  o({
+    id: 'yoga-day',
+    name: 'International Yoga Day',
+    category: 'days',
+    emoji: '🧘',
+    months: [6],
+    keywords: ['21 june', 'yoga', 'wellness', 'meditation'],
+    titles: ['Happy International Yoga Day', 'Breathe, stretch, smile'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy International Yoga Day! Wishing you a calm mind, a strong body and a few quiet minutes just for yourself.',
+      },
+      {
+        tone: 'formal',
+        text: 'On International Yoga Day, we wish you good health, balance and peace of mind.',
+      },
+      {
+        tone: 'playful',
+        text: 'If downward dog is too much, lying down on the mat still counts. Happy Yoga Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Breathe in calm, breathe out the noise. May you find your balance on the mat and off it.',
+      },
+    ],
+  }),
+  o({
+    id: 'labour-day',
+    name: 'Labour Day',
+    category: 'days',
+    emoji: '🛠️',
+    months: [5, 9],
+    keywords: ['may day', 'workers day', 'labor day', '1 may'],
+    titles: ['Happy Labour Day', 'Thank you for all you do'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Labour Day! Thank you for the hard work, care and energy you bring every single day. Enjoy a well-earned rest.',
+      },
+      {
+        tone: 'formal',
+        text: 'On Labour Day we honour the dedication of everyone whose work keeps our world moving. Thank you.',
+      },
+      {
+        tone: 'playful',
+        text: 'Today’s only task: absolutely nothing. You’ve earned it. Happy Labour Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Every road, every building, every finished project began with someone’s hands. Today, we thank them all.',
+      },
+    ],
+  }),
+  o({
+    id: 'childrens-day',
+    name: 'Children’s Day',
+    category: 'days',
+    emoji: '🪁',
+    months: [6, 11],
+    keywords: ['bal diwas', 'kids', '14 november'],
+    titles: ['Happy Children’s Day', 'Stay young at heart'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Children’s Day! May every child grow up safe, loved and free to dream big, and may we all keep a little of that wonder.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on Children’s Day. Here’s to a brighter, kinder future for every child.',
+      },
+      {
+        tone: 'playful',
+        text: 'Happy Children’s Day to the kid in you who still wants dessert first. Go on, have it.',
+      },
+      {
+        tone: 'poetic',
+        text: 'Small hands, big questions, and laughter that fills a room. Every child is a promise the world makes to itself.',
+      },
+    ],
+  }),
+  o({
+    id: 'nurses-day',
+    name: 'International Nurses Day',
+    category: 'days',
+    emoji: '🩺',
+    months: [5],
+    keywords: ['nurse', '12 may', 'healthcare'],
+    titles: ['Happy Nurses Day', 'Thank you for caring'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Nurses Day! Thank you for your kindness, your patience and the comfort you give people on their hardest days.',
+      },
+      {
+        tone: 'formal',
+        text: 'On International Nurses Day we thank you for your dedication and compassion. Your care makes all the difference.',
+      },
+      {
+        tone: 'playful',
+        text: 'Superheroes wear scrubs. Happy Nurses Day! Please take a break, eat something and sit down for once.',
+      },
+      {
+        tone: 'poetic',
+        text: 'A steady hand, a gentle word, a night watch nobody sees. Thank you for all the care that goes unseen.',
+      },
+    ],
+  }),
+  o({
+    id: 'doctors-day',
+    name: 'Doctors’ Day',
+    category: 'days',
+    emoji: '⚕️',
+    months: [3, 7],
+    keywords: ['doctor', '1 july', 'healthcare'],
+    titles: ['Happy Doctors’ Day', 'Thank you, doctor'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Doctors’ Day! Thank you for the long hours, the care and the hope you give to so many people.',
+      },
+      {
+        tone: 'formal',
+        text: 'On Doctors’ Day we express our sincere gratitude for your dedication to the health and wellbeing of others.',
+      },
+      {
+        tone: 'playful',
+        text: 'Happy Doctors’ Day! Your prescription: one day of rest, taken with plenty of cake.',
+      },
+      {
+        tone: 'poetic',
+        text: 'Behind every recovery is someone who stayed a little longer and cared a little more. Thank you.',
+      },
+    ],
+  }),
+  o({
+    id: 'mental-health-day',
+    name: 'World Mental Health Day',
+    category: 'days',
+    emoji: '💚',
+    months: [10],
+    keywords: ['wellbeing', 'self care', '10 october'],
+    titles: ['Take care of you', 'It’s okay to not be okay'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'On World Mental Health Day, a gentle reminder: you matter, your feelings matter, and it’s always okay to ask for help. I’m here.',
+      },
+      {
+        tone: 'formal',
+        text: 'On World Mental Health Day, please remember to take care of yourself. Your wellbeing comes first.',
+      },
+      {
+        tone: 'playful',
+        text: 'Official permission to log off on time, drink water and take that walk. Doctor’s orders (well, mine).',
+      },
+      {
+        tone: 'poetic',
+        text: 'Even the strongest trees bend in the wind. Rest is not weakness. Be as kind to yourself as you are to others.',
+      },
+    ],
+  }),
+  o({
+    id: 'peace-day',
+    name: 'International Day of Peace',
+    category: 'days',
+    emoji: '🕊️',
+    months: [9],
+    keywords: ['peace', '21 september', 'harmony'],
+    titles: ['Peace be with you', 'International Day of Peace'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Wishing you peace in your heart, in your home and in the world around you. Happy International Day of Peace.',
+      },
+      {
+        tone: 'formal',
+        text: 'On the International Day of Peace, we renew our commitment to understanding, respect and cooperation.',
+      },
+      {
+        tone: 'playful',
+        text: 'Peace starts small: today, let someone else have the last slice. Happy Peace Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Peace is not only the absence of noise. It is a hand held out, a door left open, a heart that listens.',
+      },
+    ],
+  }),
+  o({
+    id: 'kindness-day',
+    name: 'World Kindness Day',
+    category: 'days',
+    emoji: '💛',
+    months: [11],
+    keywords: ['kindness', '13 november', 'be kind'],
+    titles: ['Happy World Kindness Day', 'Thank you for being kind'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy World Kindness Day! Thank you for all the small kind things you do that make such a big difference.',
+      },
+      {
+        tone: 'formal',
+        text: 'On World Kindness Day, thank you for the respect and generosity you bring to everyone around you.',
+      },
+      {
+        tone: 'playful',
+        text: 'Today’s kindness quota: one compliment, one coffee, one hold-the-door. You’re already ahead.',
+      },
+      {
+        tone: 'poetic',
+        text: 'Kindness costs nothing and travels further than we ever see. Yours has reached more people than you know.',
+      },
+    ],
+  }),
+  o({
+    id: 'mens-day',
+    name: 'International Men’s Day',
+    category: 'days',
+    emoji: '💙',
+    months: [11],
+    keywords: ['men', '19 november'],
+    titles: ['Happy International Men’s Day', 'Celebrating you'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy International Men’s Day! Thank you for your support, your kindness and the strength you share with everyone around you.',
+      },
+      {
+        tone: 'formal',
+        text: 'On International Men’s Day we celebrate your contributions and wish you good health and happiness.',
+      },
+      {
+        tone: 'playful',
+        text: 'Happy Men’s Day! Today you’re officially allowed to win the argument about the thermostat.',
+      },
+      {
+        tone: 'poetic',
+        text: 'Strength that listens, courage that cares. Today we celebrate the good men who quietly make the world better.',
+      },
+    ],
+  }),
+  o({
+    id: 'grandparents-day',
+    name: 'Grandparents’ Day',
+    category: 'days',
+    emoji: '👵',
+    months: [9],
+    keywords: ['grandma', 'grandpa', 'dadi', 'nani', 'dada', 'nana'],
+    titles: ['Happy Grandparents’ Day', 'With all my love'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Grandparents’ Day! Thank you for the stories, the spoiling, the wisdom and all the love you give so freely.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on Grandparents’ Day. May you be surrounded by the love of your family today and always.',
+      },
+      {
+        tone: 'playful',
+        text: 'Happy Grandparents’ Day to the only people who think I’m perfect and too thin. Love you!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Roots that hold the whole tree steady. Everything good in our family grew from you.',
+      },
+    ],
+  }),
+  o({
+    id: 'pride',
+    name: 'Pride',
+    category: 'days',
+    emoji: '🌈',
+    months: [6],
+    keywords: ['pride month', 'lgbtq', 'love is love'],
+    titles: ['Happy Pride', 'Love is love'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy Pride! Celebrating you exactly as you are, today and every day.',
+      },
+      {
+        tone: 'formal',
+        text: 'This Pride, we celebrate equality, inclusion and the freedom for everyone to be themselves.',
+      },
+      {
+        tone: 'playful',
+        text: 'More colour, more glitter, more love. Happy Pride!',
+      },
+      {
+        tone: 'poetic',
+        text: 'Every colour of the rainbow belongs in the sky. Every one of us belongs in the world. Happy Pride.',
+      },
+    ],
+  }),
+  o({
+    id: 'national-day',
+    name: 'National Day',
+    category: 'days',
+    emoji: '🎆',
+    months: [],
+    keywords: ['independence day', 'national holiday', 'country', 'flag'],
+    titles: ['Happy National Day', 'Happy Independence Day'],
+    messages: [
+      {
+        tone: 'warm',
+        text: 'Happy National Day! Wishing you and your family a proud and joyful celebration of the place you call home.',
+      },
+      {
+        tone: 'formal',
+        text: 'Warm wishes on your National Day. May your country continue to grow in peace and prosperity.',
+      },
+      {
+        tone: 'playful',
+        text: 'Flags out, fireworks ready, holiday mode on. Happy National Day!',
+      },
+      {
+        tone: 'poetic',
+        text: 'One flag, many stories, a shared home. May today fill your heart with pride and gratitude.',
       },
     ],
   }),

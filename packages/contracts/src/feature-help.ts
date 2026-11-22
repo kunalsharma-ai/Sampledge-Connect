@@ -247,7 +247,7 @@ export const FEATURE_HELP = [
     category: 'messaging',
     audience: 'everyone',
     summary: 'Send a beautiful card for a festival or special moment.',
-    what: 'Ready-made cards for 59 occasions, from Diwali, Holi, Eid and Onam to birthdays, promotions, farewells and get-well wishes, in five styles with heartfelt messages you can edit.',
+    what: 'Ready-made cards for 84 occasions, from Diwali, Holi, Eid and Onam to Lunar New Year, Hanukkah, Halloween, Earth Day and birthdays, promotions, farewells and get-well wishes, in five styles with heartfelt messages you can edit.',
     why: 'Show people you care in a few seconds, with words that feel personal and a card that looks lovely on every device.',
     where: {
       web: 'The gift button in the message box.',
