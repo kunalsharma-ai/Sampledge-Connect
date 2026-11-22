@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NetworkPerson } from '@sampledge/contracts';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
@@ -217,6 +218,37 @@ export function Empty({
         </Text>
       ) : null}
     </View>
+  );
+}
+
+/** A community's tile: its first letter on its colour. */
+export function CommunityAvatar({
+  name,
+  color,
+  size = 44,
+}: {
+  name: string;
+  color: string;
+  size?: number;
+}) {
+  return (
+    <LinearGradient
+      colors={[color, alpha(color, 0.55)]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.28,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#111',
+      }}
+    >
+      <Text style={{ color: '#fff', fontFamily: fonts.semibold, fontSize: size * 0.42 }}>
+        {name.slice(0, 1).toUpperCase()}
+      </Text>
+    </LinearGradient>
   );
 }
 

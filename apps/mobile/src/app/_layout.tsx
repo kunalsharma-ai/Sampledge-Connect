@@ -75,6 +75,16 @@ function RootStack() {
           <Stack.Screen name="network/invite" options={{ title: 'Invite to SampConnect' }} />
           <Stack.Screen name="network/blocked" options={{ title: 'Blocked people' }} />
           <Stack.Screen name="network/profile" options={{ title: 'Network profile' }} />
+          <Stack.Screen name="network/communities/index" options={{ title: 'Communities' }} />
+          <Stack.Screen name="network/communities/[id]" options={{ title: '' }} />
+          <Stack.Screen
+            name="network/communities/new"
+            options={{ title: 'New community', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="network/communities/group"
+            options={{ title: 'New group', presentation: 'modal' }}
+          />
           <Stack.Screen
             name="network/status/new"
             options={{ title: 'New status', presentation: 'modal' }}

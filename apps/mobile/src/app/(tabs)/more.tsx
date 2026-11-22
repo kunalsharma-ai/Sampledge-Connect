@@ -198,8 +198,7 @@ export default function More() {
               <Row
                 icon="people-circle-outline"
                 title="Communities"
-                planned
-                onPress={() => router.push('/planned/communities')}
+                onPress={() => router.push('/network/communities')}
                 divider
               />
             </Glass>
