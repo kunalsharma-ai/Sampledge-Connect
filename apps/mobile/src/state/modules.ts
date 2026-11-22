@@ -47,9 +47,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'inbox',
     title: 'Client Inbox',
     icon: 'mail-outline',
-    status: 'planned',
+    status: 'available',
     href: '/inbox',
-    summary: 'Unified inbox for external client channels (email, WhatsApp and others).',
+    summary:
+      'Client conversations from Telegram, Teams, Slack, Google Chat, LINE and more in one inbox: replies, internal notes, owners, SLAs and linked records.',
   },
   {
     key: 'meetings',

@@ -27,6 +27,8 @@ import {
   type CallBackgroundPolicyInput,
   type CallBackgroundState,
   type CallMinutesResponse,
+  type InboxConversationDetail,
+  type UpdateInboxConversationRequest,
   type ChatExportAccess,
   type ChatExportRequest,
   type MeetingMinutes,
@@ -87,6 +89,7 @@ import {
 } from '@sampledge/contracts';
 import { isNetworkTenant } from '../auth/session';
 import { NETWORK_SCOPES, pathInScopes, type NetworkScope } from '../lib/networkSpace';
+import type { PendingInbox } from '../lib/inbox';
 import type { SessionManager } from '../auth/session';
 import type {
   LocalMessage,
@@ -183,6 +186,10 @@ const NET_PREFIX = 'net:';
 const netKey = (path: string) => `${NET_PREFIX}${path}`;
 const minutesKey = (callId: string) => `minutes.call.${callId}`;
 const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
+/** Settings keys for the Client Inbox: each list and conversation read, by its API path. */
+const INBOX_PREFIX = 'inbox:';
+const inboxKey = (path: string) => `${INBOX_PREFIX}${path}`;
+const inboxDetailPath = (id: string) => `/v1/inbox/conversations/${encodeURIComponent(id)}`;
 
 export class ConnectEngine {
   readonly events = new Emitter<{
@@ -227,6 +234,11 @@ export class ConnectEngine {
     minutes: { callId: string; conversationId: string };
     /** A recording transcript was corrected, checked or translated. */
     transcript: { attachmentId: string };
+    /**
+     * The Client Inbox changed (a conversation, or null for "re-read everything"): here, on
+     * another of your devices or by another agent. Screens re-read the cache.
+     */
+    inbox: { conversationId: string | null };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -352,6 +364,7 @@ export class ConnectEngine {
         this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
         this.realtime.events.on('transcript', (e) => void this.receiveTranscript(e.attachmentId)),
         this.realtime.events.on('network', (e) => void this.refreshNetwork([e.scope], e.scope)),
+        this.realtime.events.on('inbox', (e) => void this.refreshInbox(e.conversationId)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -1364,6 +1377,32 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setWorkingHours(i.hours)),
         );
         break;
+      case 'inbox.reply':
+        await this.api.inbox('POST', `${inboxDetailPath(i.inboxId)}/replies`, {
+          clientMessageId: i.clientMessageId,
+          text: i.text,
+          ...(i.templateId ? { templateId: i.templateId } : {}),
+        });
+        // The timeline has it before the waiting copy goes, so it never blinks out.
+        await this.inboxLoad(inboxDetailPath(i.inboxId)).catch(() => undefined);
+        break;
+      case 'inbox.note':
+        await this.api.inbox('POST', `${inboxDetailPath(i.inboxId)}/notes`, {
+          clientNoteId: i.clientNoteId,
+          text: i.text,
+          mentions: i.mentions,
+        });
+        await this.inboxLoad(inboxDetailPath(i.inboxId)).catch(() => undefined);
+        break;
+      case 'inbox.update':
+        await this.store.setSetting(
+          inboxKey(inboxDetailPath(i.inboxId)),
+          JSON.stringify(await this.api.inbox('PATCH', inboxDetailPath(i.inboxId), i.patch)),
+        );
+        break;
+      case 'inbox.read':
+        await this.api.inbox('PUT', `${inboxDetailPath(i.inboxId)}/read`);
+        break;
       case 'net.act': {
         let body = i.body;
         if (i.media) {
@@ -1410,6 +1449,20 @@ export class ConnectEngine {
       this.events.emit('actionRefused', { kind: i.kind, reason: err.message, label: i.label });
       return;
     }
+    if (i.kind === 'inbox.reply' || i.kind === 'inbox.note') {
+      // Kept with the reason, so nothing written to a client is lost (Retry or Discard).
+      await this.store.work.fail(a, reason);
+      this.afterAction(a);
+      this.events.emit('actionRefused', { kind: i.kind, reason });
+      return;
+    }
+    if (i.kind === 'inbox.update' || i.kind === 'inbox.read') {
+      // The server's copy shows again (no longer yours to change, closed elsewhere...).
+      await this.store.work.complete(a);
+      this.afterAction(a);
+      this.events.emit('actionRefused', { kind: i.kind, reason });
+      return;
+    }
     if (i.kind === 'poll.create') {
       await this.store.work.fail(a, reason);
       await this.store.markPollFailed(i.request.clientMessageId, reason);
@@ -1431,6 +1484,7 @@ export class ConnectEngine {
       this.events.emit('network', { scope: null });
       void this.refreshNetwork(i.scopes);
     }
+    if (i.kind.startsWith('inbox.') && 'inboxId' in i) void this.refreshInbox(i.inboxId);
     if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
@@ -1485,6 +1539,7 @@ export class ConnectEngine {
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
           this.refreshCallBackground(),
+          this.refreshInbox(null),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
@@ -1495,6 +1550,144 @@ export class ConnectEngine {
       }
     })();
     return this.workRun;
+  }
+
+  // ------------------------------------------------------------------ Client Inbox
+  //
+  // Lists and conversations are cached by API path so the inbox opens offline. Replies, notes,
+  // field changes and read marks are saved here first and sent in order (db/work.ts); the
+  // server's copy wins once they land. `inbox:changed` and reconnects re-read what is cached.
+
+  /** The cached copy of an inbox list or conversation (shown at once, and offline). */
+  async inboxCached<T>(path: string): Promise<T | undefined> {
+    const raw = await this.store.getSetting(inboxKey(path));
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  }
+
+  /**
+   * Reads an inbox path from the server and caches it; offline it keeps the cached copy.
+   * Throws when the server refuses (no access, gone), so the screen can say why.
+   */
+  async inboxLoad<T>(path: string): Promise<T | undefined> {
+    // Searches are not kept: every query would leave a copy behind.
+    const keep = !/[?&]q=/.test(path);
+    if (this.online) {
+      try {
+        const value = await this.api.inbox<T>('GET', path);
+        if (!keep) return value;
+        await this.store.setSetting(inboxKey(path), JSON.stringify(value));
+      } catch (err) {
+        if (err instanceof TransportError) {
+          if (err.isAuth) void this.handleAuthError(err);
+          if (err.code === 'NOT_FOUND' || err.code === 'FORBIDDEN')
+            await this.store.deleteSetting(inboxKey(path));
+          if (err.kind !== 'network' && !err.retryable) throw err;
+        }
+      }
+    }
+    return keep ? this.inboxCached<T>(path) : undefined;
+  }
+
+  /** Inbox changes made here that have not reached the server yet (refused posts too). */
+  inboxPending(): Promise<PendingInbox> {
+    return this.store.work.pendingInbox();
+  }
+
+  private async inboxQueue(input: ActionInput & { inboxId: string }): Promise<void> {
+    await this.queue(input);
+    this.events.emit('inbox', { conversationId: input.inboxId });
+  }
+
+  /** A reply to the client. Saved here first; the server sends it on through the channel. */
+  inboxReply(inboxId: string, text: string, templateId?: string): Promise<void> {
+    return this.inboxQueue({
+      kind: 'inbox.reply',
+      inboxId,
+      clientMessageId: uuidv7(),
+      text: text.trim(),
+      ...(templateId ? { templateId } : {}),
+    });
+  }
+
+  /** An internal note: only agents see it, and it is never sent to the client. */
+  inboxNote(inboxId: string, text: string, mentions: string[] = []): Promise<void> {
+    return this.inboxQueue({
+      kind: 'inbox.note',
+      inboxId,
+      clientNoteId: uuidv7(),
+      text: text.trim(),
+      mentions,
+    });
+  }
+
+  /** Status, priority, assignee, team, tags, subject or snooze; the latest choice wins. */
+  inboxUpdate(inboxId: string, patch: UpdateInboxConversationRequest): Promise<void> {
+    return this.inboxQueue({ kind: 'inbox.update', inboxId, patch });
+  }
+
+  /** Marks it read for you on all your devices (personal to each agent). */
+  inboxMarkRead(inboxId: string): Promise<void> {
+    if (this.session.state === 'demo') return Promise.resolve();
+    return this.inboxQueue({ kind: 'inbox.read', inboxId });
+  }
+
+  async inboxRetry(actionId: string): Promise<void> {
+    await this.store.work.retryAction(actionId);
+    this.events.emit('inbox', { conversationId: null });
+    void this.outbox.kick();
+  }
+
+  async inboxDiscard(actionId: string): Promise<void> {
+    await this.store.work.discardAction(actionId);
+    this.events.emit('inbox', { conversationId: null });
+  }
+
+  /**
+   * Inbox changes the server has to decide on the spot (escalate, link a record, log a
+   * handoff message, start a handoff conversation, retry a delivery, channel admin). They need
+   * a connection; everyone who can see the conversation gets `inbox:changed`.
+   */
+  inboxServer<T>(
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+    inboxId: string | null = null,
+  ): Promise<T> {
+    return this.serverAction(async () => {
+      const r = await this.api.inbox<T>(method, path, body);
+      const d = r as unknown as InboxConversationDetail | undefined;
+      const id = inboxId ?? d?.conversation?.conversationId ?? null;
+      if (id && d?.conversation?.conversationId === id)
+        await this.store.setSetting(inboxKey(inboxDetailPath(id)), JSON.stringify(d));
+      await this.refreshInbox(id);
+      return r;
+    });
+  }
+
+  /**
+   * Re-reads the cached inbox lists and this conversation (every cached one when null), then
+   * tells the screens. Runs on `inbox:changed`, after each queued change and on reconnect.
+   */
+  async refreshInbox(conversationId: string | null = null): Promise<void> {
+    if (this.inNetwork) return;
+    if (this.online) {
+      const keys = (await this.store.settingKeys(INBOX_PREFIX)).map((k) =>
+        k.slice(INBOX_PREFIX.length),
+      );
+      const detail = conversationId ? inboxDetailPath(conversationId) : null;
+      await Promise.allSettled(
+        keys
+          .filter(
+            (p) =>
+              !detail ||
+              p === detail ||
+              p === '/v1/inbox/conversations' ||
+              p.startsWith('/v1/inbox/conversations?'),
+          )
+          .map((p) => this.inboxLoad(p)),
+      );
+    }
+    this.events.emit('inbox', { conversationId });
   }
 
   // ------------------------------------------------------------------ SampConnect Network

@@ -135,6 +135,13 @@ function RootStack() {
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
           <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
           <Stack.Screen name="tasks" options={{ title: 'Tasks & Approvals' }} />
+          <Stack.Screen name="inbox/[id]" options={{ title: '' }} />
+          <Stack.Screen name="inbox/details/[id]" options={{ title: 'Details' }} />
+          <Stack.Screen
+            name="inbox/new"
+            options={{ title: 'Log a conversation', presentation: 'modal' }}
+          />
+          <Stack.Screen name="inbox/dashboard" options={{ title: 'Inbox dashboard' }} />
           <Stack.Screen name="assistant" options={{ title: 'AI Assistant' }} />
           <Stack.Screen name="summary/[id]" options={{ title: 'Summary' }} />
           <Stack.Screen name="task/[id]" options={{ title: 'Task' }} />

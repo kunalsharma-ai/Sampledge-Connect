@@ -197,6 +197,8 @@ export interface ApiTransport {
   signUpPersonal(req: NetworkSignupRequest): Promise<Session>;
   /** Any SampConnect Network call (`/v1/network/...`): the screens read and act through it. */
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
+  /** Any Client Inbox call (`/v1/inbox/...`, `/v1/connectors...`). */
+  inbox<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   /** Uploads a status photo or video; returns its attachment id for POST /v1/network/statuses. */
   uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
@@ -465,6 +467,13 @@ export class HttpTransport implements ApiTransport {
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
     if (!path.startsWith('/v1/network/')) throw new Error(`Not a network path: ${path}`);
     return this.request<T>(method, path, body).then((r) => withAbsoluteMedia(r, this.opts.baseUrl));
+  }
+
+  /** Client Inbox and its channels (`/v1/inbox/...`, `/v1/connectors...`). */
+  inbox<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
+    if (!path.startsWith('/v1/inbox/') && !path.startsWith('/v1/connectors'))
+      throw new Error(`Not an inbox path: ${path}`);
+    return this.request<T>(method, path, body);
   }
 
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck> {
@@ -1399,6 +1408,7 @@ export class NoServerTransport implements ApiTransport {
   linkNetwork = async (): Promise<Session> => this.fail();
   signUpPersonal = async (): Promise<Session> => this.fail();
   network = async <T>(): Promise<T> => this.fail();
+  inbox = async <T>(): Promise<T> => this.fail();
   uploadStatusMedia = async (): Promise<string> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
