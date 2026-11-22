@@ -98,8 +98,11 @@ export const ChatThemePolicySchema = z.object({
   defaultThemeId: ChatThemeIdSchema.default('default'),
   /** Themes people may choose; null means all. Always includes the default. */
   allowed: z.array(ChatThemeIdSchema).min(1).max(CHAT_THEMES.length).nullable().default(null),
-  /** People may use their own picture as a chat background (kept on their device). */
-  allowCustomImages: z.boolean().default(true),
+  /**
+   * People may use their own picture as a chat background (kept on their device). Missing
+   * means allowed; check it with `customImagesAllowed(policy)`.
+   */
+  allowCustomImages: z.boolean().optional(),
 });
 export type ChatThemePolicy = z.infer<typeof ChatThemePolicySchema>;
 export const DEFAULT_CHAT_THEME_POLICY: ChatThemePolicy = {
@@ -146,6 +149,9 @@ export const DEFAULT_CHAT_BACKGROUND_ADJUST: ChatBackgroundAdjust =
   ChatBackgroundAdjustSchema.parse({});
 /** Longest edge of a prepared background picture, in pixels. */
 export const CHAT_BACKGROUND_MAX_EDGE = 2560;
+
+export const customImagesAllowed = (p: Pick<ChatThemePolicy, 'allowCustomImages'>) =>
+  p.allowCustomImages !== false;
 
 /** GET /v1/me/chat-theme */
 export const ChatThemeStateSchema = z.object({

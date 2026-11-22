@@ -3,6 +3,7 @@ import {
   ChatThemePolicySchema,
   DEFAULT_CHAT_THEME_POLICY,
   SetChatThemeRequestSchema,
+  customImagesAllowed,
   effectiveChatTheme,
   type ChatThemeId,
   type ChatThemePolicy,
@@ -34,7 +35,9 @@ export class ChatThemesService {
       { projection: { chatThemePolicy: 1 } },
     );
     const r = ChatThemePolicySchema.safeParse(t?.chatThemePolicy ?? DEFAULT_CHAT_THEME_POLICY);
-    return r.success ? r.data : DEFAULT_CHAT_THEME_POLICY;
+    return r.success
+      ? { ...r.data, allowCustomImages: customImagesAllowed(r.data) }
+      : DEFAULT_CHAT_THEME_POLICY;
   }
 
   async state(ctx: TenantContext): Promise<ChatThemeState> {
@@ -69,7 +72,7 @@ export class ChatThemesService {
     const policy: ChatThemePolicy = {
       defaultThemeId: p.defaultThemeId,
       allowed,
-      allowCustomImages: p.allowCustomImages,
+      allowCustomImages: customImagesAllowed(p),
     };
     await this.db.tenants.updateOne({ _id: ctx.tenantId }, { $set: { chatThemePolicy: policy } });
     await this.audit.record({

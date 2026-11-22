@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  ChatThemePolicySchema,
   DEFAULT_CHAT_THEME_POLICY,
   effectiveChatTheme,
   type ChatThemeId,
@@ -23,8 +24,10 @@ interface Stored {
 const listeners = new Set<(s: Stored) => void>();
 let current: Stored = { themeId: null, policy: DEFAULT_CHAT_THEME_POLICY };
 function publish(next: Stored) {
-  current = next;
-  listeners.forEach((l) => l(next));
+  // Copies cached before a rule existed get its default.
+  const policy = ChatThemePolicySchema.safeParse(next.policy ?? {});
+  current = { ...next, policy: policy.success ? policy.data : DEFAULT_CHAT_THEME_POLICY };
+  listeners.forEach((l) => l(current));
 }
 
 /**
@@ -132,6 +135,8 @@ export function chatThemeCss(
   const s = chatThemeStyle(id, theme.colors, theme.mode);
   return {
     background: s.background,
+    // The theme's plain colour, under and over a personal picture.
+    ['--sc-chat-base' as string]: s.base,
     // Tailwind's bubble utilities read these.
     ['--sc-color-bubble-own' as string]: s.bubbleOwn,
     ['--sc-color-bubble-own-fg' as string]: s.bubbleOwnFg,
