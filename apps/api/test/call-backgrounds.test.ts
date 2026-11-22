@@ -247,6 +247,52 @@ describe('call backgrounds', () => {
     expect(s.effective).toEqual({ kind: 'logo' });
   });
 
+  it('saves how I look on camera, keeps my background, and tells my devices', async () => {
+    const before = await state(owner);
+    expect(before.appearance).toMatchObject({ filter: 'natural', brightness: 0, smoothing: 0 });
+    const ev = nextEvent(raviSocket, 'meetings:changed', (e) => e.area === 'call_background');
+    const res = await api<CallBackgroundState>(h, 'PUT', '/v1/me/call-appearance', {
+      token: ravi.accessToken,
+      body: { filter: 'mono', brightness: 20, smoothing: 60, faceSlim: 30 },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.appearance).toEqual({
+      filter: 'mono',
+      brightness: 20,
+      contrast: 0,
+      saturation: 0,
+      warmth: 0,
+      lowLight: 0,
+      sharpness: 0,
+      smoothing: 60,
+      faceSlim: 30,
+      eyes: 0,
+      nose: 0,
+    });
+    await ev;
+    const s = await state(ravi);
+    expect(s.appearance.filter).toBe('mono');
+    expect(s.choice).not.toBeNull();
+    // Out of range, unknown filters and fractions are refused.
+    for (const body of [
+      { brightness: 101 },
+      { filter: 'sparkle' },
+      { smoothing: -1 },
+      { eyes: 1.5 },
+    ])
+      expect(
+        (await api(h, 'PUT', '/v1/me/call-appearance', { token: ravi.accessToken, body })).status,
+      ).toBe(400);
+    // Saving a look never changes the background.
+    const fresh = await api<CallBackgroundState>(h, 'PUT', '/v1/me/call-appearance', {
+      token: owner.accessToken,
+      body: { warmth: -40 },
+    });
+    expect(fresh.body.appearance.warmth).toBe(-40);
+    expect(fresh.body.choice).toEqual(before.choice);
+    await api(h, 'PUT', '/v1/me/call-appearance', { token: owner.accessToken, body: {} });
+  });
+
   it('attachment uploads with an image or audio type still stream through', async () => {
     // Regression guard: binary bodies are read per route, never by a global parser.
     for (const [bytes, mimeType] of [

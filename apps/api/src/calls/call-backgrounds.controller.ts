@@ -36,6 +36,13 @@ export class CallBackgroundsController {
     return this.backgrounds.choose(ctx, body);
   }
 
+  /** How I look on camera; saved to my account so every device uses it. */
+  @Put('me/call-appearance')
+  @UseGuards(AuthGuard)
+  appearance(@Ctx() ctx: TenantContext, @Body() body: unknown) {
+    return this.backgrounds.setAppearance(ctx, body);
+  }
+
   /** Adds one of my own backgrounds (raw image/png, image/jpeg or image/webp body, 2 MB) and selects it. */
   @Post('me/call-backgrounds')
   @UseGuards(AuthGuard)

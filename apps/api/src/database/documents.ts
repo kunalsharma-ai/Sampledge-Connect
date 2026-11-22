@@ -461,6 +461,8 @@ export interface CallBackgroundPrefDoc extends TenantOwned {
   choice: { kind: string; presetId?: string; imageId?: string } | null;
   /** Older single-image form; images now live in `call_background_images` by user. */
   imageKey?: string | null;
+  /** How they look on camera (CallAppearance); absent = as the camera sees it. */
+  appearance?: Record<string, unknown> | null;
   updatedAt: Date;
 }
 

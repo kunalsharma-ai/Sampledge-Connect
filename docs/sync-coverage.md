@@ -23,51 +23,52 @@ person plus another member); `packages/offline/src/engine.test.ts` checks the of
 
 ## Actions
 
-| Action                                          | Live event                                                  | Offline (web)                          |
-| ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------- |
-| Send message, reply, thread reply               | `message:new`                                               | Outbox                                 |
-| Edit own message                                | `message:updated`                                           | Queued, shown with "not synced yet"    |
-| Delete message (own, or as moderator)           | `message:updated`                                           | Queued                                 |
-| React                                           | `message:updated`                                           | Reaction queue                         |
-| Read receipts                                   | `receipt:updated`                                           | Queued watermark                       |
-| Pin / unpin                                     | `message:updated`                                           | Queued                                 |
-| Save / unsave message                           | `bookmark:updated` (own devices only)                       | Queued                                 |
-| Vote in poll                                    | `message:updated`, `poll:myVote` (own devices)              | Queued                                 |
-| Create poll, schedule message                   | `message:new`, `scheduled:updated`                          | Needs a connection                     |
-| Notification level                              | `conversation:upsert` (own devices)                         | Queued                                 |
-| Mark notifications read                         | `notification:read`                                         | Queued                                 |
-| Create / change conversation, members           | `conversation:upsert`, `conversation:revoked`               | Needs a connection                     |
-| Task status and edits                           | `task:upsert`                                               | Queued (edits merge)                   |
-| Approve / reject                                | `approval:upsert`                                           | Queued                                 |
-| Create task, approval, project                  | `task:upsert`, `approval:upsert`, `project:changed`         | Needs a connection                     |
-| Module record linked or updated (module event)  | `record:changed` to the conversation                        | Details panel refetches on reconnect   |
-| Run a record action (e.g. Log to SampForce)     | `record:changed` `action`, action card as `message:new`     | Needs a connection                     |
-| Meeting create / change / RSVP                  | `meeting:upsert`                                            | RSVP queued; create needs a connection |
-| Working hours                                   | `meetings:changed` `working_hours` (own devices)            | Needs a connection                     |
-| Booking page create / change / delete           | `meetings:changed` `booking_pages` (every host)             | Needs a connection                     |
-| Book a slot (public page)                       | `meeting:upsert` to the hosts                               | Needs a connection by nature           |
-| Call recording added, any recording deleted     | `recording:changed` (conversation members)                  | Delete needs a connection              |
-| Call background (mine), own image               | `meetings:changed` `call_background` (my devices)           | Choice queued, sent on reconnect       |
-| Call background rules (default, require logo)   | `tenant:updated` `calls`                                    | Needs a connection                     |
-| Live captions on/off, caption lines             | LiveKit attribute `captions` and data topic `captions`      | Live only (not stored)                 |
-| Calls                                           | `call:ringing`, `call:updated`, `call:ended`                | Needs a connection by nature           |
-| Invite / change member, edit profile            | `directory:updated`                                         | Needs a connection (admin)             |
-| Branding                                        | `tenant:updated` `branding`                                 | Needs a connection (admin)             |
-| Billing, integrations, AI, recordings settings  | `tenant:updated` with that area                             | Needs a connection (admin)             |
-| Recent searches (add, remove, clear)            | `search:recent` (own devices only)                          | Queued                                 |
-| Forward a message (with its files)              | `message:new` in each target conversation                   | Queued (outbox, like any send)         |
-| Turn forwarding on/off (private channel, group) | `conversation:updated`                                      | Needs a connection (moderators)        |
-| Availability, custom status, quiet hours        | `directory:updated` (everyone in the organization)          | Queued, shown at once on this device   |
-| AI draft created, sent or dismissed             | `ai:proposal` (own devices only)                            | Send and dismiss queued                |
-| Dismiss / restore a suggested AI task           | `ai:suggestion` (own devices only)                          | Queued                                 |
-| Create a task from an AI suggestion             | `task:upsert`                                               | Needs a connection                     |
-| AI summaries, digest, search                    | Computed on request, cached on the server                   | Needs a connection by nature           |
-| Analytics                                       | Computed on request, refreshed each minute and on reconnect | Last result cached on the device       |
-| Minutes of meeting (edit, share, delete)        | `minutes:changed`                                           | Edits queued                           |
-| Transcript corrections and translations         | `transcript:changed`                                        | Corrections queued                     |
-| Chat theme (your choice)                        | `chat-theme:changed` to your other devices                  | Queued; shows at once on this device   |
-| Chat theme rules (owners and admins)            | `tenant:updated` area `chat_themes`                         | Needs a connection                     |
-| Typing, presence                                | `typing:update`, `presence:update`                          | Ephemeral, not queued                  |
+| Action                                          | Live event                                                  | Offline (web)                             |
+| ----------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------- |
+| Send message, reply, thread reply               | `message:new`                                               | Outbox                                    |
+| Edit own message                                | `message:updated`                                           | Queued, shown with "not synced yet"       |
+| Delete message (own, or as moderator)           | `message:updated`                                           | Queued                                    |
+| React                                           | `message:updated`                                           | Reaction queue                            |
+| Read receipts                                   | `receipt:updated`                                           | Queued watermark                          |
+| Pin / unpin                                     | `message:updated`                                           | Queued                                    |
+| Save / unsave message                           | `bookmark:updated` (own devices only)                       | Queued                                    |
+| Vote in poll                                    | `message:updated`, `poll:myVote` (own devices)              | Queued                                    |
+| Create poll, schedule message                   | `message:new`, `scheduled:updated`                          | Needs a connection                        |
+| Notification level                              | `conversation:upsert` (own devices)                         | Queued                                    |
+| Mark notifications read                         | `notification:read`                                         | Queued                                    |
+| Create / change conversation, members           | `conversation:upsert`, `conversation:revoked`               | Needs a connection                        |
+| Task status and edits                           | `task:upsert`                                               | Queued (edits merge)                      |
+| Approve / reject                                | `approval:upsert`                                           | Queued                                    |
+| Create task, approval, project                  | `task:upsert`, `approval:upsert`, `project:changed`         | Needs a connection                        |
+| Module record linked or updated (module event)  | `record:changed` to the conversation                        | Details panel refetches on reconnect      |
+| Run a record action (e.g. Log to SampForce)     | `record:changed` `action`, action card as `message:new`     | Needs a connection                        |
+| Meeting create / change / RSVP                  | `meeting:upsert`                                            | RSVP queued; create needs a connection    |
+| Working hours                                   | `meetings:changed` `working_hours` (own devices)            | Needs a connection                        |
+| Booking page create / change / delete           | `meetings:changed` `booking_pages` (every host)             | Needs a connection                        |
+| Book a slot (public page)                       | `meeting:upsert` to the hosts                               | Needs a connection by nature              |
+| Call recording added, any recording deleted     | `recording:changed` (conversation members)                  | Delete needs a connection                 |
+| Call background (mine), own images, appearance  | `meetings:changed` `call_background` (my devices)           | Choice and look queued, sent on reconnect |
+| Company background library                      | `tenant:updated` `calls`                                    | Needs a connection                        |
+| Call background rules (default, require logo)   | `tenant:updated` `calls`                                    | Needs a connection                        |
+| Live captions on/off, caption lines             | LiveKit attribute `captions` and data topic `captions`      | Live only (not stored)                    |
+| Calls                                           | `call:ringing`, `call:updated`, `call:ended`                | Needs a connection by nature              |
+| Invite / change member, edit profile            | `directory:updated`                                         | Needs a connection (admin)                |
+| Branding                                        | `tenant:updated` `branding`                                 | Needs a connection (admin)                |
+| Billing, integrations, AI, recordings settings  | `tenant:updated` with that area                             | Needs a connection (admin)                |
+| Recent searches (add, remove, clear)            | `search:recent` (own devices only)                          | Queued                                    |
+| Forward a message (with its files)              | `message:new` in each target conversation                   | Queued (outbox, like any send)            |
+| Turn forwarding on/off (private channel, group) | `conversation:updated`                                      | Needs a connection (moderators)           |
+| Availability, custom status, quiet hours        | `directory:updated` (everyone in the organization)          | Queued, shown at once on this device      |
+| AI draft created, sent or dismissed             | `ai:proposal` (own devices only)                            | Send and dismiss queued                   |
+| Dismiss / restore a suggested AI task           | `ai:suggestion` (own devices only)                          | Queued                                    |
+| Create a task from an AI suggestion             | `task:upsert`                                               | Needs a connection                        |
+| AI summaries, digest, search                    | Computed on request, cached on the server                   | Needs a connection by nature              |
+| Analytics                                       | Computed on request, refreshed each minute and on reconnect | Last result cached on the device          |
+| Minutes of meeting (edit, share, delete)        | `minutes:changed`                                           | Edits queued                              |
+| Transcript corrections and translations         | `transcript:changed`                                        | Corrections queued                        |
+| Chat theme (your choice)                        | `chat-theme:changed` to your other devices                  | Queued; shows at once on this device      |
+| Chat theme rules (owners and admins)            | `tenant:updated` area `chat_themes`                         | Needs a connection                        |
+| Typing, presence                                | `typing:update`, `presence:update`                          | Ephemeral, not queued                     |
 
 "Needs a connection" actions are disabled offline with a clear label, never silently lost.
 Creating things that get a server id (polls, tasks, projects, meetings) is planned for the queue

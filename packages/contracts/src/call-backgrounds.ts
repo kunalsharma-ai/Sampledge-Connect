@@ -106,4 +106,83 @@ export interface CallBackgroundState {
   policy: CallBackgroundPolicy & { canManage: boolean };
   /** Branding used to draw the logo background. */
   brand: { name: string; logo: string | null; primary: string; secondary: string };
+  /** How I look on camera (filter, light, colour, touch-up, face shaping). */
+  appearance: CallAppearance;
 }
+
+// ---------- appearance ----------
+
+/**
+ * Looks: a one-tap filter applied on top of the sliders. The numbers are shared by the web and
+ * mobile apps so a look is the same everywhere (all run on the device).
+ * brightness/contrast/saturation/warmth are -1..1 nudges, grayscale/sepia/glow/vignette 0..1.
+ */
+export const CALL_LOOK_FILTERS = [
+  { id: 'natural', name: 'Natural', mix: {} },
+  { id: 'fresh', name: 'Fresh', mix: { brightness: 0.06, contrast: 0.08, saturation: 0.12 } },
+  { id: 'warm', name: 'Warm', mix: { warmth: 0.35, saturation: 0.06, brightness: 0.03 } },
+  { id: 'cool', name: 'Cool', mix: { warmth: -0.3, contrast: 0.05 } },
+  { id: 'vivid', name: 'Vivid', mix: { saturation: 0.35, contrast: 0.15 } },
+  { id: 'soft', name: 'Soft glow', mix: { glow: 0.45, contrast: -0.08, brightness: 0.04 } },
+  { id: 'studio', name: 'Studio', mix: { contrast: 0.12, vignette: 0.35, brightness: 0.04 } },
+  { id: 'mono', name: 'Black and white', mix: { grayscale: 1, contrast: 0.08 } },
+  { id: 'noir', name: 'Noir', mix: { grayscale: 1, contrast: 0.35, vignette: 0.5 } },
+  { id: 'vintage', name: 'Vintage', mix: { sepia: 0.6, contrast: -0.05, vignette: 0.3 } },
+] as const;
+export type CallLookFilterId = (typeof CALL_LOOK_FILTERS)[number]['id'];
+const LOOK_IDS = CALL_LOOK_FILTERS.map((f) => f.id) as [CallLookFilterId, ...CallLookFilterId[]];
+
+const slider = (min: number) => z.number().int().min(min).max(100).default(0);
+
+/**
+ * PUT /v1/me/call-appearance. Sliders are whole numbers; 0 is "as the camera sees it".
+ * Light and colour run -100..100, touch-up and face shaping 0..100.
+ */
+export const CallAppearanceSchema = z.object({
+  filter: z.enum(LOOK_IDS).default('natural'),
+  brightness: slider(-100),
+  contrast: slider(-100),
+  saturation: slider(-100),
+  warmth: slider(-100),
+  /** Lifts dark areas, for dim rooms. */
+  lowLight: slider(0),
+  sharpness: slider(0),
+  /** Skin smoothing. */
+  smoothing: slider(0),
+  /** Face shaping (needs the face model on the device). */
+  faceSlim: slider(0),
+  eyes: slider(0),
+  nose: slider(0),
+});
+export type CallAppearance = z.infer<typeof CallAppearanceSchema>;
+export type CallAppearanceInput = z.input<typeof CallAppearanceSchema>;
+export const DEFAULT_CALL_APPEARANCE: CallAppearance = CallAppearanceSchema.parse({});
+
+/** One tap "Enhance": the touch-up most people like. */
+export const CALL_APPEARANCE_ENHANCE: Partial<CallAppearance> = {
+  smoothing: 45,
+  lowLight: 20,
+  sharpness: 20,
+  brightness: 5,
+  saturation: 8,
+};
+
+/** True when nothing changes the picture (the camera can skip processing). */
+export function isNeutralAppearance(a: CallAppearance): boolean {
+  return (
+    a.filter === 'natural' &&
+    !a.brightness &&
+    !a.contrast &&
+    !a.saturation &&
+    !a.warmth &&
+    !a.lowLight &&
+    !a.sharpness &&
+    !a.smoothing &&
+    !a.faceSlim &&
+    !a.eyes &&
+    !a.nose
+  );
+}
+
+/** True when face shaping is on (the device then also finds the face in each frame). */
+export const usesFaceShaping = (a: CallAppearance) => !!(a.faceSlim || a.eyes || a.nose);

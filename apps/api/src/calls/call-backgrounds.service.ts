@@ -4,8 +4,10 @@ import {
   CALL_BACKGROUND_MAX_BYTES,
   CALL_BACKGROUND_MAX_ORGANIZATION,
   CALL_BACKGROUND_MAX_PERSONAL,
+  CallAppearanceSchema,
   CallBackgroundChoiceSchema,
   CallBackgroundPolicySchema,
+  DEFAULT_CALL_APPEARANCE,
   tenantCan,
   type CallBackgroundChoice,
   type CallBackgroundPolicy,
@@ -115,6 +117,7 @@ export class CallBackgroundsService {
     if (fallback.kind === 'upload' && !exists(fallback.imageId)) fallback = { kind: 'none' };
 
     const brand = BrandingService.resolve(tenant);
+    const look = CallAppearanceSchema.safeParse(pref?.appearance ?? {});
     return {
       choice,
       effective: policy.enforceLogo ? { kind: 'logo' } : (choice ?? fallback),
@@ -127,7 +130,22 @@ export class CallBackgroundsService {
         primary: brand.primary,
         secondary: brand.secondary,
       },
+      appearance: look.success ? look.data : DEFAULT_CALL_APPEARANCE,
     };
+  }
+
+  /** Saves how I look on camera (filter, light, colour, touch-up, face shaping). */
+  async setAppearance(ctx: TenantContext, body: unknown): Promise<CallBackgroundState> {
+    const appearance = parse(CallAppearanceSchema, body);
+    await this.db
+      .for(ctx.tenantId)
+      .call_background_prefs.updateOne(
+        { userId: ctx.userId },
+        { $set: { appearance, updatedAt: new Date() }, $setOnInsert: { choice: null } },
+        { upsert: true },
+      );
+    this.changed(ctx);
+    return this.state(ctx);
   }
 
   async choose(ctx: TenantContext, body: unknown): Promise<CallBackgroundState> {
