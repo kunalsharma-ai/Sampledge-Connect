@@ -66,13 +66,21 @@ export class ChatThemesService {
       throw forbidden('Only owners and admins can set chat theme rules');
     const p = parse(ChatThemePolicySchema, body);
     const allowed = p.allowed ? [...new Set([p.defaultThemeId, ...p.allowed])] : null;
-    const policy: ChatThemePolicy = { defaultThemeId: p.defaultThemeId, allowed };
+    const policy: ChatThemePolicy = {
+      defaultThemeId: p.defaultThemeId,
+      allowed,
+      allowCustomImages: p.allowCustomImages,
+    };
     await this.db.tenants.updateOne({ _id: ctx.tenantId }, { $set: { chatThemePolicy: policy } });
     await this.audit.record({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,
       action: 'tenant.chat_themes_updated',
-      metadata: { defaultThemeId: policy.defaultThemeId, allowed: policy.allowed?.length ?? 'all' },
+      metadata: {
+        defaultThemeId: policy.defaultThemeId,
+        allowed: policy.allowed?.length ?? 'all',
+        allowCustomImages: policy.allowCustomImages,
+      },
     });
     this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'chat_themes' });
     return this.state(ctx);
