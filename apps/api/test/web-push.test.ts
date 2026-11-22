@@ -1,6 +1,6 @@
 import { createECDH, randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import {
   uuidv7,
   type Conversation,

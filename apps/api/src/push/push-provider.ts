@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import type { IntegrationProviderDef, WebPushPayload } from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
