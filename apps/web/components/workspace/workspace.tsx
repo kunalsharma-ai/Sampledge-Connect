@@ -107,6 +107,7 @@ import { apiRequest } from '@/lib/api';
 import { ConversationWorkProvider } from './work-cards';
 import { CreateTaskDialog, RequestApprovalDialog, type WorkSource } from './work-dialogs';
 import { FeatureGuideHost, openFeatureGuide } from '../feature-help';
+import { HelpCenter } from './help-center';
 
 const LS_RAIL = 'sampledge.rail';
 const LS_PANEL = 'sampledge.panel';
@@ -665,6 +666,13 @@ function WorkspaceInner({ network }: { network: boolean }) {
                 setFocusMeeting(m);
                 setModule('meetings');
               }}
+            />
+          ) : module === 'help' ? (
+            <HelpCenter
+              myName={session!.user.displayName}
+              isAdmin={isAdmin}
+              online={state.connectivity === 'online'}
+              network={network}
             />
           ) : module === 'analytics' ? (
             <AnalyticsScreen
@@ -1296,6 +1304,12 @@ function WorkspaceInner({ network }: { network: boolean }) {
                 label: 'Feature guides: how each feature works',
                 icon: BookOpen,
                 run: () => openFeatureGuide(),
+              },
+              {
+                id: 'a:help-center',
+                label: 'Help center: FAQs and ask a question',
+                icon: BookOpen,
+                run: () => setModule('help'),
               },
               {
                 id: 'a:theme',

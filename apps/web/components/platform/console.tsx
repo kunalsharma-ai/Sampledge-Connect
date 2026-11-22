@@ -34,6 +34,7 @@ import { OrganizationsTab } from './orgs';
 import { AdminsTab, AuditTab } from './people';
 import { ActivityTab, PermissionsTab } from './controls';
 import { FeatureHelp } from '../feature-help';
+import { PlatformSupportTab } from '../workspace/help-center';
 
 export { usePlatformRole } from './api';
 
@@ -46,13 +47,15 @@ type Tab =
   | 'moderation'
   | 'integrations'
   | 'admins'
-  | 'audit';
+  | 'audit'
+  | 'support';
 const TABS: { id: Tab; label: string; needs: PlatformPermission }[] = [
   { id: 'overview', label: 'Overview', needs: 'overview.view' },
   { id: 'orgs', label: 'Organizations', needs: 'orgs.view' },
   { id: 'activity', label: 'Activity', needs: 'activity.view' },
   { id: 'permissions', label: 'Permissions', needs: 'orgs.view' },
   { id: 'billing', label: 'Plans & billing', needs: 'billing.manage' },
+  { id: 'support', label: 'Support', needs: 'support.view' },
   { id: 'moderation', label: 'Moderation', needs: 'moderation' },
   { id: 'integrations', label: 'Integrations', needs: 'integrations.manage' },
   { id: 'admins', label: 'Platform admins', needs: 'overview.view' },
@@ -144,6 +147,8 @@ export function PlatformConsole({ me, online }: { me: PlatformMe; online: boolea
                 <PaymentsTab onChanged={async () => undefined} />
               </section>
             </div>
+          ) : current === 'support' ? (
+            <PlatformSupportTab online={online} />
           ) : current === 'moderation' ? (
             <PlatformModeration online={online} />
           ) : current === 'integrations' ? (

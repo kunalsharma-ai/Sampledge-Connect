@@ -109,6 +109,8 @@ export type ChangeEvent =
   | { type: 'moderation'; scope: 'reports' | 'suspensions' }
   /** Platform admins: an area of the super admin console changed (`me`: your own role). */
   | { type: 'platform'; area: PlatformChangedEvent['area']; tenantId?: string }
+  /** A Help center query you asked or handle changed (any device, admins, support). */
+  | { type: 'support'; queryId: string }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
@@ -299,6 +301,9 @@ export class HttpSocketTransport implements Transport {
     s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
     s.on('moderation:changed', (e) => this.handlers?.onChange?.({ type: 'moderation', ...e }));
     s.on('platform:changed', (e) => this.handlers?.onChange?.({ type: 'platform', ...e }));
+    s.on('support:changed', (e) =>
+      this.handlers?.onChange?.({ type: 'support', queryId: e.queryId }),
+    );
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
     s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
     s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));

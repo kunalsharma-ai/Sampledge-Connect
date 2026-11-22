@@ -207,6 +207,8 @@ export interface ApiTransport {
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   /** Any Client Inbox call (`/v1/inbox/...`, `/v1/connectors...`). */
   inbox<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
+  /** Help center queries (`/v1/support/...`). */
+  support<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   /** Uploads a status photo or video; returns its attachment id for POST /v1/network/statuses. */
   uploadStatusMedia(meta: StatusMediaMeta, localUri: string): Promise<string>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
@@ -504,6 +506,12 @@ export class HttpTransport implements ApiTransport {
   inbox<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
     if (!path.startsWith('/v1/inbox/') && !path.startsWith('/v1/connectors'))
       throw new Error(`Not an inbox path: ${path}`);
+    return this.request<T>(method, path, body);
+  }
+
+  /** Help center queries (`/v1/support/...`). */
+  support<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
+    if (!path.startsWith('/v1/support/')) throw new Error(`Not a support path: ${path}`);
     return this.request<T>(method, path, body);
   }
 
@@ -1507,6 +1515,7 @@ export class NoServerTransport implements ApiTransport {
   signUpPersonal = async (): Promise<Session> => this.fail();
   network = async <T>(): Promise<T> => this.fail();
   inbox = async <T>(): Promise<T> => this.fail();
+  support = async <T>(): Promise<T> => this.fail();
   uploadStatusMedia = async (): Promise<string> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();

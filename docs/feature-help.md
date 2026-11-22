@@ -10,7 +10,7 @@ related guides. **Feature guides** lists every guide with search.
   modal dialog use `inDialog` (opens the full guide on top). `openFeatureGuide(id?)` opens the guide
   window, also from the command palette (Ctrl+K, "Feature guides") and Settings.
 - Mobile: `apps/mobile/src/components/FeatureHelp.tsx` (bottom sheet) and the `/help` screen
-  (More > Feature guides). Stack screens get the mark beside their header title from
+  (More > Help center, Guides tab; see docs/help-center.md). Stack screens get the mark beside their header title from
   `src/lib/featureHelpRoutes.ts`; tab screens place `<FeatureHelp>` in their own headers.
 
 When you add or change a feature, update its entry (or add one and place the mark). Only describe

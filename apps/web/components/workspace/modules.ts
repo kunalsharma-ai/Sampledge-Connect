@@ -22,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Crown,
+  LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -49,7 +50,8 @@ export type ModuleId =
   | 'network'
   | 'network-home'
   | 'people'
-  | 'communities';
+  | 'communities'
+  | 'help';
 
 export interface ModuleDef {
   id: ModuleId;
@@ -85,6 +87,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'billing', label: 'Billing', icon: CreditCard, built: true, adminOnly: true },
   { id: 'admin', label: 'Administration', icon: ShieldCheck, built: true, adminOnly: true },
   { id: 'platform', label: 'Super admin', icon: Crown, built: true, platformOnly: true },
+  { id: 'help', label: 'Help', icon: LifeBuoy, built: true },
   { id: 'settings', label: 'Settings', icon: Settings, built: true },
 ];
 
@@ -96,5 +99,6 @@ export const NETWORK_MODULES: ModuleDef[] = [
   { id: 'communities', label: 'Communities', icon: UsersRound, built: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, built: true },
   { id: 'saved', label: 'Saved', icon: Bookmark, built: true },
+  { id: 'help', label: 'Help', icon: LifeBuoy, built: true },
   { id: 'settings', label: 'Settings', icon: Settings, built: true },
 ];

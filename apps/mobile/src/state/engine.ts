@@ -190,6 +190,9 @@ const MINUTES_CONFIG_KEY = 'minutes.config';
 const TRANSCRIPTION_KEY = 'ai.transcription';
 const transcriptKey = (attachmentId: string) => `transcript.${attachmentId}`;
 const NET_PREFIX = 'net:';
+/** Settings keys for Help center questions, by their API path. */
+const SUPPORT_PREFIX = 'support:';
+const supportKey = (path: string) => `${SUPPORT_PREFIX}${path}`;
 const netKey = (path: string) => `${NET_PREFIX}${path}`;
 const minutesKey = (callId: string) => `minutes.call.${callId}`;
 const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
@@ -250,6 +253,8 @@ export class ConnectEngine {
      * another of your devices or by another agent. Screens re-read the cache.
      */
     inbox: { conversationId: string | null };
+    /** Help center questions changed (here, on another device, or by an admin or support). */
+    support: { queryId: string | null };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -381,6 +386,7 @@ export class ConnectEngine {
           (s) => s === 'connected' && this.events.emit('moderation', { scope: null }),
         ),
         this.realtime.events.on('platform', (e) => this.events.emit('platform', e)),
+        this.realtime.events.on('support', (e) => void this.refreshSupport(e.queryId)),
         this.realtime.events.on(
           'state',
           (s) => s === 'connected' && this.events.emit('platform', { area: null }),
@@ -445,7 +451,11 @@ export class ConnectEngine {
     if (this.inNetwork) {
       // SampConnect Network has chat, calls and its own lists, but no meetings or work items.
       await Promise.all([
-        this.outbox.kick().then(() => Promise.all([this.refreshWork(), this.refreshNetwork()])),
+        this.outbox
+          .kick()
+          .then(() =>
+            Promise.all([this.refreshWork(), this.refreshNetwork(), this.refreshSupport()]),
+          ),
         this.runSync(),
         this.refreshNotifications(),
         this.flushNotifyLevels(),
@@ -455,7 +465,7 @@ export class ConnectEngine {
     }
     await Promise.all([
       // Queued changes go first, then the lists are re-read so they reflect them.
-      this.outbox.kick().then(() => this.refreshWork()),
+      this.outbox.kick().then(() => Promise.all([this.refreshWork(), this.refreshSupport()])),
       this.runSync(),
       this.refreshNotifications(),
       this.flushNotifyLevels(),
@@ -1431,6 +1441,9 @@ export class ConnectEngine {
           JSON.stringify(await this.api.inbox('PUT', '/v1/inbox/settings', i.settings)),
         );
         break;
+      case 'support.act':
+        await this.api.support(i.method, i.path, i.body);
+        break;
       case 'net.act': {
         let body = i.body;
         if (i.media) {
@@ -1470,6 +1483,14 @@ export class ConnectEngine {
     const reason =
       err.code === 'FORBIDDEN' ? 'You do not have permission to do that.' : err.message;
     const i = a.input;
+    if (i.kind === 'support.act') {
+      // A question is kept (Retry or Discard) so nothing written is lost; a status change drops.
+      if (i.method === 'POST') await this.store.work.fail(a, reason);
+      else await this.store.work.complete(a);
+      this.afterAction(a);
+      this.events.emit('actionRefused', { kind: i.kind, reason, label: i.label });
+      return;
+    }
     if (i.kind === 'net.act') {
       // The server's copy shows again (they blocked you, the request was already answered...).
       await this.store.work.complete(a);
@@ -1508,6 +1529,7 @@ export class ConnectEngine {
     const i = a.input;
     if ('conversationId' in i) this.store.notifyMessages(i.conversationId);
     if (i.kind === 'bookmark') void this.emitSaved();
+    if (i.kind === 'support.act') void this.refreshSupport();
     if (i.kind === 'net.act') {
       this.events.emit('network', { scope: null });
       void this.refreshNetwork(i.scopes);
@@ -1751,6 +1773,45 @@ export class ConnectEngine {
   }
 
   // ------------------------------------------------------------------ SampConnect Network
+
+  // ------------------------------------------------------------ Help center questions
+
+  /** The cached copy of a Help center list or question (shown at once, and offline). */
+  async supportCached<T>(path: string): Promise<T | undefined> {
+    const raw = await this.store.getSetting(supportKey(path));
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  }
+
+  /** Reads a Help center path from the server and caches it; offline it keeps the cached copy. */
+  async supportLoad<T>(path: string): Promise<T | undefined> {
+    if (this.online) {
+      try {
+        const value = await this.api.support<T>('GET', path);
+        await this.store.setSetting(supportKey(path), JSON.stringify(value));
+      } catch (err) {
+        if (err instanceof TransportError && (err.code === 'NOT_FOUND' || err.code === 'FORBIDDEN'))
+          await this.store.deleteSetting(supportKey(path));
+      }
+    }
+    return this.supportCached<T>(path);
+  }
+
+  /** Queues a question, reply or status change; it sends in order when possible. */
+  async supportAct(input: Omit<Extract<ActionInput, { kind: 'support.act' }>, 'kind'>) {
+    await this.queue({ kind: 'support.act', ...input });
+    this.events.emit('support', { queryId: null });
+  }
+
+  supportPending(): Promise<Extract<ActionInput, { kind: 'support.act' }>[]> {
+    return this.store.work.pendingSupport();
+  }
+
+  /** Re-reads every cached Help center path (after a live change, a send or a reconnect). */
+  async refreshSupport(queryId: string | null = null): Promise<void> {
+    const keys = await this.store.settingKeys(SUPPORT_PREFIX);
+    await Promise.allSettled(keys.map((k) => this.supportLoad(k.slice(SUPPORT_PREFIX.length))));
+    this.events.emit('support', { queryId });
+  }
 
   /** True when this workspace is SampConnect Network (a personal account, or the linked space). */
   get inNetwork(): boolean {

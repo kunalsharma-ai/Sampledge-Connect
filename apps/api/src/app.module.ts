@@ -60,6 +60,8 @@ import {
 } from './integration-settings/integration-settings.controller.js';
 import { BookmarksController } from './bookmarks/bookmarks.controller.js';
 import { BookmarksService } from './bookmarks/bookmarks.service.js';
+import { SupportController } from './support/support.controller.js';
+import { SupportService } from './support/support.service.js';
 import { SearchController } from './search/search.controller.js';
 import { SearchService } from './search/search.service.js';
 import { FilesController, FilesService } from './files/files.controller.js';
@@ -171,6 +173,7 @@ export class AppModule {
         NotificationsController,
         PushController,
         BookmarksController,
+        SupportController,
         SearchController,
         FilesController,
         AnalyticsController,
@@ -224,6 +227,7 @@ export class AppModule {
         AttachmentsService,
         NotificationsService,
         BookmarksService,
+        SupportService,
         SearchService,
         FilesService,
         AnalyticsService,

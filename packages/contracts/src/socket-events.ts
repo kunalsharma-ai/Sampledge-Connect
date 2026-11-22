@@ -19,6 +19,7 @@ import type { AiProposal, AiSuggestionEvent, TranscriptChangedEvent } from './ai
 import type { MinutesChangedEvent } from './minutes.js';
 import type { PlatformChangedEvent } from './platform.js';
 import type { BookingPage } from './booking.js';
+import type { SupportChangedEvent } from './support.js';
 
 /**
  * Socket.IO event contracts (namespace "/", path "/socket.io").
@@ -81,6 +82,12 @@ export interface ServerToClientEvents {
   'network:changed': (e: NetworkChangedEvent) => void;
   /** Platform operators: SampConnect Network reports or suspensions changed; refetch. */
   'moderation:changed': (e: ModerationChangedEvent) => void;
+  /**
+   * A Help center query changed (new, reply, status, passed on). Sent to the asker's devices,
+   * the organization's owners and admins, and (for SampConnect support) every platform admin.
+   * Lists refetch on reconnect.
+   */
+  'support:changed': (e: SupportChangedEvent) => void;
   /** Platform admins (super admin console): refetch that area. `me`: your own role changed. */
   'platform:changed': (e: PlatformChangedEvent) => void;
   /**

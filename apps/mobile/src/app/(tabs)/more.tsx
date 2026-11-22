@@ -302,8 +302,8 @@ export default function More() {
               />
             ) : null}
             <Row
-              icon="book-outline"
-              title="Feature guides"
+              icon="help-buoy-outline"
+              title="Help center"
               onPress={() => router.push('/help')}
               divider
             />

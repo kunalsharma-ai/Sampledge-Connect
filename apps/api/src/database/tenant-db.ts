@@ -130,6 +130,11 @@ export class TenantDb {
     };
   }
 
+  /** Help center queries across organizations: only the super admin console's support queue. */
+  get supportQueriesAllTenants(): Collection<TenantCollections['support_queries']> {
+    return this.db.collection<TenantCollections['support_queries']>('support_queries');
+  }
+
   /** Global (non-tenant) collection. Only auth/tenancy bootstrap code uses this. */
   get tenants(): Collection<TenantDoc> {
     return this.db.collection<TenantDoc>('tenants');
@@ -199,6 +204,7 @@ export class TenantDb {
       inbox_templates: c('inbox_templates'),
       inbox_settings: c('inbox_settings'),
       bookmarks: c('bookmarks'),
+      support_queries: c('support_queries'),
       search_history: c('search_history'),
       user_avatars: c('user_avatars'),
       call_background_prefs: c('call_background_prefs'),
