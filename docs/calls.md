@@ -153,6 +153,17 @@ background and locks the picker (external guests keep their own). Changes reach 
 Your own preview is mirrored like a mirror, so text in the background reads backwards to you; everyone
 else sees it the right way round.
 
+On mobile, **More → Call background** shows the same choices: none, blur, the company background
+(drawn from Branding), your own image and the 20 prebuilt scenes (their 320x180 thumbnails ship in
+the app). Picking one, uploading your image (shrunk on the phone to fit 1920x1080 as JPEG, under
+2 MB) and removing it are queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove` on
+one target, so they reach the server in the order you made them. The image waits in app storage
+until it is sent. The screen follows `meetings:changed {area: 'call_background'}` and
+`tenant:updated {area: 'calls' | 'branding'}` live. Owners and admins get **Manage** for the default
+and **Require the company background** (needs a connection). Applying a background to a phone's own
+camera is planned: native WebRTC has no segmentation yet, so a phone sends the camera as it is, and
+the screen says so.
+
 | Method | Path                                  | Who            | Notes                                                  |
 | ------ | ------------------------------------- | -------------- | ------------------------------------------------------ |
 | GET    | `/v1/me/call-background`              | member         | Choice, what applies now, own image link, rules, brand |
