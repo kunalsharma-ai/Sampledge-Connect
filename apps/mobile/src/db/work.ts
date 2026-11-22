@@ -119,6 +119,11 @@ export type ActionInput =
       /** Words for the person, e.g. "Connection request to Maria". */
       label: string;
       scopes: NetworkScope[];
+      /**
+       * A photo or video kept in app storage until it is uploaded; its attachment id then goes
+       * into `body.attachmentId` (status updates).
+       */
+      media?: { localUri: string; fileName: string; mimeType: string; sizeBytes: number };
     };
 
 export interface TranscriptPatch {

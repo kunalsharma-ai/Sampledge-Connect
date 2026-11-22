@@ -191,9 +191,8 @@ export default function More() {
               />
               <Row
                 icon="radio-outline"
-                title="Status updates"
-                planned
-                onPress={() => router.push('/planned/network-status')}
+                title="Post a status"
+                onPress={() => router.push('/network/status/new')}
                 divider
               />
               <Row

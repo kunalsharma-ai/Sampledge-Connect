@@ -3,7 +3,9 @@ import type { MyNetworkProfile, NetworkPerson, Relationship } from '@sampledge/c
 import {
   pendingFor,
   personLine,
+  timeLeft,
   withPendingConnections,
+  withPendingFeed,
   withPendingProfile,
   withPendingRelationship,
   withPendingRequests,
@@ -155,5 +157,70 @@ describe('SampConnect Network on the phone', () => {
     expect(networkAllows('GET', '/v1/ai/status')).toBe(false);
     expect(pathInScopes('/v1/network/people/u1', ['blocks'])).toBe(true);
     expect(pathInScopes('/v1/network/invites', ['requests'])).toBe(false);
+  });
+
+  it('shows statuses posted, deleted and seen here before the server knows', () => {
+    const me = person('me', 'Sam Okafor');
+    const m = person('m1');
+    const st = (id: string, viewedByMe = false) => ({
+      statusId: id,
+      clientStatusId: `c-${id}`,
+      author: m,
+      kind: 'text' as const,
+      text: id,
+      background: 'ocean' as const,
+      media: null,
+      audience: 'connections' as const,
+      allowReplies: true,
+      createdAt: '',
+      expiresAt: '',
+      viewedByMe,
+      viewCount: null,
+    });
+    const feed = {
+      mine: [{ ...st('s0', true), author: me, clientStatusId: 'mine-0' }],
+      people: [
+        { person: person('j1', 'Jo Kim'), statuses: [st('j', true)], unseen: 0 },
+        { person: m, statuses: [st('a'), st('b')], unseen: 2 },
+      ],
+    };
+    const now = Date.parse('2026-11-22T10:00:00Z');
+    const out = withPendingFeed(
+      feed,
+      [
+        act('DELETE', '/v1/network/statuses/s0'),
+        {
+          ...act('POST', '/v1/network/statuses', {
+            clientStatusId: 'new1',
+            kind: 'image',
+            expiresInHours: 6,
+          }),
+          media: {
+            localUri: 'file:///p.jpg',
+            fileName: 'p.jpg',
+            mimeType: 'image/jpeg',
+            sizeBytes: 9,
+          },
+        },
+        act('PUT', '/v1/network/statuses/a/view'),
+      ],
+      me,
+      now,
+    );
+    expect(out.mine.map((s) => [s.statusId, s.media?.url])).toEqual([
+      ['local:new1', 'file:///p.jpg'],
+    ]);
+    expect(timeLeft(out.mine[0]!.expiresAt, now)).toBe('6h left');
+    expect(out.people.map((g) => [g.person.userId, g.unseen])).toEqual([
+      ['m1', 1],
+      ['j1', 0],
+    ]);
+    // Once the server has it, the local copy goes.
+    const posted = withPendingFeed(
+      { ...feed, mine: [{ ...st('srv'), author: me, clientStatusId: 'new1' }] },
+      [act('POST', '/v1/network/statuses', { clientStatusId: 'new1' })],
+      me,
+    );
+    expect(posted.mine.map((s) => s.statusId)).toEqual(['srv']);
   });
 });

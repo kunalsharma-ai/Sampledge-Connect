@@ -8,7 +8,7 @@ import {
 } from '@sampledge/contracts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar } from '../../../components/Avatar';
 import { Button } from '../../../components/Button';
 import { Chips } from '../../../components/Chips';
@@ -23,6 +23,7 @@ import {
   personLine,
   withPendingRelationship,
 } from '../../../lib/network';
+import { confirmThen } from '../../../lib/confirm';
 import type { NetworkScope } from '../../../lib/networkSpace';
 import { useWorkspace } from '../../../state/AppProvider';
 import { useNet, useNetPending } from '../../../state/useNetwork';
@@ -89,16 +90,8 @@ export default function NetworkPerson() {
     body?: unknown,
   ) => void engine.netAct({ method, path, label, scopes, ...(body ? { body } : {}) });
 
-  const confirm = (title: string, text: string, go: () => void) => {
-    if (Platform.OS === 'web') {
-      if ((globalThis as unknown as Window).confirm(`${title}\n\n${text}`)) go();
-      return;
-    }
-    Alert.alert(title, text, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: title.split(' ')[0]!, style: 'destructive', onPress: go },
-    ]);
-  };
+  const confirm = (title: string, text: string, go: () => void) =>
+    confirmThen(title, text, title.split(' ')[0]!, go);
 
   return (
     <Screen edges={['bottom']}>

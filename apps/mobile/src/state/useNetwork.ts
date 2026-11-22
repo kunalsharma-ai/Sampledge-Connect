@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PendingNet } from '../lib/network';
+import type { MyNetworkProfile, StatusFeed } from '@sampledge/contracts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { withPendingFeed, type PendingNet } from '../lib/network';
 import { useApp, useWorkspace } from './AppProvider';
 
 /**
@@ -77,4 +78,16 @@ export function useNetPending(): PendingNet[] {
 /** True when the app is showing SampConnect Network. */
 export function useInNetwork(): boolean {
   return useApp().space === 'network';
+}
+
+/** The status feed with your waiting changes laid over (posted, deleted, seen). */
+export function useStatusFeed(): { feed: StatusFeed | null; loading: boolean } {
+  const { data, loading } = useNet<StatusFeed>('/v1/network/statuses');
+  const me = useNet<MyNetworkProfile>('/v1/network/me');
+  const pending = useNetPending();
+  const feed = useMemo(
+    () => (data ? withPendingFeed(data, pending, me.data ?? null) : null),
+    [data, pending, me.data],
+  );
+  return { feed, loading };
 }

@@ -4,7 +4,9 @@ import type {
   ConnectionRequest,
   MyNetworkProfile,
   NetworkPerson,
+  NetworkStatus,
   Relationship,
+  StatusFeed,
 } from '@sampledge/contracts';
 import type { ActionInput } from '../db/work';
 
@@ -163,3 +165,90 @@ export function withPendingProfile(
 
 /** "1 connection", "3 followers" */
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+export const LOCAL_STATUS = 'local:';
+
+/**
+ * The status feed with what you did here laid over: statuses you posted (shown from the phone,
+ * photo or video included, until they are up), ones you deleted, and ones you have seen.
+ */
+export function withPendingFeed(
+  feed: StatusFeed,
+  pending: readonly PendingNet[],
+  me: NetworkPerson | null,
+  now = Date.now(),
+): StatusFeed {
+  const deleted = new Set<string>();
+  const viewed = new Set<string>();
+  const posted: NetworkStatus[] = [];
+  for (const p of pending) {
+    const id = /^\/v1\/network\/statuses\/([^/?]+)(\/view)?$/.exec(p.path);
+    if (id && p.method === 'DELETE' && !id[2]) deleted.add(id[1]!);
+    if (id && p.method === 'PUT' && id[2]) viewed.add(id[1]!);
+    if (p.path === '/v1/network/statuses' && p.method === 'POST' && me) {
+      const b = (p.body ?? {}) as Record<string, unknown>;
+      const hours = Number(b.expiresInHours ?? 24);
+      posted.push({
+        statusId: `${LOCAL_STATUS}${String(b.clientStatusId)}`,
+        clientStatusId: String(b.clientStatusId),
+        author: me,
+        kind: (b.kind as NetworkStatus['kind']) ?? 'text',
+        text: String(b.text ?? ''),
+        background: (b.background as NetworkStatus['background']) ?? 'ocean',
+        media: p.media
+          ? {
+              attachmentId: '',
+              mimeType: p.media.mimeType,
+              url: p.media.localUri,
+              expiresAt: new Date(now + hours * 3_600_000).toISOString(),
+            }
+          : null,
+        audience: (b.audience as NetworkStatus['audience']) ?? 'connections',
+        allowReplies: b.allowReplies !== false,
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + hours * 3_600_000).toISOString(),
+        viewedByMe: true,
+        viewCount: 0,
+      });
+    }
+  }
+  const sent = new Set(feed.mine.map((s) => s.clientStatusId));
+  const mine = [
+    ...feed.mine.filter((s) => !deleted.has(s.statusId)),
+    ...posted.filter((s) => !sent.has(s.clientStatusId)),
+  ];
+  const people = feed.people.map((g) => {
+    const statuses = g.statuses.map((s) =>
+      viewed.has(s.statusId) ? { ...s, viewedByMe: true } : s,
+    );
+    return { ...g, statuses, unseen: statuses.filter((s) => !s.viewedByMe).length };
+  });
+  // Unseen first, as the server orders them.
+  people.sort((a, b) => Number(b.unseen > 0) - Number(a.unseen > 0));
+  return { mine, people };
+}
+
+/** "3h left", "45m left" */
+export function timeLeft(expiresAt: string, now = Date.now()): string {
+  const ms = Date.parse(expiresAt) - now;
+  if (ms <= 0) return 'Expired';
+  const h = Math.floor(ms / 3_600_000);
+  if (h >= 24) return `${Math.floor(h / 24)}d left`;
+  if (h >= 1) return `${h}h left`;
+  return `${Math.max(1, Math.round(ms / 60_000))}m left`;
+}
+
+export const STATUS_GRADIENT: Record<NetworkStatus['background'], [string, string]> = {
+  ocean: ['#1e3a8a', '#5B8CFF'],
+  violet: ['#4c1d95', '#8B5CF6'],
+  sunset: ['#9a3412', '#f59e0b'],
+  emerald: ['#064e3b', '#34D399'],
+  graphite: ['#111827', '#4b5563'],
+};
+
+export const AUDIENCE_LABEL: Record<NetworkStatus['audience'], string> = {
+  connections: 'Connections',
+  followers: 'Connections and followers',
+  public: 'Everyone',
+  selected: 'Only people I pick',
+};
