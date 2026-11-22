@@ -24,6 +24,7 @@ import {
   NETWORK_TENANT_SLUG,
   type PublicBranding,
   type SsoInfo,
+  PASSWORD_CHANGE_REQUIRED,
 } from '@sampledge/contracts';
 import { Chips } from '../components/Chips';
 import { runSso } from '../auth/ssoFlow';
@@ -39,7 +40,8 @@ function errorText(e: unknown): string {
       return 'Could not reach the server. Check the address and your connection.';
     if (e.code === 'UNAUTHENTICATED' || e.code === 'SESSION_EXPIRED')
       return 'Email, password or workspace is incorrect.';
-    if (e.code === 'VALIDATION_FAILED') return 'Check the details and try again.';
+    if (e.code === 'VALIDATION_FAILED')
+      return e.message.startsWith('Choose') ? e.message : 'Check the details and try again.';
     if (e.code === 'RATE_LIMITED') return 'Too many attempts. Wait a moment and try again.';
     // Single sign-on only workspaces say so.
     if (e.code === 'FORBIDDEN' && e.message) return e.message;
@@ -66,6 +68,9 @@ export default function SignIn() {
   const [tenantSlug, setTenantSlug] = useState(session?.tenant.slug ?? '');
   const [email, setEmail] = useState(session?.user.email ?? '');
   const [password, setPassword] = useState('');
+  /** An admin or SampConnect reset the password: choose a new one to sign in. */
+  const [mustChange, setMustChange] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
@@ -135,6 +140,7 @@ export default function SignIn() {
     (personal || tenantSlug.trim()) &&
     email.trim() &&
     (signup ? password.length >= 12 && displayName.trim() : password) &&
+    (!mustChange || newPassword.length >= 12) &&
     !busy;
 
   const createAccount = async () => {
@@ -172,6 +178,7 @@ export default function SignIn() {
         tenantSlug: slug,
         email: email.trim(),
         password,
+        ...(mustChange ? { newPassword } : {}),
         deviceName: Constants.deviceName ?? `${Platform.OS} device`,
         platform: devicePlatform,
       });
@@ -182,6 +189,11 @@ export default function SignIn() {
         setBusy(false);
       } else setSignedIn(true);
     } catch (e) {
+      if (
+        e instanceof TransportError &&
+        (e.details as { reason?: string } | undefined)?.reason === PASSWORD_CHANGE_REQUIRED
+      )
+        setMustChange(true);
       setError(errorText(e));
       setBusy(false);
     }
@@ -545,6 +557,18 @@ export default function SignIn() {
                       onSubmitEditing: () =>
                         canSubmit && void (signup ? createAccount() : submit()),
                     })}
+                    {mustChange
+                      ? field({
+                          label: 'New password',
+                          value: newPassword,
+                          onChangeText: setNewPassword,
+                          secureTextEntry: true,
+                          autoComplete: 'new-password',
+                          textContentType: 'newPassword',
+                          placeholder: 'At least 12 characters',
+                          onSubmitEditing: () => canSubmit && void submit(),
+                        })
+                      : null}
                   </>
                 ) : null}
                 {error ? (
@@ -569,7 +593,11 @@ export default function SignIn() {
                       <ActivityIndicator color={theme.colors.onAccent} />
                     ) : (
                       <Text variant="bodyStrong" tone="onAccent">
-                        {signup ? 'Create free account' : 'Sign in'}
+                        {signup
+                          ? 'Create free account'
+                          : mustChange
+                            ? 'Set new password and sign in'
+                            : 'Sign in'}
                       </Text>
                     )}
                   </Pressable>

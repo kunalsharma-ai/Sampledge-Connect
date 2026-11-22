@@ -8,6 +8,7 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  tenantCan,
 } from '@sampledge/contracts';
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
@@ -65,8 +66,8 @@ export class ChatThemesService {
   }
 
   async setPolicy(ctx: TenantContext, body: unknown): Promise<ChatThemeState> {
-    if (ctx.role !== 'owner' && ctx.role !== 'admin')
-      throw forbidden('Only owners and admins can set chat theme rules');
+    if (!tenantCan(ctx, 'themes.manage'))
+      throw forbidden('You can’t set chat theme rules in this organization');
     const p = parse(ChatThemePolicySchema, body);
     const allowed = p.allowed ? [...new Set([p.defaultThemeId, ...p.allowed])] : null;
     const policy: ChatThemePolicy = {

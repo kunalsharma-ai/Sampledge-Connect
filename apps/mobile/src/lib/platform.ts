@@ -15,6 +15,13 @@ import {
   type PlatformRole,
   type PlatformSupportView,
   type Subscription,
+  type ActivityRetention,
+  type AuditCategory,
+  type ForcedPasswordReset,
+  type PlatformActivityPage,
+  type PlatformOrgPermissions,
+  type PlatformPermissionDefaults,
+  type TenantPermissionPolicy,
 } from '@sampledge/contracts';
 
 /** What the super admin console needs from the engine (Engine.platform). */
@@ -67,6 +74,23 @@ export function platformApi(e: PlatformCaller) {
         'GET',
         `/v1/platform/audit?limit=50${q.area ? `&area=${q.area}` : ''}${q.q ? `&q=${enc(q.q)}` : ''}${q.before ? `&before=${enc(q.before)}` : ''}`,
       ),
+    permissions: () => e.platform<PlatformPermissionDefaults>('GET', '/v1/platform/permissions'),
+    setPermissions: (policy: TenantPermissionPolicy | null) =>
+      e.platform<PlatformPermissionDefaults>('PUT', '/v1/platform/permissions', { policy }),
+    orgPermissions: (id: string) =>
+      e.platform<PlatformOrgPermissions>('GET', `${o(id)}/permissions`),
+    setOrgPermissions: (id: string, policy: TenantPermissionPolicy | null) =>
+      e.platform<PlatformOrgPermissions>('PUT', `${o(id)}/permissions`, { policy }),
+    forcePasswordReset: (id: string, userId: string) =>
+      e.platform<ForcedPasswordReset>('POST', `${o(id)}/people/${enc(userId)}/password-reset`),
+    activity: (q: { category?: AuditCategory; q?: string; tenantId?: string; before?: string }) =>
+      e.platform<PlatformActivityPage>(
+        'GET',
+        `/v1/platform/activity?limit=50${q.category ? `&category=${q.category}` : ''}${q.q ? `&q=${enc(q.q)}` : ''}${q.tenantId ? `&tenantId=${enc(q.tenantId)}` : ''}${q.before ? `&before=${enc(q.before)}` : ''}`,
+      ),
+    retention: () => e.platform<ActivityRetention>('GET', '/v1/platform/activity/retention'),
+    setRetention: (days: number | null) =>
+      e.platform<ActivityRetention>('PUT', '/v1/platform/activity/retention', { days }),
   };
 }
 
@@ -84,6 +108,8 @@ export const AUDIT_AREA_TEXT: Record<PlatformAuditArea, string> = {
   admins: 'Admins',
   integrations: 'Integrations',
   support: 'Support',
+  permissions: 'Permissions',
+  activity: 'Activity',
 };
 
 /** One short line for an organization's state, as shown on its row. */
@@ -106,3 +132,21 @@ export function formatBytesShort(b: number): string {
   if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(1)} GB`;
   return `${Math.round(b / 1024 ** 2)} MB`;
 }
+
+export const ACTIVITY_CATEGORY_TEXT: Record<AuditCategory, string> = {
+  'sign-in': 'Sign-ins',
+  members: 'People',
+  security: 'Passwords & security',
+  conversations: 'Conversations',
+  integrations: 'Integrations',
+  billing: 'Billing',
+  organization: 'Organization',
+  other: 'Other',
+};
+
+export const ROLE_TEXT = {
+  owner: 'Owner',
+  admin: 'Admin',
+  member: 'Member',
+  guest: 'Guest',
+} as const;

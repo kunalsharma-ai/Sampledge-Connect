@@ -24,7 +24,7 @@ export class TenantIntegrationsController {
   constructor(private readonly settings: IntegrationSettingsService) {}
 
   private guard(ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'integrations.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'integrations.manage')) throw forbidden();
     return { tenantId: ctx.tenantId };
   }
 

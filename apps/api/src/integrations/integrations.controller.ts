@@ -35,7 +35,7 @@ import { RecordsService, toLinkedRecord } from './records.service.js';
 import { WebhooksService } from './webhooks.service.js';
 
 const requireManage = (ctx: TenantContext) => {
-  if (!tenantCan(ctx.role, 'integrations.manage')) throw forbidden();
+  if (!tenantCan(ctx, 'integrations.manage')) throw forbidden();
 };
 const mod = (v: string) => parse(SampledgeModuleSchema, v);
 

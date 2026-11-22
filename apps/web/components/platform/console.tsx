@@ -32,13 +32,25 @@ import { PlatformModeration } from '../network/moderation';
 import { errorText, usePlatformApi, usePlatformChange } from './api';
 import { OrganizationsTab } from './orgs';
 import { AdminsTab, AuditTab } from './people';
+import { ActivityTab, PermissionsTab } from './controls';
 
 export { usePlatformRole } from './api';
 
-type Tab = 'overview' | 'orgs' | 'billing' | 'moderation' | 'integrations' | 'admins' | 'audit';
+type Tab =
+  | 'overview'
+  | 'orgs'
+  | 'activity'
+  | 'permissions'
+  | 'billing'
+  | 'moderation'
+  | 'integrations'
+  | 'admins'
+  | 'audit';
 const TABS: { id: Tab; label: string; needs: PlatformPermission }[] = [
   { id: 'overview', label: 'Overview', needs: 'overview.view' },
   { id: 'orgs', label: 'Organizations', needs: 'orgs.view' },
+  { id: 'activity', label: 'Activity', needs: 'activity.view' },
+  { id: 'permissions', label: 'Permissions', needs: 'orgs.view' },
   { id: 'billing', label: 'Plans & billing', needs: 'billing.manage' },
   { id: 'moderation', label: 'Moderation', needs: 'moderation' },
   { id: 'integrations', label: 'Integrations', needs: 'integrations.manage' },
@@ -112,6 +124,14 @@ export function PlatformConsole({ me, online }: { me: PlatformMe; online: boolea
             />
           ) : current === 'orgs' ? (
             <OrganizationsTab me={me} online={online} focus={orgFocus} onFocus={setOrgFocus} />
+          ) : current === 'activity' ? (
+            <ActivityTab
+              me={me}
+              online={online}
+              onOpenOrg={(id) => (setTab('orgs'), setOrgFocus(id))}
+            />
+          ) : current === 'permissions' ? (
+            <PermissionsTab me={me} online={online} />
           ) : current === 'billing' ? (
             <div className="flex flex-col gap-8">
               <CatalogTab onChanged={async () => undefined} />

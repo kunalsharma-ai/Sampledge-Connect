@@ -1,17 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import argon2 from 'argon2';
 import { MongoServerError } from 'mongodb';
 import {
   dndActive,
   type UserStatus,
+  ChangePasswordRequestSchema,
   LoginRequestSchema,
   MfaVerifyRequestSchema,
+  PASSWORD_CHANGE_REQUIRED,
+  ResetMemberPasswordSchema,
+  tenantCan,
   RegisterTenantRequestSchema,
   type LoginResponse,
   type Session,
   type UserSummary,
 } from '@sampledge/contracts';
 import { AppError, parse } from '../common/errors.js';
+import type { TenantContext } from '../common/tenant-context.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import type { UserDoc, TenantDoc } from '../database/documents.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -79,6 +85,7 @@ export class AuthService {
     private readonly rateLimit: RateLimitService,
     private readonly mfa: MfaService,
     private readonly settings: IntegrationSettingsService,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   async registerTenant(input: unknown, meta: RequestMeta): Promise<Session> {
@@ -245,6 +252,42 @@ export class AuthService {
         'This workspace uses single sign-on. Use the sign-on button instead of a password.',
       );
 
+    if (user.mustChangePassword) {
+      if (!req.newPassword) {
+        await this.audit.record({
+          tenantId: tenant._id,
+          actorId: user._id,
+          action: 'auth.password_change_required',
+          ...meta,
+        });
+        throw new AppError(
+          'FORBIDDEN',
+          'Your password was reset. Choose a new password to continue.',
+          { reason: PASSWORD_CHANGE_REQUIRED },
+        );
+      }
+      if (req.newPassword === req.password)
+        throw new AppError('VALIDATION_FAILED', 'Choose a password different from the old one.');
+      await t.users.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            passwordHash: await argon2.hash(req.newPassword, ARGON2_OPTIONS),
+            mustChangePassword: false,
+            passwordChangedAt: new Date(),
+          },
+        },
+      );
+      await this.audit.record({
+        tenantId: tenant._id,
+        actorId: user._id,
+        action: 'auth.password_changed',
+        target: { type: 'user', id: user._id },
+        metadata: { how: 'after_reset', device: req.device.name, platform: req.device.platform },
+        ...meta,
+      });
+    }
+
     if (this.mfa.enabled(user)) {
       await this.audit.record({
         tenantId: tenant._id,
@@ -307,6 +350,133 @@ export class AuthService {
       tenant: { tenantId, slug: tenant.slug, name: tenant.name },
       workspaceId: membership.workspaceId,
     };
+  }
+
+  /** You change your own password; your other devices are signed out. */
+  async changePassword(ctx: TenantContext, input: unknown, meta: RequestMeta) {
+    const req = parse(ChangePasswordRequestSchema, input);
+    await this.rateLimit.consume('login_account', `pw:${ctx.tenantId}:${ctx.userId}`);
+    const t = this.db.for(ctx.tenantId);
+    const user = await t.users.findOne({ _id: ctx.userId });
+    if (!user) throw new AppError('UNAUTHENTICATED', 'Session no longer valid');
+    if (!(await argon2.verify(user.passwordHash, req.currentPassword))) {
+      await this.audit.record({
+        tenantId: ctx.tenantId,
+        actorId: ctx.userId,
+        action: 'auth.password_change_failed',
+        target: { type: 'user', id: ctx.userId },
+        ...meta,
+      });
+      throw new AppError('FORBIDDEN', 'Your current password is not right.');
+    }
+    if (req.newPassword === req.currentPassword)
+      throw new AppError('VALIDATION_FAILED', 'Choose a password different from the old one.');
+    await t.users.updateOne(
+      { _id: ctx.userId },
+      {
+        $set: {
+          passwordHash: await argon2.hash(req.newPassword, ARGON2_OPTIONS),
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+        },
+      },
+    );
+    const signedOut = await this.signOutOthers(
+      ctx.tenantId,
+      ctx.userId,
+      ctx.sessionId,
+      'password_changed',
+    );
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'auth.password_changed',
+      target: { type: 'user', id: ctx.userId },
+      metadata: { how: 'self', signedOutDevices: signedOut },
+      ...meta,
+    });
+    return { signedOutDevices: signedOut };
+  }
+
+  /**
+   * An owner or admin sets a temporary password for a member, who must choose their own at
+   * their next sign-in. Every device of theirs is signed out. Only owners reset owners.
+   */
+  async resetMemberPassword(ctx: TenantContext, userId: string, input: unknown, meta: RequestMeta) {
+    if (!tenantCan(ctx, 'members.manage'))
+      throw new AppError('FORBIDDEN', 'You can’t reset passwords in this organization.');
+    const req = parse(ResetMemberPasswordSchema, input);
+    if (userId === ctx.userId)
+      throw new AppError('CONFLICT', 'Change your own password in your account settings.');
+    const t = this.db.for(ctx.tenantId);
+    const [user, membership] = await Promise.all([
+      t.users.findOne({ _id: userId }),
+      t.memberships.findOne({ userId }),
+    ]);
+    if (!user || !membership) throw new AppError('NOT_FOUND', 'Member not found');
+    if (membership.role === 'owner' && ctx.role !== 'owner')
+      throw new AppError('FORBIDDEN', 'Only an owner can reset an owner’s password.');
+    await t.users.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          passwordHash: await argon2.hash(req.temporaryPassword, ARGON2_OPTIONS),
+          mustChangePassword: true,
+          passwordChangedAt: new Date(),
+        },
+      },
+    );
+    const signedOut = await this.signOutOthers(ctx.tenantId, userId, null, 'password_reset');
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'auth.password_reset_by_admin',
+      target: { type: 'user', id: userId },
+      metadata: { email: user.email, signedOutDevices: signedOut },
+      ...meta,
+    });
+    return { userId, signedOutDevices: signedOut };
+  }
+
+  /**
+   * SampConnect (a super admin) makes someone choose a new password: every device is signed out
+   * and their next sign-in asks for a new password. Nobody ever sees a password.
+   */
+  async forcePasswordReset(tenantId: string, userId: string, byName: string, meta: RequestMeta) {
+    const t = this.db.for(tenantId);
+    const user = await t.users.findOne({ _id: userId });
+    if (!user) throw new AppError('NOT_FOUND', 'Person not found');
+    await t.users.updateOne({ _id: userId }, { $set: { mustChangePassword: true } });
+    const signedOut = await this.signOutOthers(tenantId, userId, null, 'password_reset_forced');
+    await this.audit.record({
+      tenantId,
+      actorId: null,
+      action: 'auth.password_reset_forced',
+      target: { type: 'user', id: userId },
+      metadata: { by: byName, signedOutDevices: signedOut },
+      ...meta,
+    });
+    return { user, signedOutDevices: signedOut };
+  }
+
+  private async signOutOthers(
+    tenantId: string,
+    userId: string,
+    keep: string | null,
+    reason: string,
+  ) {
+    const devices = await this.db
+      .for(tenantId)
+      .devices.find({ userId, revokedAt: null }, { projection: { _id: 1 } })
+      .toArray();
+    let n = 0;
+    for (const d of devices) {
+      if (d._id === keep) continue;
+      await this.sessions.revoke(tenantId, d._id, reason);
+      this.realtime?.disconnectSession(tenantId, userId, d._id);
+      n++;
+    }
+    return n;
   }
 
   async refresh(refreshToken: string): Promise<Session> {

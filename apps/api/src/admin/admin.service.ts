@@ -35,7 +35,7 @@ export class AdminService {
   ) {}
 
   private assert(ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'audit.read')) throw forbidden();
+    if (!tenantCan(ctx, 'audit.read')) throw forbidden();
   }
 
   async overview(ctx: TenantContext): Promise<AdminOverview> {
@@ -202,7 +202,7 @@ export class AdminService {
     return lines.join('\r\n') + '\r\n';
   }
 
-  private filter(q: ReturnType<typeof AuditQuerySchema.parse>): Filter<AuditLogDoc> {
+  filter(q: ReturnType<typeof AuditQuerySchema.parse>): Filter<AuditLogDoc> {
     const f: Filter<AuditLogDoc> & Record<string, unknown> = {};
     const and: Filter<AuditLogDoc>[] = [];
     if (q.category === 'other') {

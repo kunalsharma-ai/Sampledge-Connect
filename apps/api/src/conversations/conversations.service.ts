@@ -181,7 +181,7 @@ export class ConversationsService {
           : req.kind === 'channel_public'
             ? 'channel.public.create'
             : 'channel.private.create';
-    if (!tenantCan(ctx.role, permission)) throw forbidden();
+    if (!tenantCan(ctx, permission)) throw forbidden();
 
     const others = [...new Set(req.memberIds)].filter((id) => id !== ctx.userId);
     if (others.length) {
@@ -329,7 +329,7 @@ export class ConversationsService {
       'conversation.read',
     );
     if (membership) return this.toDto(ctx, conversation, undefined, membership);
-    if (conversation.kind !== 'channel_public' || !tenantCan(ctx.role, 'channel.public.join'))
+    if (conversation.kind !== 'channel_public' || !tenantCan(ctx, 'channel.public.join'))
       throw forbidden();
     await this.db.for(ctx.tenantId).conversation_members.updateOne(
       { conversationId, userId: ctx.userId },

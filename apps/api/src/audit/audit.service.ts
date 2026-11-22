@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, Optional } from '@nestjs/common';
 import { TenantDb } from '../database/tenant-db.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 export interface AuditEvent {
   tenantId: string;
@@ -13,9 +14,29 @@ export interface AuditEvent {
 
 /** Append-only audit trail for security-relevant actions. */
 @Injectable()
-export class AuditService {
+export class AuditService implements OnModuleDestroy {
   private readonly logger = new Logger('Audit');
-  constructor(private readonly db: TenantDb) {}
+  private notifyTimer: NodeJS.Timeout | null = null;
+  constructor(
+    private readonly db: TenantDb,
+    @Optional() private readonly realtime?: RealtimePublisher,
+  ) {}
+
+  /** Super admins' Activity screens refresh live; bursts are folded into one event a second. */
+  private notifyPlatform() {
+    if (!this.realtime || this.notifyTimer) return;
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = null;
+      this.realtime?.toPlatform('platform:changed', { area: 'activity' });
+    }, 1000);
+    this.notifyTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    // A pending live update must not fire after Redis has closed on shutdown.
+    if (this.notifyTimer) clearTimeout(this.notifyTimer);
+    this.notifyTimer = null;
+  }
 
   async record(e: AuditEvent): Promise<void> {
     try {
@@ -28,6 +49,7 @@ export class AuditService {
         at: new Date(),
         metadata: e.metadata ?? {},
       });
+      this.notifyPlatform();
     } catch (err) {
       // Audit failures must be visible but must not break the user action.
       this.logger.error(`Failed to write audit event ${e.action}: ${(err as Error).message}`);

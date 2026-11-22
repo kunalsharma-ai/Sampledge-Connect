@@ -8,6 +8,7 @@ import type { TenantContext } from '../common/tenant-context.js';
 import { REDIS } from '../redis/redis.module.js';
 import { TenantDb, newId } from '../database/tenant-db.js';
 import { TokenService } from './token.service.js';
+import { PermissionPolicy } from '../platform/permission-policy.service.js';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('base64url');
 
@@ -45,6 +46,7 @@ export class SessionService {
     private readonly tokens: TokenService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    private readonly policy: PermissionPolicy,
   ) {}
 
   private refreshExpiry() {
@@ -194,6 +196,7 @@ export class SessionService {
       deviceId,
       role: member.role,
       workspaceId: member.workspaceId,
+      grants: await this.policy.grants(claims.tid, member.role),
     };
   }
 

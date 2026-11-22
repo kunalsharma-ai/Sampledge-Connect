@@ -92,6 +92,7 @@ import {
   type DecideApprovalRequest,
   SCHEDULE_MIN_LEAD_MS,
   type TenantArea,
+  type PlatformChangedEvent,
 } from '@sampledge/contracts';
 import { isNetworkTenant } from '../auth/session';
 import { NETWORK_SCOPES, pathInScopes, type NetworkScope } from '../lib/networkSpace';
@@ -220,7 +221,7 @@ export class ConnectEngine {
     /** Platform operators: the report queue or suspensions changed (live, or after a reconnect). */
     moderation: { scope: 'reports' | 'suspensions' | null };
     /** Platform admins: a console area changed (live), or null after a reconnect: reload. */
-    platform: { area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me' | null; tenantId?: string };
+    platform: { area: PlatformChangedEvent['area'] | null; tenantId?: string };
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
@@ -1859,6 +1860,14 @@ export class ConnectEngine {
 
   resetMemberMfa(userId: string): Promise<void> {
     return this.serverAction(() => this.api.resetMemberMfa(userId));
+  }
+
+  resetMemberPassword(userId: string, temporaryPassword: string) {
+    return this.serverAction(() => this.api.resetMemberPassword(userId, temporaryPassword));
+  }
+
+  changePassword(currentPassword: string, newPassword: string) {
+    return this.serverAction(() => this.api.changePassword(currentPassword, newPassword));
   }
 
   listAllDevices(): Promise<DeviceSession[]> {

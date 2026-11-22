@@ -222,14 +222,14 @@ export class AiService implements OnModuleInit, OnApplicationShutdown {
       engine: enabled ? engine.kind : 'off',
       model: engine.chatModel,
       features: FEATURE_LEVELS[engine.kind],
-      canManage: tenantCan(ctx.role, 'ai.manage'),
+      canManage: tenantCan(ctx, 'ai.manage'),
       lastError: this.lastError.get(ctx.tenantId) ?? null,
       transcription: await this.transcripts.config(ctx.tenantId),
     };
   }
 
   async updateSettings(ctx: TenantContext, input: unknown): Promise<AiStatus> {
-    if (!tenantCan(ctx.role, 'ai.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'ai.manage')) throw forbidden();
     const req = parse(UpdateAiSettingsRequestSchema, input);
     await this.db.for(ctx.tenantId).tenant_settings.updateOne(
       {},

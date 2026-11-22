@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Ban,
   Building2,
+  KeyRound,
   LifeBuoy,
   Pencil,
   Plus,
@@ -41,6 +42,7 @@ import {
 } from '@sampledge/ui';
 import { errorText, usePlatformApi, usePlatformChange, type PlatformApi } from './api';
 import { day, gb, when } from './console';
+import { ActivityTab, OrgPermissions } from './controls';
 
 const FILTER_LABEL: Record<PlatformOrgFilter, string> = {
   all: 'All',
@@ -271,7 +273,9 @@ function OrgDetail({
   const { toast } = useToast();
   const [d, setD] = React.useState<PlatformOrgDetail | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [view, setView] = React.useState<'summary' | 'support'>('summary');
+  const [view, setView] = React.useState<'summary' | 'support' | 'activity' | 'permissions'>(
+    'summary',
+  );
   const [dialog, setDialog] = React.useState<null | 'rename' | 'suspend' | 'delete'>(null);
   const load = React.useCallback(() => {
     api
@@ -384,8 +388,9 @@ function OrgDetail({
         role="tablist"
         className="flex w-fit gap-1 rounded-md border border-border bg-surface p-0.5"
       >
-        {(['summary', 'support'] as const).map((v) =>
-          v === 'support' && !platformCan(me.role, 'support.view') ? null : (
+        {(['summary', 'support', 'activity', 'permissions'] as const).map((v) =>
+          (v === 'support' && !platformCan(me.role, 'support.view')) ||
+          (v === 'activity' && !platformCan(me.role, 'activity.view')) ? null : (
             <button
               key={v}
               role="tab"
@@ -398,14 +403,25 @@ function OrgDetail({
                   : 'text-text-muted hover:text-text',
               )}
             >
-              {v === 'summary' ? 'Summary' : 'Support view'}
+              {
+                {
+                  summary: 'Summary',
+                  support: 'Support view',
+                  activity: 'Activity',
+                  permissions: 'Permissions',
+                }[v]
+              }
             </button>
           ),
         )}
       </div>
 
       {view === 'support' ? (
-        <SupportView id={id} api={api} />
+        <SupportView id={id} api={api} canReset={platformCan(me.role, 'orgs.manage')} />
+      ) : view === 'activity' ? (
+        <ActivityTab me={me} online={online} tenantId={id} />
+      ) : view === 'permissions' ? (
+        <OrgPermissions id={id} me={me} online={online} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -681,8 +697,28 @@ function PlanCard({
   );
 }
 
-function SupportView({ id, api }: { id: string; api: PlatformApi }) {
+function SupportView({ id, api, canReset }: { id: string; api: PlatformApi; canReset: boolean }) {
+  const { toast } = useToast();
   const [v, setV] = React.useState<PlatformSupportView | null>(null);
+  const [confirm, setConfirm] = React.useState<{ userId: string; name: string } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const forceReset = async () => {
+    if (!confirm) return;
+    setBusy(true);
+    try {
+      const r = await api.forcePasswordReset(id, confirm.userId);
+      toast({
+        title: `${confirm.name} must choose a new password`,
+        description: `Signed out of ${r.signedOutDevices} device${r.signedOutDevices === 1 ? '' : 's'}.`,
+        tone: 'success',
+      });
+      setConfirm(null);
+    } catch (e) {
+      toast({ title: 'That didn’t work', description: errorText(e), tone: 'danger' });
+    } finally {
+      setBusy(false);
+    }
+  };
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     api
@@ -698,6 +734,21 @@ function SupportView({ id, api }: { id: string; api: PlatformApi }) {
     );
   return (
     <div className="flex flex-col gap-4" data-testid="platform-support">
+      <Dialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
+        <DialogContent
+          title={`Make ${confirm?.name ?? ''} choose a new password?`}
+          description="They are signed out of every device now, and asked for a new password the next time they sign in. Nobody, including you, ever sees their password. This is recorded in their organization’s audit log."
+        >
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={() => void forceReset()}>
+              <KeyRound /> Sign out and require a new password
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-sunken/60 px-4 py-3 text-meta text-text-muted">
         <LifeBuoy className="mt-0.5 size-4 shrink-0 text-accent" />
         What you need to help this organization, without signing in as anyone: no messages, files or
@@ -714,6 +765,7 @@ function SupportView({ id, api }: { id: string; api: PlatformApi }) {
               <th className="px-3 py-2 font-medium">Two-step</th>
               <th className="px-3 py-2 text-right font-medium">Devices</th>
               <th className="px-5 py-2 font-medium">Last seen</th>
+              {canReset ? <th className="px-5 py-2" /> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -732,6 +784,18 @@ function SupportView({ id, api }: { id: string; api: PlatformApi }) {
                 <td className="px-3 py-2 text-text-muted">{m.twoStep ? 'On' : 'Off'}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-text">{m.devices}</td>
                 <td className="px-5 py-2 text-text-muted">{when(m.lastSeenAt)}</td>
+                {canReset ? (
+                  <td className="px-5 py-2 text-right">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirm({ userId: m.userId, name: m.name })}
+                      aria-label={`Force ${m.name} to choose a new password`}
+                    >
+                      <KeyRound /> Force new password
+                    </Button>
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

@@ -14,6 +14,10 @@ Project-level (Samptrek), module-level and plan-level (subscription) permissions
 
 ## Tenant roles
 
+These are SampConnect's standard rules. Super admins can change what each role may do, for every
+organization or for one (see [super-admin.md](super-admin.md#permissions-what-each-organizations-people-may-do));
+the server then checks the organization's rules with `tenantCan(ctx, permission)`.
+
 | Permission                                     | owner | admin | member | guest |
 | ---------------------------------------------- | :---: | :---: | :----: | :---: |
 | tenant.manage (branding, plan, retention)      |   ✓   |       |        |       |

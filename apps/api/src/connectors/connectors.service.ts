@@ -60,8 +60,7 @@ export class ConnectorsService {
   }
 
   private requireManage(ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'connectors.manage'))
-      throw forbidden('Only admins can manage connectors');
+    if (!tenantCan(ctx, 'connectors.manage')) throw forbidden('Only admins can manage connectors');
   }
 
   credentials(doc: ConnectorDoc): Credentials {
@@ -146,15 +145,14 @@ export class ConnectorsService {
   }
 
   async list(ctx: TenantContext): Promise<Connector[]> {
-    if (!tenantCan(ctx.role, 'connectors.manage') && !tenantCan(ctx.role, 'inbox.access'))
-      throw forbidden();
+    if (!tenantCan(ctx, 'connectors.manage') && !tenantCan(ctx, 'inbox.access')) throw forbidden();
     const docs = await this.db
       .for(ctx.tenantId)
       .connectors.find({ deletedAt: null }, { sort: { createdAt: 1 } })
       .toArray();
     const all = await Promise.all(docs.map((d) => this.toConnector(d)));
     // Agents see which channels exist, never credential hints.
-    return tenantCan(ctx.role, 'connectors.manage')
+    return tenantCan(ctx, 'connectors.manage')
       ? all
       : all.map((c) => ({ ...c, credentialHints: {}, webhookPath: null }));
   }

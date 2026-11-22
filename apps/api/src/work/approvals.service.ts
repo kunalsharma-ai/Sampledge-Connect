@@ -82,7 +82,7 @@ export class ApprovalsService {
         return false;
       }
     }
-    return ctx.role === 'owner' || ctx.role === 'admin';
+    return tenantCan(ctx, 'work.manage');
   }
 
   private async load(ctx: TenantContext, id: string) {
@@ -328,7 +328,7 @@ export class ApprovalsService {
 
   async cancel(ctx: TenantContext, id: string): Promise<Approval> {
     const a = await this.load(ctx, id);
-    const admin = ctx.role === 'owner' || ctx.role === 'admin';
+    const admin = tenantCan(ctx, 'work.manage');
     if (a.requesterId !== ctx.userId && !admin) throw forbidden();
     if (a.status !== 'pending')
       throw new AppError('CONFLICT', `This request is already ${a.status}`);
@@ -414,7 +414,7 @@ export class ApprovalsService {
         break;
       }
       case 'all':
-        if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+        if (!tenantCan(ctx, 'members.manage')) throw forbidden();
         break;
     }
     const rows = await w.approvals.find(filter, { sort: { _id: -1 }, limit: q.limit }).toArray();

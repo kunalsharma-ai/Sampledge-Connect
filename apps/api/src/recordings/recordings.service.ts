@@ -93,12 +93,12 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async getSettings(ctx: TenantContext): Promise<RecordingSettings> {
-    if (!tenantCan(ctx.role, 'recordings.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'recordings.manage')) throw forbidden();
     return this.settings(ctx.tenantId);
   }
 
   async setSettings(ctx: TenantContext, input: unknown): Promise<RecordingSettings> {
-    if (!tenantCan(ctx.role, 'recordings.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'recordings.manage')) throw forbidden();
     const req = parse(RecordingSettingsSchema, input);
     await this.db.for(ctx.tenantId).tenant_settings.updateOne(
       {},
@@ -198,7 +198,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
   private canDelete(ctx: TenantContext, d: AttachmentDoc, role: string | undefined) {
     return (
       d.uploaderId === ctx.userId ||
-      tenantCan(ctx.role, 'recordings.manage') ||
+      tenantCan(ctx, 'recordings.manage') ||
       (role !== undefined && MODERATOR_ROLES.has(role))
     );
   }
@@ -315,7 +315,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async createExport(ctx: TenantContext, input: unknown): Promise<ExportRecordingsResponse> {
-    if (!tenantCan(ctx.role, 'recordings.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'recordings.manage')) throw forbidden();
     const req = parse(ExportRecordingsRequestSchema, input);
     const docs = await this.db
       .for(ctx.tenantId)

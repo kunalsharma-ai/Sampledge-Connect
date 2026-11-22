@@ -30,6 +30,9 @@ export const TENANT_PERMISSIONS = [
   'inbox.supervise', // all inbox teams, SLA and escalation settings, supervisor dashboard
   'connectors.manage', // connect external messaging channels and manage their credentials
   'ai.manage', // turn the private AI assistant on or off for the organization
+  'analytics.org', // organization-wide analytics
+  'themes.manage', // chat theme rules for everyone
+  'work.manage', // see and manage everyone's tasks and approvals
   'directory.read',
   'conversation.dm.create',
   'conversation.group.create',
@@ -98,9 +101,60 @@ export const CONVERSATION_ROLE_GRANTS: Record<ConversationRole, readonly Convers
     ],
   };
 
-export function tenantCan(role: TenantRole, permission: TenantPermission): boolean {
-  return TENANT_ROLE_GRANTS[role].includes(permission);
+/**
+ * What each role may do in one organization. SampConnect's super admins set it, per
+ * organization or as the default for all of them (docs/super-admin.md); organization owners
+ * can't change it. Missing roles fall back to TENANT_ROLE_GRANTS.
+ */
+export type TenantPermissionPolicy = Record<TenantRole, TenantPermission[]>;
+
+const PermissionList = z.array(z.enum(TENANT_PERMISSIONS)).max(TENANT_PERMISSIONS.length);
+export const TenantPermissionPolicySchema = z.object({
+  owner: PermissionList,
+  admin: PermissionList,
+  member: PermissionList,
+  guest: PermissionList,
+});
+
+/** The built-in policy, used until a super admin changes it. */
+export const DEFAULT_TENANT_POLICY: TenantPermissionPolicy = Object.fromEntries(
+  TENANT_ROLES.map((r) => [r, [...TENANT_ROLE_GRANTS[r]]]),
+) as TenantPermissionPolicy;
+
+/** A role alone (built-in rules) or a signed-in person with the grants their organization allows. */
+export type TenantSubject = TenantRole | { role: TenantRole; grants?: readonly TenantPermission[] };
+
+export function tenantCan(subject: TenantSubject, permission: TenantPermission): boolean {
+  if (typeof subject === 'string') return TENANT_ROLE_GRANTS[subject].includes(permission);
+  return (subject.grants ?? TENANT_ROLE_GRANTS[subject.role]).includes(permission);
 }
+
+/** Plain-language names for the permission matrix in the super admin console. */
+export const TENANT_PERMISSION_INFO: Record<TenantPermission, { label: string; group: string }> = {
+  'tenant.manage': {
+    label: 'Manage the organization (branding, plan, retention)',
+    group: 'Organization',
+  },
+  'members.invite': { label: 'Add members', group: 'People' },
+  'members.manage': { label: 'Change roles, deactivate people, reset passwords', group: 'People' },
+  'devices.revoke.any': { label: 'Sign anyone’s devices out', group: 'People' },
+  'audit.read': { label: 'Read the organization’s audit log', group: 'Organization' },
+  'integrations.manage': { label: 'Set up integrations', group: 'Organization' },
+  'recordings.manage': { label: 'Manage all recordings and minutes', group: 'Meetings' },
+  'inbox.access': { label: 'Use the Client Inbox', group: 'Client Inbox' },
+  'inbox.supervise': { label: 'Supervise the Client Inbox (teams, SLAs)', group: 'Client Inbox' },
+  'connectors.manage': { label: 'Connect messaging channels', group: 'Client Inbox' },
+  'ai.manage': { label: 'Turn the AI assistant on or off', group: 'Organization' },
+  'analytics.org': { label: 'See organization-wide analytics', group: 'Organization' },
+  'themes.manage': { label: 'Set chat theme rules for everyone', group: 'Organization' },
+  'work.manage': { label: 'Manage everyone’s tasks and approvals', group: 'People' },
+  'directory.read': { label: 'See the member directory', group: 'People' },
+  'conversation.dm.create': { label: 'Start direct messages', group: 'Conversations' },
+  'conversation.group.create': { label: 'Start group conversations', group: 'Conversations' },
+  'channel.public.create': { label: 'Create public channels', group: 'Conversations' },
+  'channel.private.create': { label: 'Create private channels', group: 'Conversations' },
+  'channel.public.join': { label: 'Join public channels', group: 'Conversations' },
+};
 
 export interface ConversationAccess {
   /** null when the user is not a member of the conversation. */

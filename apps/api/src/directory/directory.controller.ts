@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import argon2 from 'argon2';
 import { MongoServerError } from 'mongodb';
 import type { Redis } from 'ioredis';
@@ -19,7 +21,8 @@ import { InviteMemberRequestSchema, TenantRoleSchema, tenantCan } from '@sampled
 import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { AuthGuard, Ctx } from '../auth/auth.guard.js';
-import { ARGON2_OPTIONS, toUserSummary } from '../auth/auth.service.js';
+import { ARGON2_OPTIONS, AuthService, toUserSummary } from '../auth/auth.service.js';
+import { meta } from '../auth/auth.controller.js';
 import { MfaService } from '../auth/mfa.service.js';
 import { BillingService } from '../billing/billing.service.js';
 import { SessionService } from '../auth/session.service.js';
@@ -49,6 +52,7 @@ export class DirectoryController {
     private readonly billing: BillingService,
     private readonly networkTenant: NetworkTenant,
     private readonly network: NetworkService,
+    private readonly auth: AuthService,
   ) {}
 
   @Get('me')
@@ -69,6 +73,8 @@ export class DirectoryController {
         branding: tenant.branding,
       },
       workspaceId: ctx.workspaceId,
+      /** What your role may do here, as SampConnect allows it (docs/super-admin.md). */
+      permissions: ctx.grants ?? [],
       deviceId: ctx.deviceId,
     };
   }
@@ -97,7 +103,7 @@ export class DirectoryController {
             : 'offline',
       }));
     }
-    if (!tenantCan(ctx.role, 'directory.read')) throw forbidden();
+    if (!tenantCan(ctx, 'directory.read')) throw forbidden();
     const t = this.db.for(ctx.tenantId);
     const [users, memberships] = await Promise.all([
       t.users.find({}, { sort: { displayName: 1 }, limit: 5000 }).toArray(),
@@ -117,7 +123,7 @@ export class DirectoryController {
 
   @Post('users')
   async invite(@Ctx() ctx: TenantContext, @Body() body: unknown) {
-    if (!tenantCan(ctx.role, 'members.invite')) throw forbidden();
+    if (!tenantCan(ctx, 'members.invite')) throw forbidden();
     const req = parse(InviteMemberRequestSchema, body);
     if (req.role !== 'guest') await this.billing.assertSeatAvailable(ctx.tenantId);
     const t = this.db.for(ctx.tenantId);
@@ -171,7 +177,7 @@ export class DirectoryController {
 
   @Patch('users/:id')
   async update(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
-    if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'members.manage')) throw forbidden();
     const req = parse(UpdateMemberSchema, body);
     if (id === ctx.userId)
       throw new AppError('VALIDATION_FAILED', 'You cannot change your own role or status');
@@ -212,7 +218,7 @@ export class DirectoryController {
   @Post('users/:id/mfa/reset')
   @HttpCode(204)
   async resetMfa(@Ctx() ctx: TenantContext, @Param('id') id: string) {
-    if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'members.manage')) throw forbidden();
     if (id === ctx.userId)
       throw new AppError(
         'VALIDATION_FAILED',
@@ -221,11 +227,23 @@ export class DirectoryController {
     await this.mfa.adminReset(ctx, id);
   }
 
+  /** A temporary password; they choose their own at next sign-in. Shown to SampConnect too. */
+  @Post('users/:id/password')
+  @HttpCode(200)
+  resetPassword(
+    @Ctx() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
+    return this.auth.resetMemberPassword(ctx, id, body, meta(req));
+  }
+
   /** Device management: own devices, or everyone's for admins (?all=true). */
   @Get('devices')
   async devices(@Ctx() ctx: TenantContext, @Query('all') all?: string) {
     const everyone = all === 'true';
-    if (everyone && !tenantCan(ctx.role, 'devices.revoke.any')) throw forbidden();
+    if (everyone && !tenantCan(ctx, 'devices.revoke.any')) throw forbidden();
     const rows = await this.db
       .for(ctx.tenantId)
       .devices.find(everyone ? {} : { userId: ctx.userId }, {
@@ -251,7 +269,7 @@ export class DirectoryController {
   async revokeDevice(@Ctx() ctx: TenantContext, @Param('sessionId') sessionId: string) {
     const d = await this.db.for(ctx.tenantId).devices.findOne({ _id: sessionId });
     if (!d) throw notFound('Device');
-    if (d.userId !== ctx.userId && !tenantCan(ctx.role, 'devices.revoke.any')) throw forbidden();
+    if (d.userId !== ctx.userId && !tenantCan(ctx, 'devices.revoke.any')) throw forbidden();
     await this.sessions.revoke(
       ctx.tenantId,
       sessionId,
@@ -268,7 +286,7 @@ export class DirectoryController {
 
   @Get('audit-logs')
   async auditLogs(@Ctx() ctx: TenantContext, @Query('limit') limit?: string) {
-    if (!tenantCan(ctx.role, 'audit.read')) throw forbidden();
+    if (!tenantCan(ctx, 'audit.read')) throw forbidden();
     const rows = await this.audit.list(ctx.tenantId, Number(limit) || 100);
     return rows.map((r) => ({
       ...r,

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { PlatformMe } from '@sampledge/contracts';
+import type { PlatformChangedEvent, PlatformMe } from '@sampledge/contracts';
 import { router, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -22,7 +22,7 @@ export function usePlatformApi() {
  * and after every reconnect.
  */
 export function usePlatformLive(
-  areas: ('orgs' | 'admins' | 'billing' | 'audit' | 'me')[],
+  areas: PlatformChangedEvent['area'][],
   fn: (tenantId?: string) => void,
 ) {
   const { engine } = useWorkspace();

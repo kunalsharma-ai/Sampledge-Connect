@@ -8,12 +8,21 @@ import {
 } from '@sampledge/contracts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Button } from '../../../components/Button';
 import { Chips } from '../../../components/Chips';
 import { Glass } from '../../../components/Glass';
-import { Field, Section, netErrorText } from '../../../components/NetworkBits';
+import { Field, Section, SmallButton, netErrorText } from '../../../components/NetworkBits';
 import {
+  LinkRow,
   Pill,
   Stat,
   shortDate,
@@ -305,10 +314,47 @@ export default function PlatformOrgScreen() {
                 />
               </View>
             ) : (
-              <SupportPanel s={support} />
+              <SupportPanel
+                s={support}
+                canReset={can('orgs.manage')}
+                onReset={(userId, name) =>
+                  confirmReset(
+                    name,
+                    () =>
+                      void run(`pw:${userId}`, async () => {
+                        const r = await api.forcePasswordReset(org.tenantId, userId);
+                        return `${name} must choose a new password. Signed out of ${r.signedOutDevices} device${r.signedOutDevices === 1 ? '' : 's'}.`;
+                      }),
+                  )
+                }
+              />
             )}
           </Section>
         ) : null}
+
+        <Glass>
+          {can('activity.view') ? (
+            <LinkRow
+              icon="pulse-outline"
+              label="Activity"
+              hint="Sign-ins, passwords and changes here"
+              href={{
+                pathname: '/platform/activity',
+                params: { org: org.tenantId, name: org.name },
+              }}
+            />
+          ) : null}
+          <LinkRow
+            icon="lock-closed-outline"
+            label="Permissions"
+            hint="What its owners, admins, members and guests may do"
+            href={{
+              pathname: '/platform/permissions',
+              params: { org: org.tenantId, name: org.name },
+            }}
+            divider={can('activity.view')}
+          />
+        </Glass>
 
         {d.history.length ? (
           <Section title="Super admin history">
@@ -452,7 +498,25 @@ export default function PlatformOrgScreen() {
   );
 }
 
-function SupportPanel({ s }: { s: PlatformSupportView }) {
+function confirmReset(name: string, go: () => void) {
+  const body =
+    'They are signed out of every device now and asked for a new password at their next sign-in. Nobody, including you, ever sees their password.';
+  if (Platform.OS === 'web') return go();
+  Alert.alert(`Make ${name} choose a new password?`, body, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Sign out and require', style: 'destructive', onPress: go },
+  ]);
+}
+
+function SupportPanel({
+  s,
+  canReset,
+  onReset,
+}: {
+  s: PlatformSupportView;
+  canReset: boolean;
+  onReset: (userId: string, name: string) => void;
+}) {
   const { theme } = useTheme();
   const c = theme.colors;
   const line = (i: number) => [
@@ -491,6 +555,17 @@ function SupportPanel({ s }: { s: PlatformSupportView }) {
             {m.devices} device{m.devices === 1 ? '' : 's'} ·{' '}
             {m.twoStep ? 'two-step on' : 'no two-step'} · seen {shortDate(m.lastSeenAt)}
           </Text>
+          {canReset ? (
+            <View style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+              <SmallButton
+                title="Force new password"
+                icon="key-outline"
+                kind="danger"
+                onPress={() => onReset(m.userId, m.name)}
+                accessibilityLabel={`Force ${m.name} to choose a new password`}
+              />
+            </View>
+          ) : null}
         </View>
       ))}
       <Text

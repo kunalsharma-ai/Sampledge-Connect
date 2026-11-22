@@ -15,6 +15,7 @@ import type {
   BillingPlanDoc,
   PlatformAdminDoc,
   PlatformAuditDoc,
+  PlatformSettingDoc,
   TenantCollections,
   TenantDoc,
 } from './documents.js';
@@ -150,6 +151,10 @@ export class TenantDb {
   }
 
   /** The underlying database, for the cross-organization console totals and the erase job. */
+  get platformSettings(): Collection<PlatformSettingDoc> {
+    return this.db.collection<PlatformSettingDoc>('platform_settings');
+  }
+
   get raw(): Db {
     return this.db;
   }

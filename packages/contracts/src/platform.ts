@@ -1,7 +1,11 @@
 import { z } from 'zod';
-import type { AdminOverview, AuditEntry } from './admin.js';
+import { AuditQuerySchema, type AdminOverview, type AuditEntry } from './admin.js';
 import { AssignPlanRequestSchema, type Invoice, type Subscription } from './billing.js';
-import type { TenantRole } from './permissions.js';
+import {
+  TenantPermissionPolicySchema,
+  type TenantPermissionPolicy,
+  type TenantRole,
+} from './permissions.js';
 
 /**
  * Super admin console (docs/super-admin.md): the people who run SampConnect itself, across
@@ -23,27 +27,32 @@ export const PLATFORM_PERMISSIONS = [
   'support.view',
   'audit.view',
   'admins.manage',
+  'permissions.manage',
+  'activity.view',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
 const ALL = PLATFORM_PERMISSIONS;
 const ROLE_PERMISSIONS: Record<PlatformRole, readonly PlatformPermission[]> = {
   owner: ALL,
-  admin: ALL.filter((p) => p !== 'admins.manage' && p !== 'orgs.delete'),
+  admin: ALL.filter(
+    (p) => p !== 'admins.manage' && p !== 'orgs.delete' && p !== 'permissions.manage',
+  ),
   billing: ['overview.view', 'orgs.view', 'billing.manage'],
-  support: ['overview.view', 'orgs.view', 'support.view', 'audit.view'],
+  support: ['overview.view', 'orgs.view', 'support.view', 'audit.view', 'activity.view'],
   moderator: ['overview.view', 'moderation'],
 };
 
 export const PLATFORM_ROLE_INFO: Record<PlatformRole, { label: string; description: string }> = {
   owner: {
     label: 'Super admin',
-    description: 'Everything, including platform admins and deleting organizations.',
+    description:
+      'Everything, including what each organization’s people may do, platform admins and deleting organizations.',
   },
   admin: {
     label: 'Platform admin',
     description:
-      'Organizations, plans and billing, moderation, platform integrations and the support view.',
+      'Organizations, plans and billing, moderation, platform integrations, the support view and all activity.',
   },
   billing: {
     label: 'Billing',
@@ -51,7 +60,7 @@ export const PLATFORM_ROLE_INFO: Record<PlatformRole, { label: string; descripti
   },
   support: {
     label: 'Support',
-    description: 'Read-only: organizations, the support view and the audit log.',
+    description: 'Read-only: organizations, the support view, all activity and the audit log.',
   },
   moderator: {
     label: 'Moderator',
@@ -288,6 +297,8 @@ export const PLATFORM_AUDIT_AREAS = [
   'admins',
   'integrations',
   'support',
+  'permissions',
+  'activity',
 ] as const;
 export type PlatformAuditArea = (typeof PLATFORM_AUDIT_AREAS)[number];
 
@@ -338,6 +349,11 @@ const PLATFORM_LABELS: Record<string, string> = {
   'platform.integration_saved': 'Saved a platform integration',
   'platform.moderation_action': 'Acted on a SampConnect Network report',
   'platform.moderation_restore': 'Restored a suspended Network account or community',
+  'platform.permissions_default_changed': 'Changed what people may do in every organization',
+  'platform.permissions_org_changed': 'Changed what people may do in an organization',
+  'platform.org_password_reset_forced': 'Forced a password reset',
+  'platform.activity_retention_changed': 'Changed how long activity is kept',
+  'platform.activity_exported': 'Exported activity',
 };
 
 export function platformAuditLabel(action: string): string {
@@ -345,6 +361,8 @@ export function platformAuditLabel(action: string): string {
 }
 
 export function platformAuditArea(action: string): PlatformAuditArea {
+  if (/^platform\.permissions_/.test(action)) return 'permissions';
+  if (/^platform\.activity_/.test(action)) return 'activity';
   if (/^platform\.(org_|support)/.test(action))
     return action.includes('support') ? 'support' : 'organizations';
   if (/^platform\.plan_/.test(action)) return 'billing';
@@ -360,12 +378,76 @@ export const PLATFORM_AUDIT_AREA_PATTERNS: Record<PlatformAuditArea, RegExp> = {
   admins: /^platform\.admin_/,
   integrations: /^platform\.integration/,
   moderation: /^platform\.moderation/,
+  permissions: /^platform\.permissions_/,
+  activity: /^platform\.activity_/,
 };
 
 /** Realtime, to every platform admin: refetch that area of the console. */
 export interface PlatformChangedEvent {
-  area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me';
+  area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me' | 'permissions' | 'activity';
   tenantId?: string;
 }
 
 export type PlatformAssignPlanRequest = z.input<typeof PlatformAssignPlanSchema>;
+
+// ─── permissions (what each organization's people may do) ───────────────────
+
+/** GET /v1/platform/permissions — the default for every organization. */
+export interface PlatformPermissionDefaults {
+  /** SampConnect's built-in rules. */
+  builtIn: TenantPermissionPolicy;
+  /** What organizations without their own rules use. */
+  policy: TenantPermissionPolicy;
+  /** The default differs from the built-in rules. */
+  customized: boolean;
+  /** Organizations with their own rules. */
+  customOrganizations: number;
+}
+
+/** GET /v1/platform/orgs/:tenantId/permissions */
+export interface PlatformOrgPermissions {
+  tenantId: string;
+  /** What applies in this organization now. */
+  policy: TenantPermissionPolicy;
+  /** True when the organization follows the platform default. */
+  inherits: boolean;
+  platformDefault: TenantPermissionPolicy;
+}
+
+/** PUT either: a full policy, or null to go back to the default (built-in for the platform). */
+export const SetPermissionPolicySchema = z.object({
+  policy: TenantPermissionPolicySchema.nullable(),
+});
+export type SetPermissionPolicyRequest = z.input<typeof SetPermissionPolicySchema>;
+
+// ─── activity (every organization's audit log, in one place) ────────────────
+
+export const PlatformActivityQuerySchema = AuditQuerySchema.extend({
+  tenantId: z.string().max(64).optional(),
+});
+export type PlatformActivityQuery = z.input<typeof PlatformActivityQuerySchema>;
+
+export type PlatformActivityEntry = AuditEntry & {
+  org: { tenantId: string; name: string; slug: string };
+};
+
+export interface PlatformActivityPage {
+  items: PlatformActivityEntry[];
+  nextCursor: string | null;
+}
+
+/** GET/PUT /v1/platform/activity/retention — null keeps everything. */
+export const ActivityRetentionSchema = z.object({
+  days: z.number().int().min(30).max(3650).nullable(),
+});
+export interface ActivityRetention {
+  days: number | null;
+  /** Oldest entry still kept. */
+  oldestAt: string | null;
+}
+
+/** POST /v1/platform/orgs/:tenantId/people/:userId/password-reset */
+export interface ForcedPasswordReset {
+  userId: string;
+  signedOutDevices: number;
+}

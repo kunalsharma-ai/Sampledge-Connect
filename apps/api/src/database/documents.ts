@@ -52,6 +52,19 @@ export interface TenantDoc {
     previousStatus: 'active' | 'suspended';
     purgingAt?: Date | null;
   } | null;
+  /** What each role may do here, set by a super admin; absent = the platform default. */
+  permissions?: Record<string, string[]> | null;
+}
+
+/** Global: platform-wide settings kept by super admins (`_id` names the setting). */
+export interface PlatformSettingDoc {
+  _id: 'permissions' | 'activity';
+  /** permissions: the default policy for every organization. */
+  policy?: Record<string, string[]> | null;
+  /** activity: keep audit entries this many days (null = forever). */
+  retentionDays?: number | null;
+  updatedAt: Date;
+  updatedBy: string | null;
 }
 
 /** Global: a work account with a platform role (docs/super-admin.md). */
@@ -82,6 +95,9 @@ export interface PlatformAuditDoc {
 export interface UserDoc extends TenantOwned {
   email: string;
   passwordHash: string;
+  /** An admin or SampConnect reset the password: a new one must be chosen at next sign-in. */
+  mustChangePassword?: boolean;
+  passwordChangedAt?: Date | null;
   displayName: string;
   title: string | null;
   status: 'active' | 'deactivated';

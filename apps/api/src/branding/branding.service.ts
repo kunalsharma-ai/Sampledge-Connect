@@ -41,7 +41,7 @@ export class BrandingService {
   async get(ctx: TenantContext): Promise<BrandingView> {
     const t = await this.db.tenants.findOne({ _id: ctx.tenantId });
     if (!t) throw notFound('Organization');
-    return this.view(t, tenantCan(ctx.role, 'tenant.manage'));
+    return this.view(t, tenantCan(ctx, 'tenant.manage'));
   }
 
   async publicFor(slug: string): Promise<PublicBranding> {
@@ -61,7 +61,7 @@ export class BrandingService {
   }
 
   async save(ctx: TenantContext, body: unknown): Promise<BrandingView> {
-    if (!tenantCan(ctx.role, 'tenant.manage'))
+    if (!tenantCan(ctx, 'tenant.manage'))
       throw forbidden('Only the organization owner can change branding');
     const b = parse(BrandingInputSchema, body);
     if (b.logo) {

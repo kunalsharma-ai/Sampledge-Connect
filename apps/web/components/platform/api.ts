@@ -9,6 +9,7 @@ import {
   type PlatformAdmin,
   type PlatformAuditPage,
   type PlatformAuditQuery,
+  type PlatformChangedEvent,
   type PlatformMe,
   type PlatformOrg,
   type PlatformOrgDetail,
@@ -18,8 +19,16 @@ import {
   type PlatformRole,
   type PlatformSupportView,
   type Subscription,
+  type ActivityRetention,
+  type ForcedPasswordReset,
+  type PlatformActivityPage,
+  type PlatformActivityQuery,
+  type PlatformOrgPermissions,
+  type PlatformPermissionDefaults,
+  type TenantPermissionPolicy,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from '@/lib/api';
+import { API_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
 import { useEngineChange } from '@/lib/engine';
 
@@ -68,6 +77,35 @@ export function usePlatformApi() {
       removeAdmin: (adminId: string) => req('DELETE', `/v1/platform/admins/${adminId}`),
       audit: (q: PlatformAuditQuery) =>
         req<PlatformAuditPage>('GET', `/v1/platform/audit?${qs(q)}`),
+      permissions: () => req<PlatformPermissionDefaults>('GET', '/v1/platform/permissions'),
+      setPermissions: (policy: TenantPermissionPolicy | null) =>
+        req<PlatformPermissionDefaults>('PUT', '/v1/platform/permissions', { policy }),
+      orgPermissions: (id: string) => req<PlatformOrgPermissions>('GET', `${o(id)}/permissions`),
+      setOrgPermissions: (id: string, policy: TenantPermissionPolicy | null) =>
+        req<PlatformOrgPermissions>('PUT', `${o(id)}/permissions`, { policy }),
+      forcePasswordReset: (id: string, userId: string) =>
+        req<ForcedPasswordReset>(
+          'POST',
+          `${o(id)}/people/${encodeURIComponent(userId)}/password-reset`,
+        ),
+      activity: (q: PlatformActivityQuery) =>
+        req<PlatformActivityPage>('GET', `/v1/platform/activity?${qs(q)}`),
+      retention: () => req<ActivityRetention>('GET', '/v1/platform/activity/retention'),
+      setRetention: (days: number | null) =>
+        req<ActivityRetention>('PUT', '/v1/platform/activity/retention', { days }),
+      exportActivity: async (q: PlatformActivityQuery) => {
+        const res = await fetch(`${API_URL}/v1/platform/activity/export?${qs(q)}`, {
+          headers: { authorization: `Bearer ${await getAccessToken()}` },
+        });
+        if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(await res.blob());
+        a.download =
+          /filename="?([^";]+)/.exec(res.headers.get('content-disposition') ?? '')?.[1] ??
+          'sampconnect-activity.csv';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      },
     };
   }, [getAccessToken]);
 }
@@ -78,7 +116,7 @@ export type PlatformApi = ReturnType<typeof usePlatformApi>;
  * console, and after a reconnect.
  */
 export function usePlatformChange(
-  areas: ('orgs' | 'admins' | 'billing' | 'audit' | 'me')[],
+  areas: PlatformChangedEvent['area'][],
   fn: (tenantId?: string) => void,
 ) {
   useEngineChange(['platform'], (e) => {

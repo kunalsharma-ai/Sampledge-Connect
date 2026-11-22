@@ -411,13 +411,13 @@ export class NetworkAdminController {
 
   @Get()
   async view(@Ctx() ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'members.manage')) throw forbidden();
     return this.policy.view(ctx.tenantId, await this.platformAdmins.can(ctx, 'moderation'));
   }
 
   @Put()
   async set(@Ctx() ctx: TenantContext, @Body() body: unknown) {
-    if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'members.manage')) throw forbidden();
     const r = await this.policy.set(
       ctx.tenantId,
       ctx.userId,

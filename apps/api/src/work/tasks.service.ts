@@ -90,7 +90,7 @@ export class TasksService {
   ) {}
 
   private isAdmin(ctx: TenantContext) {
-    return ctx.role === 'owner' || ctx.role === 'admin';
+    return tenantCan(ctx, 'work.manage');
   }
 
   async canSee(ctx: TenantContext, t: TaskDoc): Promise<boolean> {
@@ -393,7 +393,7 @@ export class TasksService {
         break;
       }
       case 'all':
-        if (!tenantCan(ctx.role, 'members.manage')) throw forbidden();
+        if (!tenantCan(ctx, 'members.manage')) throw forbidden();
         break;
     }
     const rows = await w.tasks

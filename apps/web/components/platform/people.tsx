@@ -296,6 +296,8 @@ const AREA_LABEL: Record<PlatformAuditArea, string> = {
   admins: 'Platform admins',
   integrations: 'Integrations',
   support: 'Support',
+  permissions: 'Permissions',
+  activity: 'Activity',
 };
 
 export function AuditTab({ onOpenOrg }: { onOpenOrg: (tenantId: string) => void }) {

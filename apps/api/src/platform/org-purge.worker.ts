@@ -17,6 +17,7 @@ const GLOBAL = new Set([
   'billing_plans',
   'platform_admins',
   'platform_audit',
+  'platform_settings',
   '_migrations',
   'attachment_files.files',
   'attachment_files.chunks',
