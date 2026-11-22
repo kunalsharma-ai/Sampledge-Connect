@@ -21,6 +21,8 @@ import { BrandingService } from './branding/branding.service.js';
 import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { PlatformAdmins } from './platform/platform-admins.js';
+import { PermissionPolicy } from './platform/permission-policy.service.js';
+import { PlatformControlService } from './platform/platform-control.service.js';
 import { PlatformAudit } from './platform/platform-audit.service.js';
 import { PlatformService } from './platform/platform.service.js';
 import { PlatformAdminsService } from './platform/platform-admins.service.js';
@@ -209,6 +211,8 @@ export class AppModule {
         BrandingService,
         AdminService,
         PlatformAdmins,
+        PermissionPolicy,
+        PlatformControlService,
         PlatformAudit,
         PlatformService,
         PlatformAdminsService,

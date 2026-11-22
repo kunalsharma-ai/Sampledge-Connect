@@ -26,6 +26,7 @@ import { useOrgBranding } from '@/lib/org-branding';
 import { useEngine } from '@/lib/engine';
 import { BrowserNotificationsCard } from './browser-notifications';
 import { TwoStepCard } from './two-step-card';
+import { PasswordCard } from './password-card';
 import { avatarUrl, relativeShort } from './helpers';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
@@ -439,6 +440,7 @@ export function SettingsDialog({
         <BrowserNotificationsCard />
         <StatusCard />
         <QuietHoursCard />
+        <PasswordCard />
         <TwoStepCard />
         {branding?.supportEmail || branding?.supportUrl ? (
           <p className="mt-6 text-meta text-text-muted" data-testid="support-contact">

@@ -27,7 +27,7 @@ import {
   type TenantArea,
   type AiProposal,
 } from '@sampledge/contracts';
-import type { NetworkChangedEvent } from '@sampledge/contracts';
+import type { NetworkChangedEvent, PlatformChangedEvent } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
 export class NetworkError extends Error {
@@ -108,7 +108,7 @@ export type ChangeEvent =
   /** Platform operators: the SampConnect Network report queue or suspensions changed. */
   | { type: 'moderation'; scope: 'reports' | 'suspensions' }
   /** Platform admins: an area of the super admin console changed (`me`: your own role). */
-  | { type: 'platform'; area: 'orgs' | 'admins' | 'billing' | 'audit' | 'me'; tenantId?: string }
+  | { type: 'platform'; area: PlatformChangedEvent['area']; tenantId?: string }
   | { type: 'reconnected' }
   | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 

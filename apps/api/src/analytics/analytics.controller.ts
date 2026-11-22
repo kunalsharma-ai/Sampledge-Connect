@@ -6,6 +6,7 @@ import {
   daysBetween,
   type AnalyticsResponse,
   type AnalyticsTotals,
+  tenantCan,
 } from '@sampledge/contracts';
 import { AppError, forbidden, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
@@ -43,7 +44,7 @@ export class AnalyticsService {
 
   async get(ctx: TenantContext, raw: unknown): Promise<AnalyticsResponse> {
     const q = parse(AnalyticsQuerySchema, raw);
-    if (q.scope === 'org' && ctx.role !== 'owner' && ctx.role !== 'admin')
+    if (q.scope === 'org' && !tenantCan(ctx, 'analytics.org'))
       throw forbidden('Organization analytics are for owners and admins');
     if (!validZone(q.tz)) throw new AppError('VALIDATION_FAILED', 'Unknown time zone');
     const days = RANGE_DAYS[q.range];

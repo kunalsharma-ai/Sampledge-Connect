@@ -193,7 +193,11 @@ function MemberSheet({
   const { engine } = useWorkspace();
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
-  useEffect(() => setNote(null), [m?.userId]);
+  const [tempPw, setTempPw] = useState<string | null>(null);
+  useEffect(() => {
+    setNote(null);
+    setTempPw(null);
+  }, [m?.userId]);
   if (!m) return null;
   const locked = self || m.role === 'owner' || !canManage;
   const off = m.status === 'deactivated';
@@ -283,6 +287,60 @@ function MemberSheet({
                   )
                 }
               />
+              {tempPw === null ? (
+                <Button
+                  title="Reset password"
+                  kind="quiet"
+                  icon="lock-open-outline"
+                  disabled={!!busy || off}
+                  onPress={() => setTempPw('')}
+                />
+              ) : (
+                <View style={{ gap: 6 }}>
+                  <Text variant="label" tone="muted">
+                    Temporary password (12+ characters)
+                  </Text>
+                  <TextInput
+                    value={tempPw}
+                    onChangeText={setTempPw}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    accessibilityLabel="Temporary password"
+                    placeholderTextColor={c.textSubtle}
+                    placeholder="Give this to them"
+                    style={[
+                      styles.pwInput,
+                      { color: c.text, backgroundColor: c.surfaceSunken, borderColor: c.border },
+                    ]}
+                  />
+                  <Text variant="meta" tone="subtle">
+                    They are signed out everywhere and choose their own password at their next
+                    sign-in.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: space.sm }}>
+                    <Button
+                      title="Cancel"
+                      kind="quiet"
+                      onPress={() => setTempPw(null)}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      title="Reset"
+                      kind="danger"
+                      busy={busy === 'pw'}
+                      disabled={!!busy || tempPw.length < 12}
+                      style={{ flex: 1 }}
+                      onPress={() =>
+                        void run('pw', async () => {
+                          await engine.resetMemberPassword(m.userId, tempPw);
+                          setTempPw(null);
+                          return `${m.displayName} must choose a new password at their next sign-in.`;
+                        })
+                      }
+                    />
+                  </View>
+                </View>
+              )}
               <Button
                 title={off ? 'Reactivate' : 'Deactivate'}
                 kind={off ? 'quiet' : 'danger'}
@@ -349,6 +407,13 @@ function MemberSheet({
 }
 
 const styles = StyleSheet.create({
+  pwInput: {
+    height: 42,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space.md,
+    fontSize: 15,
+  },
   input: {
     paddingHorizontal: space.md,
     paddingVertical: 10,

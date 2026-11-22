@@ -83,6 +83,14 @@ export class AuthController {
     return this.mfa.regenerateRecoveryCodes(ctx, parse(MfaCodeRequestSchema, body).code);
   }
 
+  /** Change your own password; your other devices are signed out. */
+  @Post('password')
+  @HttpCode(200)
+  @UseGuards(AuthGuard)
+  changePassword(@Ctx() ctx: TenantContext, @Body() body: unknown, @Req() req: Request) {
+    return this.auth.changePassword(ctx, body, meta(req));
+  }
+
   @Post('refresh')
   @HttpCode(200)
   refresh(@Body() body: unknown) {

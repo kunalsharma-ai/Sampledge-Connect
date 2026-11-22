@@ -100,14 +100,14 @@ export class BillingService implements OnModuleInit {
       plans: plans.filter((p) => p.public && p.active),
       paymentsEnabled: !!stripe,
       invoices: invoices.map(toInvoice),
-      canManage: tenantCan(ctx.role, 'tenant.manage'),
+      canManage: tenantCan(ctx, 'tenant.manage'),
       canManageCatalog: operator,
     };
   }
 
   /** Starts a plan: hosted checkout for paid plans, immediate for free ones. */
   async checkout(ctx: TenantContext, body: unknown): Promise<CheckoutResponse> {
-    if (!tenantCan(ctx.role, 'tenant.manage'))
+    if (!tenantCan(ctx, 'tenant.manage'))
       throw forbidden('Only the organization owner can change the plan');
     const req = parse(CheckoutRequestSchema, body);
     const plan = await this.plan(req.planId);
@@ -228,7 +228,7 @@ export class BillingService implements OnModuleInit {
 
   /** Stripe's customer portal: cards, invoices, cancel. */
   async portal(ctx: TenantContext): Promise<{ url: string }> {
-    if (!tenantCan(ctx.role, 'tenant.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'tenant.manage')) throw forbidden();
     const sub = await this.subscription(ctx.tenantId);
     const cfg = await this.stripe();
     if (!cfg || !sub.stripeCustomerId)

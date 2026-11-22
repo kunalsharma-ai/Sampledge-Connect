@@ -69,6 +69,7 @@ function RootStack() {
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="settings/password" options={{ title: 'Password' }} />
           <Stack.Screen name="settings/profile" options={{ title: 'Profile' }} />
           <Stack.Screen name="person/[id]" options={{ title: '' }} />
           <Stack.Screen name="network/person/[id]" options={{ title: '' }} />
@@ -136,6 +137,8 @@ function RootStack() {
           <Stack.Screen name="platform/org/[id]" options={{ title: 'Organization' }} />
           <Stack.Screen name="platform/admins" options={{ title: 'Platform admins' }} />
           <Stack.Screen name="platform/audit" options={{ title: 'Audit log' }} />
+          <Stack.Screen name="platform/activity" options={{ title: 'Activity' }} />
+          <Stack.Screen name="platform/permissions" options={{ title: 'Permissions' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />

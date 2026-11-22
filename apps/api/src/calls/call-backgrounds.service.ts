@@ -123,7 +123,7 @@ export class CallBackgroundsService {
       effective: policy.enforceLogo ? { kind: 'logo' } : (choice ?? fallback),
       customImageUrl: mine[0]?.url ?? null,
       uploads,
-      policy: { ...policy, canManage: tenantCan(ctx.role, 'members.manage') },
+      policy: { ...policy, canManage: tenantCan(ctx, 'members.manage') },
       brand: {
         name: tenant?.name ?? '',
         logo: brand.logo,
@@ -323,7 +323,7 @@ export class CallBackgroundsService {
   }
 
   private requireAdmin(ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'members.manage'))
+    if (!tenantCan(ctx, 'members.manage'))
       throw forbidden('Only owners and admins can change call backgrounds for the organization');
   }
 

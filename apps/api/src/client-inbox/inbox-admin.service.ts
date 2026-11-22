@@ -56,8 +56,7 @@ export class InboxAdminService {
   }
 
   private supervise(ctx: TenantContext) {
-    if (!tenantCan(ctx.role, 'inbox.supervise'))
-      throw forbidden('Only inbox supervisors can do that');
+    if (!tenantCan(ctx, 'inbox.supervise')) throw forbidden('Only inbox supervisors can do that');
   }
 
   // ---------- clients ----------
@@ -197,7 +196,7 @@ export class InboxAdminService {
       }
       const cur = await t.inbox_templates.findOne({ _id: id });
       if (!cur) throw notFound('Template');
-      if (cur.createdBy !== ctx.userId && !tenantCan(ctx.role, 'inbox.supervise'))
+      if (cur.createdBy !== ctx.userId && !tenantCan(ctx, 'inbox.supervise'))
         throw forbidden('Only the author or a supervisor can edit this template');
       const doc = await t.inbox_templates.findOneAndUpdate(
         { _id: id },
@@ -218,7 +217,7 @@ export class InboxAdminService {
     const t = this.db.for(ctx.tenantId);
     const cur = await t.inbox_templates.findOne({ _id: id });
     if (!cur) throw notFound('Template');
-    if (cur.createdBy !== ctx.userId && !tenantCan(ctx.role, 'inbox.supervise')) throw forbidden();
+    if (cur.createdBy !== ctx.userId && !tenantCan(ctx, 'inbox.supervise')) throw forbidden();
     await t.inbox_templates.deleteMany({ _id: id });
     this.changed(ctx.tenantId);
     return { deleted: true as const };

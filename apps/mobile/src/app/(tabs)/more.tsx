@@ -293,6 +293,14 @@ export default function More() {
               onPress={() => router.push('/settings/devices')}
               divider
             />
+            {work ? (
+              <Row
+                icon="key-outline"
+                title="Password"
+                onPress={() => router.push('/settings/password')}
+                divider
+              />
+            ) : null}
             <Row
               icon="cloud-offline-outline"
               title="Offline & storage"

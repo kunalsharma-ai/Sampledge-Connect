@@ -13,6 +13,7 @@ import {
   type MfaChallenge,
   type PublicBranding,
   type SsoInfo,
+  PASSWORD_CHANGE_REQUIRED,
 } from '@sampledge/contracts';
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -25,6 +26,8 @@ export default function LoginPage() {
   const [pending, setPending] = React.useState(false);
   const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
   const [useRecovery, setUseRecovery] = React.useState(false);
+  /** An admin or SampConnect reset the password: choose a new one to sign in. */
+  const [mustChange, setMustChange] = React.useState(false);
 
   const [slug, setSlug] = React.useState('');
   const [sso, setSso] = React.useState<SsoInfo | null>(null);
@@ -103,11 +106,17 @@ export default function LoginPage() {
     setPending(true);
     setError(null);
     if (!personal) rememberSlug();
+    const newPassword = mustChange ? String(f.get('newPassword') ?? '') : undefined;
+    if (mustChange && newPassword !== String(f.get('newPasswordAgain') ?? '')) {
+      setPending(false);
+      return setError('The two new passwords don’t match.');
+    }
     try {
       const ch = await auth.login({
         tenantSlug: personal ? NETWORK_TENANT_SLUG : String(f.get('workspace')),
         email: String(f.get('email')),
         password: String(f.get('password')),
+        ...(newPassword ? { newPassword } : {}),
       });
       if (ch) {
         setChallenge(ch);
@@ -115,6 +124,11 @@ export default function LoginPage() {
       }
       router.replace('/app');
     } catch (err) {
+      if (
+        err instanceof ApiFailure &&
+        (err.error.details as { reason?: string } | undefined)?.reason === PASSWORD_CHANGE_REQUIRED
+      )
+        setMustChange(true);
       setError(err instanceof ApiFailure ? err.error.message : 'Something went wrong');
     } finally {
       setPending(false);
@@ -337,8 +351,32 @@ export default function LoginPage() {
                 required
               />
             </Field>
+            {mustChange ? (
+              <>
+                <Field label="New password" htmlFor="newPassword" hint="At least 12 characters.">
+                  <Input
+                    id="newPassword"
+                    name="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    required
+                  />
+                </Field>
+                <Field label="New password again" htmlFor="newPasswordAgain">
+                  <Input
+                    id="newPasswordAgain"
+                    name="newPasswordAgain"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    required
+                  />
+                </Field>
+              </>
+            ) : null}
             <Button type="submit" size="lg" loading={pending} className="mt-2">
-              Sign in
+              {mustChange ? 'Set new password and sign in' : 'Sign in'}
             </Button>
           </>
         )}

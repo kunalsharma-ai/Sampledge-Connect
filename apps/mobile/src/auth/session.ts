@@ -188,6 +188,8 @@ export class SessionManager {
     tenantSlug: string;
     email: string;
     password: string;
+    /** Set after the server said a new password must be chosen (an admin reset it). */
+    newPassword?: string;
     deviceName: string;
     platform: 'ios' | 'android';
   }): Promise<PendingMfa | null> {
@@ -196,6 +198,7 @@ export class SessionManager {
       tenantSlug: input.tenantSlug,
       email: input.email,
       password: input.password,
+      ...(input.newPassword ? { newPassword: input.newPassword } : {}),
       device: { deviceId: await this.deviceId(), name: input.deviceName, platform: input.platform },
     });
     if (isMfaChallenge(r)) return { serverUrl, challenge: r };

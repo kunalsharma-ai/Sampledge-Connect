@@ -118,8 +118,7 @@ export class WebhookService {
 
   /** Test mode: build the provider's own signed webhook and run it through the real inbound path. */
   async simulateInbound(ctx: TenantContext, id: string, input: unknown) {
-    if (!tenantCan(ctx.role, 'connectors.manage'))
-      throw forbidden('Only admins can manage connectors');
+    if (!tenantCan(ctx, 'connectors.manage')) throw forbidden('Only admins can manage connectors');
     const req = parse(SimulateInboundRequestSchema, input);
     const doc = await this.connectors.find(ctx.tenantId, id);
     if (doc.environment !== 'test')

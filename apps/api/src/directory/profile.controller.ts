@@ -80,7 +80,7 @@ export class ProfileController {
   /** A colleague's profile card. */
   @Get('users/:id')
   async get(@Ctx() ctx: TenantContext, @Param('id') id: string): Promise<UserSummary> {
-    if (id !== ctx.userId && !tenantCan(ctx.role, 'directory.read')) throw forbidden();
+    if (id !== ctx.userId && !tenantCan(ctx, 'directory.read')) throw forbidden();
     return this.summary(ctx, id);
   }
 

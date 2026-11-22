@@ -36,12 +36,31 @@ export const LoginRequestSchema = z.object({
   email: Email,
   password: z.string().min(1).max(256),
   device: DeviceInfoSchema,
+  /**
+   * Sent again with the new password after the server answered
+   * FORBIDDEN `details.reason: 'password_change_required'` (an admin or SampConnect reset it).
+   */
+  newPassword: Password.optional(),
 });
 export type LoginRequest = z.input<typeof LoginRequestSchema>;
 
 export const RefreshRequestSchema = z.object({
   refreshToken: z.string().min(20).max(512),
 });
+
+/** `details` of the FORBIDDEN error when a new password must be set before signing in. */
+export const PASSWORD_CHANGE_REQUIRED = 'password_change_required';
+
+/** POST /v1/auth/password — your other devices are signed out. */
+export const ChangePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: Password,
+});
+export type ChangePasswordRequest = z.input<typeof ChangePasswordRequestSchema>;
+
+/** POST /v1/users/:userId/password — they must choose their own at next sign-in. */
+export const ResetMemberPasswordSchema = z.object({ temporaryPassword: Password });
+export type ResetMemberPasswordRequest = z.input<typeof ResetMemberPasswordSchema>;
 
 export const InviteMemberRequestSchema = z.object({
   email: Email,

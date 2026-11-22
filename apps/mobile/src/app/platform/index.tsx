@@ -156,6 +156,24 @@ export default function PlatformHome() {
                 href="/platform/orgs"
               />
             ) : null}
+            {platformCan(me.role, 'activity.view') ? (
+              <LinkRow
+                icon="pulse-outline"
+                label="Activity"
+                hint="Sign-ins, passwords and changes in every organization"
+                href="/platform/activity"
+                divider
+              />
+            ) : null}
+            {platformCan(me.role, 'orgs.view') ? (
+              <LinkRow
+                icon="lock-closed-outline"
+                label="Permissions"
+                hint="What people may do in every organization"
+                href="/platform/permissions"
+                divider
+              />
+            ) : null}
             {platformCan(me.role, 'moderation') ? (
               <LinkRow
                 icon="flag-outline"

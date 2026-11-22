@@ -107,12 +107,12 @@ export class MinutesService {
   }
 
   async getSettings(ctx: TenantContext): Promise<MinutesSettings> {
-    if (!tenantCan(ctx.role, 'recordings.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'recordings.manage')) throw forbidden();
     return this.settings(ctx.tenantId);
   }
 
   async setSettings(ctx: TenantContext, body: unknown): Promise<MinutesSettings> {
-    if (!tenantCan(ctx.role, 'recordings.manage')) throw forbidden();
+    if (!tenantCan(ctx, 'recordings.manage')) throw forbidden();
     const req = parse(MinutesSettingsSchema, body);
     const before = await this.settings(ctx.tenantId);
     await this.db.for(ctx.tenantId).tenant_settings.updateOne(
@@ -156,7 +156,7 @@ export class MinutesService {
       keepCaptions: s.keepCaptions,
       model: await this.ai.hasModel(ctx.tenantId),
       aiEnabled: await this.ai.enabledFor(ctx.tenantId),
-      canManage: tenantCan(ctx.role, 'recordings.manage'),
+      canManage: tenantCan(ctx, 'recordings.manage'),
     };
   }
 

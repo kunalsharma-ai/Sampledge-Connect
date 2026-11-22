@@ -148,6 +148,8 @@ export class TransportError extends Error {
     readonly kind: 'network' | 'api' | 'not_configured',
     readonly code?: ErrorCode,
     readonly retryAfterMs?: number,
+    /** The server's `details`, e.g. `{ reason: 'password_change_required' }`. */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = 'TransportError';
@@ -348,6 +350,16 @@ export interface ApiTransport {
     patch: { role?: 'admin' | 'member' | 'guest'; status?: 'active' | 'deactivated' },
   ): Promise<UserSummary>;
   resetMemberMfa(userId: string): Promise<void>;
+  /** A temporary password; they choose their own at next sign-in (docs/super-admin.md). */
+  resetMemberPassword(
+    userId: string,
+    temporaryPassword: string,
+  ): Promise<{ signedOutDevices: number }>;
+  /** Your own password; your other devices are signed out. */
+  changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ signedOutDevices: number }>;
   listAllDevices(): Promise<DeviceSession[]>;
   saveBranding(input: BrandingInput): Promise<BrandingView>;
   aiStatus(): Promise<AiStatus>;
@@ -1158,6 +1170,21 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/users/${encodeURIComponent(userId)}/mfa/reset`, {});
   }
 
+  resetMemberPassword(userId: string, temporaryPassword: string) {
+    return this.request<{ signedOutDevices: number }>(
+      'POST',
+      `/v1/users/${encodeURIComponent(userId)}/password`,
+      { temporaryPassword },
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string) {
+    return this.request<{ signedOutDevices: number }>('POST', '/v1/auth/password', {
+      currentPassword,
+      newPassword,
+    });
+  }
+
   listAllDevices(): Promise<DeviceSession[]> {
     return this.request('GET', '/v1/devices?all=true', undefined);
   }
@@ -1413,11 +1440,26 @@ export class HttpTransport implements ApiTransport {
     if (res.ok) return json as T;
     const error =
       json && typeof json === 'object' && 'error' in json
-        ? (json as { error?: { code?: ErrorCode; message?: string; retryAfterMs?: number } }).error
+        ? (
+            json as {
+              error?: {
+                code?: ErrorCode;
+                message?: string;
+                retryAfterMs?: number;
+                details?: unknown;
+              };
+            }
+          ).error
         : undefined;
     const code = error?.code ?? codeForStatus(res.status);
     const retryAfter = error?.retryAfterMs ?? retryAfterHeader(res.headers.get('retry-after'));
-    throw new TransportError(error?.message ?? `HTTP ${res.status}`, 'api', code, retryAfter);
+    throw new TransportError(
+      error?.message ?? `HTTP ${res.status}`,
+      'api',
+      code,
+      retryAfter,
+      error?.details,
+    );
   }
 }
 
@@ -1548,6 +1590,8 @@ export class NoServerTransport implements ApiTransport {
   inviteMember = async (): Promise<UserSummary> => this.fail();
   updateMember = async (): Promise<UserSummary> => this.fail();
   resetMemberMfa = async (): Promise<void> => this.fail();
+  resetMemberPassword = async (): Promise<{ signedOutDevices: number }> => this.fail();
+  changePassword = async (): Promise<{ signedOutDevices: number }> => this.fail();
   listAllDevices = async (): Promise<DeviceSession[]> => this.fail();
   saveBranding = async (): Promise<BrandingView> => this.fail();
   aiStatus = async (): Promise<AiStatus> => this.fail();

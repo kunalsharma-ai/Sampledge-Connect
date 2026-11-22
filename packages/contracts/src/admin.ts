@@ -69,7 +69,12 @@ export interface AuditPage {
 /** Category of an audit action, from its prefix. */
 export function auditCategory(action: string): AuditCategory {
   const p = action.split('.')[0];
-  if (action.startsWith('auth.mfa') || action.startsWith('device')) return 'security';
+  if (
+    action.startsWith('auth.mfa') ||
+    action.startsWith('auth.password') ||
+    action.startsWith('device')
+  )
+    return 'security';
   switch (p) {
     case 'auth':
       return 'sign-in';
@@ -98,9 +103,9 @@ export function auditCategory(action: string): AuditCategory {
 
 /** Action prefixes per category, for filtering in the database. */
 export const AUDIT_CATEGORY_PREFIXES: Record<Exclude<AuditCategory, 'other'>, RegExp> = {
-  'sign-in': /^auth\.(?!mfa)/,
+  'sign-in': /^auth\.(?!mfa|password)/,
   members: /^member\./,
-  security: /^(auth\.mfa|device)/,
+  security: /^(auth\.mfa|auth\.password|device)/,
   conversations: /^(conversation|message|poll|call)\./,
   integrations: /^(integration|module|webhook)/,
   billing: /^billing\./,
@@ -119,6 +124,12 @@ const LABELS: Record<string, string> = {
   'auth.mfa_recovery_code_used': 'Used a recovery code',
   'auth.mfa_recovery_codes_regenerated': 'Made new recovery codes',
   'auth.mfa_reset_by_admin': 'Reset someone’s two-step verification',
+  'auth.password_changed': 'Changed their password',
+  'auth.password_reset_by_admin': 'Reset someone’s password',
+  'auth.password_reset_forced': 'SampConnect required a new password',
+  'auth.password_change_required': 'Asked to set a new password',
+  'auth.password_change_failed': 'Wrong current password when changing it',
+  'tenant.permissions_changed_by_platform': 'Permissions changed by SampConnect',
   'tenant.created': 'Created the organization',
   'tenant.branding_updated': 'Changed branding',
   'tenant.chat_themes_updated': 'Changed chat theme rules',

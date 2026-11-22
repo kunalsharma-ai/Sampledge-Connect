@@ -20,7 +20,18 @@ import {
   type TenantRole,
   type UserSummary,
 } from '@sampledge/contracts';
-import { Avatar, Badge, Button, Input, StateView, cn, useToast } from '@sampledge/ui';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  Field,
+  Input,
+  StateView,
+  cn,
+  useToast,
+} from '@sampledge/ui';
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
@@ -68,6 +79,10 @@ function useAdminApi() {
         req<UserSummary>('PATCH', `/v1/users/${id}`, body),
       invite: (body: unknown) => req<UserSummary>('POST', '/v1/users', body),
       resetTwoStep: (id: string) => req('POST', `/v1/users/${id}/mfa/reset`),
+      resetPassword: (id: string, temporaryPassword: string) =>
+        req<{ signedOutDevices: number }>('POST', `/v1/users/${id}/password`, {
+          temporaryPassword,
+        }),
       devices: () => req<Device[]>('GET', '/v1/devices?all=true'),
       revoke: (id: string) => req('DELETE', `/v1/devices/${id}`),
       audit: (q: URLSearchParams) => req<AuditPage>('GET', `/v1/admin/audit?${q}`),
@@ -300,6 +315,7 @@ function MembersTab({ onShowActivity }: { onShowActivity: (userId: string) => vo
   const [error, setError] = React.useState<string | null>(null);
   const [confirm, setConfirm] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
+  const [pwFor, setPwFor] = React.useState<UserSummary | null>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
   const isOwner = session?.user.role === 'owner';
 
@@ -403,6 +419,42 @@ function MembersTab({ onShowActivity }: { onShowActivity: (userId: string) => vo
           {error}
         </p>
       ) : null}
+      <Dialog open={!!pwFor} onOpenChange={(o) => !o && setPwFor(null)}>
+        <DialogContent
+          title={`Reset ${pwFor?.displayName ?? ''}’s password`}
+          description="Give them this temporary password. They are signed out everywhere now and choose their own password at their next sign-in."
+        >
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const pw = String(new FormData(e.currentTarget).get('temp') ?? '');
+              const who = pwFor!;
+              void act(
+                () => api.resetPassword(who.userId, pw),
+                `${who.displayName} must choose a new password at their next sign-in`,
+              ).then(() => setPwFor(null));
+            }}
+          >
+            <Field label="Temporary password" htmlFor="temp-pw" hint="At least 12 characters.">
+              <Input
+                id="temp-pw"
+                name="temp"
+                type="text"
+                minLength={12}
+                required
+                autoComplete="off"
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setPwFor(null)}>
+                Cancel
+              </Button>
+              <Button type="submit">Reset password</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <ul
         className="divide-y divide-border rounded-xl border border-border bg-surface"
         data-testid="members-list"
@@ -470,6 +522,9 @@ function MembersTab({ onShowActivity }: { onShowActivity: (userId: string) => vo
                     }
                   >
                     {confirm === `mfa:${u.userId}` ? 'Confirm reset' : 'Reset 2-step'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPwFor(u)}>
+                    Reset password
                   </Button>
                   {u.status === 'active' ? (
                     <Button
