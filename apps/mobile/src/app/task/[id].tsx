@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { TASK_STATUSES, type Task, type TaskStatus } from '@sampledge/contracts';
+import { TASK_STATUSES, type TaskStatus } from '@sampledge/contracts';
+import type { LocalTask } from '../../db/work';
+import { SyncBanner } from '../../components/SyncBanner';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -30,11 +32,14 @@ export default function TaskDetail() {
   const role = useTenantRole();
   const { conversations } = useConversations();
   const color = useStatusColor();
-  const one = useWorkList<Task>(() => engine.getTask(id).then((t) => [t]), [id]);
+  const one = useWorkList<LocalTask>(
+    (fresh) => engine.getTask(id, { fresh }).then((t) => [t]),
+    [id],
+  );
   const t = one.items?.[0];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
 
   if (!t)
     return (
@@ -43,7 +48,7 @@ export default function TaskDetail() {
         <View style={styles.center}>
           {one.error || blocked ? (
             <Text tone="muted" style={{ textAlign: 'center' }}>
-              {one.error ?? `${blocked} Tasks are kept on the server.`}
+              {one.error ?? blocked}
             </Text>
           ) : (
             <ActivityIndicator color={c.accent} />
@@ -97,6 +102,15 @@ export default function TaskDetail() {
             ) : null}
           </View>
         </View>
+        <SyncBanner
+          item={t}
+          what="task"
+          onRetry={() => void engine.retryLocal('task', t.taskId)}
+          onDiscard={() => {
+            void engine.discardLocal('task', t.taskId);
+            router.back();
+          }}
+        />
         {t.description ? <Text>{t.description}</Text> : null}
 
         <Glass style={{ padding: space.md, gap: space.md }}>
@@ -155,7 +169,7 @@ export default function TaskDetail() {
             </Text>
             {busy ? <ActivityIndicator size="small" color={c.accent} /> : null}
           </View>
-          {canEdit ? (
+          {canEdit && !t.syncError ? (
             <Chips
               label="Status"
               options={TASK_STATUSES.map((s) => ({ key: s, label: TASK_STATUS_LABEL[s] }))}

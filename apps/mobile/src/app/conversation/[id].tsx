@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { TYPING_TTL_MS } from '@sampledge/contracts';
+import { TYPING_TTL_MS, uuidv7 } from '@sampledge/contracts';
 import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { canForwardMessage } from '../../lib/forward';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -19,10 +20,16 @@ import { MessageActions, type MessageAction } from '../../components/MessageActi
 import { MessageBubble, type ReplyPreview } from '../../components/MessageBubble';
 import { pollIsClosed } from '../../lib/polls';
 import { Screen } from '../../components/Screen';
+import { StatusLine } from '../../components/StatusLine';
 import { Text } from '../../components/Text';
 import type { LocalConversation, LocalMessage } from '../../db/store';
 import type { MentionCandidate } from '../../lib/mentions';
 import { CallBanner } from '../../calls/CallBanner';
+import { ChatBackdrop, ChatThemeScope } from '../../components/ChatBackdrop';
+import { useChatTheme } from '../../state/useChatTheme';
+import { useInNetwork } from '../../state/useNetwork';
+import { useChatImage } from '../../lib/chatImageStore';
+import { customImagesAllowed } from '@sampledge/contracts';
 import { Button } from '../../components/Button';
 import { canPostIn, isUnjoinedChannel } from '../../lib/access';
 import { formatSendAt } from '../../lib/schedule';
@@ -37,6 +44,7 @@ import {
   usePinned,
   useScheduled,
   useTenantRole,
+  useProfile,
   useSavedIds,
 } from '../../state/hooks';
 import { alpha, radius, space } from '../../theme/themes';
@@ -45,6 +53,10 @@ import { useTheme } from '../../theme/ThemeProvider';
 export default function ConversationScreen() {
   const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const { theme } = useTheme();
+  const chat = useChatTheme();
+  const storedImage = useChatImage(id);
+  // The organization can turn own pictures off; they stay saved but aren't shown.
+  const chatImage = chat.state && !customImagesAllowed(chat.state.policy) ? null : storedImage;
   const { store, engine, selfId } = useWorkspace();
   const nameOf = usePeople();
   const { messages } = useMessages(id);
@@ -86,6 +98,7 @@ export default function ConversationScreen() {
   const [notifyOpen, setNotifyOpen] = useState(false);
   const calls = useCalls();
   const { engineState } = useApp();
+  const inNetwork = useInNetwork();
   const online =
     engineState?.connectivity === 'online' || engineState?.connectivity === 'connecting';
   const callsOn = !!calls.config?.enabled;
@@ -170,6 +183,9 @@ export default function ConversationScreen() {
   }, []);
 
   const title = conv ? conversationTitle(conv, nameOf, selfId) : '';
+  const peer = useProfile(
+    conv?.kind === 'dm' ? (conv.memberIds.find((m) => m !== selfId) ?? '') : '',
+  );
   const reversed = useMemo(() => [...messages].reverse(), [messages]);
   const typingNames = Object.keys(typers).map((u) => nameOf(u));
   const byServerId = useMemo(
@@ -240,6 +256,8 @@ export default function ConversationScreen() {
           message: m,
           senderName: guestSenderLabel(m.metadata) ?? nameOf(m.senderId),
         });
+      case 'forward':
+        return router.push({ pathname: '/forward', params: { clientId: m.clientId } });
       case 'edit':
         return setMode({ kind: 'edit', message: m });
       case 'retry':
@@ -265,6 +283,29 @@ export default function ConversationScreen() {
       case 'save':
       case 'unsave':
         return serverStep(engine.setBookmark(m.messageId!, action === 'save'));
+      case 'report': {
+        // Goes to the SampConnect team, and to the community's moderators in a community group.
+        const send = (reason: 'spam' | 'harassment' | 'inappropriate' | 'other') =>
+          void engine.netAct({
+            method: 'POST',
+            path: '/v1/network/reports',
+            body: {
+              clientActionId: uuidv7(),
+              targetType: 'message',
+              targetId: m.messageId!,
+              reason,
+            },
+            label: 'Report message',
+            scopes: [],
+          });
+        if (Platform.OS === 'web') return send('inappropriate');
+        return Alert.alert('Report this message?', 'No one is told who reported it.', [
+          { text: 'Spam', onPress: () => send('spam') },
+          { text: 'Harassment', onPress: () => send('harassment') },
+          { text: 'Something else', onPress: () => send('inappropriate') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      }
       case 'delete': {
         const go = () => void engine.remove(m.clientId);
         if (Platform.OS === 'web') return go();
@@ -281,320 +322,341 @@ export default function ConversationScreen() {
   };
 
   return (
-    <Screen edges={['bottom']}>
-      <Stack.Screen
-        options={{
-          title,
-          headerTitle: () => (
-            <Pressable
-              onPress={openInfo}
-              accessibilityRole="button"
-              accessibilityLabel={`${title}, details`}
-              style={{ alignItems: 'center' }}
-            >
-              <Text variant="heading" numberOfLines={1}>
-                {title}
-              </Text>
-              {conv?.topic || conv?.memberIds ? (
-                <Text variant="meta" tone="muted" numberOfLines={1}>
-                  {conv.topic ?? `${conv.memberIds.length} members`}
+    <ChatThemeScope
+      look={chat.look}
+      halo={chatImage ? (chat.look?.base ?? theme.colors.background) : null}
+    >
+      <Screen edges={['bottom']}>
+        <Stack.Screen
+          options={{
+            title,
+            headerTitle: () => (
+              <Pressable
+                onPress={openInfo}
+                accessibilityRole="button"
+                accessibilityLabel={`${title}, details`}
+                style={{ alignItems: 'center' }}
+              >
+                <Text variant="heading" numberOfLines={1}>
+                  {title}
                 </Text>
-              ) : null}
-            </Pressable>
-          ),
-          headerRight: () =>
-            conv ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {callsOn && conv.myRole !== null && !conv.archivedAt
-                  ? (['audio', 'video'] as const).map((m) => (
-                      <Pressable
-                        key={m}
-                        onPress={() => void startCall(m)}
-                        disabled={!online}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={m === 'video' ? 'Start video call' : 'Start voice call'}
-                        accessibilityState={{ disabled: !online }}
-                        style={{ paddingHorizontal: space.sm, opacity: online ? 1 : 0.4 }}
-                      >
-                        <Ionicons
-                          name={m === 'video' ? 'videocam-outline' : 'call-outline'}
-                          size={22}
-                          color={theme.colors.accent}
-                        />
-                      </Pressable>
-                    ))
-                  : null}
-                {conv.myRole !== null ? (
+                {conv?.kind === 'dm' && (peer?.userStatus || peer?.dndSchedule) ? (
+                  <StatusLine status={peer.userStatus} schedule={peer.dndSchedule} center />
+                ) : conv?.topic || conv?.memberIds ? (
+                  <Text variant="meta" tone="muted" numberOfLines={1}>
+                    {conv.topic ?? `${conv.memberIds.length} members`}
+                  </Text>
+                ) : null}
+              </Pressable>
+            ),
+            headerRight: () =>
+              conv ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {callsOn && conv.myRole !== null && !conv.archivedAt
+                    ? (['audio', 'video'] as const).map((m) => (
+                        <Pressable
+                          key={m}
+                          onPress={() => void startCall(m)}
+                          disabled={!online}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            m === 'video' ? 'Start video call' : 'Start voice call'
+                          }
+                          accessibilityState={{ disabled: !online }}
+                          style={{ paddingHorizontal: space.sm, opacity: online ? 1 : 0.4 }}
+                        >
+                          <Ionicons
+                            name={m === 'video' ? 'videocam-outline' : 'call-outline'}
+                            size={22}
+                            color={theme.colors.accent}
+                          />
+                        </Pressable>
+                      ))
+                    : null}
+                  {conv.myRole !== null ? (
+                    <Pressable
+                      onPress={() => setNotifyOpen(true)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Notifications: ${
+                        conv.notifyLevel === 'all'
+                          ? 'all activity'
+                          : conv.notifyLevel === 'mentions'
+                            ? 'mentions only'
+                            : 'off'
+                      }`}
+                      style={{ paddingHorizontal: space.sm }}
+                    >
+                      <Ionicons
+                        name={NOTIFY_ICON[conv.notifyLevel]}
+                        size={22}
+                        color={
+                          conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning
+                        }
+                      />
+                    </Pressable>
+                  ) : null}
                   <Pressable
-                    onPress={() => setNotifyOpen(true)}
+                    onPress={openInfo}
                     hitSlop={10}
                     accessibilityRole="button"
-                    accessibilityLabel={`Notifications: ${
-                      conv.notifyLevel === 'all'
-                        ? 'all activity'
-                        : conv.notifyLevel === 'mentions'
-                          ? 'mentions only'
-                          : 'off'
-                    }`}
+                    accessibilityLabel="Conversation details"
                     style={{ paddingHorizontal: space.sm }}
                   >
                     <Ionicons
-                      name={NOTIFY_ICON[conv.notifyLevel]}
-                      size={22}
-                      color={
-                        conv.notifyLevel === 'all' ? theme.colors.accent : theme.colors.warning
-                      }
+                      name="information-circle-outline"
+                      size={23}
+                      color={theme.colors.accent}
                     />
                   </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={openInfo}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Conversation details"
-                  style={{ paddingHorizontal: space.sm }}
-                >
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={23}
-                    color={theme.colors.accent}
-                  />
-                </Pressable>
-              </View>
-            ) : null,
-        }}
-      />
-      <NotifyLevelSheet
-        visible={notifyOpen}
-        level={conv?.notifyLevel ?? 'all'}
-        pending={!!conv?.notifyLevelPending}
-        onPick={(level) => void engine.setNotifyLevel(id, level)}
-        onClose={() => setNotifyOpen(false)}
-      />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <View style={{ paddingTop: space.sm }}>
-          <ConnectivityBanner />
-          <CallBanner
-            call={liveCall && liveCall.callId !== calls.current?.call.callId ? liveCall : null}
-            inCall={!!liveCall && liveCall.callId === calls.current?.call.callId}
-            error={calls.error}
-            nameOf={nameOf}
-            onJoin={(media) => void joinCall(media)}
-            onReturn={() =>
-              // Back to the call screen already in the stack (never a second copy of the call).
-              router.dismissTo({ pathname: '/call/[id]', params: { id: liveCall!.callId } })
-            }
-            onDismissError={() => engine.calls.dismissError()}
-          />
-          {pins.length ? (
-            <PinnedBar
-              latest={pins[0]!}
-              count={pins.length}
-              senderName={guestSenderLabel(pins[0]!.metadata) ?? nameOf(pins[0]!.senderId)}
-              onPress={() => router.push({ pathname: '/pinned/[id]', params: { id, title } })}
-            />
-          ) : null}
-          {scheduled?.length ? (
-            <Pressable
-              onPress={() =>
-                router.push({ pathname: '/scheduled', params: { conversationId: id, title } })
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`${scheduled.length} scheduled ${scheduled.length === 1 ? 'message' : 'messages'}. Show`}
-              style={({ pressed }) => [
-                styles.pinned,
-                {
-                  backgroundColor: alpha(theme.colors.accent, pressed ? 0.14 : 0.08),
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <Ionicons name="time-outline" size={16} color={theme.colors.accent} />
-              <Text variant="label" tone="accent" style={{ flex: 1 }}>
-                {scheduled.length} scheduled · next {formatSendAt(scheduled[0]!.sendAt, new Date())}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.textSubtle} />
-            </Pressable>
-          ) : null}
-          {actionError ? (
-            <Pressable
-              onPress={() => setActionError(null)}
-              accessibilityRole="button"
-              accessibilityLabel={`${actionError}. Dismiss`}
-              style={[styles.error, { backgroundColor: alpha(theme.colors.danger, 0.12) }]}
-            >
-              <Text variant="meta" style={{ color: theme.colors.danger, flex: 1 }}>
-                {actionError}
-              </Text>
-              <Ionicons name="close" size={16} color={theme.colors.danger} />
-            </Pressable>
-          ) : null}
-          {translation ? (
-            <View
-              style={[styles.translation, { backgroundColor: alpha(theme.colors.accent, 0.1) }]}
-              accessibilityLiveRegion="polite"
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                <Ionicons name="language-outline" size={16} color={theme.colors.accent} />
-                <Text variant="label" tone="accent" style={{ flex: 1 }}>
-                  Translation ·{' '}
-                  {TRANSLATE_LANGUAGES.find((l) => l.tag === translation.lang)?.label ??
-                    translation.lang}
-                </Text>
-                <Pressable
-                  onPress={() => setTranslation(null)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close translation"
-                  hitSlop={8}
-                >
-                  <Ionicons name="close" size={16} color={theme.colors.textSubtle} />
-                </Pressable>
-              </View>
-              <Text variant="meta" numberOfLines={6}>
-                {translation.busy
-                  ? 'Translating…'
-                  : (translation.text ??
-                    'Translation needs a model server. An admin can connect one in More, Integrations.')}
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {TRANSLATE_LANGUAGES.filter((l) => l.tag !== translation.lang)
-                  .slice(0, 5)
-                  .map((l) => (
-                    <Pressable
-                      key={l.tag}
-                      onPress={() => translate(translation.messageId, l.tag)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Translate to ${l.label}`}
-                    >
-                      <Text variant="meta" tone="accent">
-                        {l.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-              </View>
-            </View>
-          ) : null}
-        </View>
-        <FlatList
-          ref={list}
-          inverted
-          onScroll={(e) => (atBottom.current = e.nativeEvent.contentOffset.y < 80)}
-          scrollEventThrottle={64}
-          onScrollToIndexFailed={(e) =>
-            list.current?.scrollToOffset({ offset: e.averageItemLength * e.index, animated: true })
-          }
-          data={reversed}
-          keyExtractor={(m) => m.clientId}
-          contentContainerStyle={{ paddingVertical: space.md }}
-          renderItem={({ item, index }) => {
-            const older = reversed[index + 1];
-            return (
-              <MessageBubble
-                message={item}
-                own={item.senderId === selfId}
-                senderName={guestSenderLabel(item.metadata) ?? nameOf(item.senderId)}
-                selfId={selfId}
-                showSender={
-                  !older ||
-                  older.senderId !== item.senderId ||
-                  older.messageType === 'system' ||
-                  !!item.replyTo
-                }
-                animate={!firstRender.current}
-                mentioned={item.mentions.map((userId) => ({
-                  userId,
-                  name: nameOf(userId, { asWritten: true }),
-                }))}
-                reply={replyPreview(item)}
-                highlighted={!!item.messageId && item.messageId === highlight}
-                onOpenActions={setSheetFor}
-                onPressReply={jumpTo}
-                onToggleReaction={react}
-                nameOf={nameOf}
-              />
-            );
+                </View>
+              ) : null,
           }}
-          ListEmptyComponent={
-            <Text
-              tone="muted"
-              style={{ textAlign: 'center', padding: space.xl, transform: [{ scaleY: -1 }] }}
-            >
-              {conv && isUnjoinedChannel(conv)
-                ? 'No messages in this channel yet.'
-                : 'No messages saved on this device yet. Say hello.'}
-            </Text>
-          }
         />
-        {typingNames.length ? (
-          <Animated.View
-            entering={FadeIn.duration(150)}
-            exiting={FadeOut.duration(150)}
-            style={styles.typing}
-          >
-            <Text variant="meta" tone="muted">
-              {typingNames.join(', ')} {typingNames.length === 1 ? 'is' : 'are'} typing…
-            </Text>
-          </Animated.View>
-        ) : null}
-        {conv && isUnjoinedChannel(conv) ? (
-          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
-            <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
-              {joinError ?? 'You are reading this channel. Join to post and get notified.'}
-            </Text>
-            <Button
-              title="Join channel"
-              icon="enter-outline"
-              onPress={() => void join()}
-              busy={joinBusy}
-              disabled={!!engine.serverActionBlocker()}
+        <NotifyLevelSheet
+          visible={notifyOpen}
+          level={conv?.notifyLevel ?? 'all'}
+          pending={!!conv?.notifyLevelPending}
+          onPick={(level) => void engine.setNotifyLevel(id, level)}
+          onClose={() => setNotifyOpen(false)}
+        />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          <View style={{ paddingTop: space.sm }}>
+            <ConnectivityBanner />
+            <CallBanner
+              call={liveCall && liveCall.callId !== calls.current?.call.callId ? liveCall : null}
+              inCall={!!liveCall && liveCall.callId === calls.current?.call.callId}
+              error={calls.error}
+              nameOf={nameOf}
+              onJoin={(media) => void joinCall(media)}
+              onReturn={() =>
+                // Back to the call screen already in the stack (never a second copy of the call).
+                router.dismissTo({ pathname: '/call/[id]', params: { id: liveCall!.callId } })
+              }
+              onDismissError={() => engine.calls.dismissError()}
+            />
+            {pins.length ? (
+              <PinnedBar
+                latest={pins[0]!}
+                count={pins.length}
+                senderName={guestSenderLabel(pins[0]!.metadata) ?? nameOf(pins[0]!.senderId)}
+                onPress={() => router.push({ pathname: '/pinned/[id]', params: { id, title } })}
+              />
+            ) : null}
+            {scheduled?.length ? (
+              <Pressable
+                onPress={() =>
+                  router.push({ pathname: '/scheduled', params: { conversationId: id, title } })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${scheduled.length} scheduled ${scheduled.length === 1 ? 'message' : 'messages'}. Show`}
+                style={({ pressed }) => [
+                  styles.pinned,
+                  {
+                    backgroundColor: alpha(theme.colors.accent, pressed ? 0.14 : 0.08),
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <Ionicons name="time-outline" size={16} color={theme.colors.accent} />
+                <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                  {scheduled.length} scheduled · next{' '}
+                  {formatSendAt(scheduled[0]!.sendAt, new Date())}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.textSubtle} />
+              </Pressable>
+            ) : null}
+            {actionError ? (
+              <Pressable
+                onPress={() => setActionError(null)}
+                accessibilityRole="button"
+                accessibilityLabel={`${actionError}. Dismiss`}
+                style={[styles.error, { backgroundColor: alpha(theme.colors.danger, 0.12) }]}
+              >
+                <Text variant="meta" style={{ color: theme.colors.danger, flex: 1 }}>
+                  {actionError}
+                </Text>
+                <Ionicons name="close" size={16} color={theme.colors.danger} />
+              </Pressable>
+            ) : null}
+            {translation ? (
+              <View
+                style={[styles.translation, { backgroundColor: alpha(theme.colors.accent, 0.1) }]}
+                accessibilityLiveRegion="polite"
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                  <Ionicons name="language-outline" size={16} color={theme.colors.accent} />
+                  <Text variant="label" tone="accent" style={{ flex: 1 }}>
+                    Translation ·{' '}
+                    {TRANSLATE_LANGUAGES.find((l) => l.tag === translation.lang)?.label ??
+                      translation.lang}
+                  </Text>
+                  <Pressable
+                    onPress={() => setTranslation(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close translation"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close" size={16} color={theme.colors.textSubtle} />
+                  </Pressable>
+                </View>
+                <Text variant="meta" numberOfLines={6}>
+                  {translation.busy
+                    ? 'Translating…'
+                    : (translation.text ??
+                      'Translation needs a model server. An admin can connect one in More, Integrations.')}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {TRANSLATE_LANGUAGES.filter((l) => l.tag !== translation.lang)
+                    .slice(0, 5)
+                    .map((l) => (
+                      <Pressable
+                        key={l.tag}
+                        onPress={() => translate(translation.messageId, l.tag)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Translate to ${l.label}`}
+                      >
+                        <Text variant="meta" tone="accent">
+                          {l.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                </View>
+              </View>
+            ) : null}
+          </View>
+          <View style={{ flex: 1 }}>
+            <ChatBackdrop look={chat.look} image={chatImage} />
+            <FlatList
+              ref={list}
+              inverted
+              onScroll={(e) => (atBottom.current = e.nativeEvent.contentOffset.y < 80)}
+              scrollEventThrottle={64}
+              onScrollToIndexFailed={(e) =>
+                list.current?.scrollToOffset({
+                  offset: e.averageItemLength * e.index,
+                  animated: true,
+                })
+              }
+              data={reversed}
+              keyExtractor={(m) => m.clientId}
+              contentContainerStyle={{ paddingVertical: space.md }}
+              renderItem={({ item, index }) => {
+                const older = reversed[index + 1];
+                return (
+                  <MessageBubble
+                    message={item}
+                    own={item.senderId === selfId}
+                    senderName={guestSenderLabel(item.metadata) ?? nameOf(item.senderId)}
+                    selfId={selfId}
+                    showSender={
+                      !older ||
+                      older.senderId !== item.senderId ||
+                      older.messageType === 'system' ||
+                      !!item.replyTo
+                    }
+                    animate={!firstRender.current}
+                    mentioned={item.mentions.map((userId) => ({
+                      userId,
+                      name: nameOf(userId, { asWritten: true }),
+                    }))}
+                    reply={replyPreview(item)}
+                    highlighted={!!item.messageId && item.messageId === highlight}
+                    onOpenActions={setSheetFor}
+                    onPressReply={jumpTo}
+                    onToggleReaction={react}
+                    nameOf={nameOf}
+                  />
+                );
+              }}
+              ListEmptyComponent={
+                <Text
+                  tone="muted"
+                  style={{ textAlign: 'center', padding: space.xl, transform: [{ scaleY: -1 }] }}
+                >
+                  {conv && isUnjoinedChannel(conv)
+                    ? 'No messages in this channel yet.'
+                    : 'No messages saved on this device yet. Say hello.'}
+                </Text>
+              }
             />
           </View>
-        ) : conv?.archivedAt ? (
-          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
-            <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
-              This conversation is archived and read-only.
-            </Text>
-          </View>
-        ) : conv && !canPostIn(conv, tenantRole) ? (
-          <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
-            <View style={{ flexDirection: 'row', gap: space.sm, justifyContent: 'center' }}>
-              <Ionicons name="megaphone-outline" size={16} color={theme.colors.textMuted} />
-              <Text variant="meta" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>
-                Announcement channel. Only owners and moderators post here. You can read and react.
+          {typingNames.length ? (
+            <Animated.View
+              entering={FadeIn.duration(150)}
+              exiting={FadeOut.duration(150)}
+              style={styles.typing}
+            >
+              <Text variant="meta" tone="muted">
+                {typingNames.join(', ')} {typingNames.length === 1 ? 'is' : 'are'} typing…
+              </Text>
+            </Animated.View>
+          ) : null}
+          {conv && isUnjoinedChannel(conv) ? (
+            <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+              <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
+                {joinError ?? 'You are reading this channel. Join to post and get notified.'}
+              </Text>
+              <Button
+                title="Join channel"
+                icon="enter-outline"
+                onPress={() => void join()}
+                busy={joinBusy}
+                disabled={!!engine.serverActionBlocker()}
+              />
+            </View>
+          ) : conv?.archivedAt ? (
+            <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+              <Text variant="meta" tone="muted" style={{ textAlign: 'center' }}>
+                This conversation is archived and read-only.
               </Text>
             </View>
-          </View>
-        ) : (
-          <Composer
-            conversationId={id}
-            placeholder={`Message ${title}`}
-            members={members}
-            mode={mode}
-            onCancelMode={() => setMode(null)}
-          />
-        )}
-      </KeyboardAvoidingView>
-      <MessageActions
-        message={sheetFor}
-        own={sheetFor?.senderId === selfId}
-        saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
-        canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
-        canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
-        canClosePoll={
-          !!sheetFor?.poll &&
-          !pollIsClosed(sheetFor.poll) &&
-          (sheetFor.senderId === selfId || conv?.myRole === 'owner' || conv?.myRole === 'moderator')
-        }
-        onAction={onAction}
-        onReact={react}
-        onClose={() => setSheetFor(null)}
-      />
-    </Screen>
+          ) : conv && !canPostIn(conv, tenantRole) ? (
+            <View style={[styles.bar, { borderTopColor: theme.colors.border }]}>
+              <View style={{ flexDirection: 'row', gap: space.sm, justifyContent: 'center' }}>
+                <Ionicons name="megaphone-outline" size={16} color={theme.colors.textMuted} />
+                <Text variant="meta" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>
+                  Announcement channel. Only owners and moderators post here. You can read and
+                  react.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Composer
+              conversationId={id}
+              placeholder={`Message ${title}`}
+              members={members}
+              mode={mode}
+              onCancelMode={() => setMode(null)}
+            />
+          )}
+        </KeyboardAvoidingView>
+        <MessageActions
+          message={sheetFor}
+          own={sheetFor?.senderId === selfId}
+          saved={!!sheetFor?.messageId && savedIds.has(sheetFor.messageId)}
+          canPin={!!conv && conv.myRole !== null && !conv.archivedAt}
+          canMakeWork={!!conv && conv.myRole !== null && sheetFor?.messageType !== 'system'}
+          canForward={!!sheetFor && canForwardMessage(sheetFor)}
+          canReport={inNetwork && sheetFor?.messageType !== 'system'}
+          canClosePoll={
+            !!sheetFor?.poll &&
+            !pollIsClosed(sheetFor.poll) &&
+            (sheetFor.senderId === selfId ||
+              conv?.myRole === 'owner' ||
+              conv?.myRole === 'moderator')
+          }
+          onAction={onAction}
+          onReact={react}
+          onClose={() => setSheetFor(null)}
+        />
+      </Screen>
+    </ChatThemeScope>
   );
 }
 

@@ -27,6 +27,7 @@ export default function Admin() {
   const [o, setO] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [canModerate, setCanModerate] = useState(false);
   const blocked = engine.serverActionBlocker();
 
   const load = useCallback(() => {
@@ -40,6 +41,11 @@ export default function Admin() {
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
+    // Platform operators also review reported content across SampConnect Network.
+    engine
+      .networkAdmin()
+      .then((v) => setCanModerate(v.canModerate))
+      .catch(() => undefined);
   }, [engine]);
   // Fresh numbers each time you open it, and after each sync (changes made on other devices).
   useFocusEffect(load);
@@ -58,6 +64,16 @@ export default function Admin() {
     { label: 'Integrations', icon: 'extension-puzzle-outline', href: '/admin/integrations' },
     { label: 'Branding', icon: 'color-palette-outline', href: '/admin/branding' },
     { label: 'Recordings', icon: 'recording-outline', href: '/recordings' },
+    ...(canModerate
+      ? [
+          {
+            label: 'Reported content',
+            icon: 'flag-outline' as const,
+            href: '/admin/moderation' as Href,
+            hint: 'SampConnect Network',
+          },
+        ]
+      : []),
   ];
 
   return (

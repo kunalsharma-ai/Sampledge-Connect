@@ -3,6 +3,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router/tabs';
 import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
 import { useConversations, useNotifications } from '../../state/hooks';
+import { useInNetwork, useNet } from '../../state/useNetwork';
 import { alpha, fonts } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -20,6 +21,9 @@ export default function TabsLayout() {
   const unread = conversations.reduce((n, c) => n + c.unread, 0);
   const { unread: activity } = useNotifications();
   const badge = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
+  // SampConnect Network has People in place of the Client Inbox.
+  const network = useInNetwork();
+  const requests = useNet<{ incoming: unknown[] }>(network ? '/v1/network/requests' : null);
   return (
     <Tabs
       screenOptions={{
@@ -76,7 +80,20 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="inbox"
-        options={{ title: 'Client Inbox', tabBarIcon: icon('mail', 'mail-outline') }}
+        options={{
+          title: 'Client Inbox',
+          tabBarIcon: icon('mail', 'mail-outline'),
+          href: network ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="people"
+        options={{
+          title: 'People',
+          tabBarIcon: icon('people', 'people-outline'),
+          tabBarBadge: badge(requests.data?.incoming.length ?? 0),
+          href: network ? undefined : null,
+        }}
       />
       <Tabs.Screen
         name="activity"

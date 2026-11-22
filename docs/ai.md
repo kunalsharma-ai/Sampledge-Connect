@@ -41,7 +41,7 @@ All under `/v1/ai`, all authenticated, rate limited per user (`ai`: 40 per minut
 | Semantic search                  | `POST /search` `{query, conversationId?}`               | Over every conversation the caller can read                                 |
 | Ask                              | `POST /ask` `{question, history}`                       | Answer with numbered sources; history is client-held, never stored          |
 | Translation                      | `POST /translate` `{messageId, targetLanguage}`         | Needs a model; `text: null` in built-in mode                                |
-| Status digest / task suggestions | `POST /digest` `{conversationIds?, sinceHours}`         | Per conversation: summary, on track / needs attention / quiet; tasks        |
+| Status digest / task suggestions | `POST /digest` `{conversationIds?, sinceHours}`         | Per conversation: summary, status, linked project status; suggested tasks   |
 | Duplicate detection              | `POST /duplicates` `{text}`                             | "Has this been asked already?"                                              |
 | Notification priority            | `GET /notifications/priority`                           | Rules: mention, DM, urgency words, questions, age                           |
 | Drafts                           | `POST /proposals`, `/proposals/:id/confirm`, `/dismiss` | See below                                                                   |
@@ -79,7 +79,53 @@ How it works:
   it from search.
 - Transcripts have no speaker labels yet: lines are attributed to the person who started the
   recording.
+- Languages are detected automatically. Translations (automatic via **Also translate to**, or on
+  request), line corrections and **Mark checked** are described in `minutes.md`.
 - Sizing: faster-whisper `small` on 4 CPU cores runs at roughly real time; a GPU is 10–30× faster.
+
+## Suggested tasks become real tasks only when you confirm
+
+Action items in summaries, meeting summaries and the status digest have **Create task**. It opens
+the normal task form (Tasks & Approvals, docs/work.md), prefilled with the text, the suggested
+assignee (when they can be assigned in that conversation), a due date worked out from the hint
+("by Thursday", "EOD", "next week", "Dec 3", in your time zone) and the source message. Nothing is
+created until the person presses **Create**, which calls `POST /v1/tasks` as them, with its normal
+access checks and an idempotency key. The assistant has no endpoint that creates tasks.
+
+A suggestion the person doesn't need can be dismissed with **×** ("Not needed"), and brought back
+with **Undo**. Dismissals are private to the person and kept for 180 days:
+
+| Route                                     | What it does                                |
+| ----------------------------------------- | ------------------------------------------- |
+| `GET /v1/ai/suggestions/dismissed`        | The caller's dismissed suggestion ids       |
+| `PUT /v1/ai/suggestions/:id/dismissed`    | Dismiss (idempotent); emits `ai:suggestion` |
+| `DELETE /v1/ai/suggestions/:id/dismissed` | Undo (idempotent); emits `ai:suggestion`    |
+
+The id is `aiSuggestionId(conversationId, messageId, text)` from `@sampledge/contracts`, so every
+device and the server compute the same one.
+
+## Sync across devices and offline
+
+AI output follows the person across their devices (see docs/sync-coverage.md):
+
+- Drafts: creating, sending or dismissing a draft emits `ai:proposal` to the person's own room.
+  A draft open on another device closes with a note ("Sent from another device").
+- Sending and dismissing a draft go through the durable action queue (`aiproposal|<id>`), so they
+  work offline. Offline, the edited text is checked for sensitive topics on the device the same
+  way the server checks it, and the tick is required before it is queued. Confirm and dismiss are
+  idempotent, so a retry never sends twice, and the server rechecks everything when it arrives.
+- Dismissed suggestions go through the queue too (`aisuggestion|<id>`) and emit `ai:suggestion`.
+- Summaries, the digest and search are computed on request and cached on the server, so there is
+  no per-device state to sync; every device sees the same cached summary.
+
+## Project status (Samptrek and Connect projects)
+
+Each digest row whose conversation is a project channel carries `project`: name, source
+(`samptrek` or `connect`), status, next milestone, missed milestones, open and overdue tasks,
+pending approvals and plain `concerns` ("Marked at risk", "1 milestone missed", "2 overdue
+tasks", "Past its due date"). A concern marks the row **Needs attention**, and projects with a
+concern are included even when their channel was quiet. Projects come from `ProjectsService.list`,
+so only projects whose channel the caller can read appear.
 
 ## Access rules
 
@@ -129,8 +175,6 @@ behind the same `vectorSearch` method.
 
 ## Planned
 
-- Speaker labels (diarization) in transcripts, and live captions during calls.
-- Create tasks from suggested tasks (Tasks & Approvals, Phase 2) and project status from linked
-  Samptrek projects (Phase 2).
+- Speaker labels (diarization) in transcripts. (Live captions during calls are built, see `calls.md`.)
 - AI on mobile (the API above is ready; the mobile app adds the screens).
 - Streaming answers.

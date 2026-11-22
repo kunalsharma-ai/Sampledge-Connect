@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CallsState } from './calls';
-import type { LocalConversation, LocalMeeting, LocalMessage, LocalNotification } from '../db/store';
-import type { ScheduledMessage, TenantRole } from '@sampledge/contracts';
+import type {
+  LocalConversation,
+  LocalMeeting,
+  LocalMessage,
+  LocalNotification,
+  LocalStore,
+} from '../db/store';
+import type { DirectoryUser } from '../sync/transport';
+import type { TenantRole } from '@sampledge/contracts';
+import type { LocalBookingPage, LocalScheduled } from '../db/work';
 import { useApp, useWorkspace } from './AppProvider';
 
 /** Re-reads from the local store whenever it reports a change. The UI never reads the network directly. */
@@ -135,6 +143,83 @@ export interface DirectoryEntry {
   email: string;
   role: string;
   title: string | null;
+  avatarUrl?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  timeZone?: string | null;
+}
+
+/** One shared copy of the photo map per workspace, so a long list does not read it per row. */
+const avatarMaps = new WeakMap<
+  LocalStore,
+  { map: Record<string, string>; subs: Set<(m: Record<string, string>) => void> }
+>();
+function avatarMap(store: LocalStore) {
+  let entry = avatarMaps.get(store);
+  if (!entry) {
+    const e = {
+      map: {} as Record<string, string>,
+      subs: new Set<(m: Record<string, string>) => void>(),
+    };
+    const load = () =>
+      void store.getSetting('avatars').then((raw) => {
+        e.map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+        e.subs.forEach((f) => f(e.map));
+      });
+    load();
+    store.events.on('settings', ({ key }) => key === 'avatars' && load());
+    avatarMaps.set(store, e);
+    entry = e;
+  }
+  return entry;
+}
+
+/**
+ * Someone's profile photo (a full URL, or a data URL for your own photo not sent yet), or null
+ * to show initials. Follows changes made anywhere (directory:updated) and on this phone.
+ */
+export function useAvatarUri(userId?: string | null): string | null {
+  const { store } = useWorkspace();
+  const [map, setMap] = useState<Record<string, string>>(() => avatarMap(store).map);
+  useEffect(() => {
+    const e = avatarMap(store);
+    setMap(e.map);
+    e.subs.add(setMap);
+    return () => void e.subs.delete(setMap);
+  }, [store]);
+  return userId ? (map[userId] ?? null) : null;
+}
+
+/** One person's profile card from the copy on this phone (kept current). */
+export function useProfile(userId: string): DirectoryUser | null {
+  const { store, engine, selfId } = useWorkspace();
+  const [u, setU] = useState<DirectoryUser | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void (
+        userId === selfId
+          ? engine.myProfile()
+          : store
+              .getSetting('directory')
+              .then((raw) =>
+                raw
+                  ? ((JSON.parse(raw) as DirectoryUser[]).find((x) => x.userId === userId) ?? null)
+                  : null,
+              )
+      ).then((x) => alive && setU(x));
+    load();
+    const offs = [
+      store.events.on('settings', ({ key }) => key === 'directory' && load()),
+      engine.events.on('profile', () => load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [store, engine, selfId, userId]);
+  return u;
 }
 
 /**
@@ -271,35 +356,42 @@ export function usePinned(conversationId: string): LocalMessage[] {
   return pins;
 }
 
-/** Ids of messages you saved; loads the list once when a connection allows. */
+/** Ids of messages you saved (queued saves included); refreshed from the server when online. */
 export function useSavedIds(): ReadonlySet<string> {
   const { engine } = useWorkspace();
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
-    const off = engine.events.on('bookmarks', setIds);
-    if (!engine.serverActionBlocker()) void engine.listBookmarks().catch(() => undefined);
-    return off;
+    let alive = true;
+    const off = engine.events.on('bookmarks', (s) => alive && setIds(s));
+    void engine.savedIds().then((s) => alive && setIds(s));
+    void engine.listBookmarks().catch(() => undefined);
+    return () => {
+      alive = false;
+      off();
+    };
   }, [engine]);
   return ids;
 }
 
-/** Your scheduled messages (optionally for one conversation), kept fresh from the server. */
+/**
+ * Your scheduled messages (optionally for one conversation): the copy on this device at once,
+ * then the server's when online. Changes made offline show straight away.
+ */
 export function useScheduled(conversationId?: string): {
-  items: ScheduledMessage[] | null;
+  items: LocalScheduled[] | null;
   error: string | null;
   reload: () => void;
 } {
   const { engine } = useWorkspace();
   const { engineState } = useApp();
-  const [items, setItems] = useState<ScheduledMessage[] | null>(null);
+  const [items, setItems] = useState<LocalScheduled[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = () => {
-      if (engine.serverActionBlocker()) return;
+    const load = (fresh = false) => {
       void engine
-        .listScheduled(conversationId)
+        .listScheduled(conversationId, { fresh })
         .then((l) => {
           if (!alive) return;
           setItems(l);
@@ -307,22 +399,26 @@ export function useScheduled(conversationId?: string): {
         })
         .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
     };
-    load();
-    const off = engine.events.on('scheduled', load);
+    load(true);
+    const offs = [
+      engine.events.on('scheduled', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'scheduled' && load()),
+    ];
     return () => {
       alive = false;
-      off();
+      offs.forEach((o) => o());
     };
   }, [engine, conversationId, engineState?.networkUp, tick]);
   return { items, error, reload: () => setTick((t) => t + 1) };
 }
 
 /**
- * A list of tasks or approvals from the server, reloaded when one changes (here or live).
- * Null until the first load; needs a connection.
+ * A list of tasks or approvals: the copy on this device at once (with changes made offline),
+ * refreshed from the server when online, and reloaded when one changes here or live.
  */
 export function useWorkList<T>(
-  load: () => Promise<T[]>,
+  /** `fresh`: also ask the server (when online); otherwise read the copy on this device. */
+  load: (fresh: boolean) => Promise<T[]>,
   deps: readonly unknown[],
 ): { items: T[] | null; error: string | null; loading: boolean; reload: () => void } {
   const { engine } = useWorkspace();
@@ -333,10 +429,9 @@ export function useWorkList<T>(
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const run = () => {
-      if (engine.serverActionBlocker()) return;
-      setLoading(true);
-      load()
+    const run = (fresh = false) => {
+      setLoading(fresh);
+      load(fresh)
         .then((l) => {
           if (!alive) return;
           setItems(l);
@@ -345,15 +440,60 @@ export function useWorkList<T>(
         .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
         .finally(() => alive && setLoading(false));
     };
-    run();
-    const off = engine.events.on('work', run);
+    run(true);
+    const offs = [
+      engine.events.on('work', () => run()),
+      engine.store.work.events.on(
+        'changed',
+        (e) => (e.kind === 'task' || e.kind === 'approval') && run(),
+      ),
+    ];
     return () => {
       alive = false;
-      off();
+      offs.forEach((o) => o());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, engineState?.networkUp, tick, ...deps]);
   return { items, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/**
+ * Booking pages you host: the copy on this phone at once (with changes made offline), refreshed
+ * when online, and reloaded when one changes here, on another device or by a co-host.
+ */
+export function useBookingPages(): {
+  items: LocalBookingPage[] | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const { engine } = useWorkspace();
+  const { engineState } = useApp();
+  const [items, setItems] = useState<LocalBookingPage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = (fresh = false) => {
+      void engine
+        .listBookingPages({ fresh })
+        .then((l) => {
+          if (!alive) return;
+          setItems(l);
+          setError(null);
+        })
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
+    };
+    load(true);
+    const offs = [
+      engine.events.on('booking', () => load()),
+      engine.store.work.events.on('changed', (e) => e.kind === 'booking' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine, engineState?.networkUp, tick]);
+  return { items, error, reload: () => setTick((t) => t + 1) };
 }
 
 /**
@@ -374,4 +514,24 @@ export function usePeopleChoices(conversationId?: string): { key: string; label:
       .map((u) => ({ key: u, label: nameOf(u) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
+}
+
+/** Your recent searches, newest first; follows changes here and on your other devices. */
+export function useRecentSearches(): string[] {
+  const { engine } = useWorkspace();
+  const [items, setItems] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void engine.recentSearches().then((r) => alive && setItems(r));
+    load();
+    const offs = [
+      engine.events.on('recentSearches', (r) => alive && setItems(r)),
+      engine.store.work.events.on('changed', (e) => e.kind === 'search' && load()),
+    ];
+    return () => {
+      alive = false;
+      offs.forEach((o) => o());
+    };
+  }, [engine]);
+  return items;
 }

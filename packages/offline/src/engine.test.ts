@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openConnectDb, type ConnectDb } from './db.js';
+import type { SyncEngine as Engine } from './engine.js';
 import {
   SyncEngine,
   displayStatus,
   listConversationMessages,
+  overlayMessage,
   overlayReactions,
   wipeLocalData,
 } from './engine.js';
+import type { ChangeEvent } from './transport.js';
 import { FakeServer } from './fake-server.js';
 
 let n = 0;
@@ -322,5 +325,118 @@ describe('reactions', () => {
     expect(overlayReactions(server, [{ emoji: '👍', op: 'remove' }], 'me')).toEqual([
       { emoji: '👍', userIds: ['b'], count: 1, mine: false, pending: true },
     ]);
+  });
+});
+
+describe('action queue (edits, deletes, pins and any other change)', () => {
+  async function sentMessage(server: FakeServer, db: ConnectDb, engine: Engine) {
+    engine.setNetworkAvailable(true);
+    await engine.compose('c1', 'original');
+    await waitFor(async () => (await statuses(db)).includes('sent'));
+    return server.messages[0]!;
+  }
+
+  it('applies offline changes locally, keeps them across reloads, and sends them in order', async () => {
+    const server = new FakeServer();
+    server.addConversation('c1', ['me', 'b']);
+    const first = await setup(server);
+    const m = await sentMessage(server, first.db, first.engine);
+    server.online = false;
+    first.engine.setNetworkAvailable(false);
+
+    await first.engine.queueAction({
+      key: `pin|${m.messageId}`,
+      method: 'PUT',
+      path: `/v1/messages/${m.messageId}/pin`,
+      label: 'Pin message',
+      messageId: m.messageId,
+      intent: { kind: 'pin', pinned: true },
+    });
+    await first.engine.queueAction({
+      key: `edit|${m.messageId}`,
+      method: 'PATCH',
+      path: `/v1/messages/${m.messageId}`,
+      body: { text: 'first edit' },
+      label: 'Edit message',
+      messageId: m.messageId,
+      intent: { kind: 'edit', text: 'first edit' },
+    });
+    // A second edit of the same message replaces the first (coalesced by key).
+    await first.engine.queueAction({
+      key: `edit|${m.messageId}`,
+      method: 'PATCH',
+      path: `/v1/messages/${m.messageId}`,
+      body: { text: 'final text' },
+      label: 'Edit message',
+      messageId: m.messageId,
+      intent: { kind: 'edit', text: 'final text' },
+    });
+    await first.engine.queueAction({
+      key: 'notify|c1',
+      method: 'PUT',
+      path: '/v1/conversations/c1/notify-level',
+      body: { level: 'mentions' },
+      label: 'Notification setting',
+    });
+    expect(first.engine.getState().pendingActions).toBe(3);
+
+    // The UI shows the queued result immediately.
+    const local = (await listConversationMessages(first.db, 'c1'))[0]!;
+    const pending = await first.db.actions.where('messageId').equals(m.messageId).toArray();
+    const shown = overlayMessage(local, pending, 'me');
+    expect(shown.content.text).toBe('final text');
+    expect(shown.pinned?.pinnedBy).toBe('me');
+    expect(shown.pendingChange).toBe(true);
+
+    // Reload while still offline: nothing is lost.
+    first.engine.stop();
+    first.db.close();
+    const second = await setup(server, { name: first.name });
+    expect(second.engine.getState().pendingActions).toBe(3);
+
+    const changes: ChangeEvent[] = [];
+    second.engine.onChange((e) => changes.push(e));
+    server.online = true;
+    second.engine.setNetworkAvailable(true);
+    await waitFor(() => second.engine.getState().pendingActions === 0);
+    expect(server.requests).toEqual([
+      `PUT /v1/messages/${m.messageId}/pin`,
+      `PATCH /v1/messages/${m.messageId}`,
+      'PUT /v1/conversations/c1/notify-level',
+    ]);
+    expect(server.messages[0]!.content.text).toBe('final text');
+    // The confirmed server version replaces the local copy.
+    const after = (await listConversationMessages(second.db, 'c1'))[0]!;
+    expect(after.content.text).toBe('final text');
+    expect(after.pinned?.pinnedBy).toBe('me');
+    expect(changes.filter((c) => c.type === 'action' && c.ok)).toHaveLength(3);
+  });
+
+  it('retries network failures with backoff and keeps refused changes for a decision', async () => {
+    const server = new FakeServer();
+    server.addConversation('c1', ['me', 'b']);
+    const { db, engine } = await setup(server);
+    const m = await sentMessage(server, db, engine);
+    server.failNext('network', { code: 'FORBIDDEN', message: 'Only the sender can edit' });
+    await engine.queueAction({
+      key: `edit|${m.messageId}`,
+      method: 'PATCH',
+      path: `/v1/messages/${m.messageId}`,
+      body: { text: 'nope' },
+      label: 'Edit message',
+      messageId: m.messageId,
+      intent: { kind: 'edit', text: 'nope' },
+    });
+    await waitFor(() => engine.getState().failedActions === 1);
+    const [failed] = await engine.listActions();
+    expect(failed!.lastError?.code).toBe('FORBIDDEN');
+    // A refused change no longer shows as applied.
+    const local = (await listConversationMessages(db, 'c1'))[0]!;
+    expect(overlayMessage(local, [failed!], 'me').content.text).toBe('original');
+    await engine.retryAction(failed!.key);
+    await waitFor(
+      () => engine.getState().failedActions === 0 && engine.getState().pendingActions === 0,
+    );
+    expect(server.messages[0]!.content.text).toBe('nope');
   });
 });

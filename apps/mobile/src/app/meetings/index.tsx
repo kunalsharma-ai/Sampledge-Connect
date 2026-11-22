@@ -82,6 +82,15 @@ export default function Meetings() {
           headerRight: () => (
             <View style={{ flexDirection: 'row' }}>
               <Pressable
+                onPress={() => router.push('/booking-pages')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Booking pages"
+                style={{ paddingHorizontal: space.sm }}
+              >
+                <Ionicons name="link-outline" size={23} color={c.accent} />
+              </Pressable>
+              <Pressable
                 onPress={() => router.push('/settings/working-hours')}
                 hitSlop={8}
                 accessibilityRole="button"

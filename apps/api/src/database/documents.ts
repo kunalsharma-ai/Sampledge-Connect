@@ -1,8 +1,14 @@
 import type {
+  ConnectorProvider,
   ConversationKind,
   ConversationRole,
   MessageContent,
   MessageType,
+  MinutesActionItem,
+  MinutesAttendee,
+  MinutesEditableField,
+  MinutesSettings,
+  MinutesSources,
   RecordingKind,
   Recurrence,
   TenantRole,
@@ -25,9 +31,17 @@ export interface TenantDoc {
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
   /** White-label settings (see BrandingInputSchema); older tenants may have none. */
   branding: Record<string, unknown> | null;
+  /** Chat theme default and allowed list (see ChatThemePolicySchema); absent = all allowed. */
+  chatThemePolicy?: {
+    defaultThemeId: string;
+    allowed: string[] | null;
+    allowCustomImages?: boolean;
+  } | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;
+  /** 'network' marks the one reserved SampConnect Network tenant (docs/network.md). */
+  kind?: 'organization' | 'network';
 }
 
 export interface UserDoc extends TenantOwned {
@@ -37,6 +51,30 @@ export interface UserDoc extends TenantOwned {
   title: string | null;
   status: 'active' | 'deactivated';
   createdAt: Date;
+  /** Profile (edited by the person on PATCH /v1/me/profile). */
+  department?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  timeZone?: string | null;
+  /** Key of the current row in `user_avatars`; a new key per photo. */
+  avatarKey?: string | null;
+  /** Availability and custom status (PUT /v1/me/status). */
+  userStatus?: {
+    availability: 'auto' | 'busy' | 'away' | 'dnd';
+    emoji: string | null;
+    text: string | null;
+    expiresAt: Date | null;
+  } | null;
+  /** Do-not-disturb quiet hours (PUT /v1/me/dnd-schedule). */
+  dndSchedule?: {
+    enabled: boolean;
+    timeZone: string;
+    days: number[];
+    start: string;
+    end: string;
+  } | null;
+  /** Chosen chat theme (PUT /v1/me/chat-theme); absent = organization default. */
+  chatTheme?: string | null;
   /** Two-step verification. Secrets are sealed with SETTINGS_ENCRYPTION_KEY. */
   mfa?: UserMfaDoc | null;
 }
@@ -81,6 +119,12 @@ export interface ConversationDoc extends TenantOwned {
   lastMessageAt: Date | null;
   /** Channels only; absent = everyone may post. */
   postingPolicy?: 'everyone' | 'moderators';
+  /** SampConnect Network: the community this group belongs to. */
+  communityId?: string | null;
+  /** SampConnect Network: the community's built-in announcements channel. */
+  communityRole?: 'announcements' | 'group';
+  /** Private channels and groups; absent = members may forward messages out. */
+  allowForwarding?: boolean;
 }
 
 export interface ConversationMemberDoc extends TenantOwned {
@@ -213,6 +257,8 @@ export interface AttachmentDoc extends TenantOwned {
   /** Set when deleted by a person or the retention policy (bytes removed, row kept for history). */
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  /** A forwarded copy: shares the original's bytes (storageKey), which stay until the last row is erased. */
+  copyOf?: string | null;
   /** Where the bytes live. Absent on older rows (GridFS). */
   storage?: {
     backend: 'gridfs' | 'nextcloud';
@@ -299,6 +345,15 @@ export interface TenantSettingsDoc extends TenantOwned {
   callRecordingEnabled: boolean;
   /** Private AI assistant on/off for the organization. Absent means on. */
   aiEnabled?: boolean;
+  /** SampConnect Network policy for this organization's members (absent = defaults). */
+  networkPolicy?: import('@sampledge/contracts').NetworkPolicy;
+  /** Minutes and chat export (Administration › Minutes and export). Absent: defaults. */
+  minutes?: MinutesSettings;
+  /** Call backgrounds: organization default and whether the logo background is required. */
+  callBackgrounds?: {
+    defaultChoice: { kind: string; presetId?: string; imageId?: string };
+    enforceLogo: boolean;
+  };
   updatedAt: Date;
   updatedBy: string | null;
 }
@@ -397,6 +452,223 @@ export interface UserSettingsDoc extends TenantOwned {
   updatedAt: Date;
 }
 
+// ---- External messaging gateway and Client Inbox (Phase 3) ----
+
+export interface ConnectorDoc extends TenantOwned {
+  provider: ConnectorProvider;
+  name: string;
+  environment: 'test' | 'live';
+  status: 'active' | 'paused' | 'error';
+  /** AES-256-GCM sealed JSON of all credential values (see connectors/credential-vault.ts). */
+  credentials: string | null;
+  /** Previous credentials, still accepted for webhook verification until previousValidUntil. */
+  previousCredentials: string | null;
+  previousValidUntil: Date | null;
+  credentialHints: Record<string, string>;
+  credentialsRotatedAt: Date | null;
+  /** Random public path segment for the webhook URL; globally unique. Rotating it changes the URL. */
+  webhookKey: string;
+  teamId: string | null;
+  health: {
+    lastInboundAt: Date | null;
+    lastOutboundAt: Date | null;
+    lastError: string | null;
+    lastErrorAt: Date | null;
+    consecutiveFailures: number;
+    circuitOpenUntil: Date | null;
+    rejectedWebhooks: number;
+  };
+  /** Cached provider access token (WeChat, QQ, Teams, Google), sealed. */
+  accessToken?: string | null;
+  accessTokenExpiresAt?: Date | null;
+  createdBy: string;
+  createdAt: Date;
+  deletedAt: Date | null;
+}
+
+/** One external identity (a Telegram user, a Slack user...) mapped to a client profile. */
+export interface ExternalAccountDoc extends TenantOwned {
+  connectorId: string;
+  provider: ConnectorProvider;
+  externalUserId: string;
+  displayName: string;
+  handle: string | null;
+  clientId: string;
+  createdAt: Date;
+}
+
+export interface ClientProfileDoc extends TenantOwned {
+  name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  tags: string[];
+  ownerId: string | null;
+  /** Set when merged into another profile; the profile is then hidden. */
+  mergedInto: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LinkedRecordDoc {
+  linkId: string;
+  module: 'sampforce' | 'samptrek';
+  recordType: string;
+  externalId: string;
+  label: string;
+  url: string | null;
+  verified: boolean;
+  linkedBy: string;
+  linkedAt: Date;
+}
+
+export interface ExternalConversationDoc extends TenantOwned {
+  connectorId: string;
+  provider: ConnectorProvider;
+  /** Provider thread key (chat id, channel id + thread...). Unique per connector. */
+  externalThreadId: string;
+  /** Provider routing data needed to reply (serviceUrl, replyToken, msg_id...). */
+  replyContext: Record<string, string>;
+  clientId: string;
+  accountId: string | null;
+  subject: string;
+  status: 'open' | 'pending' | 'snoozed' | 'resolved';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  assigneeId: string | null;
+  teamId: string | null;
+  tags: string[];
+  /** When the client is owed a reply (null when nothing is waiting). */
+  slaDueAt: Date | null;
+  /** When the current wait started (oldest unanswered inbound). */
+  waitingSince: Date | null;
+  firstResponseAt: Date | null;
+  firstResponseMet: boolean | null;
+  slaBreachedAt: Date | null;
+  escalation: { level: number; reason: string; at: Date; by: string | null } | null;
+  links: LinkedRecordDoc[];
+  lastMessage: { direction: 'inbound' | 'outbound'; preview: string; at: Date } | null;
+  awaitingReply: number;
+  /** Per-agent read marks (userId → when they last read it); synced to all their devices. */
+  readBy?: Record<string, Date>;
+  snoozedUntil: Date | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ExternalMessageDoc extends TenantOwned {
+  conversationId: string;
+  connectorId: string;
+  direction: 'inbound' | 'outbound';
+  text: string;
+  attachments: {
+    name: string;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    externalRef: string | null;
+  }[];
+  authorId: string | null;
+  accountId: string | null;
+  /** Provider message id; unique per connector (provider redeliveries are ignored). */
+  externalMessageId: string | null;
+  /** Agent idempotency key for replies; unique per tenant. */
+  clientMessageId: string | null;
+  deliveryState:
+    'queued' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'handoff' | 'test';
+  error: string | null;
+  attempts: number;
+  nextAttemptAt: Date | null;
+  lockedUntil: Date | null;
+  handoffUrl: string | null;
+  sandboxRequest: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: unknown;
+    at: Date;
+  } | null;
+  createdAt: Date;
+  sentAt: Date | null;
+}
+
+/** Internal notes. A separate collection on purpose: the outbound worker never reads it. */
+export interface InboxNoteDoc extends TenantOwned {
+  conversationId: string;
+  authorId: string;
+  text: string;
+  mentions: string[];
+  clientNoteId: string;
+  createdAt: Date;
+}
+
+export interface InboxActivityDoc extends TenantOwned {
+  conversationId: string;
+  kind: string;
+  actorId: string | null;
+  summary: string;
+  createdAt: Date;
+}
+
+export interface InboxTemplateDoc extends TenantOwned {
+  name: string;
+  shortcut: string | null;
+  body: string;
+  createdBy: string;
+  updatedAt: Date;
+}
+
+export interface InboxSettingsDoc extends TenantOwned {
+  sla: { low: number; normal: number; high: number; urgent: number };
+  dueSoonRatio: number;
+  autoEscalateOnBreach: boolean;
+  escalationContactIds: string[];
+  autoAssign: boolean;
+  teams: { teamId: string; name: string; memberIds: string[] }[];
+  updatedAt: Date;
+  updatedBy: string | null;
+}
+
+/** A person's recent searches, newest first (synced to all of their devices). */
+export interface SearchHistoryDoc extends TenantOwned {
+  userId: string;
+  recent: string[];
+  updatedAt: Date;
+}
+
+/** A profile photo. `_id` is a random key, so its public URL can't be guessed. */
+export interface UserAvatarDoc extends TenantOwned {
+  userId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
+/** A person's call background choice, synced to all of their devices. */
+export interface CallBackgroundPrefDoc extends TenantOwned {
+  userId: string;
+  choice: { kind: string; presetId?: string; imageId?: string } | null;
+  /** Older single-image form; images now live in `call_background_images` by user. */
+  imageKey?: string | null;
+  /** How they look on camera (CallAppearance); absent = as the camera sees it. */
+  appearance?: Record<string, unknown> | null;
+  updatedAt: Date;
+}
+
+/** A personal call background image. `_id` is a random key, so its public URL can't be guessed. */
+export interface CallBackgroundImageDoc extends TenantOwned {
+  /** Who uploaded it. */
+  userId: string;
+  /** 'user': only theirs; 'org': in the organization library for everyone. Absent = 'user'. */
+  scope?: 'user' | 'org' | null;
+  name?: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+  size: number;
+  createdAt: Date;
+}
+
 export interface BookmarkDoc extends TenantOwned {
   userId: string;
   messageId: string;
@@ -464,6 +736,14 @@ export interface AiProposalDoc extends TenantOwned {
   confirmedAt: Date | null;
 }
 
+/** A suggested task the person dismissed. Private to them; expires after 180 days. */
+export interface AiSuggestionDismissalDoc extends TenantOwned {
+  userId: string;
+  /** aiSuggestionId(conversationId, messageId, text) from @sampledge/contracts. */
+  suggestionId: string;
+  createdAt: Date;
+}
+
 /** One transcript per recording or voice message, from the tenant's own speech-to-text server. */
 export interface AiTranscriptDoc extends TenantOwned {
   attachmentId: string;
@@ -479,6 +759,102 @@ export interface AiTranscriptDoc extends TenantOwned {
   attempts: number;
   /** null when queued automatically (call recordings). */
   requestedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Bumped by every correction or review. */
+  revision?: number;
+  /** Revision at which each segment was last corrected (0 or absent: machine text). */
+  segmentRevs?: number[];
+  /** Revision at which the whole text was last corrected (transcripts without segments). */
+  textRev?: number;
+  edited?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
+  translations?: TranscriptTranslationDoc[];
+}
+
+/** Minutes of meeting for one call (docs/minutes.md). */
+export interface MeetingMinutesDoc extends TenantOwned {
+  callId: string;
+  conversationId: string;
+  meetingId: string | null;
+  title: string;
+  media: 'audio' | 'video';
+  startedAt: Date;
+  endedAt: Date | null;
+  durationSec: number | null;
+  attendees: MinutesAttendee[];
+  agenda: string;
+  summary: string;
+  decisions: string[];
+  actionItems: MinutesActionItem[];
+  openQuestions: string[];
+  notes: string;
+  language: string;
+  sources: MinutesSources;
+  engine: 'basic' | 'model' | 'manual';
+  status: 'draft' | 'shared';
+  revision: number;
+  /** Revision at which each editable field last changed (per-field merge). */
+  fieldRevs: Partial<Record<MinutesEditableField, number>>;
+  /** People in the call (they may edit, with moderators and admins). */
+  editorIds: string[];
+  createdBy: string;
+  createdAt: Date;
+  updatedBy: string;
+  updatedAt: Date;
+  sharedBy: string | null;
+  sharedAt: Date | null;
+  /** The "Minutes shared" card in the conversation. */
+  messageId: string | null;
+}
+
+/** A live caption line kept for the minutes (only when the organization turned that on). */
+export interface CallCaptionDoc extends TenantOwned {
+  callId: string;
+  conversationId: string;
+  /** null for guests. */
+  userId: string | null;
+  speaker: string;
+  text: string;
+  at: Date;
+  /** TTL: removed after the organization's caption retention. */
+  expiresAt: Date;
+}
+
+export interface TranscriptTranslationDoc {
+  language: string;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  text: string | null;
+  segments: { startMs: number; endMs: number; text: string }[];
+  engine: 'model' | 'stt' | null;
+  error: string | null;
+  attempts: number;
+  /** The original's revision this was translated from (outdated once the original changes). */
+  sourceRevision: number;
+  segmentRevs?: number[];
+  textRev?: number;
+  edited?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
+  requestedBy: string | null;
+  updatedAt: Date;
+}
+
+/** A public booking page (`/book/<slug>`); slugs are unique across all tenants. */
+export interface BookingPageDoc extends TenantOwned {
+  slug: string;
+  title: string;
+  description: string;
+  durationMinutes: number;
+  hostIds: string[];
+  mode: 'all' | 'any';
+  bufferMinutes: number;
+  minNoticeMinutes: number;
+  horizonDays: number;
+  media: 'audio' | 'video';
+  enabled: boolean;
+  createdBy: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -499,17 +875,217 @@ export interface TenantCollections {
   calls: CallDoc;
   meetings: MeetingDoc;
   meeting_series: MeetingSeriesDoc;
+  booking_pages: BookingPageDoc;
   user_settings: UserSettingsDoc;
   tenant_settings: TenantSettingsDoc;
+  connectors: ConnectorDoc;
+  external_accounts: ExternalAccountDoc;
+  client_profiles: ClientProfileDoc;
+  external_conversations: ExternalConversationDoc;
+  external_messages: ExternalMessageDoc;
+  inbox_notes: InboxNoteDoc;
+  inbox_activity: InboxActivityDoc;
+  inbox_templates: InboxTemplateDoc;
+  inbox_settings: InboxSettingsDoc;
   bookmarks: BookmarkDoc;
+  search_history: SearchHistoryDoc;
+  user_avatars: UserAvatarDoc;
+  call_background_prefs: CallBackgroundPrefDoc;
+  call_background_images: CallBackgroundImageDoc;
   scheduled_messages: ScheduledMessageDoc;
   ai_embeddings: AiEmbeddingDoc;
   ai_index_state: AiIndexStateDoc;
   ai_summaries: AiSummaryCacheDoc;
   ai_proposals: AiProposalDoc;
   ai_transcripts: AiTranscriptDoc;
+  meeting_minutes: MeetingMinutesDoc;
+  call_captions: CallCaptionDoc;
+  ai_suggestion_dismissals: AiSuggestionDismissalDoc;
   billing_subscriptions: BillingSubscriptionDoc;
   billing_invoices: BillingInvoiceDoc;
+  network_profiles: NetworkProfileDoc;
+  network_requests: NetworkRequestDoc;
+  network_connections: NetworkConnectionDoc;
+  network_follows: NetworkFollowDoc;
+  network_blocks: NetworkBlockDoc;
+  network_reports: NetworkReportDoc;
+  network_invites: NetworkInviteDoc;
+  network_statuses: NetworkStatusDoc;
+  network_status_views: NetworkStatusViewDoc;
+  network_actions: NetworkActionDoc;
+  communities: CommunityDoc;
+  community_members: CommunityMemberDoc;
+  community_links: CommunityLinkDoc;
+}
+
+// ─── SampConnect Network (only ever stored in the network tenant) ──────────────
+
+export interface NetworkProfileDoc extends TenantOwned {
+  /** Same as the network user's id. */
+  userId: string;
+  handle: string;
+  displayName: string;
+  headline: string;
+  bio: string;
+  kind: 'work' | 'personal';
+  /** Work accounts: the organization account this identity belongs to. */
+  homeTenantId: string | null;
+  homeUserId: string | null;
+  organizationName: string | null;
+  /** Lowercased; used only for exact-match lookups when the person allows it. */
+  email: string | null;
+  emailDomain: string | null;
+  phone: string | null;
+  privacy: import('@sampledge/contracts').NetworkPrivacy;
+  avatarColor: string;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Set by a platform operator: the person can't use SampConnect Network until restored. */
+  suspendedAt?: Date | null;
+  suspendedReason?: string;
+}
+
+export interface NetworkRequestDoc extends TenantOwned {
+  fromUserId: string;
+  toUserId: string;
+  /** Sorted "a:b". One pending request per pair (partial unique index). */
+  pairKey: string;
+  circle: 'business' | 'friends';
+  message: string;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  createdAt: Date;
+  respondedAt: Date | null;
+}
+
+/** One row per direction, so each side keeps its own circle. */
+export interface NetworkConnectionDoc extends TenantOwned {
+  userId: string;
+  otherUserId: string;
+  circle: 'business' | 'friends';
+  connectedAt: Date;
+}
+
+export interface NetworkFollowDoc extends TenantOwned {
+  followerId: string;
+  targetType: 'user' | 'community';
+  targetId: string;
+  createdAt: Date;
+}
+
+export interface NetworkBlockDoc extends TenantOwned {
+  userId: string;
+  blockedUserId: string;
+  createdAt: Date;
+}
+
+export interface NetworkReportDoc extends TenantOwned {
+  reporterId: string;
+  targetType: 'user' | 'status' | 'community' | 'message';
+  targetId: string;
+  reason: string;
+  details: string;
+  status: 'open' | 'actioned' | 'dismissed';
+  createdAt: Date;
+  /** Whose content it is (reported person, author, or community owner). */
+  subjectUserId?: string | null;
+  /** The community it belongs to, so that community's moderators see it. */
+  communityId?: string | null;
+  /** What it said when reported (moderators still see it after removal). */
+  snapshot?: string;
+  resolution?: {
+    action: import('@sampledge/contracts').ModerationActionKind;
+    note: string;
+    byName: string;
+    at: Date;
+  } | null;
+}
+
+export interface NetworkInviteDoc extends TenantOwned {
+  inviterId: string;
+  tokenHash: string;
+  channel: 'email' | 'link' | 'sms';
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+  circle: 'business' | 'friends';
+  delivery: 'sent' | 'not_configured' | 'failed' | null;
+  status: 'pending' | 'accepted';
+  acceptedBy: string[];
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface NetworkStatusDoc extends TenantOwned {
+  authorId: string;
+  clientStatusId: string;
+  kind: 'text' | 'image' | 'video';
+  text: string;
+  background: string;
+  attachmentId: string | null;
+  audience: 'connections' | 'followers' | 'public' | 'selected';
+  userIds: string[];
+  allowReplies: boolean;
+  createdAt: Date;
+  /** A TTL index removes the status at this time. */
+  expiresAt: Date;
+}
+
+export interface NetworkStatusViewDoc extends TenantOwned {
+  statusId: string;
+  authorId: string;
+  viewerId: string;
+  viewedAt: Date;
+}
+
+/** Idempotency record for network mutations (offline replays). Expires after 7 days. */
+export interface NetworkActionDoc extends TenantOwned {
+  userId: string;
+  clientActionId: string;
+  result: unknown;
+  createdAt: Date;
+}
+
+export interface CommunityDoc extends TenantOwned {
+  slug: string;
+  name: string;
+  description: string;
+  rules: string;
+  visibility: 'public' | 'private';
+  joinPolicy: 'open' | 'approval';
+  ownerId: string;
+  announcementsConversationId: string;
+  /** The group every new member joins (General). */
+  defaultGroupId: string | null;
+  avatarColor: string;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Set by a platform operator: hidden and closed until restored. */
+  suspendedAt?: Date | null;
+  suspendedReason?: string;
+  /** Groups the suspension archived (reopened on restore). */
+  suspendedConversationIds?: string[];
+}
+
+export interface CommunityMemberDoc extends TenantOwned {
+  communityId: string;
+  userId: string;
+  role: 'owner' | 'admin' | 'moderator' | 'member';
+  status: 'active' | 'pending' | 'invited' | 'banned';
+  invitedBy: string | null;
+  joinedAt: Date;
+}
+
+export interface CommunityLinkDoc extends TenantOwned {
+  communityId: string;
+  tokenHash: string;
+  /** Kept so admins can copy the link again; the token only grants a join. */
+  token: string;
+  createdBy: string;
+  expiresAt: Date | null;
+  maxUses: number | null;
+  uses: number;
+  revokedAt: Date | null;
+  createdAt: Date;
 }
 
 /** One per tenant. Prices are never stored here: they come from the plan catalog. */

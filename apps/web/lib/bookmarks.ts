@@ -3,7 +3,8 @@ import * as React from 'react';
 import type { Bookmark, Message } from '@sampledge/contracts';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useEngine, useEngineChange } from './engine';
 
 const CACHE_KEY = 'bookmarks';
 
@@ -18,10 +19,11 @@ export interface BookmarksApi {
 
 /**
  * The signed-in user's private saved messages. Fetched over REST and cached in this
- * identity's IndexedDB so the list still opens offline. Saving needs a connection.
+ * identity's IndexedDB so the list still opens offline. Saving works offline too: the change
+ * goes through the engine's action queue, and other devices refresh on `bookmark:updated`.
  */
 export function useBookmarks(): BookmarksApi {
-  const { db, state } = useEngine();
+  const { db, engine, state } = useEngine();
   const { getAccessToken } = useAuth();
   const [items, setItems] = React.useState<Bookmark[] | null>(null);
   const online = state.connectivity === 'online';
@@ -53,11 +55,24 @@ export function useBookmarks(): BookmarksApi {
   React.useEffect(() => {
     if (online) void refresh();
   }, [online, refresh]);
+  // Saved or removed on another device, or a queued change of ours went through.
+  useEngineChange(['bookmark', 'action'], (e) => {
+    if (e.type !== 'action' || e.key.startsWith('bookmark|')) void refresh();
+  });
+  /** Queued saves and removals not yet confirmed, so the button doesn't flick back. */
+  const pending = useLiveQuery(
+    () =>
+      db.actions
+        .where('key')
+        .startsWith('bookmark|')
+        .filter((a) => a.state === 'queued')
+        .toArray(),
+    [db],
+  );
 
   const toggle = React.useCallback(
     async (message: Message, save: boolean) => {
       const prev = items ?? [];
-      // Optimistic; rolled back if the server refuses.
       store(
         save
           ? [
@@ -71,19 +86,24 @@ export function useBookmarks(): BookmarksApi {
             ]
           : prev.filter((b) => b.messageId !== message.messageId),
       );
-      try {
-        await apiRequest(save ? 'PUT' : 'DELETE', `/v1/messages/${message.messageId}/bookmark`, {
-          token: await getAccessToken(),
-        });
-      } catch (e) {
-        store(prev);
-        throw e;
-      }
+      await engine.queueAction({
+        key: `bookmark|${message.messageId}`,
+        method: save ? 'PUT' : 'DELETE',
+        path: `/v1/messages/${message.messageId}/bookmark`,
+        label: save ? 'Save message' : 'Remove saved message',
+        conversationId: message.conversationId,
+        messageId: message.messageId,
+      });
     },
-    [items, store, getAccessToken],
+    [items, store, engine],
   );
 
-  const ids = React.useMemo(() => new Set((items ?? []).map((b) => b.messageId)), [items]);
+  const ids = React.useMemo(() => {
+    const out = new Set((items ?? []).map((b) => b.messageId));
+    for (const a of pending ?? [])
+      if (a.messageId) a.method === 'PUT' ? out.add(a.messageId) : out.delete(a.messageId);
+    return out;
+  }, [items, pending]);
   return { items, ids, online, refresh, toggle };
 }
 

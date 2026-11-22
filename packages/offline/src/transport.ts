@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import {
+  type InboxChangedEvent,
   ERROR_CODES,
   type Ack,
   type ScheduledMessage,
@@ -22,7 +23,11 @@ import {
   type ServerToClientEvents,
   type SyncRequest,
   type SyncResponse,
+  type MeetingsArea,
+  type TenantArea,
+  type AiProposal,
 } from '@sampledge/contracts';
+import type { NetworkChangedEvent } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
 export class NetworkError extends Error {
@@ -51,11 +56,59 @@ export interface RealtimeHandlers {
   onCall?(e: CallEvent): void;
   /** Meeting invites/changes and reminders (optional for transports that lack them). */
   onMeeting?(e: MeetingEvent): void;
+  /** A Client Inbox conversation the user can see changed (optional). */
+  onInbox?(e: InboxChangedEvent): void;
   /** One of the caller's scheduled messages changed. */
   onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
+  /** SampConnect Network changes (requests, follows, statuses, communities) for the signed-in user. */
+  onNetwork?(e: NetworkChangedEvent): void;
+  /** Saved messages, people, organization settings and projects changed (optional). */
+  onChange?(e: ChangeEvent): void;
 }
+
+/**
+ * Something changed that the app keeps outside the message store. Screens refetch the
+ * affected data. `reconnected` means live events may have been missed: refetch everything shown.
+ */
+export type ChangeEvent =
+  | { type: 'bookmark'; messageId: string; conversationId: string; saved: boolean }
+  | { type: 'pollVote'; messageId: string; optionIds: string[] }
+  /** Your recent searches changed on one of your devices. */
+  | { type: 'searchRecent'; recent: string[] }
+  | { type: 'chatTheme'; themeId: string | null }
+  | { type: 'directory'; userId: string }
+  | { type: 'tenant'; area: TenantArea }
+  | { type: 'project'; projectId: string }
+  /** One of my AI drafts was created, sent or dismissed (on any of my devices). */
+  | { type: 'aiProposal'; proposal: AiProposal }
+  /** I dismissed or restored a suggested task (on any of my devices). */
+  | { type: 'aiSuggestion'; suggestionId: string; dismissed: boolean }
+  | { type: 'meetings'; area: MeetingsArea }
+  | { type: 'recording'; recordingId: string; conversationId: string; deleted: boolean }
+  /** Minutes of a call in this conversation were made, edited, shared or deleted. */
+  | {
+      type: 'minutes';
+      minutesId: string;
+      callId: string;
+      conversationId: string;
+      revision: number;
+      deleted: boolean;
+    }
+  /** A transcript finished, was translated, corrected or checked. */
+  | { type: 'transcript'; attachmentId: string; conversationId: string; revision: number }
+  /** A module record in this conversation was linked or updated, or a record action ran. */
+  | {
+      type: 'records';
+      conversationId: string;
+      linkId: string;
+      reason: 'linked' | 'updated' | 'action';
+    }
+  /** Platform operators: the SampConnect Network report queue or suspensions changed. */
+  | { type: 'moderation'; scope: 'reports' | 'suspensions' }
+  | { type: 'reconnected' }
+  | { type: 'action'; key: string; ok: boolean; result?: unknown; error?: ApiError };
 
 export type WorkEvent = { type: 'task'; task: Task } | { type: 'approval'; approval: Approval };
 
@@ -77,6 +130,8 @@ export interface Transport {
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
   react?(req: SetReactionRequest): Promise<Message>;
   setTyping?(conversationId: string, typing: boolean): void;
+  /** Any authenticated REST call (used by the action queue). */
+  request?<T>(method: string, path: string, body?: unknown): Promise<T>;
   connect?(handlers: RealtimeHandlers): void;
   disconnect?(): void;
   readonly connected?: boolean;
@@ -106,7 +161,7 @@ export class HttpSocketTransport implements Transport {
     return this.socket?.connected ?? false;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let token: string | null;
     try {
       token = await this.opts.getAccessToken();
@@ -235,9 +290,26 @@ export class HttpSocketTransport implements Transport {
     s.on('call:ended', (call) => this.handlers?.onCall?.({ type: 'ended', call }));
     s.on('meeting:upsert', (meeting) => this.handlers?.onMeeting?.({ type: 'upsert', meeting }));
     s.on('meeting:reminder', (r) => this.handlers?.onMeeting?.({ type: 'reminder', reminder: r }));
+    s.on('inbox:changed', (e) => this.handlers?.onInbox?.(e));
     s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
+    s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
+    s.on('moderation:changed', (e) => this.handlers?.onChange?.({ type: 'moderation', ...e }));
+    s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
+    s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
+    s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));
+    s.on('poll:myVote', (e) => this.handlers?.onChange?.({ type: 'pollVote', ...e }));
+    s.on('directory:updated', (e) => this.handlers?.onChange?.({ type: 'directory', ...e }));
+    s.on('tenant:updated', (e) => this.handlers?.onChange?.({ type: 'tenant', ...e }));
+    s.on('project:changed', (e) => this.handlers?.onChange?.({ type: 'project', ...e }));
+    s.on('ai:proposal', (proposal) => this.handlers?.onChange?.({ type: 'aiProposal', proposal }));
+    s.on('ai:suggestion', (e) => this.handlers?.onChange?.({ type: 'aiSuggestion', ...e }));
+    s.on('meetings:changed', (e) => this.handlers?.onChange?.({ type: 'meetings', ...e }));
+    s.on('recording:changed', (e) => this.handlers?.onChange?.({ type: 'recording', ...e }));
+    s.on('record:changed', (e) => this.handlers?.onChange?.({ type: 'records', ...e }));
+    s.on('minutes:changed', (e) => this.handlers?.onChange?.({ type: 'minutes', ...e }));
+    s.on('transcript:changed', (e) => this.handlers?.onChange?.({ type: 'transcript', ...e }));
     this.socket = s;
     s.connect();
   }

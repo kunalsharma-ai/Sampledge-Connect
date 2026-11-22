@@ -112,7 +112,12 @@ describe('polls', () => {
         multiple: true,
       })
     ).body;
+    // Your other devices learn your own choice live, since the broadcast hides voters.
+    const other = await connect(h, ravi.accessToken);
+    const mineLive = nextEvent(other, 'poll:myVote', (e) => e.messageId === p.messageId);
     const r = await vote(ravi, p.messageId, ['o1', 'o2']);
+    expect((await mineLive).optionIds).toEqual(['o1', 'o2']);
+    other.disconnect();
     expect(r.body.poll!.options.map((o) => o.count)).toEqual([1, 1]);
     expect(r.body.poll!.options.every((o) => o.voterIds.length === 0)).toBe(true);
     const mine = await api<MyPollVote>(h, 'GET', `/v1/messages/${p.messageId}/poll/vote`, {

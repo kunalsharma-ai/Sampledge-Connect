@@ -29,7 +29,7 @@ export async function apiRequest<T>(
   } catch {
     throw new ApiFailure(0, {
       code: 'UNAVAILABLE',
-      message: "Can't reach Sampledge Connect. Check your connection.",
+      message: "Can't reach SampConnect. Check your connection.",
     });
   }
   const text = await res.text();
@@ -41,4 +41,27 @@ export async function apiRequest<T>(
     );
   }
   return json as T;
+}
+
+/** POST a caption clip (raw audio) and return the recognized text. */
+export async function postCaptionClip(path: string, clip: Blob, token?: string | null) {
+  let res: Response;
+  try {
+    res = await fetch(API_URL + path, {
+      method: 'POST',
+      headers: {
+        'content-type': clip.type || 'audio/webm',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: clip,
+    });
+  } catch {
+    throw new Error("Can't reach SampConnect for captions.");
+  }
+  const json = (await res.json().catch(() => null)) as {
+    text?: string;
+    error?: { message?: string };
+  } | null;
+  if (!res.ok) throw new Error(json?.error?.message ?? `Captions failed (HTTP ${res.status})`);
+  return json?.text ?? '';
 }

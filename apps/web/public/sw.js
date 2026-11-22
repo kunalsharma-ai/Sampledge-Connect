@@ -1,5 +1,5 @@
 /*
- * Sampledge Connect service worker: app-shell caching only.
+ * SampConnect service worker: app-shell caching only.
  * Message data is never cached here; it lives in IndexedDB and is managed by the offline engine.
  * API requests always go to the network (no stale auth or data responses from cache).
  */
@@ -72,14 +72,14 @@ self.addEventListener('push', (event) => {
   try {
     p = event.data ? event.data.json() : {};
   } catch {
-    p = { title: 'Sampledge Connect', body: event.data ? event.data.text() : '' };
+    p = { title: 'SampConnect', body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((tabs) => {
       if (tabs.some((t) => t.focused)) return undefined;
       if (typeof p.badge === 'number' && self.navigator.setAppBadge)
         self.navigator.setAppBadge(p.badge).catch(() => undefined);
-      return self.registration.showNotification(p.title || 'Sampledge Connect', {
+      return self.registration.showNotification(p.title || 'SampConnect', {
         body: p.body || '',
         icon: '/icon.svg',
         badge: '/icon.svg',

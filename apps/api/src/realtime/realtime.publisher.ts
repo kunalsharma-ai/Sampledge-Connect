@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Server } from 'socket.io';
 import type { ServerToClientEvents } from '@sampledge/contracts';
-import { conversationRoom, userRoom } from './rooms.js';
+import { conversationRoom, moderatorsRoom, tenantRoom, userRoom } from './rooms.js';
 
 type Events = ServerToClientEvents;
 
@@ -37,6 +37,16 @@ export class RealtimePublisher {
     ...args: Parameters<Events[E]>
   ) {
     this.safe(() => this.server?.to(userRoom(tenantId, userId)).emit(event, ...args));
+  }
+
+  /** Everyone signed in to the organization (all users, all devices). */
+  toTenant<E extends keyof Events>(tenantId: string, event: E, ...args: Parameters<Events[E]>) {
+    this.safe(() => this.server?.to(tenantRoom(tenantId)).emit(event, ...args));
+  }
+
+  /** Platform operators signed in anywhere (the SampConnect Network moderation queue). */
+  toModerators<E extends keyof Events>(event: E, ...args: Parameters<Events[E]>) {
+    this.safe(() => this.server?.to(moderatorsRoom()).emit(event, ...args));
   }
 
   /** Make all of a user's sockets (on every node) join / leave a conversation room. */

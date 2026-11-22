@@ -6,6 +6,7 @@ import type {
   Message,
   MessageStatus,
   Receipt,
+  ForwardedSnapshot,
 } from '@sampledge/contracts';
 
 /** A message as stored locally: either server-confirmed or still pending on this device. */
@@ -39,6 +40,10 @@ export interface OutboxItem {
     composedAt: string;
     /** Completed uploads to attach (uploading needs a connection; sending can wait). */
     attachments?: Attachment[];
+    /** Forwarding: the source message id the server copies from. */
+    forwardOf?: string;
+    /** Forwarding: what the optimistic copy shows until the server confirms it. */
+    forwarded?: ForwardedSnapshot;
   };
   state: OutboxState;
   attempts: number;
@@ -70,12 +75,42 @@ export interface PendingReaction {
   nextAttemptAt: number;
 }
 
+/** What a queued action does to a message, so the UI can show it before it reaches the server. */
+export type MessageIntent =
+  { kind: 'edit'; text: string } | { kind: 'delete' } | { kind: 'pin'; pinned: boolean };
+
+/**
+ * Any other change made on this device and not yet confirmed: edits, deletes, pins, poll
+ * votes, saved messages, notification settings, task updates, approval decisions, …
+ * Keyed so repeated changes to the same thing coalesce to the latest intent
+ * (`pin|<messageId>`, `edit|<messageId>`). Sent oldest first; each is an idempotent request.
+ */
+export interface PendingAction {
+  key: string;
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string;
+  body?: unknown;
+  /** Shown in the Sync Center, e.g. "Edit message", "Vote in poll". */
+  label: string;
+  conversationId?: string;
+  messageId?: string;
+  intent?: MessageIntent;
+  state: 'queued' | 'failed';
+  /** Queue position: kept when a queued change is replaced, so the order never shifts. */
+  createdAt: number;
+  /** Bumped on every replacement, so a send that finished after an edit keeps the new edit. */
+  revision?: number;
+  attempts: number;
+  nextAttemptAt: number;
+  lastError: ApiError | null;
+}
+
 export interface MetaRow {
   key: string;
   value: unknown;
 }
 
-export const DB_SCHEMA_VERSION = 2;
+export const DB_SCHEMA_VERSION = 3;
 
 /**
  * One database per signed-in identity: `sampledge-connect:{tenantId}:{userId}`.
@@ -89,6 +124,7 @@ export class ConnectDb extends Dexie {
   receipts!: Table<ReceiptRow, [string, string]>;
   meta!: EntityTable<MetaRow, 'key'>;
   reactionQueue!: EntityTable<PendingReaction, 'key'>;
+  actions!: EntityTable<PendingAction, 'key'>;
 
   constructor(name: string, options?: ConstructorParameters<typeof Dexie>[1]) {
     super(name, options);
@@ -103,6 +139,8 @@ export class ConnectDb extends Dexie {
     });
     // v2: offline reaction queue. Never edit an earlier version; add a new one.
     this.version(2).stores({ reactionQueue: 'key, nextAttemptAt, messageId' });
+    // v3: queue for every other change (edits, deletes, pins, votes, settings, work items).
+    this.version(3).stores({ actions: 'key, createdAt, state, messageId' });
   }
 }
 

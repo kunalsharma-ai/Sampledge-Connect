@@ -47,9 +47,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'inbox',
     title: 'Client Inbox',
     icon: 'mail-outline',
-    status: 'planned',
+    status: 'available',
     href: '/inbox',
-    summary: 'Unified inbox for external client channels (email, WhatsApp and others).',
+    summary:
+      'Client conversations from Telegram, Teams, Slack, Google Chat, LINE and more in one inbox: replies, internal notes, owners, SLAs and linked records.',
   },
   {
     key: 'meetings',
@@ -91,8 +92,10 @@ export const MODULES: ModuleEntry[] = [
     key: 'files',
     title: 'Files',
     icon: 'folder-outline',
-    status: 'planned',
-    summary: 'Nextcloud-backed files and resumable attachment upload.',
+    status: 'available',
+    href: '/files',
+    summary:
+      'Every file shared in your conversations, with search and filters by type. Works offline from the files saved on this phone.',
   },
   {
     key: 'tasks',

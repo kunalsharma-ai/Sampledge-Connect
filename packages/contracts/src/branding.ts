@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** The product name when an organization hasn't set its own. */
-export const DEFAULT_APP_NAME = 'Sampledge Connect';
+export const DEFAULT_APP_NAME = 'SampConnect';
 
 const Hex = z
   .string()
@@ -23,7 +23,7 @@ const Logo = z
  * stored in the database with the organization; nothing comes from env.
  */
 export const BrandingInputSchema = z.object({
-  /** Replaces "Sampledge Connect" in the app, the browser tab, emails and authenticator apps. */
+  /** Replaces "SampConnect" in the app, the browser tab, emails and authenticator apps. */
   appName: z.string().trim().min(2).max(40).nullable().default(null),
   logo: Logo.nullable().default(null),
   primary: Hex.default('#2563EB'),
@@ -37,7 +37,7 @@ export const BrandingInputSchema = z.object({
   loginMessage: z.string().trim().max(280).nullable().default(null),
   supportEmail: z.string().trim().toLowerCase().email().max(254).nullable().default(null),
   supportUrl: z.string().trim().url().max(500).nullable().default(null),
-  /** Drops "with Sampledge Connect" from emails and the sign-in page. */
+  /** Drops "with SampConnect" from emails and the sign-in page. */
   hidePoweredBy: z.boolean().default(false),
 });
 export type BrandingInput = z.input<typeof BrandingInputSchema>;

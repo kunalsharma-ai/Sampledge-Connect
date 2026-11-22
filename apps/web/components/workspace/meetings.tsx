@@ -13,6 +13,7 @@ import {
   HelpCircle,
   Mail,
   MailWarning,
+  Link2,
   MessagesSquare,
   Pencil,
   Repeat,
@@ -51,7 +52,7 @@ import {
 import { ApiFailure } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useCalls } from '@/lib/calls';
-import { useEngine, type DirectoryEntry } from '@/lib/engine';
+import { useEngine, useEngineChange, type DirectoryEntry } from '@/lib/engine';
 import {
   addDays,
   fmtDay,
@@ -65,9 +66,10 @@ import {
   useMeetingsApi,
   usePendingRsvps,
 } from '@/lib/meetings';
-import { nameOf } from './helpers';
+import { avatarOf, avatarUrl, nameOf } from './helpers';
 import { MeetingAiSummary } from './ai-summary-card';
 import { RepeatPicker } from './repeat-picker';
+import { BookingPagesDialog } from './booking-pages';
 
 const HOUR_PX = 56;
 const FIRST_HOUR = 7;
@@ -118,6 +120,7 @@ export function MeetingsScreen({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState<null | { startsAt?: Date }>(null);
   const [hoursOpen, setHoursOpen] = React.useState(false);
+  const [bookingOpen, setBookingOpen] = React.useState(false);
   const sel = items?.find((m) => m.meetingId === selected) ?? null;
   const upcoming = (items ?? []).filter((m) => Date.parse(m.endsAt) > Date.now());
   const title = `${fmtDay(weekStart)} – ${fmtDay(addDays(weekStart, 6))}`;
@@ -159,6 +162,15 @@ export function MeetingsScreen({
             Offline · showing saved meetings
           </Badge>
         ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setBookingOpen(true)}
+          aria-label="Booking pages"
+          disabled={!online}
+        >
+          <Link2 /> <span className="hidden md:inline">Booking pages</span>
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -233,6 +245,12 @@ export function MeetingsScreen({
         }}
       />
       <WorkingHoursDialog open={hoursOpen} onOpenChange={setHoursOpen} />
+      <BookingPagesDialog
+        open={bookingOpen}
+        onOpenChange={setBookingOpen}
+        me={me}
+        directory={directory}
+      />
     </main>
   );
 }
@@ -658,7 +676,11 @@ function MeetingDetails({
           <ul className="space-y-2">
             {m.attendees.map((a) => (
               <li key={a.userId} className="flex items-center gap-2.5">
-                <Avatar name={nameOf(a.userId, directory)} size="sm" />
+                <Avatar
+                  name={nameOf(a.userId, directory)}
+                  src={avatarOf(a.userId, directory)}
+                  size="sm"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-label text-text">
                     {a.userId === me ? 'You' : nameOf(a.userId, directory)}
@@ -974,7 +996,7 @@ export function NewMeetingDialog({
                   key={id}
                   className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised py-0.5 pl-1 pr-2 text-meta text-text"
                 >
-                  <Avatar name={nameOf(id, directory)} size="xs" />
+                  <Avatar name={nameOf(id, directory)} src={avatarOf(id, directory)} size="xs" />
                   {nameOf(id, directory)}
                   {conflicts.includes(id) ? <span className="text-warning">· busy</span> : null}
                   {existing.has(id) ? null : (
@@ -1006,7 +1028,7 @@ export function NewMeetingDialog({
                         setQ('');
                       }}
                     >
-                      <Avatar name={u.displayName} size="xs" />
+                      <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="xs" />
                       <span className="text-label text-text">{u.displayName}</span>
                       {u.title ? (
                         <span className="text-meta text-text-subtle">{u.title}</span>
@@ -1472,6 +1494,12 @@ function WorkingHoursDialog({
   const [tz, setTz] = React.useState(LOCAL_TZ);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Saved on another device: show the new hours here too.
+  const [version, setVersion] = React.useState(0);
+  useEngineChange(['meetings'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'meetings' && e.area === 'working_hours'))
+      setVersion((v) => v + 1);
+  });
 
   React.useEffect(() => {
     if (!open) return;
@@ -1488,7 +1516,7 @@ function WorkingHoursDialog({
       },
       (e) => setError(errorText(e)),
     );
-  }, [open, api]);
+  }, [open, api, version]);
 
   async function save() {
     setSaving(true);

@@ -9,6 +9,7 @@ import { Text } from './Text';
 
 export type MessageAction =
   | 'reply'
+  | 'forward'
   | 'edit'
   | 'delete'
   | 'retry'
@@ -20,7 +21,8 @@ export type MessageAction =
   | 'closePoll'
   | 'createTask'
   | 'requestApproval'
-  | 'translate';
+  | 'translate'
+  | 'report';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -32,6 +34,8 @@ export function MessageActions({
   canPin = false,
   canClosePoll = false,
   canMakeWork = false,
+  canForward = false,
+  canReport = false,
   onAction,
   onReact,
   onClose,
@@ -46,6 +50,10 @@ export function MessageActions({
   canClosePoll?: boolean;
   /** A member here, so you can turn the message into a task or approval. */
   canMakeWork?: boolean;
+  /** A sent message that is not a poll or a call event. */
+  canForward?: boolean;
+  /** SampConnect Network: someone else's message, which you can report to moderators. */
+  canReport?: boolean;
   onAction: (action: MessageAction, message: LocalMessage) => void;
   onReact: (message: LocalMessage, emoji: string) => void;
   onClose: () => void;
@@ -73,6 +81,7 @@ export function MessageActions({
     });
   } else if (!deleted) {
     rows.push({ key: 'reply', label: 'Reply', icon: 'arrow-undo-outline' });
+    if (canForward) rows.push({ key: 'forward', label: 'Forward', icon: 'arrow-redo-outline' });
     if (canClosePoll)
       rows.push({ key: 'closePoll', label: 'Close poll', icon: 'lock-closed-outline' });
     if (canPin)
@@ -96,6 +105,8 @@ export function MessageActions({
         ? { key: 'unsave', label: 'Remove from saved', icon: 'bookmark' }
         : { key: 'save', label: 'Save for later', icon: 'bookmark-outline' },
     );
+    if (canReport && !own)
+      rows.push({ key: 'report', label: 'Report message', icon: 'flag-outline', danger: true });
     if (own) {
       rows.push({ key: 'edit', label: 'Edit', icon: 'create-outline' });
       rows.push({

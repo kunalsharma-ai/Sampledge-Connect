@@ -108,6 +108,21 @@ export type ScopedDb = { [K in keyof TenantCollections]: TenantCollection<Tenant
 export class TenantDb {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Cross-tenant lookups that cannot know the tenant up front: the public webhook endpoint
+   * (resolves a connector by its random webhook key) and the outbound worker (claims queued
+   * replies from every tenant). Callers must switch to `for(tenantId)` straight after.
+   */
+  get unscoped() {
+    return {
+      connectors: this.db.collection<TenantCollections['connectors']>('connectors'),
+      external_messages:
+        this.db.collection<TenantCollections['external_messages']>('external_messages'),
+      external_conversations:
+        this.db.collection<TenantCollections['external_conversations']>('external_conversations'),
+    };
+  }
+
   /** Global (non-tenant) collection. Only auth/tenancy bootstrap code uses this. */
   get tenants(): Collection<TenantDoc> {
     return this.db.collection<TenantDoc>('tenants');
@@ -145,17 +160,47 @@ export class TenantDb {
       calls: c('calls'),
       meetings: c('meetings'),
       meeting_series: c('meeting_series'),
+      booking_pages: c('booking_pages'),
       user_settings: c('user_settings'),
       tenant_settings: c('tenant_settings'),
+      connectors: c('connectors'),
+      external_accounts: c('external_accounts'),
+      client_profiles: c('client_profiles'),
+      external_conversations: c('external_conversations'),
+      external_messages: c('external_messages'),
+      inbox_notes: c('inbox_notes'),
+      inbox_activity: c('inbox_activity'),
+      inbox_templates: c('inbox_templates'),
+      inbox_settings: c('inbox_settings'),
       bookmarks: c('bookmarks'),
+      search_history: c('search_history'),
+      user_avatars: c('user_avatars'),
+      call_background_prefs: c('call_background_prefs'),
+      call_background_images: c('call_background_images'),
       scheduled_messages: c('scheduled_messages'),
       ai_embeddings: c('ai_embeddings'),
       ai_index_state: c('ai_index_state'),
       ai_summaries: c('ai_summaries'),
       ai_proposals: c('ai_proposals'),
       ai_transcripts: c('ai_transcripts'),
+      meeting_minutes: c('meeting_minutes'),
+      call_captions: c('call_captions'),
+      ai_suggestion_dismissals: c('ai_suggestion_dismissals'),
       billing_subscriptions: c('billing_subscriptions'),
       billing_invoices: c('billing_invoices'),
+      network_profiles: c('network_profiles'),
+      network_requests: c('network_requests'),
+      network_connections: c('network_connections'),
+      network_follows: c('network_follows'),
+      network_blocks: c('network_blocks'),
+      network_reports: c('network_reports'),
+      network_invites: c('network_invites'),
+      network_statuses: c('network_statuses'),
+      network_status_views: c('network_status_views'),
+      network_actions: c('network_actions'),
+      communities: c('communities'),
+      community_members: c('community_members'),
+      community_links: c('community_links'),
     };
   }
 }

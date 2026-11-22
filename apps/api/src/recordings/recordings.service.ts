@@ -42,6 +42,7 @@ import { ConversationsService } from '../conversations/conversations.service.js'
 import { MessagesService } from '../messages/messages.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { ZipWriter, safeName } from './zip.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 const RETENTION_EVERY_MS = 60 * 60_000;
 const EXPORT_URL_TTL_S = 30 * 60;
@@ -65,6 +66,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
     readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   onModuleInit() {
@@ -119,6 +121,7 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
     // Apply a shorter policy straight away rather than waiting for the hourly run.
     if (req.retentionDays)
       void this.applyRetention(new Date(), ctx.tenantId).catch(() => undefined);
+    this.realtime.toTenant(ctx.tenantId, 'tenant:updated', { area: 'recordings' });
     return req;
   }
 
@@ -246,6 +249,11 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
 
   private async eraseOne(tenantId: string, d: AttachmentDoc, by: string | null) {
     if (!(await this.attachments.erase(tenantId, d, by))) return;
+    this.realtime.toConversation(tenantId, d.conversationId, 'recording:changed', {
+      recordingId: d._id,
+      conversationId: d.conversationId,
+      deleted: true,
+    });
     if (d.messageId)
       await this.messages
         .markAttachmentDeleted(tenantId, d.messageId, d._id, new Date())
@@ -490,6 +498,11 @@ export class RecordingsService implements OnModuleInit, OnApplicationShutdown {
       .attachments.updateOne({ _id: doc._id }, { $set: { messageId: msg.messageId } });
     await unlink(path).catch(() => undefined);
     await this.removeManifest(rec);
+    this.realtime.toConversation(call.tenantId, call.conversationId, 'recording:changed', {
+      recordingId: doc._id,
+      conversationId: call.conversationId,
+      deleted: false,
+    });
     return { ...doc, messageId: msg.messageId };
   }
 

@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/
 import type { Request, Response } from 'express';
 import { RateLimitService } from '../redis/redis.module.js';
 import { GuestsService } from './guests.service.js';
+import { readRawBody } from '../common/raw-body.js';
+import { CAPTION_CLIP_MAX_BYTES } from '../calls/captions.service.js';
 import { MeetingsService } from './meetings.service.js';
 
 /**
@@ -75,6 +77,15 @@ export class GuestsController {
   async sendChat(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
     await this.limit(req);
     return this.guests.sendChat(token, body);
+  }
+
+  /** Live captions: a few seconds of the guest's own microphone (raw audio body). */
+  @Post(':token/captions')
+  @HttpCode(200)
+  async caption(@Param('token') token: string, @Req() req: Request) {
+    await this.limit(req);
+    const audio = await readRawBody(req, CAPTION_CLIP_MAX_BYTES);
+    return this.guests.captionClip(token, audio, req.headers['content-type']);
   }
 
   @Post(':token/lobby/leave')

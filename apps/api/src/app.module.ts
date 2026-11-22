@@ -22,6 +22,7 @@ import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { PlatformAdmins } from './common/platform-admins.js';
 import { DirectoryController } from './directory/directory.controller.js';
+import { AvatarsController, ProfileController } from './directory/profile.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import {
   ConversationsController,
@@ -30,7 +31,7 @@ import {
 import { MessagesService } from './messages/messages.service.js';
 import { SyncService } from './sync/sync.service.js';
 import { SyncController } from './sync/sync.controller.js';
-import { RealtimePublisher } from './realtime/realtime.publisher.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 import { RealtimeGateway } from './realtime/realtime.gateway.js';
 import { HealthController } from './health/health.controller.js';
 import { Metrics } from './health/metrics.js';
@@ -52,15 +53,42 @@ import {
 } from './integration-settings/integration-settings.controller.js';
 import { BookmarksController } from './bookmarks/bookmarks.controller.js';
 import { BookmarksService } from './bookmarks/bookmarks.service.js';
+import { SearchController } from './search/search.controller.js';
+import { SearchService } from './search/search.service.js';
+import { FilesController, FilesService } from './files/files.controller.js';
+import { AnalyticsController, AnalyticsService } from './analytics/analytics.controller.js';
+import { ChatThemesController, ChatThemesService } from './chat-themes/chat-themes.controller.js';
+import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
+import { BookingPagesController, PublicBookingController } from './meetings/booking.controller.js';
+import { BookingService } from './meetings/booking.service.js';
+import { CaptionsService } from './calls/captions.service.js';
+import { CallBackgroundsController } from './calls/call-backgrounds.controller.js';
+import { CallBackgroundsService } from './calls/call-backgrounds.service.js';
 import { GuestsService } from './meetings/guests.service.js';
 import { MailerService } from './mail/mailer.service.js';
 import { MeetingsService } from './meetings/meetings.service.js';
+import {
+  ConnectorsController,
+  ConnectorWebhooksController,
+} from './connectors/connectors.controller.js';
+import { ConnectorsService } from './connectors/connectors.service.js';
+import { WebhookService } from './connectors/webhook.service.js';
+import { CredentialVault } from './connectors/credential-vault.js';
+import { ConnectorHttp } from './connectors/transport.js';
+import { InboxController } from './client-inbox/inbox.controller.js';
+import { InboxService } from './client-inbox/inbox.service.js';
+import { InboxAdminService } from './client-inbox/inbox-admin.service.js';
+import { InboxAccess } from './client-inbox/inbox-events.js';
+import { OutboundWorker } from './client-inbox/outbound.worker.js';
+import { OutboxSignal } from './client-inbox/outbox-signal.js';
+import { LINKED_RECORD_RESOLVER } from './client-inbox/linked-records.js';
+import { ModuleRecordsResolver } from './client-inbox/records-resolver.js';
 import { WorkStore } from './integrations/collections.js';
 import { ModuleSettingsService } from './integrations/module-settings.service.js';
 import { RecordsService } from './integrations/records.service.js';
@@ -79,7 +107,23 @@ import { AiService } from './ai/ai.service.js';
 import { AiIntegration } from './ai/ai-integration.js';
 import { TranscriptsService } from './ai/transcripts.service.js';
 import { AI_SETTINGS_SOURCE, SwappableSettingsSource } from './ai/settings.js';
+import { MinutesController } from './minutes/minutes.controller.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type { Db } from 'mongodb';
+import { NetworkTenant } from './network/network-tenant.js';
+import { NetworkPolicyService } from './network/network-policy.service.js';
+import { NetworkGate } from './network/network-gate.js';
+import { NetworkRules } from './network/network-rules.js';
+import { NetworkService } from './network/network.service.js';
+import { ModerationService } from './network/moderation.service.js';
+import { StatusService } from './network/status.service.js';
+import { CommunitiesService } from './network/communities.service.js';
+import {
+  NetworkAdminController,
+  NetworkController,
+  NetworkModerationController,
+  NetworkPublicController,
+} from './network/network.controller.js';
 
 @Module({})
 export class AppModule {
@@ -92,7 +136,13 @@ export class AppModule {
     };
     return {
       module: AppModule,
-      imports: [configModule, DatabaseModule, RedisModule, IntegrationSettingsModule],
+      imports: [
+        configModule,
+        DatabaseModule,
+        RedisModule,
+        RealtimeModule,
+        IntegrationSettingsModule,
+      ],
       controllers: [
         TenantIntegrationsController,
         PlatformIntegrationsController,
@@ -104,6 +154,8 @@ export class AppModule {
         AdminController,
         RecordingsController,
         DirectoryController,
+        ProfileController,
+        AvatarsController,
         ConversationsController,
         MessagesController,
         SyncController,
@@ -112,14 +164,30 @@ export class AppModule {
         NotificationsController,
         PushController,
         BookmarksController,
+        SearchController,
+        FilesController,
+        AnalyticsController,
+        ChatThemesController,
+        StatusController,
         ScheduledMessagesController,
         CallsController,
+        CallBackgroundsController,
         MeetingsController,
         GuestsController,
+        ConnectorsController,
+        ConnectorWebhooksController,
+        InboxController,
+        BookingPagesController,
+        PublicBookingController,
         IntegrationApiController,
         IntegrationsController,
         WorkController,
         AiController,
+        NetworkPublicController,
+        NetworkAdminController,
+        NetworkController,
+        NetworkModerationController,
+        MinutesController,
       ],
       providers: [
         { provide: APP_FILTER, useClass: ApiExceptionFilter },
@@ -138,16 +206,32 @@ export class AppModule {
         ConversationsService,
         MessagesService,
         SyncService,
-        RealtimePublisher,
         RealtimeGateway,
         AttachmentsService,
         NotificationsService,
         BookmarksService,
+        SearchService,
+        FilesService,
+        AnalyticsService,
+        ChatThemesService,
         ScheduledMessagesService,
         CallsService,
         MeetingsService,
         GuestsService,
+        BookingService,
+        CaptionsService,
+        CallBackgroundsService,
         MailerService,
+        CredentialVault,
+        ConnectorHttp,
+        ConnectorsService,
+        WebhookService,
+        InboxAccess,
+        InboxService,
+        InboxAdminService,
+        OutboxSignal,
+        OutboundWorker,
+        { provide: LINKED_RECORD_RESOLVER, useClass: ModuleRecordsResolver },
         WorkStore,
         ModuleSettingsService,
         RecordsService,
@@ -162,6 +246,15 @@ export class AppModule {
         AiService,
         AiIntegration,
         TranscriptsService,
+        NetworkTenant,
+        NetworkPolicyService,
+        NetworkGate,
+        NetworkRules,
+        NetworkService,
+        StatusService,
+        CommunitiesService,
+        ModerationService,
+        MinutesService,
         { provide: AI_SETTINGS_SOURCE, useValue: new SwappableSettingsSource() },
         PushProviders,
         NextcloudIntegration,

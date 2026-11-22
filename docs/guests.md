@@ -47,20 +47,27 @@ sender shown as "Name (guest)".
 
 ## Email setup
 
-Email is **off** until `SMTP_HOST` and `SMTP_FROM` are set. While it's off, guests are still
-created and the meeting details show "Not emailed (email isn't set up)" with a **Copy link**
-button, so the organizer can send the link any way they like. **Resend** works once SMTP is set.
+Set up email in **Integrations → Email (SMTP)**: host, port, security, username, password
+(stored encrypted) and the From address, with **Test connection**. An organization can use its
+own mail server; otherwise it uses the platform default an operator saved, and last the legacy
+env below. A saved change applies on every API node at once, with no restart.
 
-| Variable           | Example                                    | Notes                                                         |
-| ------------------ | ------------------------------------------ | ------------------------------------------------------------- |
-| `SMTP_HOST`        | `mail.example.com`                         | Your mail server or relay.                                    |
-| `SMTP_PORT`        | `587`                                      | 587 with STARTTLS, or 465 with `SMTP_SECURE=true`.            |
-| `SMTP_SECURE`      | `false`                                    | `true` for TLS from the first byte (port 465).                |
-| `SMTP_REQUIRE_TLS` | `true`                                     | Refuse to send without STARTTLS. Recommended on the internet. |
-| `SMTP_USER`        | `meetings@example.com`                     | Optional; omit for an IP-allowlisted relay.                   |
-| `SMTP_PASSWORD`    | (secret)                                   | Required with `SMTP_USER`. Keep it in your server env only.   |
-| `SMTP_FROM`        | `Sampledge Connect <meetings@example.com>` | The sender guests see. Must be allowed by your SPF/DKIM.      |
-| `PUBLIC_WEB_URL`   | `https://connect.example.com`              | Base of join links. Defaults to the first `CORS_ORIGINS`.     |
+Until email is set up, guests are still created and the meeting details show "Not emailed
+(email isn't set up)" with a **Copy link** button, so the organizer can send the link any way
+they like. **Resend** works once email is set up.
+
+Legacy env (still read when nothing is saved in Integrations):
+
+| Variable           | Example                              | Notes                                                         |
+| ------------------ | ------------------------------------ | ------------------------------------------------------------- |
+| `SMTP_HOST`        | `mail.example.com`                   | Your mail server or relay.                                    |
+| `SMTP_PORT`        | `587`                                | 587 with STARTTLS, or 465 with `SMTP_SECURE=true`.            |
+| `SMTP_SECURE`      | `false`                              | `true` for TLS from the first byte (port 465).                |
+| `SMTP_REQUIRE_TLS` | `true`                               | Refuse to send without STARTTLS. Recommended on the internet. |
+| `SMTP_USER`        | `meetings@example.com`               | Optional; omit for an IP-allowlisted relay.                   |
+| `SMTP_PASSWORD`    | (secret)                             | Required with `SMTP_USER`.                                    |
+| `SMTP_FROM`        | `SampConnect <meetings@example.com>` | The sender guests see. Must be allowed by your SPF/DKIM.      |
+| `PUBLIC_WEB_URL`   | `https://connect.example.com`        | Base of join links. Defaults to the first `CORS_ORIGINS`.     |
 
 Deliverability: send from a domain you control with SPF, DKIM and DMARC set up, or invites
 land in spam. The calendar invite's ORGANIZER is the organizer's own email address.
@@ -71,7 +78,7 @@ Each guest's latest email outcome (`sending`, `sent`, `failed` with the server's
 ### Trying it without a mail server
 
 `docker compose --profile mail-test up` starts **Mailpit**, a local test mailbox. Set
-`SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_FROM="Sampledge Connect <meetings@example.test>"`
+host `mailpit`, port `1025`, security None (in Integrations, or `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_FROM="SampConnect <meetings@example.test>"`)
 and read every message at <http://localhost:8025>. Nothing leaves the machine. The integration
 tests use an in-process SMTP server the same way.
 
@@ -125,5 +132,4 @@ expiresAt }`), `denied`, `ended`, `cancelled`.
 
 ## Planned
 
-Reading guests' calendar replies (iTIP REPLY) by email, public
-booking pages, the lobby on mobile. Recurring meetings with guests: see `meetings.md`.
+Reading guests' calendar replies (iTIP REPLY) by email, the lobby on mobile. Recurring meetings with guests and public booking pages: see `meetings.md`.

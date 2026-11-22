@@ -24,10 +24,29 @@ const POLICIES = {
   ai: { points: 40, duration: 60 },
   /** Public guest join page: it polls every few seconds; allows a few guests behind one NAT. */
   guest_link: { points: 240, duration: 60 },
+  /** Inbound provider webhooks, per connector. Providers burst; this stops floods, not traffic. */
+  connector_webhook: { points: 1200, duration: 60 },
+  inbox_reply: { points: 60, duration: 60 },
+  /** Public booking: confirmed bookings per IP. */
+  booking_create: { points: 10, duration: 3600 },
+  /** Live caption clips: one every ~4 s while speaking, with headroom. */
+  caption_clip: { points: 40, duration: 60 },
   /** A Sampledge module's server calling the integration API (per tenant and module). */
   module_api: { points: 600, duration: 60 },
+  /** Minutes and chat documents (each builds a PDF or Word file in memory). */
+  documents: { points: 20, duration: 60 },
   /** Two-step verification codes, per account (login and settings). */
   mfa: { points: 10, duration: 300 },
+  /** SampConnect Network people search, per user. */
+  network_search: { points: 60, duration: 60 },
+  /** Connection requests and reports, per user per hour (anti-spam). */
+  network_request: { points: 40, duration: 3600 },
+  /** Invites to people not on the platform, per user per hour. */
+  network_invite: { points: 30, duration: 3600 },
+  /** Invite texts to one phone number per day, whoever sends them (no SMS bombing). */
+  network_sms: { points: 3, duration: 86_400 },
+  /** Status updates and community creation, per user per hour. */
+  network_post: { points: 60, duration: 3600 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;
 

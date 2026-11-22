@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { Conversation, UserSummary } from '@sampledge/contracts';
+import type { Conversation, TenantArea, UserSummary } from '@sampledge/contracts';
 import {
   HttpSocketTransport,
   SyncEngine,
@@ -9,12 +9,15 @@ import {
   listConversationMessages,
   openConnectDb,
   wipeLocalData,
+  type ChangeEvent,
   type ConnectDb,
   type EngineState,
   type LocalMessage,
 } from '@sampledge/offline';
 import { apiRequest } from './api';
 import { useAuth } from './auth';
+import { loadSession } from './auth-store';
+import Dexie from 'dexie';
 import { API_URL } from './config';
 
 export type DirectoryEntry = UserSummary & { presence?: string };
@@ -25,6 +28,11 @@ interface EngineContextValue {
   state: EngineState;
   directory: Map<string, DirectoryEntry>;
   refreshDirectory(): Promise<void>;
+  /**
+   * Shows a change to someone's directory entry straight away (e.g. your own status while it
+   * waits in the offline queue). The next directory fetch replaces it with the server's copy.
+   */
+  patchDirectory(userId: string, patch: Partial<DirectoryEntry>): void;
   /** Signs out and wipes this identity's local data. */
   signOut(): Promise<void>;
 }
@@ -112,21 +120,49 @@ export function EngineProvider({
         }
       };
       void refreshDirectory();
+      // People list, roles and profiles follow other devices and other admins live.
+      let dirTimer: ReturnType<typeof setTimeout> | null = null;
+      const unsubChange = engine.onChange((e) => {
+        if (e.type !== 'directory' && e.type !== 'reconnected') return;
+        if (dirTimer) clearTimeout(dirTimer);
+        dirTimer = setTimeout(() => void refreshDirectory(), 300);
+      });
 
       const signOut = async () => {
         engine.stop();
+        // Both spaces (organization and SampConnect Network) live on this device: wipe them all.
+        const others = (await Promise.all([loadSession('current'), loadSession('network')]))
+          .filter((s) => !!s)
+          .flatMap((s) => [
+            dbNameFor(s.tenant.tenantId, s.user.userId),
+            `sampledge-connect:network:${s.tenant.tenantId}:${s.user.userId}`,
+          ])
+          .filter((n) => n !== db.name);
         await auth.logout();
         await wipeLocalData(db);
+        await Promise.all(others.map((n) => Dexie.delete(n).catch(() => undefined)));
       };
-      setValue({ db, engine, refreshDirectory, signOut });
+      const patchDirectory = (userId: string, patch: Partial<DirectoryEntry>) =>
+        setDirectory((cur) => {
+          const u = cur.get(userId);
+          if (!u) return cur;
+          const next = new Map(cur).set(userId, { ...u, ...patch });
+          void db.meta.put({ key: 'directory', value: [...next.values()] });
+          return next;
+        });
+      setValue({ db, engine, refreshDirectory, patchDirectory, signOut });
       cleanup = () => {
         unsub();
+        unsubChange();
+        if (dirTimer) clearTimeout(dirTimer);
         clearInterval(quota);
         window.removeEventListener('online', online);
         window.removeEventListener('offline', offline);
         document.removeEventListener('visibilitychange', onFocus);
         engine.stop();
-        db.close();
+        // Close after the old screens unmount, so their live queries don't hit a closed DB.
+        setValue(null);
+        setTimeout(() => db.close(), 1000);
       };
     })();
     return () => {
@@ -175,6 +211,48 @@ export function usePendingReactions(conversationId: string | null) {
       () =>
         conversationId
           ? db.reactionQueue.filter((r) => r.conversationId === conversationId).toArray()
+          : [],
+      [db, conversationId],
+    ) ?? []
+  );
+}
+
+/**
+ * Run `fn` when something outside the message store changes: pass the change types a screen
+ * shows. `reconnected` is always included, because live events may have been missed.
+ */
+export function useEngineChange(types: ChangeEvent['type'][], fn: (e: ChangeEvent) => void) {
+  const { engine } = useEngine();
+  const ref = React.useRef(fn);
+  ref.current = fn;
+  const key = types.join(',');
+  React.useEffect(
+    () =>
+      engine.onChange((e) => {
+        if (e.type === 'reconnected' || key.split(',').includes(e.type)) ref.current(e);
+      }),
+    [engine, key],
+  );
+}
+
+/**
+ * Refetch an organization-wide setting screen when an admin changes it on any device
+ * (`tenant:updated`), and after a reconnect.
+ */
+export function useTenantChange(area: TenantArea, fn: () => void) {
+  useEngineChange(['tenant'], (e) => {
+    if (e.type === 'reconnected' || (e.type === 'tenant' && e.area === area)) fn();
+  });
+}
+
+/** This device's queued changes to messages in a conversation (edits, deletes, pins). */
+export function usePendingMessageActions(conversationId: string | null) {
+  const { db } = useEngine();
+  return (
+    useLiveQuery(
+      () =>
+        conversationId
+          ? db.actions.filter((a) => a.conversationId === conversationId && !!a.intent).toArray()
           : [],
       [db, conversationId],
     ) ?? []

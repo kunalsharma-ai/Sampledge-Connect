@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { Approval, Task } from '@sampledge/contracts';
+import type { LocalWork } from '../db/work';
 import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import {
@@ -56,6 +57,33 @@ export function useStatusColor() {
             : c.warning;
 }
 
+/**
+ * Shows that a change made on this phone is waiting to reach the server, or that the server
+ * refused something you created (it is kept until you retry or discard it).
+ */
+export function SyncTag({ item }: { item: LocalWork }) {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  if (item.syncError)
+    return (
+      <View style={styles.sync} accessibilityLabel={`Not sent: ${item.syncError}`}>
+        <Ionicons name="alert-circle" size={13} color={c.danger} />
+        <Text variant="meta" style={{ color: c.danger, flexShrink: 1 }} numberOfLines={2}>
+          Not sent: {item.syncError}
+        </Text>
+      </View>
+    );
+  if (!item.pending) return null;
+  return (
+    <View style={styles.sync} accessibilityLabel="Waiting to sync">
+      <Ionicons name="cloud-upload-outline" size={13} color={c.warning} />
+      <Text variant="meta" style={{ color: c.warning }}>
+        Waiting to sync
+      </Text>
+    </View>
+  );
+}
+
 /** One task in a list: tick it done, or tap for details. */
 export function TaskRow({
   task: t,
@@ -64,7 +92,7 @@ export function TaskRow({
   onOpen,
   onToggleDone,
 }: {
-  task: Task;
+  task: Task & LocalWork;
   /** Who it is for, or where it came from. */
   context: string;
   busy?: boolean;
@@ -129,6 +157,7 @@ export function TaskRow({
           <Text variant="meta" tone="muted" numberOfLines={1}>
             {context}
           </Text>
+          <SyncTag item={t} />
         </View>
         <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
       </Pressable>
@@ -143,7 +172,7 @@ export function ApprovalRow({
   context,
   onOpen,
 }: {
-  approval: Approval;
+  approval: Approval & LocalWork;
   selfId: string;
   context: string;
   onOpen: () => void;
@@ -182,6 +211,7 @@ export function ApprovalRow({
             {turn ? 'Your decision · ' : ''}
             {context} · {approvalProgress(a)}
           </Text>
+          <SyncTag item={a} />
         </View>
         <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
       </Pressable>
@@ -272,5 +302,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   pills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  sync: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill },
 });

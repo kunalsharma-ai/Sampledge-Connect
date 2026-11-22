@@ -10,7 +10,8 @@ const rtcHttp = rtc.replace(/^ws/, 'http');
 /** Security headers. Messages are rendered as text, never HTML. */
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'" +
+  // 'wasm-unsafe-eval' lets the browser compile WebAssembly (background blur), nothing else.
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'" +
     (process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",

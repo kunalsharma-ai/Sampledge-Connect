@@ -22,6 +22,7 @@ import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge
 import { ApiFailure, apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { SampledgeModulePanel } from './sampledge-module-panel';
+import { useTenantChange } from '@/lib/engine';
 
 type Draft = Record<string, string | number | boolean | null>;
 /** Secret edits: a string replaces, null clears, absent keeps what is stored. */
@@ -42,12 +43,12 @@ function ago(iso: string) {
   return relative.format(Math.round(s / 86400), 'day');
 }
 
-function useIntegrationsApi() {
+/** `base` is the organization's settings, or `/v1/platform/integrations` for platform operators. */
+export function useIntegrationsApi(base = '/v1/admin/integrations') {
   const { getAccessToken } = useAuth();
   return React.useMemo(() => {
     const req = async <T,>(method: string, path: string, body?: unknown) =>
       apiRequest<T>(method, path, { token: await getAccessToken(), body });
-    const base = '/v1/admin/integrations';
     return {
       list: () => req<IntegrationView[]>('GET', base),
       save: (id: string, enabled: boolean, values: Draft) =>
@@ -59,7 +60,7 @@ function useIntegrationsApi() {
   }, [getAccessToken]);
 }
 
-function StatusBadge({ view }: { view: IntegrationView }) {
+export function StatusBadge({ view }: { view: IntegrationView }) {
   if (view.provider.planned) return <Badge tone="planned">Planned</Badge>;
   if (!view.source) return <Badge tone="neutral">Not connected</Badge>;
   if (!view.enabled) return <Badge tone="neutral">Off</Badge>;
@@ -89,6 +90,7 @@ export function IntegrationsScreen({ online }: { online: boolean }) {
   React.useEffect(() => {
     void load();
   }, [load]);
+  useTenantChange('integrations', () => void load());
 
   const replace = (v: IntegrationView) =>
     setViews((cur) => cur?.map((x) => (x.provider.id === v.provider.id ? v : x)) ?? cur);
@@ -229,7 +231,7 @@ function initialDraft(view: IntegrationView): Draft {
   return out;
 }
 
-function IntegrationDetail({
+export function IntegrationDetail({
   view,
   api,
   online,

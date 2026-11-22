@@ -41,8 +41,11 @@ Chat card: `messageType: 'system'` with `metadata.meeting` (`MeetingSystemMetada
 - RSVPs made offline are saved on the device, shown at once, and sent when the connection returns (latest answer per
   meeting wins; answers the server refuses, such as for a cancelled meeting, are dropped).
 - Scheduling and editing need a connection, so two devices can't create conflicting versions of a meeting.
-- The recordings library refreshes on reconnect, every 20 seconds while open, and when the window comes back to the
-  front.
+- Working hours and booking pages changed on one device (or by another host) update live everywhere with
+  `meetings:changed`; screens refetch after a reconnect.
+- The recordings library updates live when a call recording is saved or any recording is deleted (`recording:changed`
+  to the conversation's members), refreshes on reconnect, and picks up new chat clips within 20 seconds.
+- See `sync-coverage.md` for every action.
 
 ## Recurring meetings
 
@@ -66,7 +69,47 @@ Create a meeting with `recurrence` to repeat it:
   `VTIMEZONE`), `EXDATE` for cancelled meetings, and a `RECURRENCE-ID` update when one meeting changes. Their
   one join link opens whichever meeting of the series is next, and their RSVP covers the series.
 
+On mobile, Schedule a meeting has a Repeat section (daily, weekly on chosen days, or monthly; every 1 to 30;
+ending never, after a number of meetings, or on a date) with the same plain-English summary. The meeting
+screen shows the rule and lets you answer for "This meeting" or "All upcoming". Answers work offline: an
+all-upcoming answer shows on every upcoming meeting of the series at once, is sent once with
+`scope: 'series'`, and answers are sent in the order you gave them (so declining one meeting after
+accepting the series stays declined). Organizers edit "Only this meeting" or "This and all upcoming"
+(where the rule and guests can change) and can cancel one meeting or all upcoming ones.
+`scripts/e2e-recurring.cjs` runs this against a real server.
+
+## Booking pages
+
+A booking page is a public link (`/book/<slug>`) where people outside the organization pick a free
+time with one person or a team. Hosts manage them from Meetings → Booking pages.
+
+- **Free times** come from each host's working hours and meetings, the same as "find a time". A
+  booking blocks that time everywhere: on every other page and in "find a time".
+- **Who attends:** `any` books one free host (the one with the fewest meetings that day), `all`
+  needs every host free and invites them all.
+- **Settings:** length (10 to 240 min), gap kept before and after meetings, earliest booking
+  (minimum notice), how many days ahead, audio or video, paused or taking bookings.
+- **Booking** creates an ordinary meeting organized by a host, with the booker as an external
+  guest: they get the calendar invite and join link by email (when SMTP is set up) and on the
+  confirmation screen. Hosts get a notification and the meeting appears live on all their devices.
+- **Safety:** the public page shows host names only, never emails. Booking is rate limited
+  (10 per hour per IP), a slot is locked while it is booked and checked again before it is
+  saved, so two people can't take the same time. Members can't book their own org's page as a guest.
+- The public page refreshes its free times every 30 seconds and reloads them if a time was just taken.
+
+| Method | Path                    | Who                                          |
+| ------ | ----------------------- | -------------------------------------------- |
+| GET    | `/v1/booking-pages`     | pages I host                                 |
+| POST   | `/v1/booking-pages`     | create (the creator is always a host)        |
+| PATCH  | `/v1/booking-pages/:id` | any host                                     |
+| DELETE | `/v1/booking-pages/:id` | any host                                     |
+| GET    | `/v1/book/:slug`        | public: title, hosts' names, window          |
+| GET    | `/v1/book/:slug/slots`  | public: `from`, `to` (at most 14 days)       |
+| POST   | `/v1/book/:slug`        | public: `startsAt`, `name`, `email`, `notes` |
+
 ## Planned next
 
-Public booking pages (pick a slot from a team's availability). Guests from outside the
+Booking pages are on mobile too (Meetings → link icon): create, edit, pause, share and delete,
+offline as well, and every change reaches each host's devices live through `booking:changed`
+`{bookingPageId, page | null}`. The public page itself opens in the phone's browser. Guests from outside the
 organization (email invites with `.ics`, join links, lobby) are built: see `guests.md`. Recordings: `recordings.md`.

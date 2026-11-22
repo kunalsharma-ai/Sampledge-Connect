@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { IncomingCall } from '../calls/IncomingCall';
+import { ActionRefusedBanner } from '../components/ActionRefusedBanner';
 import { MeetingReminderBanner } from '../components/MeetingReminderBanner';
 import { NotificationBanner } from '../components/NotificationBanner';
 import { PushOpenHandler } from '../components/PushOpenHandler';
@@ -68,6 +69,31 @@ function RootStack() {
           <Stack.Screen name="settings/storage" options={{ title: 'Offline & storage' }} />
           <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="settings/profile" options={{ title: 'Profile' }} />
+          <Stack.Screen name="person/[id]" options={{ title: '' }} />
+          <Stack.Screen name="network/person/[id]" options={{ title: '' }} />
+          <Stack.Screen name="network/invite" options={{ title: 'Invite to SampConnect' }} />
+          <Stack.Screen name="network/blocked" options={{ title: 'Blocked people' }} />
+          <Stack.Screen name="network/profile" options={{ title: 'Network profile' }} />
+          <Stack.Screen name="network/communities/index" options={{ title: 'Communities' }} />
+          <Stack.Screen name="network/communities/[id]" options={{ title: '' }} />
+          <Stack.Screen
+            name="network/communities/new"
+            options={{ title: 'New community', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="network/communities/group"
+            options={{ title: 'New group', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="network/status/new"
+            options={{ title: 'New status', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="network/status/[userId]"
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
+          <Stack.Screen name="sso" options={{ headerShown: false }} />
           <Stack.Screen
             name="new-conversation"
             options={{ title: 'New conversation', presentation: 'modal' }}
@@ -79,8 +105,21 @@ function RootStack() {
             options={{ title: 'Schedule a meeting', presentation: 'modal' }}
           />
           <Stack.Screen name="meeting/[id]" options={{ title: 'Meeting' }} />
+          <Stack.Screen name="booking-pages/index" options={{ title: 'Booking pages' }} />
+          <Stack.Screen name="booking-pages/[id]" options={{ title: 'Booking page' }} />
           <Stack.Screen name="settings/working-hours" options={{ title: 'Working hours' }} />
+          <Stack.Screen name="settings/status" options={{ title: 'Status' }} />
+          <Stack.Screen name="settings/chat-theme" options={{ title: 'Chat theme' }} />
+          <Stack.Screen name="settings/call-background" options={{ title: 'Call background' }} />
+          <Stack.Screen name="settings/call-appearance" options={{ title: 'How you look' }} />
+          <Stack.Screen name="minutes/index" options={{ title: 'Minutes of meetings' }} />
+          <Stack.Screen name="minutes/[callId]" options={{ title: 'Minutes' }} />
+          <Stack.Screen name="export-chat" options={{ title: 'Export chat' }} />
+          <Stack.Screen name="transcript/[attachmentId]" options={{ title: 'Transcript' }} />
+          <Stack.Screen name="chat-background" options={{ title: 'Chat background' }} />
           <Stack.Screen name="recordings" options={{ title: 'Recordings' }} />
+          <Stack.Screen name="files" options={{ title: 'Files' }} />
+          <Stack.Screen name="forward" options={{ title: 'Forward', presentation: 'modal' }} />
           <Stack.Screen name="admin/integrations" options={{ title: 'Integrations' }} />
           <Stack.Screen name="admin/branding" options={{ title: 'Branding' }} />
           <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />
@@ -90,12 +129,24 @@ function RootStack() {
             options={{ title: 'Add member', presentation: 'modal' }}
           />
           <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
+          <Stack.Screen name="admin/moderation" options={{ title: 'Reported content' }} />
           <Stack.Screen name="admin/devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />
           <Stack.Screen name="poll/new" options={{ title: 'New poll', presentation: 'modal' }} />
           <Stack.Screen name="tasks" options={{ title: 'Tasks & Approvals' }} />
+          <Stack.Screen name="inbox/[id]" options={{ title: '' }} />
+          <Stack.Screen name="inbox/details/[id]" options={{ title: 'Details' }} />
+          <Stack.Screen
+            name="inbox/new"
+            options={{ title: 'Log a conversation', presentation: 'modal' }}
+          />
+          <Stack.Screen name="inbox/dashboard" options={{ title: 'Inbox dashboard' }} />
+          <Stack.Screen name="inbox/settings" options={{ title: 'Inbox settings' }} />
+          <Stack.Screen name="inbox/channels/index" options={{ title: 'Channels' }} />
+          <Stack.Screen name="inbox/channels/add" options={{ title: 'Add channel' }} />
+          <Stack.Screen name="inbox/channels/[id]" options={{ title: 'Channel' }} />
           <Stack.Screen name="assistant" options={{ title: 'AI Assistant' }} />
           <Stack.Screen name="summary/[id]" options={{ title: 'Summary' }} />
           <Stack.Screen name="task/[id]" options={{ title: 'Task' }} />
@@ -125,6 +176,7 @@ function RootStack() {
         <>
           <NotificationBanner />
           <MeetingReminderBanner />
+          <ActionRefusedBanner />
           <PushOpenHandler />
           <IncomingCall />
         </>

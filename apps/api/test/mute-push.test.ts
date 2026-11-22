@@ -227,3 +227,54 @@ describe('push delivery', () => {
     expect(pushed).toHaveLength(0);
   });
 });
+
+describe('do-not-disturb', () => {
+  it('stops push while do-not-disturb is on, by hand or by schedule, but keeps in-app notifications', async () => {
+    await register(mia, 'ExponentPushToken[mia-dnd]');
+    const setStatus = (body: unknown) =>
+      api(h, 'PUT', '/v1/me/status', { token: mia.accessToken, body });
+    expect((await setStatus({ availability: 'dnd', text: 'Focus time', emoji: '🎧' })).status).toBe(
+      200,
+    );
+    pushed = [];
+    await send(owner, group, '@Mia Chen quick one', { mentions: [mia.user.userId] });
+    await settle();
+    expect(pushed.filter((p) => p.to === 'ExponentPushToken[mia-dnd]')).toHaveLength(0);
+    const inbox = await api<{ items: unknown[] }>(h, 'GET', '/v1/notifications', {
+      token: mia.accessToken,
+    });
+    expect(inbox.body.items.length).toBeGreaterThan(0);
+
+    // Back to automatic: pushes again.
+    await setStatus({ availability: 'auto' });
+    pushed = [];
+    await send(owner, group, '@Mia Chen and now?', { mentions: [mia.user.userId] });
+    await settle();
+    expect(pushed.filter((p) => p.to === 'ExponentPushToken[mia-dnd]')).toHaveLength(1);
+
+    // A schedule covering every minute of every day.
+    const all = await api(h, 'PUT', '/v1/me/dnd-schedule', {
+      token: mia.accessToken,
+      body: {
+        enabled: true,
+        timeZone: 'UTC',
+        days: [0, 1, 2, 3, 4, 5, 6],
+        start: '00:00',
+        end: '23:59',
+      },
+    });
+    expect(all.status).toBe(200);
+    pushed = [];
+    const now = new Date();
+    await send(owner, group, '@Mia Chen scheduled quiet', { mentions: [mia.user.userId] });
+    await settle();
+    const quietMinute = now.getUTCHours() * 60 + now.getUTCMinutes() < 23 * 60 + 59;
+    expect(pushed.filter((p) => p.to === 'ExponentPushToken[mia-dnd]')).toHaveLength(
+      quietMinute ? 0 : 1,
+    );
+    await api(h, 'PUT', '/v1/me/dnd-schedule', {
+      token: mia.accessToken,
+      body: { enabled: false, timeZone: 'UTC', days: [], start: '00:00', end: '23:59' },
+    });
+  });
+});

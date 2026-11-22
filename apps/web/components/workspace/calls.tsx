@@ -35,8 +35,13 @@ import type { LocalMessage } from '@sampledge/offline';
 import { Avatar, Button, Tooltip, cn } from '@sampledge/ui';
 import { cameraTrackOf, handRaisedAt, screenTrackOf, useCalls } from '@/lib/calls';
 import type { DirectoryEntry } from '@/lib/engine';
-import { conversationTitle, formatTime, nameOf } from './helpers';
+import { avatarOf, conversationTitle, formatTime, nameOf } from './helpers';
 import { MemberCallChat, useCallChatCount } from './call-chat';
+import { CallDeviceSettings } from './call-devices';
+import { CaptionsButton, CaptionsOverlay } from './call-captions';
+import { useLiveCaptions } from '@/lib/captions';
+import { MinutesButton } from './minutes';
+import { useMemberCallBackground } from '@/lib/call-backgrounds';
 
 const iconBtn =
   'rounded-sm p-1.5 text-text-muted transition-colors hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-40';
@@ -123,6 +128,7 @@ export function LiveCallBanner({
           <Avatar
             key={p.userId}
             name={nameOf(p.userId, directory)}
+            src={avatarOf(p.userId, directory)}
             size="xs"
             className="ring-2 ring-bg rounded-full"
           />
@@ -213,7 +219,7 @@ export function IncomingCall({
           <div className="flex items-center gap-3 p-4">
             <span className="relative">
               <span className="absolute -inset-1 animate-ping rounded-full bg-success/30 motion-reduce:animate-none" />
-              <Avatar name={caller} size="lg" />
+              <Avatar name={caller} src={avatarOf(ring?.callerId, directory)} size="lg" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="flex items-center gap-1.5 text-meta text-success">
@@ -342,7 +348,7 @@ export function Tile({
   return (
     <div
       className={cn(
-        'relative flex min-h-0 items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
+        'relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-sunken transition-[box-shadow,border-color] duration-150',
         speaking ? 'border-success shadow-[0_0_0_2px_var(--color-success)]' : 'border-border',
       )}
       data-testid="call-tile"
@@ -351,7 +357,11 @@ export function Tile({
         <TrackVideo track={cam} mirror={isLocal} />
       ) : (
         <div className="flex flex-col items-center gap-2">
-          <Avatar name={p.name || nameOf(p.identity, directory)} size="lg" />
+          <Avatar
+            name={p.name || nameOf(p.identity, directory)}
+            src={avatarOf(p.identity, directory)}
+            size="lg"
+          />
           {!compact ? <span className="text-meta text-text-subtle">Camera off</span> : null}
         </div>
       )}
@@ -452,6 +462,12 @@ export function CallStage({
   }, [chatOpen, chatCount]);
   const chatUnread = Math.max(0, chatCount - chatSeen);
   const elapsed = useElapsed(cur?.call.startedAt ?? new Date().toISOString());
+  const backgrounds = useMemberCallBackground();
+  const captions = useLiveCaptions(cur?.room ?? null, {
+    enabled: !!calls.config?.captionsEnabled,
+    myName: nameOf(me, directory),
+    transcribe: calls.transcribeCaption,
+  });
   if (!cur) return null;
   const { room, call } = cur;
   const conv = conversations.find((c) => c.conversationId === call.conversationId);
@@ -633,6 +649,7 @@ export function CallStage({
             ))}
           </div>
         )}
+        <CaptionsOverlay state={captions} saved={!!calls.config?.captionsSaved} />
         {chatOpen ? (
           <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
             <MemberCallChat
@@ -710,6 +727,8 @@ export function CallStage({
             )}
           </ControlButton>
         ) : null}
+        {calls.config?.captionsEnabled ? <CaptionsButton state={captions} /> : null}
+        <CallDeviceSettings room={cur.room} backgrounds={backgrounds} />
         <ControlButton tone="danger" label="Leave call" onClick={() => void calls.leave()}>
           <PhoneOff />
         </ControlButton>
@@ -908,6 +927,9 @@ export function CallCard({
           <p className="text-label text-text">{title}</p>
           <p className="truncate text-meta text-text-subtle">{detail}</p>
         </div>
+        {meta.status === 'ended' ? (
+          <MinutesButton callId={meta.callId} me={me} directory={directory} />
+        ) : null}
         {isLive && !inIt ? (
           <Button
             size="sm"

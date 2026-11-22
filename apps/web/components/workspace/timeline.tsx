@@ -2,7 +2,12 @@
 import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Languages, MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
-import type { Conversation, Receipt } from '@sampledge/contracts';
+import {
+  forwardedOf,
+  type Conversation,
+  type ForwardedSnapshot,
+  type Receipt,
+} from '@sampledge/contracts';
 import {
   displayStatus,
   overlayReactions,
@@ -11,8 +16,12 @@ import {
 } from '@sampledge/offline';
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
-import { formatDay, formatTime, nameOf, senderNameOf } from './helpers';
+import { avatarOf, formatDay, formatTime, nameOf, senderNameOf } from './helpers';
 import { MessageAttachments } from './attachments';
+import { ForwardedCard } from './forward';
+import { useChatTheme, useChatThemeStyle } from '@/lib/chat-theme';
+import { useChatBackground } from '@/lib/chat-background';
+import { ChatBackdrop } from './chat-background';
 import {
   MessageActions,
   MessageText,
@@ -21,6 +30,7 @@ import {
   type ExtraActions,
 } from './message-parts';
 import { CallCard } from './calls';
+import { MinutesCard } from './minutes';
 import { MeetingCard } from './meetings';
 import { CallRecordingCard } from './recordings';
 import { PollCard } from './polls';
@@ -52,6 +62,7 @@ export function Timeline({
   onCreateTask,
   onRequestApproval,
   onTranslate,
+  onOpenForwarded,
 }: {
   messages: LocalMessage[] | undefined;
   conversation: Conversation;
@@ -81,8 +92,13 @@ export function Timeline({
   onRequestApproval?: (m: LocalMessage) => void;
   /** AI translation of one message, when the assistant is available. */
   onTranslate?: (messageId: string) => Promise<{ text: string | null; label: string }>;
+  /** Jump to the original of a forwarded message. */
+  onOpenForwarded?: (s: ForwardedSnapshot) => void;
 }) {
   const reduce = useReducedMotion();
+  const { effective: chatThemeId } = useChatTheme();
+  const chatStyle = useChatThemeStyle(chatThemeId);
+  const picture = useChatBackground(conversation.conversationId);
   const [translations, setTranslations] = React.useState<
     Map<string, { state: 'loading' | 'done' | 'error'; text?: string; label?: string }>
   >(new Map());
@@ -170,265 +186,301 @@ export function Timeline({
   let lastDay = '';
   return (
     <div
-      ref={scroller}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      }}
-      className="flex-1 overflow-y-auto px-4 py-6 sm:px-6"
-      role="log"
-      aria-live="polite"
-      aria-label="Messages"
+      className="relative flex min-h-0 flex-1 flex-col"
+      style={chatStyle}
+      data-chat-theme={chatThemeId}
+      data-chat-picture={picture ? 'on' : undefined}
     >
-      <AnimatePresence initial={false}>
-        {messages.map((m, i) => {
-          const prev = messages[i - 1];
-          const day = formatDay(m.createdAt);
-          const showDay = day !== lastDay;
-          lastDay = day;
-          const own = m.senderId === me;
-          const grouped =
-            !showDay &&
-            prev &&
-            prev.messageType !== 'system' &&
-            m.messageType !== 'system' &&
-            prev.senderId === m.senderId &&
-            Date.parse(m.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
-          const status = own ? displayStatus(m, conversation, receipts) : null;
-          const name = own ? 'You' : senderNameOf(m, directory);
-          return (
-            <React.Fragment key={m.clientMessageId}>
-              {showDay ? (
-                <div className="my-5 flex items-center gap-3" role="separator">
-                  <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full border border-border bg-surface px-3 py-0.5 text-meta text-text-subtle">
-                    {day}
-                  </span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              ) : null}
-              {m.messageType === 'system' && m.metadata?.meeting && !m.deletedAt ? (
-                <MeetingCard
-                  message={m}
-                  me={me}
-                  directory={directory}
-                  onOpen={() => onOpenMeeting?.(m.metadata.meeting as MeetingSystemMetadata)}
-                />
-              ) : m.messageType === 'system' && m.metadata?.recording && !m.deletedAt ? (
-                <CallRecordingCard message={m} me={me} directory={directory} />
-              ) : m.messageType === 'system' && m.metadata?.module && !m.deletedAt ? (
-                <ModuleCard message={m} directory={directory} />
-              ) : m.messageType === 'system' && m.metadata?.work && !m.deletedAt ? (
-                <WorkCard message={m} directory={directory} />
-              ) : m.messageType === 'system' && m.metadata?.moduleAction && !m.deletedAt ? (
-                <ModuleActionCard message={m} directory={directory} />
-              ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
-                <CallCard message={m} me={me} directory={directory} offline={offline} />
-              ) : (
-                <motion.div
-                  layout={reduce ? false : 'position'}
-                  initial={reduce ? false : { opacity: 0, y: 8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-                  className={cn(
-                    'group flex gap-3 rounded-lg transition-colors duration-700',
-                    own && 'flex-row-reverse',
-                    grouped ? 'mt-1' : 'mt-4',
-                    highlightId && m.messageId === highlightId && 'bg-accent-soft/60',
-                  )}
-                  data-status={status ?? undefined}
-                  data-message-id={m.messageId ?? undefined}
-                >
-                  <div className="w-9 shrink-0">
-                    {!grouped ? (
-                      <Avatar name={own ? nameOf(me, directory) : name} size="sm" />
-                    ) : null}
+      {picture ? <ChatBackdrop url={picture.url} adjust={picture.adjust} /> : null}
+      <div
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+        role="log"
+        aria-live="polite"
+        aria-label="Messages"
+      >
+        <AnimatePresence initial={false}>
+          {messages.map((m, i) => {
+            const prev = messages[i - 1];
+            const day = formatDay(m.createdAt);
+            const showDay = day !== lastDay;
+            lastDay = day;
+            const own = m.senderId === me;
+            const grouped =
+              !showDay &&
+              prev &&
+              prev.messageType !== 'system' &&
+              m.messageType !== 'system' &&
+              prev.senderId === m.senderId &&
+              Date.parse(m.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
+            const status = own ? displayStatus(m, conversation, receipts) : null;
+            const name = own ? 'You' : senderNameOf(m, directory);
+            return (
+              <React.Fragment key={m.clientMessageId}>
+                {showDay ? (
+                  <div className="my-5 flex items-center gap-3" role="separator">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="rounded-full border border-border bg-surface px-3 py-0.5 text-meta text-text-subtle">
+                      {day}
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
                   </div>
-                  <div
+                ) : null}
+                {m.messageType === 'system' && m.metadata?.meeting && !m.deletedAt ? (
+                  <MeetingCard
+                    message={m}
+                    me={me}
+                    directory={directory}
+                    onOpen={() => onOpenMeeting?.(m.metadata.meeting as MeetingSystemMetadata)}
+                  />
+                ) : m.messageType === 'system' && m.metadata?.recording && !m.deletedAt ? (
+                  <CallRecordingCard message={m} me={me} directory={directory} />
+                ) : m.messageType === 'system' && m.metadata?.module && !m.deletedAt ? (
+                  <ModuleCard message={m} directory={directory} />
+                ) : m.messageType === 'system' && m.metadata?.work && !m.deletedAt ? (
+                  <WorkCard message={m} directory={directory} />
+                ) : m.messageType === 'system' && m.metadata?.moduleAction && !m.deletedAt ? (
+                  <ModuleActionCard message={m} directory={directory} />
+                ) : m.messageType === 'system' && m.metadata?.minutes && !m.deletedAt ? (
+                  <MinutesCard message={m} me={me} directory={directory} />
+                ) : m.messageType === 'system' && m.metadata?.call && !m.deletedAt ? (
+                  <CallCard message={m} me={me} directory={directory} offline={offline} />
+                ) : (
+                  <motion.div
+                    layout={reduce ? false : 'position'}
+                    initial={reduce ? false : { opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
                     className={cn(
-                      'flex min-w-0 max-w-[min(640px,78%)] flex-col',
-                      own && 'items-end',
+                      'group flex gap-3 rounded-lg transition-colors duration-700',
+                      own && 'flex-row-reverse',
+                      grouped ? 'mt-1' : 'mt-4',
+                      highlightId && m.messageId === highlightId && 'bg-accent-soft/60',
                     )}
+                    data-status={status ?? undefined}
+                    data-message-id={m.messageId ?? undefined}
                   >
-                    {!grouped ? (
-                      <div
-                        className={cn(
-                          'mb-1 flex items-baseline gap-2 px-1',
-                          own && 'flex-row-reverse',
-                        )}
-                      >
-                        <span className="text-label text-text">{name}</span>
-                        <span className="text-meta text-text-subtle">
-                          {formatTime(m.createdAt)}
-                        </span>
-                      </div>
-                    ) : null}
-                    {m.pinned && !m.deletedAt ? (
-                      <span className="mb-1 flex items-center gap-1 px-1 text-meta text-accent">
-                        <Pin className="size-3" aria-hidden />
-                        Pinned by{' '}
-                        {m.pinned.pinnedBy === me ? 'you' : nameOf(m.pinned.pinnedBy, directory)}
-                      </span>
-                    ) : null}
-                    {m.replyToMessageId && m.replyToMessageId !== threadRootId ? (
-                      <ReplyQuote
-                        parent={(() => {
-                          const p = byId.get(m.replyToMessageId);
-                          return p
-                            ? {
-                                senderId: p.senderId,
-                                text:
-                                  p.content.text ||
-                                  (p.attachments?.length
-                                    ? `${p.attachments.length} attachment${p.attachments.length > 1 ? 's' : ''}`
-                                    : ''),
-                                deleted: !!p.deletedAt,
-                              }
-                            : null;
-                        })()}
-                        directory={directory}
-                        me={me}
-                        own={own}
-                      />
-                    ) : null}
-                    <div className="relative max-w-full">
-                      {m.messageId && !m.deletedAt && onReact && onReply ? (
-                        <MessageActions
-                          own={own}
-                          onReact={(e) => {
-                            const mine = overlayReactions(
-                              m.reactions ?? [],
-                              pendingByMessage.get(m.messageId!) ?? [],
-                              me,
-                            ).find((r) => r.emoji === e)?.mine;
-                            onReact(m, e, !mine);
-                          }}
-                          onReply={() => onReply(m)}
-                          {...actions?.(m)}
-                          onCreateTask={onCreateTask ? () => onCreateTask(m) : undefined}
-                          onRequestApproval={
-                            onRequestApproval ? () => onRequestApproval(m) : undefined
-                          }
-                          onTranslate={
-                            onTranslate && m.content.text
-                              ? () => translate(m.messageId!)
-                              : undefined
-                          }
+                    <div className="w-9 shrink-0">
+                      {!grouped ? (
+                        <Avatar
+                          name={own ? nameOf(me, directory) : name}
+                          src={avatarOf(m.senderId, directory)}
+                          size="sm"
                         />
                       ) : null}
-                      {m.poll && !m.deletedAt && m.messageId ? (
-                        <PollCard
-                          message={m}
-                          poll={m.poll}
-                          me={me}
-                          directory={directory}
-                          own={own}
-                          offline={offline}
-                          canModerate={canModerate}
-                        />
-                      ) : m.deletedAt || m.content.text ? (
+                    </div>
+                    <div
+                      className={cn(
+                        'flex min-w-0 max-w-[min(640px,78%)] flex-col',
+                        own && 'items-end',
+                      )}
+                    >
+                      {!grouped ? (
                         <div
                           className={cn(
-                            'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
-                            own
-                              ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
-                              : 'rounded-tl-sm border border-border bg-bubble-other text-text',
-                            grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
-                            m.deletedAt && 'italic opacity-60',
-                            (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                            m.status === 'failed' && 'ring-1 ring-danger',
+                            'mb-1 flex items-baseline gap-2 px-1',
+                            own && 'flex-row-reverse',
                           )}
                         >
-                          {m.deletedAt ? (
-                            'This message was deleted'
-                          ) : (
-                            <MessageText
-                              text={m.content.text}
-                              mentions={m.content.mentions}
+                          <span className="text-label text-text">{name}</span>
+                          <span className="text-meta text-text-subtle">
+                            {formatTime(m.createdAt)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {m.pinned && !m.deletedAt ? (
+                        <span className="mb-1 flex items-center gap-1 px-1 text-meta text-accent">
+                          <Pin className="size-3" aria-hidden />
+                          Pinned by{' '}
+                          {m.pinned.pinnedBy === me ? 'you' : nameOf(m.pinned.pinnedBy, directory)}
+                        </span>
+                      ) : null}
+                      {m.replyToMessageId && m.replyToMessageId !== threadRootId ? (
+                        <ReplyQuote
+                          parent={(() => {
+                            const p = byId.get(m.replyToMessageId);
+                            return p
+                              ? {
+                                  senderId: p.senderId,
+                                  text:
+                                    p.content.text ||
+                                    (p.attachments?.length
+                                      ? `${p.attachments.length} attachment${p.attachments.length > 1 ? 's' : ''}`
+                                      : ''),
+                                  deleted: !!p.deletedAt,
+                                }
+                              : null;
+                          })()}
+                          directory={directory}
+                          me={me}
+                          own={own}
+                        />
+                      ) : null}
+                      <div className="relative max-w-full">
+                        {m.messageId && !m.deletedAt && onReact && onReply ? (
+                          <MessageActions
+                            own={own}
+                            onReact={(e) => {
+                              const mine = overlayReactions(
+                                m.reactions ?? [],
+                                pendingByMessage.get(m.messageId!) ?? [],
+                                me,
+                              ).find((r) => r.emoji === e)?.mine;
+                              onReact(m, e, !mine);
+                            }}
+                            onReply={() => onReply(m)}
+                            {...actions?.(m)}
+                            onCreateTask={onCreateTask ? () => onCreateTask(m) : undefined}
+                            onRequestApproval={
+                              onRequestApproval ? () => onRequestApproval(m) : undefined
+                            }
+                            onTranslate={
+                              onTranslate && m.content.text
+                                ? () => translate(m.messageId!)
+                                : undefined
+                            }
+                          />
+                        ) : null}
+                        {m.poll && !m.deletedAt && m.messageId ? (
+                          <PollCard
+                            message={m}
+                            poll={m.poll}
+                            me={me}
+                            directory={directory}
+                            own={own}
+                            offline={offline}
+                            canModerate={canModerate}
+                          />
+                        ) : m.deletedAt || m.content.text ? (
+                          <div
+                            className={cn(
+                              'whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-message shadow-sm',
+                              own
+                                ? 'rounded-tr-sm bg-bubble-own text-bubble-own-fg'
+                                : 'rounded-tl-sm border border-border bg-bubble-other text-text',
+                              grouped && (own ? 'rounded-tr-xl' : 'rounded-tl-xl'),
+                              m.deletedAt && 'italic opacity-60',
+                              (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                              m.status === 'failed' && 'ring-1 ring-danger',
+                            )}
+                          >
+                            {m.deletedAt ? (
+                              'This message was deleted'
+                            ) : (
+                              <MessageText
+                                text={m.content.text}
+                                mentions={m.content.mentions}
+                                directory={directory}
+                                me={me}
+                                own={own}
+                              />
+                            )}
+                            {m.editedAt && !m.deletedAt ? (
+                              <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                            ) : null}
+                            {(m as { pendingChange?: boolean }).pendingChange ? (
+                              <span className="ml-1.5 text-meta opacity-70">· not synced yet</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {!m.deletedAt && forwardedOf(m) ? (
+                          <div
+                            className={cn(
+                              'max-w-full',
+                              m.content.text && 'mt-1',
+                              (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                            )}
+                          >
+                            <ForwardedCard
+                              snapshot={forwardedOf(m)!}
                               directory={directory}
                               me={me}
                               own={own}
+                              onOpen={
+                                onOpenForwarded ? () => onOpenForwarded(forwardedOf(m)!) : undefined
+                              }
                             />
+                          </div>
+                        ) : null}
+                        {m.messageId && translations.has(m.messageId) && !m.deletedAt ? (
+                          <TranslationNote t={translations.get(m.messageId)!} own={own} />
+                        ) : null}
+                        {!m.deletedAt && m.attachments?.length ? (
+                          <div
+                            className={cn(
+                              (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
+                            )}
+                          >
+                            <MessageAttachments attachments={m.attachments} own={own} />
+                          </div>
+                        ) : null}
+                      </div>
+                      {m.messageId && !m.deletedAt ? (
+                        <ReactionChips
+                          reactions={overlayReactions(
+                            m.reactions ?? [],
+                            pendingByMessage.get(m.messageId) ?? [],
+                            me,
                           )}
-                          {m.editedAt && !m.deletedAt ? (
-                            <span className="ml-1.5 text-meta opacity-70">(edited)</span>
+                          directory={directory}
+                          me={me}
+                          own={own}
+                          onToggle={(e, add) => onReact?.(m, e, add)}
+                        />
+                      ) : null}
+                      {m.messageId && replyCounts?.get(m.messageId) && onOpenThread ? (
+                        <button
+                          onClick={() => onOpenThread(m)}
+                          className="mt-1 inline-flex items-center gap-1.5 rounded-sm px-1 text-meta font-medium text-accent hover:underline"
+                        >
+                          <MessagesSquare className="size-3.5" aria-hidden />
+                          {replyCounts.get(m.messageId)}{' '}
+                          {replyCounts.get(m.messageId) === 1 ? 'reply' : 'replies'}
+                        </button>
+                      ) : null}
+                      {own ? (
+                        <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">
+                          {grouped ? (
+                            <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                              {formatTime(m.createdAt)}
+                            </span>
+                          ) : null}
+                          <MessageStatusIcon status={status!} />
+                          {m.status === 'queued' ? (
+                            <span className="text-warning">Queued</span>
+                          ) : null}
+                          {m.status === 'failed' ? (
+                            <span className="flex items-center gap-2 text-danger">
+                              {m.error?.message ?? 'Not sent'}
+                              <button
+                                onClick={() => onRetry(m.clientMessageId)}
+                                className="inline-flex items-center gap-1 rounded-sm px-1 font-semibold hover:bg-danger/10"
+                              >
+                                <RotateCcw className="size-3" /> Retry
+                              </button>
+                              <button
+                                onClick={() => onDiscard(m.clientMessageId)}
+                                className="inline-flex items-center gap-1 rounded-sm px-1 hover:bg-danger/10"
+                                aria-label="Discard message"
+                              >
+                                <Trash2 className="size-3" />
+                              </button>
+                            </span>
                           ) : null}
                         </div>
                       ) : null}
-                      {m.messageId && translations.has(m.messageId) && !m.deletedAt ? (
-                        <TranslationNote t={translations.get(m.messageId)!} own={own} />
-                      ) : null}
-                      {!m.deletedAt && m.attachments?.length ? (
-                        <div
-                          className={cn(
-                            (m.status === 'queued' || m.status === 'sending') && 'opacity-80',
-                          )}
-                        >
-                          <MessageAttachments attachments={m.attachments} own={own} />
-                        </div>
-                      ) : null}
                     </div>
-                    {m.messageId && !m.deletedAt ? (
-                      <ReactionChips
-                        reactions={overlayReactions(
-                          m.reactions ?? [],
-                          pendingByMessage.get(m.messageId) ?? [],
-                          me,
-                        )}
-                        directory={directory}
-                        me={me}
-                        own={own}
-                        onToggle={(e, add) => onReact?.(m, e, add)}
-                      />
-                    ) : null}
-                    {m.messageId && replyCounts?.get(m.messageId) && onOpenThread ? (
-                      <button
-                        onClick={() => onOpenThread(m)}
-                        className="mt-1 inline-flex items-center gap-1.5 rounded-sm px-1 text-meta font-medium text-accent hover:underline"
-                      >
-                        <MessagesSquare className="size-3.5" aria-hidden />
-                        {replyCounts.get(m.messageId)}{' '}
-                        {replyCounts.get(m.messageId) === 1 ? 'reply' : 'replies'}
-                      </button>
-                    ) : null}
-                    {own ? (
-                      <div className="mt-1 flex items-center gap-1.5 px-1 text-meta text-text-subtle">
-                        {grouped ? (
-                          <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                            {formatTime(m.createdAt)}
-                          </span>
-                        ) : null}
-                        <MessageStatusIcon status={status!} />
-                        {m.status === 'queued' ? (
-                          <span className="text-warning">Queued</span>
-                        ) : null}
-                        {m.status === 'failed' ? (
-                          <span className="flex items-center gap-2 text-danger">
-                            {m.error?.message ?? 'Not sent'}
-                            <button
-                              onClick={() => onRetry(m.clientMessageId)}
-                              className="inline-flex items-center gap-1 rounded-sm px-1 font-semibold hover:bg-danger/10"
-                            >
-                              <RotateCcw className="size-3" /> Retry
-                            </button>
-                            <button
-                              onClick={() => onDiscard(m.clientMessageId)}
-                              className="inline-flex items-center gap-1 rounded-sm px-1 hover:bg-danger/10"
-                              aria-label="Discard message"
-                            >
-                              <Trash2 className="size-3" />
-                            </button>
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </motion.div>
-              )}
-            </React.Fragment>
-          );
-        })}
-      </AnimatePresence>
+                  </motion.div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

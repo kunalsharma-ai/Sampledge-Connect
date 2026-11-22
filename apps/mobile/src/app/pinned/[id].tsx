@@ -23,7 +23,7 @@ export default function Pinned() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canPin = !!conv && conv.myRole !== null && !conv.archivedAt;
-  const blocked = engine.serverActionBlocker();
+  const blocked = engine.queueBlocker();
 
   const unpin = async (messageId: string) => {
     setBusy(messageId);
@@ -63,6 +63,7 @@ export default function Pinned() {
           const by = m.pinned!.pinnedBy === selfId ? 'you' : nameOf(m.pinned!.pinnedBy);
           return (
             <SavedMessageCard
+              senderId={guestSenderLabel(m.metadata) ? null : m.senderId}
               senderName={
                 m.senderId === selfId ? 'You' : (guestSenderLabel(m.metadata) ?? nameOf(m.senderId))
               }

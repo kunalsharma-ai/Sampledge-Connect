@@ -39,6 +39,10 @@ export interface SummarizeInput {
   agenda?: string;
   lines: TranscriptLine[];
   members: Member[];
+  /** Write the result in this language (BCP 47), whatever language people spoke. */
+  language?: string;
+  /** `minutes`: a call's transcript and chat, written up as minutes of meeting. */
+  purpose?: 'summary' | 'minutes';
 }
 
 export interface AiEngineImpl {

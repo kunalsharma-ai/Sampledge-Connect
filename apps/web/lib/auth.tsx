@@ -1,10 +1,12 @@
 'use client';
 import * as React from 'react';
 import {
+  NETWORK_TENANT_SLUG,
   isMfaChallenge,
   type LoginRequest,
   type LoginResponse,
   type MfaChallenge,
+  type NetworkSignupRequest,
   type RegisterTenantRequest,
   type Session,
 } from '@sampledge/contracts';
@@ -15,22 +17,39 @@ import {
   deviceInfo,
   loadSession,
   saveSession,
+  type SessionSlot,
   type StoredSession,
 } from './auth-store';
 
 type Status = 'loading' | 'signed-out' | 'signed-in';
+export type Space = 'work' | 'network';
+
+const LS_SPACE = 'sampledge.space';
 
 interface AuthContextValue {
   status: Status;
+  /** The session the app is showing: your organization, or SampConnect Network. */
   session: StoredSession | null;
+  /** The account you signed in with (an organization, or a personal network account). */
+  primary: StoredSession | null;
+  space: Space;
+  /** True when this account is a personal SampConnect Network account (no organization). */
+  personal: boolean;
   /** Returns a valid access token, refreshing when needed. Throws on network failure, null when signed out. */
   getAccessToken(): Promise<string | null>;
+  /** Token for a specific slot (the organization while you are in the network, and back). */
+  tokenFor(slot: SessionSlot): Promise<string | null>;
+  /** Opens SampConnect Network: links this work account on first use (online), then switches. */
+  enterNetwork(): Promise<void>;
+  enterWork(): void;
   /** Resolves with a challenge when the account has two-step verification on. */
   login(input: Omit<LoginRequest, 'device'>): Promise<MfaChallenge | null>;
   verifyMfa(challengeId: string, code: string): Promise<void>;
   /** Finishes single sign-on with the one-time code from `#sso=`. */
   completeSso(code: string): Promise<void>;
   register(input: Omit<RegisterTenantRequest, 'device'>): Promise<void>;
+  /** Free personal SampConnect Network account. */
+  signupPersonal(input: Omit<NetworkSignupRequest, 'device'>): Promise<void>;
   logout(): Promise<void>;
   /** Set when a refresh failed for auth reasons; the UI asks the user to sign in again. */
   expired: boolean;
@@ -44,60 +63,122 @@ export function useAuth() {
   return ctx;
 }
 
+export const isNetworkSession = (s: { tenant: { slug: string } } | null | undefined) =>
+  s?.tenant.slug === NETWORK_TENANT_SLUG;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = React.useState<Status>('loading');
-  const [session, setSession] = React.useState<StoredSession | null>(null);
+  const [primary, setPrimary] = React.useState<StoredSession | null>(null);
+  const [linked, setLinked] = React.useState<StoredSession | null>(null);
+  const [space, setSpaceState] = React.useState<Space>('work');
   const [expired, setExpired] = React.useState(false);
-  const access = React.useRef<{ token: string; expiresAt: number } | null>(null);
-  const refreshing = React.useRef<Promise<string | null> | null>(null);
-  const sessionRef = React.useRef<StoredSession | null>(null);
+  const access = React.useRef(new Map<SessionSlot, { token: string; expiresAt: number }>());
+  const refreshing = React.useRef(new Map<SessionSlot, Promise<string | null>>());
+  const slots = React.useRef(new Map<SessionSlot, StoredSession>());
+
+  const setSpace = React.useCallback((s: Space) => {
+    setSpaceState(s);
+    try {
+      localStorage.setItem(LS_SPACE, s);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
 
   React.useEffect(() => {
-    void loadSession().then((s) => {
-      sessionRef.current = s;
-      setSession(s);
+    void Promise.all([loadSession('current'), loadSession('network')]).then(([p, n]) => {
+      if (p) slots.current.set('current', p);
+      if (n) slots.current.set('network', n);
+      setPrimary(p);
+      setLinked(n);
+      let saved: string | null = null;
+      try {
+        saved = localStorage.getItem(LS_SPACE);
+      } catch {
+        /* ignore */
+      }
+      setSpaceState(isNetworkSession(p) || (saved === 'network' && n) ? 'network' : 'work');
       // Signed in even when offline: the cached workspace and outbox are usable without a token.
-      setStatus(s ? 'signed-in' : 'signed-out');
+      setStatus(p ? 'signed-in' : 'signed-out');
     });
   }, []);
 
-  const adopt = React.useCallback(async (s: Session) => {
-    access.current = {
+  const adopt = React.useCallback(async (s: Session, slot: SessionSlot = 'current') => {
+    access.current.set(slot, {
       token: s.accessToken,
       expiresAt: Date.now() + s.accessTokenExpiresIn * 1000,
-    };
-    const stored = await saveSession(s);
-    sessionRef.current = stored;
-    setSession(stored);
+    });
+    const stored = await saveSession(s, slot);
+    slots.current.set(slot, stored);
+    if (slot === 'current') {
+      setPrimary(stored);
+      setSpaceState(isNetworkSession(stored) ? 'network' : 'work');
+    } else setLinked(stored);
     setExpired(false);
     setStatus('signed-in');
   }, []);
 
-  const getAccessToken = React.useCallback(async (): Promise<string | null> => {
-    if (access.current && access.current.expiresAt - Date.now() > 30_000)
-      return access.current.token;
-    const s = sessionRef.current;
-    if (!s) return null;
-    if (!refreshing.current) {
-      refreshing.current = (async () => {
-        try {
-          const next = await apiRequest<Session>('POST', '/v1/auth/refresh', {
-            body: { refreshToken: s.refreshToken },
-          });
-          await adopt(next);
-          return next.accessToken;
-        } catch (e) {
-          if (e instanceof ApiFailure && e.status === 0) throw e; // offline: try again later
-          access.current = null;
-          setExpired(true);
-          return null;
-        } finally {
-          refreshing.current = null;
-        }
-      })();
+  const tokenFor = React.useCallback(
+    async (slot: SessionSlot): Promise<string | null> => {
+      const a = access.current.get(slot);
+      if (a && a.expiresAt - Date.now() > 30_000) return a.token;
+      const s = slots.current.get(slot);
+      if (!s) return null;
+      if (!refreshing.current.has(slot)) {
+        refreshing.current.set(
+          slot,
+          (async () => {
+            try {
+              const next = await apiRequest<Session>('POST', '/v1/auth/refresh', {
+                body: { refreshToken: s.refreshToken },
+              });
+              await adopt(next, slot);
+              return next.accessToken;
+            } catch (e) {
+              if (e instanceof ApiFailure && e.status === 0) throw e; // offline: try again later
+              access.current.delete(slot);
+              if (slot === 'network' && slots.current.has('current')) {
+                // The network link was revoked (e.g. the organization turned it off): forget it.
+                slots.current.delete('network');
+                setLinked(null);
+                await clearSession('network');
+                setSpaceState('work');
+              } else setExpired(true);
+              return null;
+            } finally {
+              refreshing.current.delete(slot);
+            }
+          })(),
+        );
+      }
+      return refreshing.current.get(slot)!;
+    },
+    [adopt],
+  );
+
+  const activeSlot: SessionSlot =
+    space === 'network' && linked && !isNetworkSession(primary) ? 'network' : 'current';
+  const activeSlotRef = React.useRef(activeSlot);
+  activeSlotRef.current = activeSlot;
+  const getAccessToken = React.useCallback(() => tokenFor(activeSlotRef.current), [tokenFor]);
+
+  const enterNetwork = React.useCallback(async () => {
+    if (isNetworkSession(slots.current.get('current'))) return setSpace('network');
+    if (!slots.current.has('network')) {
+      const token = await tokenFor('current');
+      if (!token) throw new Error('Sign in again to open SampConnect Network');
+      const s = await apiRequest<Session>('POST', '/v1/network/link', {
+        token,
+        body: { device: deviceInfo() },
+      });
+      await adopt(s, 'network');
     }
-    return refreshing.current;
-  }, [adopt]);
+    setSpace('network');
+  }, [adopt, setSpace, tokenFor]);
+
+  const enterWork = React.useCallback(() => {
+    if (!isNetworkSession(slots.current.get('current'))) setSpace('work');
+  }, [setSpace]);
 
   const login = React.useCallback(
     async (input: Omit<LoginRequest, 'device'>) => {
@@ -139,29 +220,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [adopt],
   );
 
+  const signupPersonal = React.useCallback(
+    async (input: Omit<NetworkSignupRequest, 'device'>) => {
+      const s = await apiRequest<Session>('POST', '/v1/network/public/signup', {
+        body: { ...input, device: deviceInfo() },
+      });
+      await adopt(s);
+    },
+    [adopt],
+  );
+
   const logout = React.useCallback(async () => {
-    const token = access.current?.token;
-    if (token) await apiRequest('POST', '/v1/auth/logout', { token }).catch(() => undefined);
-    access.current = null;
+    for (const slot of ['network', 'current'] as const) {
+      const token = access.current.get(slot)?.token;
+      if (token) await apiRequest('POST', '/v1/auth/logout', { token }).catch(() => undefined);
+    }
+    access.current.clear();
+    slots.current.clear();
     await clearSession();
-    sessionRef.current = null;
-    setSession(null);
+    setPrimary(null);
+    setLinked(null);
     setStatus('signed-out');
   }, []);
 
+  const session = activeSlot === 'network' ? linked : primary;
+  const personal = isNetworkSession(primary);
   const value = React.useMemo(
     () => ({
       status,
       session,
+      primary,
+      space: (personal ? 'network' : activeSlot === 'network' ? 'network' : 'work') as Space,
+      personal,
       getAccessToken,
+      tokenFor,
+      enterNetwork,
+      enterWork,
       login,
       verifyMfa,
       completeSso,
       register,
+      signupPersonal,
       logout,
       expired,
     }),
-    [status, session, getAccessToken, login, verifyMfa, completeSso, register, logout, expired],
+    [
+      status,
+      session,
+      primary,
+      personal,
+      activeSlot,
+      getAccessToken,
+      tokenFor,
+      enterNetwork,
+      enterWork,
+      login,
+      verifyMfa,
+      completeSso,
+      register,
+      signupPersonal,
+      logout,
+      expired,
+    ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

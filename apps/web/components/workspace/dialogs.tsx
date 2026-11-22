@@ -1,5 +1,8 @@
 'use client';
+import { QuietHoursCard, StatusCard } from './status';
+import { ChatThemesCard } from './chat-themes';
 import * as React from 'react';
+import { ProfileCard } from './profile-card';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Check, Hash, Lock, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
 import type { Conversation, CreateConversationRequest, UserSummary } from '@sampledge/contracts';
@@ -23,7 +26,7 @@ import { useOrgBranding } from '@/lib/org-branding';
 import { useEngine } from '@/lib/engine';
 import { BrowserNotificationsCard } from './browser-notifications';
 import { TwoStepCard } from './two-step-card';
-import { relativeShort } from './helpers';
+import { avatarUrl, relativeShort } from './helpers';
 
 type Kind = 'dm' | 'group' | 'channel_public' | 'channel_private';
 
@@ -200,7 +203,7 @@ export function NewConversationDialog({
                       on ? 'bg-accent-soft' : 'hover:bg-surface-raised',
                     )}
                   >
-                    <Avatar name={u.displayName} size="sm" />
+                    <Avatar name={u.displayName} src={avatarUrl(u.avatarUrl)} size="sm" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-label text-text">{u.displayName}</span>
                       <span className="block truncate text-meta text-text-subtle">
@@ -241,6 +244,7 @@ export function SyncCenterDialog({
 }) {
   const { db, engine, state } = useEngine();
   const outbox = useLiveQuery(() => db.outbox.orderBy('createdAt').toArray(), [db]);
+  const actions = useLiveQuery(() => db.actions.orderBy('createdAt').toArray(), [db]);
   const conversations = useLiveQuery(() => db.conversations.toArray(), [db]);
   const names = new Map(
     (conversations ?? []).map((c) => [c.conversationId, c.name ?? 'Direct message']),
@@ -252,7 +256,10 @@ export function SyncCenterDialog({
         description="Everything saved on this device that hasn’t reached the server yet."
       >
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-sunken px-4 py-3">
-          <ConnectivityIndicator state={state.connectivity} queued={state.queued} />
+          <ConnectivityIndicator
+            state={state.connectivity}
+            queued={state.queued + state.pendingActions}
+          />
           <span className="text-meta text-text-subtle">
             Last sync{' '}
             {state.lastSyncAt
@@ -264,11 +271,12 @@ export function SyncCenterDialog({
           </span>
         </div>
         <div className="mt-4 max-h-72 overflow-y-auto">
-          {outbox === undefined ? null : outbox.length === 0 ? (
+          {outbox === undefined || actions === undefined ? null : outbox.length === 0 &&
+            actions.length === 0 ? (
             <StateView
               state="success"
               title="All caught up"
-              description="Every message on this device has reached the server."
+              description="Every message and change on this device has reached the server."
             />
           ) : (
             <ul className="space-y-2">
@@ -333,6 +341,55 @@ export function SyncCenterDialog({
                   ) : null}
                 </li>
               ))}
+              {actions.map((a) => (
+                <li
+                  key={a.key}
+                  className={cn(
+                    'rounded-lg border p-3',
+                    a.state === 'failed' ? 'border-danger/50' : 'border-border',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-label font-normal text-text">{a.label}</span>
+                    <Badge tone={a.state === 'failed' ? 'danger' : 'warning'}>
+                      {a.state === 'failed' ? 'Failed' : 'Queued'}
+                    </Badge>
+                  </div>
+                  {a.conversationId ? (
+                    <p className="mt-1 truncate text-meta text-text-subtle">
+                      {names.get(a.conversationId) ?? 'Conversation'}
+                    </p>
+                  ) : null}
+                  {a.state === 'failed' ? (
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-meta text-danger">
+                        {a.lastError?.message ?? 'Not saved'}
+                      </span>
+                      <span className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void engine.retryAction(a.key)}
+                        >
+                          <RotateCcw /> Retry
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Discard: ${a.label}`}
+                          onClick={() => void engine.discardAction(a.key)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </span>
+                    </div>
+                  ) : a.attempts > 0 ? (
+                    <p className="mt-1 text-meta text-text-subtle">
+                      Attempt {a.attempts}. Retrying automatically.
+                    </p>
+                  ) : null}
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -364,8 +421,9 @@ export function SettingsDialog({
       <DialogContent
         className="w-[min(880px,calc(100vw-2rem))]"
         title="Settings"
-        description="Appearance, notifications and sign-in security."
+        description="Your profile, appearance, notifications and sign-in security."
       >
+        <ProfileCard />
         {themeLocked ? (
           <p className="mb-3 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-meta text-text-muted">
             {branding?.organizationName ?? 'Your organization'} sets the theme for everyone.
@@ -377,7 +435,10 @@ export function SettingsDialog({
         >
           <ThemePicker />
         </div>
+        <ChatThemesCard />
         <BrowserNotificationsCard />
+        <StatusCard />
+        <QuietHoursCard />
         <TwoStepCard />
         {branding?.supportEmail || branding?.supportUrl ? (
           <p className="mt-6 text-meta text-text-muted" data-testid="support-contact">

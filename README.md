@@ -1,8 +1,8 @@
-# Sampledge Connect
+# SampConnect
 
 **One Workspace. Every Conversation. Connected.**
 
-Sampledge Connect is a premium, offline-first, multi-tenant communication platform for the Sampledge ecosystem: internal chat that keeps working through network drops, connected to the business records your teams work on.
+SampConnect is a premium, offline-first, multi-tenant communication platform for the Sampledge ecosystem: internal chat that keeps working through network drops, connected to the business records your teams work on.
 
 ## Status
 

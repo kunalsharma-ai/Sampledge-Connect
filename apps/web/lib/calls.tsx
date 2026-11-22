@@ -15,9 +15,10 @@ import type {
   CallRingingEvent,
   CallsConfig,
 } from '@sampledge/contracts';
-import { ApiFailure, apiRequest } from './api';
+import { ApiFailure, apiRequest, postCaptionClip } from './api';
 import { useAuth } from './auth';
-import { useEngine } from './engine';
+import { useEngine, useEngineChange } from './engine';
+import { deviceOptions } from './call-devices';
 
 /** The call this tab is in: the server's record plus the live SFU room. */
 export interface CurrentCall {
@@ -54,6 +55,8 @@ interface CallsContextValue {
   toggleRecording(): Promise<void>;
   /** Let an external guest in from the lobby, or turn them away. */
   decideGuest(guestId: string, allow: boolean): Promise<void>;
+  /** Live captions: one clip of my own speech, transcribed by the organization's server. */
+  transcribeCaption(clip: Blob): Promise<string>;
 }
 
 const CallsContext = React.createContext<CallsContextValue | null>(null);
@@ -115,6 +118,16 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
       if (row) setConfig((c) => c ?? (row.value as CallsConfig));
     });
   }, [db]);
+  // Refetched when an admin saves Integrations or recording settings on any device, so call
+  // buttons turn on (or off) without a reload.
+  const [configVersion, setConfigVersion] = React.useState(0);
+  useEngineChange(['tenant'], (e) => {
+    if (
+      e.type === 'reconnected' ||
+      (e.type === 'tenant' && (e.area === 'integrations' || e.area === 'recordings'))
+    )
+      setConfigVersion((v) => v + 1);
+  });
   React.useEffect(() => {
     if (!online) return;
     void (async () => {
@@ -129,7 +142,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
         /* offline or not permitted: keep what we have */
       }
     })();
-  }, [online, req, db]);
+  }, [online, req, db, configVersion]);
 
   const bump = React.useCallback((patch: Partial<CurrentCall> = {}) => {
     setCurrent((c) => (c ? { ...c, ...patch, version: c.version + 1 } : c));
@@ -145,12 +158,15 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
   const connectTo = React.useCallback(
     async (res: CallJoinResponse, video: boolean) => {
       await currentRef.current?.room.disconnect().catch(() => undefined);
+      const dev = deviceOptions();
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
+        videoCaptureDefaults: { resolution: VideoPresets.h720.resolution, ...dev.video },
         publishDefaults: { simulcast: true },
+        ...(dev.audioOutput ? { audioOutput: dev.audioOutput } : {}),
         audioCaptureDefaults: {
+          ...dev.audio,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
@@ -395,6 +411,15 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     [req, bump],
   );
 
+  const transcribeCaption = React.useCallback(
+    async (clip: Blob) => {
+      const c = currentRef.current;
+      if (!c) return '';
+      return postCaptionClip(`/v1/calls/${c.call.callId}/captions`, clip, await getAccessToken());
+    },
+    [getAccessToken],
+  );
+
   const value: CallsContextValue = {
     config,
     live,
@@ -414,6 +439,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     toggleHand,
     toggleRecording,
     decideGuest,
+    transcribeCaption,
   };
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

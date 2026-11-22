@@ -18,6 +18,8 @@ export interface SttSettings {
   timeoutMs: number;
   autoTranscribeCalls: boolean;
   autoTranscribeVoice: boolean;
+  /** Languages every finished transcript is also translated into (ISO 639-1). */
+  translateTo: string[];
 }
 
 export const AI_TRANSCRIPTION_PROVIDER: IntegrationProviderDef = {
@@ -57,6 +59,13 @@ export const AI_TRANSCRIPTION_PROVIDER: IntegrationProviderDef = {
       type: 'string',
       placeholder: 'en',
       help: 'Two-letter code. Leave empty to detect the language of each recording.',
+    },
+    {
+      key: 'translateTo',
+      label: 'Also translate transcripts to',
+      type: 'string',
+      placeholder: 'en',
+      help: 'Comma-separated language codes such as en, hi. English works with the speech-to-text server alone; other languages use your AI model server. A transcript already in that language is not translated.',
     },
     {
       key: 'autoTranscribeCalls',
@@ -101,9 +110,23 @@ export function sttSettingsFromValues(values: Record<string, unknown>): SttSetti
     language: /^[a-z]{2,3}$/.test(lang) ? lang : null,
     timeoutMs:
       Number.isFinite(timeout) && timeout >= 10_000 ? Math.min(timeout, 3_600_000) : 600_000,
+    translateTo: parseLanguages(values.translateTo),
     autoTranscribeCalls: bool(values.autoTranscribeCalls, true),
     autoTranscribeVoice: bool(values.autoTranscribeVoice, false),
   };
+}
+
+/** "en, hi" → ['en', 'hi'] (valid codes only, at most 5). */
+export function parseLanguages(v: unknown): string[] {
+  const raw = Array.isArray(v) ? v.join(',') : typeof v === 'string' ? v : '';
+  return [
+    ...new Set(
+      raw
+        .split(/[\s,;]+/)
+        .map((x) => x.trim().toLowerCase())
+        .filter((x) => /^[a-z]{2,3}$/.test(x)),
+    ),
+  ].slice(0, 5);
 }
 
 export class SttUnavailableError extends Error {}
@@ -149,15 +172,33 @@ export class SttClient {
     return this.s.model;
   }
 
-  async transcribe(audio: Buffer, fileName: string, mimeType: string): Promise<SttResult> {
+  transcribe(audio: Buffer, fileName: string, mimeType: string): Promise<SttResult> {
+    return this.call('transcriptions', audio, fileName, mimeType);
+  }
+
+  /**
+   * Whisper's translate task: speech in any language straight to English text, with timings.
+   * Speaches, LocalAI and whisper.cpp (`--translate` route) support `/v1/audio/translations`.
+   */
+  async translateToEnglish(audio: Buffer, fileName: string, mimeType: string): Promise<SttResult> {
+    const r = await this.call('translations', audio, fileName, mimeType);
+    return { ...r, language: 'en' };
+  }
+
+  private async call(
+    task: 'transcriptions' | 'translations',
+    audio: Buffer,
+    fileName: string,
+    mimeType: string,
+  ): Promise<SttResult> {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), fileName);
     form.append('model', this.s.model);
     form.append('response_format', 'verbose_json');
-    if (this.s.language) form.append('language', this.s.language);
+    if (this.s.language && task === 'transcriptions') form.append('language', this.s.language);
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.base}/audio/transcriptions`, {
+      res = await this.fetchImpl(`${this.base}/audio/${task}`, {
         method: 'POST',
         headers: this.s.apiKey ? { authorization: `Bearer ${this.s.apiKey}` } : {},
         body: form,
@@ -227,6 +268,35 @@ const NAMES: Record<string, string> = {
   chinese: 'zh',
   polish: 'pl',
   swedish: 'sv',
+  arabic: 'ar',
+  bengali: 'bn',
+  czech: 'cs',
+  danish: 'da',
+  greek: 'el',
+  finnish: 'fi',
+  hebrew: 'he',
+  hungarian: 'hu',
+  indonesian: 'id',
+  korean: 'ko',
+  marathi: 'mr',
+  malay: 'ms',
+  norwegian: 'no',
+  punjabi: 'pa',
+  persian: 'fa',
+  romanian: 'ro',
+  russian: 'ru',
+  swahili: 'sw',
+  tamil: 'ta',
+  telugu: 'te',
+  thai: 'th',
+  turkish: 'tr',
+  ukrainian: 'uk',
+  urdu: 'ur',
+  vietnamese: 'vi',
+  gujarati: 'gu',
+  kannada: 'kn',
+  malayalam: 'ml',
+  tagalog: 'tl',
 };
 function toIso(lang: string): string | null {
   const l = lang.trim().toLowerCase();
