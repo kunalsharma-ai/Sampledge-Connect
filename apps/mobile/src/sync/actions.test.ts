@@ -3,6 +3,8 @@ import { DEFAULT_DND_SCHEDULE, effectiveChatTheme } from '@sampledge/contracts';
 import type {
   ChatThemeId,
   ChatThemePolicy,
+  CallBackgroundChoice,
+  CallBackgroundState,
   Approval,
   BookingPage,
   CreateBookingPageRequest,
@@ -109,6 +111,14 @@ async function setup() {
       themeId: ChatThemeId | null;
       policy: ChatThemePolicy;
     },
+    callbg: {
+      choice: null as CallBackgroundChoice | null,
+      imageKey: null as string | null,
+      policy: { defaultChoice: { kind: 'none' }, enforceLogo: false } as Omit<
+        CallBackgroundState['policy'],
+        'canManage'
+      >,
+    },
     users: new Map<string, DirectoryUser>([
       [
         SELF,
@@ -147,6 +157,18 @@ async function setup() {
     const next = { ...m, ...over, changeSequence: ++server.seq };
     server.messages.set(m.messageId, next);
     return next;
+  };
+  const callbgState = (): CallBackgroundState => {
+    const b = server.callbg;
+    return {
+      choice: b.choice,
+      effective: b.policy.enforceLogo ? { kind: 'logo' } : (b.choice ?? b.policy.defaultChoice),
+      customImageUrl: b.imageKey
+        ? `https://connect.test/v1/call-backgrounds/t1/${b.imageKey}`
+        : null,
+      policy: { ...b.policy, canManage: false },
+      brand: { name: 'Acme', logo: null, primary: '#1f3a5f', secondary: '#c9a227' },
+    };
   };
   const api = {
     sync: async () => ({ conversations: [], revokedConversationIds: [], results: [] }),
@@ -223,6 +245,29 @@ async function setup() {
         );
       server.theme = { ...server.theme, themeId };
       return { ...server.theme, effective: effectiveChatTheme(themeId, p) };
+    },
+    getCallBackground: async () => {
+      step('listCallBackground');
+      return callbgState();
+    },
+    setCallBackground: async (choice: CallBackgroundChoice) => {
+      step(`setCallBackground ${choice.kind === 'preset' ? choice.presetId : choice.kind}`);
+      if (choice.kind === 'custom' && !server.callbg.imageKey)
+        throw new TransportError('Upload an image first', 'api', 'VALIDATION_FAILED');
+      server.callbg.choice = choice;
+      return callbgState();
+    },
+    uploadCallBackground: async (localUri: string) => {
+      step(`uploadCallBackground ${localUri}`);
+      server.callbg.imageKey = `k${++server.seq}`;
+      server.callbg.choice = { kind: 'custom' };
+      return callbgState();
+    },
+    removeCallBackgroundImage: async () => {
+      step('removeCallBackgroundImage');
+      if (server.callbg.choice?.kind === 'custom') server.callbg.choice = null;
+      server.callbg.imageKey = null;
+      return callbgState();
     },
     getRecentSearches: async () => {
       step('listRecentSearches');
@@ -1124,5 +1169,66 @@ describe('chat theme offline and across devices', () => {
     await t.online();
     expect(t.refused).toEqual(['theme.set: Your organization doesn’t offer that chat theme']);
     expect((await t.engine.getChatTheme())?.effective).toBe('graphite');
+  });
+});
+
+describe('call background offline and across devices', () => {
+  it('queues picks and an image offline, sends them in order, and follows other devices', async () => {
+    const t = await setup();
+    await t.online();
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' });
+    t.engine.setNetworkUp(false);
+    await t.engine.setCallBackground({ kind: 'blur' });
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'library' });
+    await t.engine.setCallBackgroundImage('file:///bg-1.jpg');
+    // The image shows straight away, from this phone.
+    let s = await t.engine.getCallBackground();
+    expect(s.effective).toEqual({ kind: 'custom' });
+    expect(s.customImageUrl).toBe('file:///bg-1.jpg');
+    // Picked after the upload: it goes after it, so the server ends up on Boardroom.
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'boardroom' });
+    expect((await t.engine.getCallBackground()).effective).toEqual({
+      kind: 'preset',
+      presetId: 'boardroom',
+    });
+    await t.online();
+    expect(t.calls.filter((c) => /CallBackground/.test(c) && !c.startsWith('list'))).toEqual([
+      'uploadCallBackground file:///bg-1.jpg',
+      'setCallBackground boardroom',
+    ]);
+    s = await t.engine.getCallBackground();
+    expect(s.customImageUrl).toMatch(/^https:\/\/connect.test\/v1\/call-backgrounds\//);
+    // Another device goes back to the image: this phone follows live.
+    const seen: string[] = [];
+    t.engine.events.on('callBackground', (x) => seen.push(x.effective.kind));
+    t.server.callbg.choice = { kind: 'custom' };
+    t.rt.events.emit('meetingsChanged', { area: 'call_background' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'custom' });
+    expect(seen).toContain('custom');
+  });
+
+  it('removing the image in use falls back to the default, and the company rule wins', async () => {
+    const t = await setup();
+    await t.online();
+    await t.engine.setCallBackgroundImage('file:///bg-2.jpg');
+    await t.online();
+    t.server.callbg.policy = { defaultChoice: { kind: 'blur' }, enforceLogo: false };
+    t.engine.setNetworkUp(false);
+    await t.engine.removeCallBackgroundImage();
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'none' }); // cached rule
+    await t.online();
+    let s = await t.engine.getCallBackground();
+    expect(s.choice).toBeNull();
+    expect(s.customImageUrl).toBeNull();
+    expect(s.effective).toEqual({ kind: 'blur' });
+    t.server.callbg.policy = { defaultChoice: { kind: 'blur' }, enforceLogo: true };
+    t.rt.events.emit('tenant', { area: 'calls' });
+    await new Promise((r) => setTimeout(r, 20));
+    s = await t.engine.getCallBackground();
+    expect(s.effective).toEqual({ kind: 'logo' });
+    // A pick made while the rule holds is kept as your choice but the company background applies.
+    await t.engine.setCallBackground({ kind: 'preset', presetId: 'lounge' });
+    expect((await t.engine.getCallBackground()).effective).toEqual({ kind: 'logo' });
   });
 });

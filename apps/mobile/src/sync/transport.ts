@@ -48,6 +48,9 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicyInput,
+  type CallBackgroundState,
   type CallCaptionResponse,
   type IntegrationTestResult,
   type IntegrationValues,
@@ -191,6 +194,14 @@ export interface ApiTransport {
   setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
   /** Owners and admins: the default theme and which themes people may choose. */
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** Your background in calls, the organization rules and the branding for the company one. */
+  getCallBackground(): Promise<CallBackgroundState>;
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
+  /** Sends a JPEG kept on this device as your own background (selects it). */
+  uploadCallBackground(localUri: string): Promise<CallBackgroundState>;
+  removeCallBackgroundImage(): Promise<CallBackgroundState>;
+  /** Owners and admins: the organization default and whether the company background is required. */
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState>;
   activeCalls(): Promise<Call[]>;
   getCall(callId: string): Promise<Call>;
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
@@ -426,13 +437,23 @@ export class HttpTransport implements ApiTransport {
 
   async uploadFile(req: CreateUploadRequest, localUri: string): Promise<Attachment> {
     const ticket = await this.request<UploadTicket>('POST', '/v1/uploads', req);
+    await this.putRaw(ticket.uploadUrl, localUri, 'application/octet-stream');
+    return this.request(
+      'POST',
+      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
+      undefined,
+    );
+  }
+
+  /** Streams a file on this device as the raw request body. Returns the response text. */
+  private async putRaw(path: string, localUri: string, contentType: string): Promise<string> {
     const token = await this.opts.getAccessToken();
     if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
     let res: { status: number; body: string };
     try {
-      res = await putFileBytes(new URL(ticket.uploadUrl, this.opts.baseUrl).toString(), localUri, {
+      res = await putFileBytes(new URL(path, this.opts.baseUrl).toString(), localUri, {
         authorization: `Bearer ${token}`,
-        'content-type': 'application/octet-stream',
+        'content-type': contentType,
       });
     } catch (err) {
       throw new TransportError(err instanceof Error ? err.message : 'Upload failed', 'network');
@@ -451,11 +472,7 @@ export class HttpTransport implements ApiTransport {
         error?.retryAfterMs,
       );
     }
-    return this.request(
-      'POST',
-      `/v1/uploads/${encodeURIComponent(ticket.uploadId)}/complete`,
-      undefined,
-    );
+    return res.body;
   }
 
   async attachmentUrl(attachmentId: string): Promise<AttachmentUrl> {
@@ -540,6 +557,43 @@ export class HttpTransport implements ApiTransport {
 
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
     return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getCallBackground(): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('GET', '/v1/me/call-background', undefined).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/me/call-background', choice).then((s) =>
+      this.withBackgroundUrl(s),
+    );
+  }
+
+  async uploadCallBackground(localUri: string): Promise<CallBackgroundState> {
+    const body = await this.putRaw('/v1/me/call-background/image', localUri, 'image/jpeg');
+    return this.withBackgroundUrl(JSON.parse(body) as CallBackgroundState);
+  }
+
+  removeCallBackgroundImage(): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>(
+      'DELETE',
+      '/v1/me/call-background/image',
+      undefined,
+    ).then((s) => this.withBackgroundUrl(s));
+  }
+
+  setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<CallBackgroundState> {
+    return this.request<CallBackgroundState>('PUT', '/v1/admin/call-backgrounds', policy).then(
+      (s) => this.withBackgroundUrl(s),
+    );
+  }
+
+  private withBackgroundUrl(s: CallBackgroundState): CallBackgroundState {
+    return s.customImageUrl
+      ? { ...s, customImageUrl: new URL(s.customImageUrl, this.opts.baseUrl).toString() }
+      : s;
   }
 
   callsConfig(): Promise<CallsConfig> {
@@ -1215,6 +1269,11 @@ export class NoServerTransport implements ApiTransport {
   getChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();
+  removeCallBackgroundImage = async (): Promise<CallBackgroundState> => this.fail();
+  setCallBackgroundPolicy = async (): Promise<CallBackgroundState> => this.fail();
   lobbyDecision = async (): Promise<Call> => this.fail();
   guestLink = async (): Promise<{ url: string }> => this.fail();
   resendGuestInvite = async (): Promise<void> => this.fail();

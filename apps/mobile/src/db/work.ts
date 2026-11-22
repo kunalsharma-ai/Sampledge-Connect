@@ -20,6 +20,7 @@ import {
   type DndSchedule,
   type WorkingHours,
   type ChatThemeId,
+  type CallBackgroundChoice,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import type { SqlDriver, SqlExecutor } from './driver';
@@ -70,7 +71,12 @@ export type ActionInput =
   | { kind: 'dnd.set'; schedule: DndSchedule }
   /** Your working hours, replaced as a whole (the latest wins). */
   | { kind: 'hours.set'; hours: WorkingHours }
-  | { kind: 'theme.set'; themeId: ChatThemeId | null };
+  | { kind: 'theme.set'; themeId: ChatThemeId | null }
+  /** Your background in calls (the latest wins). */
+  | { kind: 'callbg.set'; choice: CallBackgroundChoice }
+  /** Your own call background: a JPEG kept in app storage until it reaches the server. */
+  | { kind: 'callbg.image'; localUri: string }
+  | { kind: 'callbg.imageRemove' };
 
 export type ActionKind = ActionInput['kind'];
 
@@ -179,6 +185,11 @@ const targetOf = (a: ActionInput): string => {
       return 'hours:me';
     case 'theme.set':
       return 'my-chat-theme';
+    case 'callbg.set':
+    case 'callbg.image':
+    case 'callbg.imageRemove':
+      // One target, so an upload and a later pick reach the server in the order you made them.
+      return 'callbg:me';
   }
 };
 
@@ -187,7 +198,8 @@ const kindOfCache = (k: ActionKind): CacheKind =>
   k === 'status.set' ||
   k === 'dnd.set' ||
   k === 'hours.set' ||
-  k === 'theme.set'
+  k === 'theme.set' ||
+  k.startsWith('callbg.')
     ? 'profile'
     : k === 'pin' || k === 'poll.create' || k === 'poll.close'
       ? 'vote' // these show on messages; 'vote' listeners also reload polls
@@ -439,6 +451,22 @@ export class WorkStore {
         case 'avatar.set':
         case 'avatar.remove':
           // Only the latest photo (or its removal, or recent list) matters.
+          await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
+          await insert(input);
+          break;
+        case 'callbg.set':
+          // A later pick replaces an earlier one still waiting; uploads stay in order before it.
+          await drop(
+            waiting
+              .filter((a) => a.state === 'pending' && a.input.kind === 'callbg.set')
+              .map((a) => a.id),
+          );
+          await insert(input);
+          break;
+        case 'callbg.image':
+        case 'callbg.imageRemove':
+          // A new image (or removing it) makes waiting uploads and picks pointless: the upload
+          // selects the image, and removing it falls back to the default.
           await drop(waiting.filter((a) => a.state === 'pending').map((a) => a.id));
           await insert(input);
           break;
@@ -900,6 +928,22 @@ export class WorkStore {
     ).map(toAction);
     const last = rows[rows.length - 1]?.input;
     return last?.kind === 'theme.set' ? { themeId: last.themeId } : undefined;
+  }
+
+  /** Call background changes made on this device and not on the server yet, oldest first. */
+  async pendingCallBackground(): Promise<Extract<ActionInput, { kind: `callbg.${string}` }>[]> {
+    const rows = (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'callbg:me' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    ).map(toAction);
+    return rows.flatMap((a) =>
+      a.input.kind === 'callbg.set' ||
+      a.input.kind === 'callbg.image' ||
+      a.input.kind === 'callbg.imageRemove'
+        ? [a.input]
+        : [],
+    );
   }
 
   /** Working hours changed on this device and not on the server yet (null: none). */
