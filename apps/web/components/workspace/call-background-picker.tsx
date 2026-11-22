@@ -209,7 +209,7 @@ export function BackgroundPicker({
 
         {groups.map((g) => (
           <React.Fragment key={g}>
-            <Heading>{g}</Heading>
+            <Heading>{g === 'Home' ? 'Luxury homes' : 'Offices'}</Heading>
             {CALL_BACKGROUND_PRESETS.filter((p) => p.group === g).map((p) => (
               <Tile
                 key={p.id}

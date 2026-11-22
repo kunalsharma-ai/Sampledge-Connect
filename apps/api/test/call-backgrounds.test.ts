@@ -75,9 +75,10 @@ describe('call backgrounds', () => {
       body: { kind: 'preset', presetId: 'library' },
     });
     expect(res.status).toBe(200);
-    expect(res.body.effective).toEqual({ kind: 'preset', presetId: 'library' });
+    // An older drawn background is saved as the closest photo.
+    expect(res.body.effective).toEqual({ kind: 'preset', presetId: 'library-study' });
     await ev;
-    expect((await state(ravi)).choice).toEqual({ kind: 'preset', presetId: 'library' });
+    expect((await state(ravi)).choice).toEqual({ kind: 'preset', presetId: 'library-study' });
     // Unknown presets and a personal image that doesn't exist are refused.
     for (const body of [{ kind: 'preset', presetId: 'nope' }, { kind: 'custom' }, { kind: 'x' }])
       expect(
