@@ -85,6 +85,8 @@ import {
   SCHEDULE_MIN_LEAD_MS,
   type TenantArea,
 } from '@sampledge/contracts';
+import { isNetworkTenant } from '../auth/session';
+import { NETWORK_SCOPES, pathInScopes, type NetworkScope } from '../lib/networkSpace';
 import type { SessionManager } from '../auth/session';
 import type {
   LocalMessage,
@@ -177,6 +179,8 @@ const CALL_BG_KEY = 'callBackground';
 const MINUTES_CONFIG_KEY = 'minutes.config';
 const TRANSCRIPTION_KEY = 'ai.transcription';
 const transcriptKey = (attachmentId: string) => `transcript.${attachmentId}`;
+const NET_PREFIX = 'net:';
+const netKey = (path: string) => `${NET_PREFIX}${path}`;
 const minutesKey = (callId: string) => `minutes.call.${callId}`;
 const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
 
@@ -194,7 +198,12 @@ export class ConnectEngine {
     /** A task or approval you are involved in was created or changed (here or live). */
     work: { kind: 'task' | 'approval' } | null;
     /** The server refused a change made on this device (shown briefly; server state wins). */
-    actionRefused: { kind: ActionKind; reason: string };
+    actionRefused: { kind: ActionKind; reason: string; label?: string };
+    /**
+     * SampConnect Network data changed (`scope` from the server, or null for a change queued or
+     * read here): screens re-read what they show.
+     */
+    network: { scope: NetworkScope | null };
     branding: BrandingView;
     /** An admin added or changed a member on this device (other devices see it on sync). */
     members: UserSummary;
@@ -341,6 +350,7 @@ export class ConnectEngine {
         }),
         this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
         this.realtime.events.on('transcript', (e) => void this.receiveTranscript(e.attachmentId)),
+        this.realtime.events.on('network', (e) => void this.refreshNetwork([e.scope], e.scope)),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -397,6 +407,17 @@ export class ConnectEngine {
   /** App returned to the foreground or the user pulled to refresh. */
   async resume(): Promise<void> {
     if (!this._state.networkUp || this.session.state !== 'active') return;
+    if (this.inNetwork) {
+      // SampConnect Network has chat, calls and its own lists, but no meetings or work items.
+      await Promise.all([
+        this.outbox.kick().then(() => Promise.all([this.refreshWork(), this.refreshNetwork()])),
+        this.runSync(),
+        this.refreshNotifications(),
+        this.flushNotifyLevels(),
+        this.calls.refresh(),
+      ]);
+      return;
+    }
     await Promise.all([
       // Queued changes go first, then the lists are re-read so they reflect them.
       this.outbox.kick().then(() => this.refreshWork()),
@@ -1342,6 +1363,9 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setWorkingHours(i.hours)),
         );
         break;
+      case 'net.act':
+        await this.api.network(i.method, i.path, i.body);
+        break;
       case 'search.recent':
         await this.store.setSetting(
           RECENT_KEY,
@@ -1370,6 +1394,13 @@ export class ConnectEngine {
     const reason =
       err.code === 'FORBIDDEN' ? 'You do not have permission to do that.' : err.message;
     const i = a.input;
+    if (i.kind === 'net.act') {
+      // The server's copy shows again (they blocked you, the request was already answered...).
+      await this.store.work.complete(a);
+      this.afterAction(a);
+      this.events.emit('actionRefused', { kind: i.kind, reason: err.message, label: i.label });
+      return;
+    }
     if (i.kind === 'poll.create') {
       await this.store.work.fail(a, reason);
       await this.store.markPollFailed(i.request.clientMessageId, reason);
@@ -1387,6 +1418,10 @@ export class ConnectEngine {
     const i = a.input;
     if ('conversationId' in i) this.store.notifyMessages(i.conversationId);
     if (i.kind === 'bookmark') void this.emitSaved();
+    if (i.kind === 'net.act') {
+      this.events.emit('network', { scope: null });
+      void this.refreshNetwork(i.scopes);
+    }
     if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
@@ -1421,6 +1456,12 @@ export class ConnectEngine {
    */
   refreshWork(): Promise<void> {
     if (!this.online) return Promise.resolve();
+    if (this.inNetwork)
+      // Only saved messages exist in the network; the rest is organization-only.
+      return this.listBookmarks().then(
+        () => undefined,
+        () => undefined,
+      );
     this.workRun ??= (async () => {
       try {
         await Promise.allSettled([
@@ -1445,6 +1486,77 @@ export class ConnectEngine {
       }
     })();
     return this.workRun;
+  }
+
+  // ------------------------------------------------------------------ SampConnect Network
+
+  /** True when this workspace is SampConnect Network (a personal account, or the linked space). */
+  get inNetwork(): boolean {
+    return isNetworkTenant(this.session.current);
+  }
+
+  /** The cached copy of a network list or profile (shown at once, and offline). */
+  async netCached<T>(path: string): Promise<T | undefined> {
+    const raw = await this.store.getSetting(netKey(path));
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  }
+
+  /**
+   * Reads a network path from the server and caches it; offline (or refused) it keeps the
+   * cached copy. Returns what is cached afterwards.
+   */
+  async netLoad<T>(path: string): Promise<T | undefined> {
+    if (this.online) {
+      try {
+        const value = await this.api.network<T>('GET', path);
+        await this.store.setSetting(netKey(path), JSON.stringify(value));
+      } catch (err) {
+        if (err instanceof TransportError && err.code === 'NOT_FOUND')
+          await this.store.deleteSetting(netKey(path));
+      }
+    }
+    return this.netCached<T>(path);
+  }
+
+  /** Search needs the server (people choose who can find them); it is not cached. */
+  netSearch<T>(q: string): Promise<T> {
+    return this.serverAction(() =>
+      this.api.network<T>('GET', `/v1/network/search?q=${encodeURIComponent(q.trim())}`),
+    );
+  }
+
+  /**
+   * Queues a network change and sends it when possible, in the order made. Every device and
+   * the other person see it through `network:changed` once it lands.
+   */
+  async netAct(input: Omit<Extract<ActionInput, { kind: 'net.act' }>, 'kind'>): Promise<void> {
+    await this.queue({ kind: 'net.act', ...input });
+    this.events.emit('network', { scope: null });
+  }
+
+  /** Network changes made here that have not reached the server yet. */
+  netPending(): Promise<Extract<ActionInput, { kind: 'net.act' }>[]> {
+    return this.store.work.pendingNetwork();
+  }
+
+  /**
+   * Re-reads the cached network paths of these scopes (all of them after a reconnect), then
+   * tells the screens. `scope` is what the server said changed.
+   */
+  async refreshNetwork(
+    scopes: readonly NetworkScope[] = NETWORK_SCOPES,
+    scope: NetworkScope | null = null,
+  ): Promise<void> {
+    if (!this.inNetwork) return;
+    const keys = await this.store.settingKeys(NET_PREFIX);
+    await Promise.allSettled(
+      keys
+        .map((k) => k.slice(NET_PREFIX.length))
+        .filter((p) => pathInScopes(p, scopes))
+        .map((p) => this.netLoad(p)),
+    );
+    // Screens re-read the cache (and load what they show that was never cached).
+    this.events.emit('network', { scope });
   }
 
   // ------------------------------------------------------------ administration (owners, admins)

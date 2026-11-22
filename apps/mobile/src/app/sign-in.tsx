@@ -19,7 +19,13 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Glass } from '../components/Glass';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
-import { DEFAULT_APP_NAME, type PublicBranding, type SsoInfo } from '@sampledge/contracts';
+import {
+  DEFAULT_APP_NAME,
+  NETWORK_TENANT_SLUG,
+  type PublicBranding,
+  type SsoInfo,
+} from '@sampledge/contracts';
+import { Chips } from '../components/Chips';
 import { runSso } from '../auth/ssoFlow';
 import { normaliseUrl, type PendingMfa } from '../auth/session';
 import { devicePlatform, useApp } from '../state/AppProvider';
@@ -71,9 +77,22 @@ export default function SignIn() {
   // Shown under the SSO button, where the person is looking after the browser closes.
   const [ssoError, setSsoError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  // Organization account, or a free personal SampConnect Network account (no workspace).
+  const [kind, setKind] = useState<'work' | 'personal'>(
+    session?.tenant.slug === NETWORK_TENANT_SLUG ? 'personal' : 'work',
+  );
+  const [signup, setSignup] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [handle, setHandle] = useState('');
+  const personal = kind === 'personal';
+  const slug = personal ? NETWORK_TENANT_SLUG : tenantSlug.trim().toLowerCase();
 
   // The workspace's own logo, name and sign-in message once the address and workspace are typed.
   useEffect(() => {
+    if (personal) {
+      setSso(null);
+      return setBrand(null);
+    }
     const slug = tenantSlug.trim().toLowerCase();
     let base: string;
     try {
@@ -102,7 +121,7 @@ export default function SignIn() {
       alive = false;
       clearTimeout(t);
     };
-  }, [serverUrl, tenantSlug]);
+  }, [serverUrl, tenantSlug, personal]);
 
   // Leave this screen once the account's local database is open (it opens after sign-in).
   useEffect(() => {
@@ -111,7 +130,37 @@ export default function SignIn() {
     else router.replace('/');
   }, [signedIn, workspace]);
 
-  const canSubmit = serverUrl.trim() && tenantSlug.trim() && email.trim() && password && !busy;
+  const canSubmit =
+    serverUrl.trim() &&
+    (personal || tenantSlug.trim()) &&
+    email.trim() &&
+    (signup ? password.length >= 12 && displayName.trim() : password) &&
+    !busy;
+
+  const createAccount = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await sessions.signUpPersonal(
+        serverUrl,
+        {
+          displayName: displayName.trim(),
+          email: email.trim(),
+          password,
+          ...(handle.trim() ? { handle: handle.trim().replace(/^@/, '').toLowerCase() } : {}),
+        },
+        { name: Constants.deviceName ?? `${Platform.OS} device`, platform: devicePlatform },
+      );
+      setSignedIn(true);
+    } catch (e) {
+      setError(
+        e instanceof TransportError && e.code === 'CONFLICT'
+          ? e.message || 'That email or Connect ID is already used.'
+          : errorText(e),
+      );
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     setBusy(true);
@@ -120,7 +169,7 @@ export default function SignIn() {
     try {
       const pending = await sessions.signIn({
         serverUrl,
-        tenantSlug: tenantSlug.trim().toLowerCase(),
+        tenantSlug: slug,
         email: email.trim(),
         password,
         deviceName: Constants.deviceName ?? `${Platform.OS} device`,
@@ -365,6 +414,28 @@ export default function SignIn() {
               </Glass>
             ) : (
               <Glass style={{ padding: space.lg, gap: space.lg, borderRadius: radius.xl }}>
+                {!reauth ? (
+                  <Chips
+                    label="Account"
+                    options={[
+                      { key: 'work', label: 'Organization' },
+                      { key: 'personal', label: 'Personal account' },
+                    ]}
+                    selected={[kind]}
+                    onToggle={(k) => {
+                      setKind(k as 'work' | 'personal');
+                      if (k === 'work') setSignup(false);
+                      setError(null);
+                    }}
+                  />
+                ) : null}
+                {personal ? (
+                  <Text variant="meta" tone="muted">
+                    {signup
+                      ? 'A free SampConnect Network account: connect, chat and call with people in any organization.'
+                      : 'Your SampConnect Network account, for people who are not in an organization.'}
+                  </Text>
+                ) : null}
                 {field({
                   label: 'Server address',
                   value: serverUrl,
@@ -373,13 +444,33 @@ export default function SignIn() {
                   keyboardType: 'url',
                   editable: !reauth,
                 })}
-                {field({
-                  label: 'Workspace',
-                  value: tenantSlug,
-                  onChangeText: setTenantSlug,
-                  placeholder: 'your-workspace',
-                  editable: !reauth,
-                })}
+                {personal
+                  ? null
+                  : field({
+                      label: 'Workspace',
+                      value: tenantSlug,
+                      onChangeText: setTenantSlug,
+                      placeholder: 'your-workspace',
+                      editable: !reauth,
+                    })}
+                {personal && signup ? (
+                  <>
+                    {field({
+                      label: 'Your name',
+                      value: displayName,
+                      onChangeText: setDisplayName,
+                      placeholder: 'Maria Lopez',
+                      autoCapitalize: 'words',
+                      autoComplete: 'name',
+                    })}
+                    {field({
+                      label: 'Connect ID (optional)',
+                      value: handle,
+                      onChangeText: setHandle,
+                      placeholder: 'maria.lopez',
+                    })}
+                  </>
+                ) : null}
                 {sso ? (
                   <View style={{ gap: space.md }}>
                     <Pressable
@@ -438,7 +529,7 @@ export default function SignIn() {
                       label: 'Email',
                       value: email,
                       onChangeText: setEmail,
-                      placeholder: 'you@company.com',
+                      placeholder: personal ? 'you@example.com' : 'you@company.com',
                       keyboardType: 'email-address',
                       autoComplete: 'email',
                       textContentType: 'username',
@@ -448,9 +539,11 @@ export default function SignIn() {
                       value: password,
                       onChangeText: setPassword,
                       secureTextEntry: true,
-                      autoComplete: 'password',
-                      textContentType: 'password',
-                      onSubmitEditing: () => canSubmit && void submit(),
+                      autoComplete: signup ? 'new-password' : 'password',
+                      textContentType: signup ? 'newPassword' : 'password',
+                      placeholder: signup ? 'At least 12 characters' : undefined,
+                      onSubmitEditing: () =>
+                        canSubmit && void (signup ? createAccount() : submit()),
                     })}
                   </>
                 ) : null}
@@ -461,7 +554,7 @@ export default function SignIn() {
                 ) : null}
                 {passwordForm ? (
                   <Pressable
-                    onPress={submit}
+                    onPress={() => void (signup ? createAccount() : submit())}
                     disabled={!canSubmit}
                     accessibilityRole="button"
                     style={({ pressed }) => [
@@ -476,9 +569,25 @@ export default function SignIn() {
                       <ActivityIndicator color={theme.colors.onAccent} />
                     ) : (
                       <Text variant="bodyStrong" tone="onAccent">
-                        Sign in
+                        {signup ? 'Create free account' : 'Sign in'}
                       </Text>
                     )}
+                  </Pressable>
+                ) : null}
+                {personal && !reauth ? (
+                  <Pressable
+                    onPress={() => {
+                      setSignup((v) => !v);
+                      setError(null);
+                    }}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                  >
+                    <Text variant="label" tone="accent" style={{ textAlign: 'center' }}>
+                      {signup
+                        ? 'I already have an account'
+                        : 'New to SampConnect? Create a free account'}
+                    </Text>
                   </Pressable>
                 ) : null}
               </Glass>

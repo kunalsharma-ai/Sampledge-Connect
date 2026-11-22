@@ -43,6 +43,7 @@ const WHAT: Record<ActionKind, string> = {
   'callbg.appearance': 'Saving how you look on camera',
   'minutes.update': 'Saving the minutes',
   'transcript.update': 'Correcting the transcript',
+  'net.act': 'SampConnect Network change',
 };
 
 /**
@@ -54,7 +55,9 @@ export function ActionRefusedBanner() {
   const c = theme.colors;
   const insets = useSafeAreaInsets();
   const { engine } = useWorkspace();
-  const [shown, setShown] = useState<{ kind: ActionKind; reason: string } | null>(null);
+  const [shown, setShown] = useState<{ kind: ActionKind; reason: string; label?: string } | null>(
+    null,
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -70,7 +73,7 @@ export function ActionRefusedBanner() {
 
   if (!shown) return null;
   const create = shown.kind.endsWith('.create');
-  const text = `${WHAT[shown.kind]} not ${create ? 'sent' : 'applied'}: ${shown.reason}`;
+  const text = `${shown.label ?? WHAT[shown.kind]} not ${create || shown.label ? 'sent' : 'applied'}: ${shown.reason}`;
   return (
     <Animated.View
       entering={motion.base ? FadeInUp.duration(motion.base) : undefined}

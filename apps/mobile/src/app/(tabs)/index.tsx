@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { ConnectivityBanner, ConnectivityDot } from '../../components/Connectivity';
 import { ConversationRow, relativeTime } from '../../components/ConversationRow';
 import { Glass } from '../../components/Glass';
+import { NetworkHome } from '../../components/NetworkHome';
 import { MeetingRow } from '../../components/MeetingBits';
 import { Screen } from '../../components/Screen';
 import { ConversationSkeleton } from '../../components/Skeleton';
@@ -28,6 +29,7 @@ import {
   usePeople,
   useWorkList,
 } from '../../state/hooks';
+import { useInNetwork } from '../../state/useNetwork';
 import { radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -36,7 +38,12 @@ function greeting(): string {
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
 
-export default function Home() {
+/** Home: your organization's day, or SampConnect Network when that space is showing. */
+export default function HomeTab() {
+  return useInNetwork() ? <NetworkHome /> : <Home />;
+}
+
+function Home() {
   const { theme, org } = useTheme();
   const c = theme.colors;
   const { session, sessionState, engineState } = useApp();

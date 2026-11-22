@@ -71,6 +71,10 @@ function RootStack() {
           <Stack.Screen name="settings/devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="settings/profile" options={{ title: 'Profile' }} />
           <Stack.Screen name="person/[id]" options={{ title: '' }} />
+          <Stack.Screen name="network/person/[id]" options={{ title: '' }} />
+          <Stack.Screen name="network/invite" options={{ title: 'Invite to SampConnect' }} />
+          <Stack.Screen name="network/blocked" options={{ title: 'Blocked people' }} />
+          <Stack.Screen name="network/profile" options={{ title: 'Network profile' }} />
           <Stack.Screen name="sso" options={{ headerShown: false }} />
           <Stack.Screen
             name="new-conversation"

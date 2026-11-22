@@ -1,5 +1,6 @@
 import {
   ERROR_CODES,
+  type NetworkSignupRequest,
   type AdminOverview,
   type AuditPage,
   type AuditQuery,
@@ -114,6 +115,7 @@ import type {
   MarkNotificationsReadResponse,
 } from './notificationTypes';
 
+import { networkAllows } from '../lib/networkSpace';
 /** Why a request failed, in terms the offline queue can act on. */
 export interface TaskQuery {
   scope: 'mine' | 'created' | 'conversation' | 'all';
@@ -169,6 +171,13 @@ export interface SearchParams {
   offset?: number;
 }
 
+export type NetworkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export interface DeviceRegistration {
+  deviceId: string;
+  name: string;
+  platform: 'ios' | 'android';
+}
+
 /** The REST surface the mobile app uses. */
 export interface ApiTransport {
   /** A Session, or a two-step challenge to finish with verifyMfa. */
@@ -177,6 +186,12 @@ export interface ApiTransport {
   /** Swaps the one-time code from a single sign-on return for the session. */
   ssoExchange(code: string, codeVerifier: string): Promise<Session>;
   refresh(refreshToken: string): Promise<Session>;
+  /** Work session → its SampConnect Network session (linked once). */
+  linkNetwork(req: { device: DeviceRegistration }): Promise<Session>;
+  /** Free personal SampConnect Network account. */
+  signUpPersonal(req: NetworkSignupRequest): Promise<Session>;
+  /** Any SampConnect Network call (`/v1/network/...`): the screens read and act through it. */
+  network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T>;
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck>;
   sync(req: SyncRequest): Promise<SyncResponse>;
   ackReceipt(req: AckReceiptRequest): Promise<Receipt>;
@@ -404,6 +419,8 @@ export interface HttpTransportOptions {
   getAccessToken: () => Promise<string | undefined>;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** A SampConnect Network session: organization-only routes are refused without a request. */
+  networkSpace?: boolean;
 }
 
 /** fetch-based client for the SampConnect API (`/v1/...`). */
@@ -428,6 +445,19 @@ export class HttpTransport implements ApiTransport {
 
   refresh(refreshToken: string): Promise<Session> {
     return this.request('POST', '/v1/auth/refresh', { refreshToken }, false);
+  }
+
+  linkNetwork(req: { device: DeviceRegistration }): Promise<Session> {
+    return this.request('POST', '/v1/network/link', req);
+  }
+
+  signUpPersonal(req: NetworkSignupRequest): Promise<Session> {
+    return this.request('POST', '/v1/network/public/signup', req, false);
+  }
+
+  network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
+    if (!path.startsWith('/v1/network/')) throw new Error(`Not a network path: ${path}`);
+    return this.request(method, path, body);
   }
 
   sendMessage(req: SendMessageRequest): Promise<SendMessageAck> {
@@ -1263,6 +1293,8 @@ export class HttpTransport implements ApiTransport {
   }
 
   private async request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
+    if (this.opts.networkSpace && !networkAllows(method, path))
+      throw new TransportError('This is not available in SampConnect Network', 'api', 'FORBIDDEN');
     const hasBody = method !== 'GET' && body !== undefined;
     const headers: Record<string, string> = { accept: 'application/json' };
     // Audio clips go as they are; everything else as JSON.
@@ -1346,6 +1378,9 @@ export class NoServerTransport implements ApiTransport {
   verifyMfa = async (): Promise<Session> => this.fail();
   ssoExchange = async (): Promise<Session> => this.fail();
   refresh = async (): Promise<Session> => this.fail();
+  linkNetwork = async (): Promise<Session> => this.fail();
+  signUpPersonal = async (): Promise<Session> => this.fail();
+  network = async <T>(): Promise<T> => this.fail();
   sendMessage = async (): Promise<SendMessageAck> => this.fail();
   sync = async (): Promise<SyncResponse> => this.fail();
   ackReceipt = async (): Promise<Receipt> => this.fail();
