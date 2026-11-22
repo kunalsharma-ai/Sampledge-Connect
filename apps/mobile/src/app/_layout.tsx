@@ -131,6 +131,11 @@ function RootStack() {
           <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
           <Stack.Screen name="admin/moderation" options={{ title: 'Reported content' }} />
           <Stack.Screen name="admin/devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="platform/index" options={{ title: 'Super admin' }} />
+          <Stack.Screen name="platform/orgs" options={{ title: 'Organizations' }} />
+          <Stack.Screen name="platform/org/[id]" options={{ title: 'Organization' }} />
+          <Stack.Screen name="platform/admins" options={{ title: 'Platform admins' }} />
+          <Stack.Screen name="platform/audit" options={{ title: 'Audit log' }} />
           <Stack.Screen name="pinned/[id]" options={{ title: 'Pinned' }} />
           <Stack.Screen name="saved" options={{ title: 'Saved messages' }} />
           <Stack.Screen name="scheduled" options={{ title: 'Scheduled messages' }} />

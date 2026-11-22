@@ -60,6 +60,7 @@ import { MODULES, NETWORK_MODULES, type ModuleId } from './modules';
 import { NotificationsScreen } from './notifications-screen';
 import { IntegrationsScreen } from './integrations-screen';
 import { BillingScreen } from './billing-screen';
+import { PlatformConsole, usePlatformRole } from '../platform/console';
 import { BrandingScreen } from './branding-screen';
 import { NotifyLevelMenu } from './notify-level-menu';
 import { useNotifications } from '@/lib/notifications';
@@ -171,7 +172,12 @@ function WorkspaceInner({ network }: { network: boolean }) {
   const unread = useUnreadCounts(me);
   const [module, setModule] = React.useState<ModuleId>(network ? 'network-home' : 'home');
   const [requestCount, setRequestCount] = React.useState(0);
-  const navModules = network ? NETWORK_MODULES : MODULES;
+  const platformRole = usePlatformRole(!network);
+  const orgModules = React.useMemo(
+    () => MODULES.filter((m) => !m.platformOnly || !!platformRole),
+    [platformRole],
+  );
+  const navModules = network ? NETWORK_MODULES : orgModules;
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [railExpanded, setRailExpanded] = useStoredBool(LS_RAIL, true);
   const [panelOpen, setPanelOpen] = useStoredBool(LS_PANEL, true);
@@ -555,7 +561,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
             unreadTotal={unreadTotal}
             notificationCount={notifications.unreadCount}
             onSignOut={() => void signOut()}
-            modules={network ? NETWORK_MODULES : undefined}
+            modules={network ? NETWORK_MODULES : orgModules}
             spaceSwitcher={<SpaceSwitcher expanded={railExpanded} />}
             networkBadge={requestCount}
           />
@@ -636,6 +642,8 @@ function WorkspaceInner({ network }: { network: boolean }) {
             <BrandingScreen />
           ) : module === 'admin' && isAdmin ? (
             <AdminScreen onOpenModule={selectModule} />
+          ) : module === 'platform' && platformRole ? (
+            <PlatformConsole me={platformRole} online={state.connectivity === 'online'} />
           ) : module === 'search' ? (
             <SearchScreen
               conversations={conversations ?? []}
@@ -1188,6 +1196,7 @@ function WorkspaceInner({ network }: { network: boolean }) {
             unreadTotal={unreadTotal}
             notificationCount={notifications.unreadCount}
             isAdmin={isAdmin}
+            platform={!!platformRole}
           />
 
           <NewConversationDialog
@@ -1321,6 +1330,7 @@ function MobileNav({
   unreadTotal,
   notificationCount,
   isAdmin,
+  platform,
 }: {
   network: boolean;
   active: ModuleId;
@@ -1328,11 +1338,15 @@ function MobileNav({
   unreadTotal: number;
   notificationCount: number;
   isAdmin: boolean;
+  platform: boolean;
 }) {
   const [more, setMore] = React.useState(false);
   const ids = network ? MOBILE_NETWORK : MOBILE;
   const all = network ? NETWORK_MODULES : MODULES;
-  const rest = all.filter((m) => !ids.includes(m.id) && m.built && (!m.adminOnly || isAdmin));
+  const rest = all.filter(
+    (m) =>
+      !ids.includes(m.id) && m.built && (!m.adminOnly || isAdmin) && (!m.platformOnly || platform),
+  );
   const moreActive = !ids.includes(active);
   const tab = (on: boolean) =>
     cn(

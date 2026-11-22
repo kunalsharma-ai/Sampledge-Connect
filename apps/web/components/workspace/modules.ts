@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Crown,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -43,6 +44,7 @@ export type ModuleId =
   | 'billing'
   | 'branding'
   | 'admin'
+  | 'platform'
   | 'settings'
   | 'network'
   | 'network-home'
@@ -57,6 +59,8 @@ export interface ModuleDef {
   built: boolean;
   phase?: string;
   adminOnly?: boolean;
+  /** Only platform admins (the super admin console). */
+  platformOnly?: boolean;
 }
 
 /** The navigation modules from the product spec, honestly flagged. */
@@ -80,6 +84,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'branding', label: 'Branding', icon: Palette, built: true, adminOnly: true },
   { id: 'billing', label: 'Billing', icon: CreditCard, built: true, adminOnly: true },
   { id: 'admin', label: 'Administration', icon: ShieldCheck, built: true, adminOnly: true },
+  { id: 'platform', label: 'Super admin', icon: Crown, built: true, platformOnly: true },
   { id: 'settings', label: 'Settings', icon: Settings, built: true },
 ];
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Server } from 'socket.io';
 import type { ServerToClientEvents } from '@sampledge/contracts';
-import { conversationRoom, moderatorsRoom, tenantRoom, userRoom } from './rooms.js';
+import { conversationRoom, moderatorsRoom, platformRoom, tenantRoom, userRoom } from './rooms.js';
 
 type Events = ServerToClientEvents;
 
@@ -47,6 +47,35 @@ export class RealtimePublisher {
   /** Platform operators signed in anywhere (the SampConnect Network moderation queue). */
   toModerators<E extends keyof Events>(event: E, ...args: Parameters<Events[E]>) {
     this.safe(() => this.server?.to(moderatorsRoom()).emit(event, ...args));
+  }
+
+  /** Every platform admin signed in anywhere (the super admin console). */
+  toPlatform<E extends keyof Events>(event: E, ...args: Parameters<Events[E]>) {
+    this.safe(() => this.server?.to(platformRoom()).emit(event, ...args));
+  }
+
+  /** After a platform role change: the person's sockets join or leave the console rooms. */
+  setPlatformRooms(
+    tenantId: string,
+    userId: string,
+    rooms: { platform: boolean; moderators: boolean },
+  ) {
+    this.safe(async () => {
+      const s = this.server?.in(userRoom(tenantId, userId));
+      if (!s) return;
+      if (rooms.platform) s.socketsJoin(platformRoom());
+      else s.socketsLeave(platformRoom());
+      if (rooms.moderators) s.socketsJoin(moderatorsRoom());
+      else s.socketsLeave(moderatorsRoom());
+    });
+  }
+
+  /** An organization was suspended: sign every device out of it now (on every node). */
+  disconnectTenant(tenantId: string) {
+    this.safe(async () => {
+      this.server?.to(tenantRoom(tenantId)).emit('session:expired', { reason: 'revoked' });
+      this.server?.in(tenantRoom(tenantId)).disconnectSockets(true);
+    });
   }
 
   /** Make all of a user's sockets (on every node) join / leave a conversation room. */

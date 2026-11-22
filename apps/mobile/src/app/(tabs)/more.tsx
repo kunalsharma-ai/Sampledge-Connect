@@ -21,6 +21,7 @@ import { devicePlatform, useApp, useWorkspace } from '../../state/AppProvider';
 import { useInNetwork } from '../../state/useNetwork';
 import { useProfile } from '../../state/hooks';
 import { MODULES } from '../../state/modules';
+import { usePlatformMe } from '../../components/PlatformBits';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -31,6 +32,7 @@ export default function More() {
   const { selfId } = useWorkspace();
   const me = useProfile(selfId);
   const network = useInNetwork();
+  const platform = usePlatformMe();
   const [opening, setOpening] = useState(false);
   const [spaceError, setSpaceError] = useState<string | null>(null);
   const work = sessionState !== 'demo' && !sessions.isPersonal ? sessions.primary : null;
@@ -92,7 +94,7 @@ export default function More() {
           ],
         },
         { title: 'Discover', keys: ['search', 'ai', 'analytics'] },
-        { title: 'Workspace', keys: ['integrations', 'admin'] },
+        { title: 'Workspace', keys: ['integrations', 'admin', ...(platform ? ['platform'] : [])] },
       ];
 
   return (

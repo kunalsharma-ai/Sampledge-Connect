@@ -42,6 +42,41 @@ export interface TenantDoc {
   createdAt: Date;
   /** 'network' marks the one reserved SampConnect Network tenant (docs/network.md). */
   kind?: 'organization' | 'network';
+  /** Set by a super admin (docs/super-admin.md); nobody in it can sign in meanwhile. */
+  suspension?: { at: Date; reason: string; byName: string } | null;
+  /** Deletion requested by a super admin: erased at `scheduledFor` unless cancelled. */
+  deletion?: {
+    scheduledFor: Date;
+    requestedAt: Date;
+    requestedBy: string;
+    previousStatus: 'active' | 'suspended';
+    purgingAt?: Date | null;
+  } | null;
+}
+
+/** Global: a work account with a platform role (docs/super-admin.md). */
+export interface PlatformAdminDoc {
+  _id: string;
+  tenantId: string;
+  userId: string;
+  email: string;
+  role: 'owner' | 'admin' | 'billing' | 'support' | 'moderator';
+  addedAt: Date;
+  addedBy: string | null;
+  bootstrap?: boolean;
+}
+
+/** Global: what platform admins did, across organizations. */
+export interface PlatformAuditDoc {
+  _id: string;
+  action: string;
+  at: Date;
+  /** The organization it affected. */
+  tenantId: string | null;
+  actor: { tenantId: string; userId: string; name: string; email: string; orgName: string } | null;
+  target: { type: string; id: string; label: string } | null;
+  metadata: Record<string, unknown>;
+  ip: string | null;
 }
 
 export interface UserDoc extends TenantOwned {

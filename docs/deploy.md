@@ -56,7 +56,7 @@ CORS_ORIGINS=https://app.example.com
 PUBLIC_WEB_URL=https://app.example.com
 PUBLIC_API_URL=https://api.example.com
 LIVEKIT_PUBLIC_URL=wss://rtc.example.com
-PLATFORM_ADMIN_EMAILS=you@example.com
+PLATFORM_ADMIN_EMAILS=your-org-slug:you@example.com
 ENV
 chmod 600 .env jwt.key
 ```
@@ -95,8 +95,9 @@ log. Don't put a second proxy in front without adjusting that.
 ## 5. First sign-in
 
 1. Open `https://app.example.com/register` and create the first organization. If its owner's
-   email is in `PLATFORM_ADMIN_EMAILS`, that person also manages platform-wide settings
-   (plans, default integrations).
+   email is in `PLATFORM_ADMIN_EMAILS`, that person becomes the first super admin and gets the
+   **Super admin** console (every organization, plans, platform integrations, platform admins).
+   Add other platform admins there; see [super-admin.md](super-admin.md).
 2. Admin → Integrations: SMTP, then anything else you use (SSO, Stripe, AI model server,
    Nextcloud, push). Each has **Test connection**.
 3. Admin → Billing (platform operators): publish plans, or leave none for "Pricing on request".

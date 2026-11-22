@@ -166,6 +166,15 @@ export const MODULES: ModuleEntry[] = [
       'For owners and admins: the organization at a glance, members and roles, two-step resets, every signed-in device, and the audit log.',
   },
   {
+    key: 'platform',
+    title: 'Super admin',
+    icon: 'ribbon-outline',
+    status: 'available',
+    href: '/platform',
+    summary:
+      'For SampConnect platform admins only: every organization, plans and billing, suspensions, deletion, usage and health, platform admins and their audit log.',
+  },
+  {
     key: 'settings',
     title: 'Settings',
     icon: 'settings-outline',

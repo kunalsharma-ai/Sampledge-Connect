@@ -12,7 +12,7 @@ Only bootstrap values stay in env: `MONGO_URL`, `REDIS_URL`, the JWT keys and
 For a tenant, the effective settings for a provider are, in order:
 
 1. The tenant's own saved settings.
-2. The platform default (set by operators listed in `PLATFORM_ADMIN_EMAILS`).
+2. The platform default (set by platform admins in Super admin → Integrations).
 3. Legacy env values (for example `SMTP_HOST`, `LIVEKIT_*`, `PUSH_PROVIDER=expo`), kept so
    existing deployments keep working. The screen shows "Server environment" for these.
 

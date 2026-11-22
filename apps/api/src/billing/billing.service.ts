@@ -33,6 +33,7 @@ import {
   type StripeConfig,
 } from './stripe.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { PlatformAudit } from '../platform/platform-audit.service.js';
 
 type StripeObj = Record<string, unknown> & { id: string };
 const s = (v: unknown) => (typeof v === 'string' ? v : null);
@@ -55,6 +56,7 @@ export class BillingService implements OnModuleInit {
     private readonly audit: AuditService,
     private readonly operators: PlatformAdmins,
     private readonly realtime: RealtimePublisher,
+    private readonly platformAudit: PlatformAudit,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
@@ -88,7 +90,7 @@ export class BillingService implements OnModuleInit {
         .for(ctx.tenantId)
         .billing_invoices.find({}, { sort: { createdAt: -1 }, limit: 24 })
         .toArray(),
-      this.operators.is(ctx),
+      this.operators.can(ctx, 'billing.manage'),
     ]);
     const plan = sub.planId ? await this.plan(sub.planId) : null;
     return {
@@ -424,12 +426,12 @@ export class BillingService implements OnModuleInit {
   // ---------- platform operators ----------
 
   async listPlans(ctx: TenantContext) {
-    await this.operators.assert(ctx);
+    await this.operators.assert(ctx, 'billing.manage');
     return this.catalog(true);
   }
 
   async savePlan(ctx: TenantContext, planId: string | null, body: unknown): Promise<BillingPlan> {
-    await this.operators.assert(ctx);
+    await this.operators.assert(ctx, 'billing.manage');
     const input = parse(PlanInputSchema, body);
     const id = planId ?? newId();
     if (planId && !(await this.db.billingPlans.findOne({ _id: planId }))) throw notFound('Plan');
@@ -450,11 +452,23 @@ export class BillingService implements OnModuleInit {
         yearlyPerSeat: input.yearlyPerSeat,
       },
     });
+    await this.platformAudit.record({
+      ctx,
+      action: planId ? 'platform.plan_updated' : 'platform.plan_created',
+      target: { type: 'plan', id, label: input.name },
+      metadata: {
+        currency: input.currency,
+        monthlyPerSeat: input.monthlyPerSeat,
+        yearlyPerSeat: input.yearlyPerSeat,
+        active: input.active,
+      },
+    });
+    this.realtime.toPlatform('platform:changed', { area: 'billing' });
     return (await this.plan(id))!;
   }
 
   async listTenants(ctx: TenantContext) {
-    await this.operators.assert(ctx);
+    await this.operators.assert(ctx, 'billing.manage');
     const tenants = await this.db.tenants
       .find(
         {},
@@ -480,7 +494,7 @@ export class BillingService implements OnModuleInit {
   }
 
   async assign(ctx: TenantContext, tenantId: string, body: unknown) {
-    await this.operators.assert(ctx);
+    await this.operators.assert(ctx, 'billing.manage');
     const req = parse(AssignPlanRequestSchema, body);
     if (!(await this.db.tenants.findOne({ _id: tenantId }))) throw notFound('Organization');
     if (req.planId && !(await this.plan(req.planId))) throw notFound('Plan');
@@ -506,6 +520,21 @@ export class BillingService implements OnModuleInit {
       action: 'billing.plan_assigned_by_operator',
       metadata: { planId: req.planId, status: req.status, seats: req.seats },
     });
+    const t = await this.db.tenants.findOne({ _id: tenantId }, { projection: { name: 1 } });
+    await this.platformAudit.record({
+      ctx,
+      action: 'platform.plan_assigned',
+      tenantId,
+      target: { type: 'tenant', id: tenantId, label: t?.name ?? tenantId },
+      metadata: {
+        planId: req.planId,
+        planName: req.planId ? ((await this.plan(req.planId))?.name ?? null) : null,
+        status: req.status,
+        seats: req.seats,
+        before: { planId: before.planId, status: before.status },
+      },
+    });
+    this.realtime.toPlatform('platform:changed', { area: 'orgs', tenantId });
     return toSubscription(await this.subscription(tenantId));
   }
 
@@ -616,7 +645,7 @@ export class BillingService implements OnModuleInit {
   }
 }
 
-const emptySub = (tenantId: string): BillingSubscriptionDoc => ({
+export const emptySub = (tenantId: string): BillingSubscriptionDoc => ({
   _id: '',
   tenantId,
   planId: null,
@@ -634,7 +663,7 @@ const emptySub = (tenantId: string): BillingSubscriptionDoc => ({
   updatedAt: new Date(0),
 });
 
-function toSubscription(d: BillingSubscriptionDoc): Subscription {
+export function toSubscription(d: BillingSubscriptionDoc): Subscription {
   return {
     planId: d.planId,
     status: d.status,
@@ -666,7 +695,7 @@ function toPlan(p: BillingPlanDoc): BillingPlan {
   };
 }
 
-function toInvoice(d: BillingInvoiceDoc): Invoice {
+export function toInvoice(d: BillingInvoiceDoc): Invoice {
   return {
     invoiceId: d._id,
     number: d.number,

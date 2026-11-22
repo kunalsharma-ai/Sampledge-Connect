@@ -19,7 +19,7 @@ import { RateLimitService } from '../redis/redis.module.js';
 import { MfaService } from './mfa.service.js';
 import { IntegrationSettingsService } from '../integration-settings/integration-settings.service.js';
 import { passwordLoginAllowed } from './sso-settings.js';
-import { SessionService } from './session.service.js';
+import { SessionService, SUSPENDED_MESSAGE } from './session.service.js';
 
 /** OWASP-recommended argon2id parameters (m=19 MiB, t=2, p=1). */
 export const ARGON2_OPTIONS = {
@@ -84,12 +84,61 @@ export class AuthService {
   async registerTenant(input: unknown, meta: RequestMeta): Promise<Session> {
     const req = parse(RegisterTenantRequestSchema, input);
     await this.rateLimit.consume('register_ip', meta.ip ?? 'unknown');
+    const p = await this.provisionTenant({
+      slug: req.tenantSlug,
+      name: req.organizationName,
+      ownerEmail: req.ownerEmail,
+      ownerName: req.ownerName,
+      password: req.password,
+    });
+    try {
+      const issued = await this.sessions.create({
+        tenantId: p.tenant._id,
+        userId: p.user._id,
+        role: 'owner',
+        device: req.device,
+      });
+      await this.audit.record({
+        tenantId: p.tenant._id,
+        actorId: p.user._id,
+        action: 'tenant.created',
+        target: { type: 'tenant', id: p.tenant._id },
+        ...meta,
+      });
+      return {
+        ...issued,
+        user: toUserSummary(p.user, 'owner'),
+        tenant: { tenantId: p.tenant._id, slug: p.tenant.slug, name: p.tenant.name },
+        workspaceId: p.workspaceId,
+      };
+    } catch (e) {
+      await p.undo();
+      throw e;
+    }
+  }
+
+  /**
+   * Creates an organization with its owner, default workspace and #general. Used by sign-up
+   * and by super admins (docs/super-admin.md). `undo` removes it again.
+   */
+  async provisionTenant(input: {
+    slug: string;
+    name: string;
+    ownerEmail: string;
+    ownerName: string;
+    password: string;
+  }): Promise<{
+    tenant: TenantDoc;
+    user: UserDoc;
+    workspaceId: string;
+    undo: () => Promise<void>;
+  }> {
     const tenantId = newId();
     const now = new Date();
     const tenant: TenantDoc = {
       _id: tenantId,
-      slug: req.tenantSlug,
-      name: req.organizationName,
+      slug: input.slug,
+      name: input.name,
       status: 'active',
       plan: 'trial',
       branding: null,
@@ -106,18 +155,30 @@ export class AuthService {
     }
 
     const t = this.db.for(tenantId);
+    // No multi-document transaction on standalone deployments: compensate instead.
+    const undo = async () => {
+      await Promise.allSettled([
+        t.users.deleteMany({}),
+        t.workspaces.deleteMany({}),
+        t.memberships.deleteMany({}),
+        t.conversations.deleteMany({}),
+        t.conversation_members.deleteMany({}),
+        t.devices.deleteMany({}),
+        this.db.tenants.deleteOne({ _id: tenantId }),
+      ]);
+    };
     try {
-      const passwordHash = await argon2.hash(req.password, ARGON2_OPTIONS);
+      const passwordHash = await argon2.hash(input.password, ARGON2_OPTIONS);
       const user = await t.users.insertOne({
-        email: req.ownerEmail,
+        email: input.ownerEmail,
         passwordHash,
-        displayName: req.ownerName,
+        displayName: input.ownerName,
         title: null,
         status: 'active',
         createdAt: now,
       });
       const ws = await t.workspaces.insertOne({
-        name: req.organizationName,
+        name: input.name,
         slug: 'main',
         isDefault: true,
         createdAt: now,
@@ -145,37 +206,9 @@ export class AuthService {
         role: 'owner',
         joinedAt: now,
       });
-
-      const issued = await this.sessions.create({
-        tenantId,
-        userId: user._id,
-        role: 'owner',
-        device: req.device,
-      });
-      await this.audit.record({
-        tenantId,
-        actorId: user._id,
-        action: 'tenant.created',
-        target: { type: 'tenant', id: tenantId },
-        ...meta,
-      });
-      return {
-        ...issued,
-        user: toUserSummary(user, 'owner'),
-        tenant: { tenantId, slug: tenant.slug, name: tenant.name },
-        workspaceId: ws._id,
-      };
+      return { tenant, user, workspaceId: ws._id, undo };
     } catch (e) {
-      // No multi-document transaction on standalone deployments: compensate instead.
-      await Promise.allSettled([
-        t.users.deleteMany({}),
-        t.workspaces.deleteMany({}),
-        t.memberships.deleteMany({}),
-        t.conversations.deleteMany({}),
-        t.conversation_members.deleteMany({}),
-        t.devices.deleteMany({}),
-        this.db.tenants.deleteOne({ _id: tenantId }),
-      ]);
+      await undo();
       throw e;
     }
   }
@@ -186,7 +219,7 @@ export class AuthService {
     await this.rateLimit.consume('login_account', `${req.tenantSlug}:${req.email}`);
 
     const invalid = new AppError('UNAUTHENTICATED', 'Incorrect workspace, email or password');
-    const tenant = await this.db.tenants.findOne({ slug: req.tenantSlug, status: 'active' });
+    const tenant = await this.db.tenants.findOne({ slug: req.tenantSlug });
     const user = tenant ? await this.db.for(tenant._id).users.findOne({ email: req.email }) : null;
     const ok = await argon2.verify(user?.passwordHash ?? (await this.dummyHash), req.password);
     if (!tenant || !user || !ok) {
@@ -202,6 +235,7 @@ export class AuthService {
       throw invalid;
     }
     if (user.status !== 'active') throw invalid;
+    if (tenant.status !== 'active') throw new AppError('FORBIDDEN', SUSPENDED_MESSAGE);
     const t = this.db.for(tenant._id);
     const membership = await t.memberships.findOne({ userId: user._id });
     if (!membership) throw invalid;

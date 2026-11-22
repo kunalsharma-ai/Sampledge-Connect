@@ -6,14 +6,15 @@ set up; without it, operators assign plans by hand and bill by invoice.
 
 ## Who does what
 
-| Who                                                         | Where                                           | Can                                                |
-| ----------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
-| Platform operator (email listed in `PLATFORM_ADMIN_EMAILS`) | Billing → Plan catalog, Organizations, Payments | Create and edit plans, assign plans, set up Stripe |
-| Organization owner                                          | Billing → Your plan                             | Pick a plan, pay, open the Stripe portal, invoices |
-| Organization admin                                          | Billing → Your plan                             | See the plan, usage and invoices (read only)       |
+| Who                                                                       | Where                                           | Can                                                |
+| ------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| Platform admin with billing rights (super admin, platform admin, billing) | Billing → Plan catalog, Organizations, Payments | Create and edit plans, assign plans, set up Stripe |
+| Organization owner                                                        | Billing → Your plan                             | Pick a plan, pay, open the Stripe portal, invoices |
+| Organization admin                                                        | Billing → Your plan                             | See the plan, usage and invoices (read only)       |
 
-`PLATFORM_ADMIN_EMAILS` is the only billing value in env: it's a bootstrap value that says who
-the operators are. Everything else (plans, prices, Stripe keys) lives in the database.
+Platform admins and their roles live in the database and are managed in the Super admin
+console ([super-admin.md](super-admin.md)); `PLATFORM_ADMIN_EMAILS` only bootstraps the first
+super admin. Everything else (plans, prices, Stripe keys) lives in the database.
 
 ## Plans
 

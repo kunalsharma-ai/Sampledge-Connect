@@ -118,7 +118,8 @@ at most 3 invite texts a day, whoever sends them.
 - **Reporting**: anyone can report a person, status, community or message they can see. The
   report keeps a snapshot of the text, whose it is and the community it belongs to, so reviewers
   still see it after removal. Reporting something you can't see returns 404.
-- **Platform operators** (`PLATFORM_ADMIN_EMAILS`, a bootstrap value) review every report in
+- **Platform admins** with the moderation permission (super admin, platform admin, moderator;
+  see [super-admin.md](super-admin.md)) review every report in
   Administration → SampConnect Network → Reported content (web) or Administration → Reported
   content (mobile). Actions: **Remove content** (a message or status disappears for everyone),
   **Suspend person** (signed out of the network everywhere, hidden from search, lists, statuses,

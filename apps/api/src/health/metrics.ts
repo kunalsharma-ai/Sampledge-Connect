@@ -38,6 +38,17 @@ export class Metrics {
     next();
   };
 
+  /** Requests and server errors since this instance started (super admin console health). */
+  totals(): { requests: number; serverErrors: number } {
+    let requests = 0;
+    let serverErrors = 0;
+    for (const [k, v] of this.requests) {
+      requests += v;
+      if (k.endsWith('|5xx')) serverErrors += v;
+    }
+    return { requests, serverErrors };
+  }
+
   render(extra: Record<string, number>): string {
     const esc = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const out: string[] = [];

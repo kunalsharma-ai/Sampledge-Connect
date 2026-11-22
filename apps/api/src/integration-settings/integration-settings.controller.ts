@@ -14,6 +14,7 @@ import { AuthGuard, Ctx } from '../auth/auth.guard.js';
 import { forbidden, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { PlatformAdmins } from '../common/platform-admins.js';
+import { PlatformAudit } from '../platform/platform-audit.service.js';
 import { IntegrationSettingsService } from './integration-settings.service.js';
 
 /** Tenant-level integrations: owners and admins (`integrations.manage`). */
@@ -50,17 +51,18 @@ export class TenantIntegrationsController {
   }
 }
 
-/** Platform-wide defaults: operators listed in PLATFORM_ADMIN_EMAILS (a bootstrap value). */
+/** Platform-wide defaults: platform admins with the integrations permission (docs/super-admin.md). */
 @Controller('v1/platform/integrations')
 @UseGuards(AuthGuard)
 export class PlatformIntegrationsController {
   constructor(
     private readonly settings: IntegrationSettingsService,
     private readonly operators: PlatformAdmins,
+    private readonly platformAudit: PlatformAudit,
   ) {}
 
   private async guard(ctx: TenantContext) {
-    await this.operators.assert(ctx);
+    await this.operators.assert(ctx, 'integrations.manage');
     return { tenantId: null };
   }
 
@@ -71,7 +73,14 @@ export class PlatformIntegrationsController {
 
   @Put(':providerId')
   async save(@Ctx() ctx: TenantContext, @Param('providerId') id: string, @Body() body: unknown) {
-    return this.settings.save(await this.guard(ctx), id, body, ctx.userId);
+    const r = await this.settings.save(await this.guard(ctx), id, body, ctx.userId);
+    await this.platformAudit.record({
+      ctx,
+      action: 'platform.integration_saved',
+      target: { type: 'integration', id, label: r.provider.label },
+      metadata: { enabled: r.enabled },
+    });
+    return r;
   }
 
   @Post(':providerId/test')
@@ -83,6 +92,13 @@ export class PlatformIntegrationsController {
 
   @Delete(':providerId')
   async reset(@Ctx() ctx: TenantContext, @Param('providerId') id: string) {
-    return this.settings.reset(await this.guard(ctx), id, ctx.userId);
+    const r = await this.settings.reset(await this.guard(ctx), id, ctx.userId);
+    await this.platformAudit.record({
+      ctx,
+      action: 'platform.integration_saved',
+      target: { type: 'integration', id, label: id },
+      metadata: { reset: true },
+    });
+    return r;
   }
 }

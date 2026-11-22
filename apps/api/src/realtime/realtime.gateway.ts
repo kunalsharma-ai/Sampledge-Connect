@@ -12,6 +12,7 @@ import type { Redis } from 'ioredis';
 import type { Server, Socket } from 'socket.io';
 import {
   PRESENCE_STATUSES,
+  platformCan,
   TYPING_TTL_MS,
   type Ack,
   type ClientToServerEvents,
@@ -26,7 +27,7 @@ import { MessagesService } from '../messages/messages.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { REDIS } from '../redis/redis.module.js';
 import { RealtimePublisher } from './realtime.publisher.js';
-import { conversationRoom, tenantRoom, userRoom, moderatorsRoom } from './rooms.js';
+import { conversationRoom, tenantRoom, userRoom, moderatorsRoom, platformRoom } from './rooms.js';
 import { NetworkGate } from '../network/network-gate.js';
 import { PlatformAdmins } from '../common/platform-admins.js';
 import { NetworkTenant } from '../network/network-tenant.js';
@@ -120,8 +121,11 @@ export class RealtimeGateway
         ? [userRoom(ctx.tenantId, ctx.userId)]
         : [userRoom(ctx.tenantId, ctx.userId), tenantRoom(ctx.tenantId)],
     );
-    if (!isNetwork && (await this.platformAdmins.is(ctx).catch(() => false)))
-      await socket.join(moderatorsRoom());
+    if (!isNetwork) {
+      const role = await this.platformAdmins.roleOf(ctx).catch(() => null);
+      if (role) await socket.join(platformRoom());
+      if (platformCan(role, 'moderation')) await socket.join(moderatorsRoom());
+    }
     // Join only conversations the user is a member of (public channels they haven't joined sync via REST).
     const mine = await this.db
       .for(ctx.tenantId)

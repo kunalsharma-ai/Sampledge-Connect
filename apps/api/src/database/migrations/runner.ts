@@ -24,6 +24,7 @@ import { minutesMigration } from './050-minutes.js';
 import { callBackgroundsMigration } from './042-call-backgrounds.js';
 import { networkMigration } from './033-network.js';
 import { networkModerationMigration } from './051-network-moderation.js';
+import { platformAdminsMigration } from './052-platform-admins.js';
 
 export interface Migration {
   id: string;
@@ -57,6 +58,7 @@ export const MIGRATIONS: Migration[] = [
   callBackgroundsMigration,
   networkMigration,
   networkModerationMigration,
+  platformAdminsMigration,
 ];
 
 /**
