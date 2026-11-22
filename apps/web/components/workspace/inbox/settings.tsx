@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import { INBOX_PRIORITIES, type InboxSettings, type InboxTemplate } from '@sampledge/contracts';
 import { Button, Field, Input, StateView, cn, useToast } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import type { InboxApi } from '@/lib/inbox';
 import { PRIORITY_STYLE } from './shared';
 
@@ -66,9 +66,11 @@ export function InboxSettingsPanel({
   const [templates, setTemplates] = React.useState<InboxTemplate[] | null>(null);
   const [tpl, setTpl] = React.useState({ name: '', shortcut: '', body: '' });
   React.useEffect(() => setDraft(settings), [settings]);
+  const [tick, setTick] = React.useState(0);
+  useTenantChange('inbox', () => setTick((t) => t + 1));
   React.useEffect(() => {
     if (online) void api.templates().then(setTemplates, () => setTemplates([]));
-  }, [api, online]);
+  }, [api, online, tick]);
   const agents = [...directory.values()].filter((u) => u.role !== 'guest' && u.status === 'active');
 
   if (!draft) return <StateView state={online ? 'loading' : 'offline'} />;

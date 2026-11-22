@@ -48,6 +48,7 @@ const WHAT: Record<ActionKind, string> = {
   'inbox.note': 'Internal note',
   'inbox.update': 'Inbox conversation change',
   'inbox.read': 'Marking the conversation read',
+  'inbox.settings': 'Saving inbox settings',
 };
 
 /**

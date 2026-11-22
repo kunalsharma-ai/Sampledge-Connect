@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { ADAPTERS, ProviderError, type Credentials, type TokenCache } from './adapters/index.js';
 import { CredentialVault, hint } from './credential-vault.js';
 import { ConnectorHttp } from './transport.js';
+import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 
 export const newWebhookKey = () => randomBytes(24).toString('base64url');
 
@@ -50,7 +51,13 @@ export class ConnectorsService {
     private readonly vault: CredentialVault,
     private readonly http: ConnectorHttp,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimePublisher,
   ) {}
+
+  /** Every device of every member re-reads the channel list (agents see names and status). */
+  private changed(tenantId: string) {
+    this.realtime.toTenant(tenantId, 'tenant:updated', { area: 'inbox' });
+  }
 
   private requireManage(ctx: TenantContext) {
     if (!tenantCan(ctx.role, 'connectors.manage'))
@@ -223,6 +230,7 @@ export class ConnectorsService {
       target: { type: 'connector', id: doc._id },
       metadata: { provider: req.provider, environment: req.environment },
     });
+    this.changed(ctx.tenantId);
     return this.toConnector(doc);
   }
 
@@ -262,6 +270,7 @@ export class ConnectorsService {
       target: { type: 'connector', id },
       metadata: { fields: Object.keys(req) },
     });
+    this.changed(ctx.tenantId);
     return this.toConnector(updated!);
   }
 
@@ -306,6 +315,7 @@ export class ConnectorsService {
       // Field names only, never values.
       metadata: { fields: Object.keys(req.credentials), graceHours: req.graceHours },
     });
+    this.changed(ctx.tenantId);
     return this.toConnector(updated!);
   }
 
@@ -325,6 +335,7 @@ export class ConnectorsService {
       action: 'connector.webhook_url_rotated',
       target: { type: 'connector', id },
     });
+    this.changed(ctx.tenantId);
     return this.toConnector(updated!);
   }
 
@@ -364,6 +375,7 @@ export class ConnectorsService {
       action: 'connector.deleted',
       target: { type: 'connector', id },
     });
+    this.changed(ctx.tenantId);
     return { deleted: true as const };
   }
 

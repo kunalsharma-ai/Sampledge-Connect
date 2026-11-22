@@ -29,6 +29,7 @@ import {
   type CallMinutesResponse,
   type InboxConversationDetail,
   type UpdateInboxConversationRequest,
+  type InboxSettings,
   type ChatExportAccess,
   type ChatExportRequest,
   type MeetingMinutes,
@@ -575,6 +576,7 @@ export class ConnectEngine {
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
     if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
+    if (area === 'inbox') void this.refreshInboxAdmin();
     if (area === 'ai' || area === 'integrations') this.transcriptionCheckedAt = 0;
     if (area === 'calls' || area === 'branding')
       void this.refreshCallBackground().catch(() => undefined);
@@ -1403,6 +1405,12 @@ export class ConnectEngine {
       case 'inbox.read':
         await this.api.inbox('PUT', `${inboxDetailPath(i.inboxId)}/read`);
         break;
+      case 'inbox.settings':
+        await this.store.setSetting(
+          inboxKey('/v1/inbox/settings'),
+          JSON.stringify(await this.api.inbox('PUT', '/v1/inbox/settings', i.settings)),
+        );
+        break;
       case 'net.act': {
         let body = i.body;
         if (i.media) {
@@ -1456,7 +1464,7 @@ export class ConnectEngine {
       this.events.emit('actionRefused', { kind: i.kind, reason });
       return;
     }
-    if (i.kind === 'inbox.update' || i.kind === 'inbox.read') {
+    if (i.kind === 'inbox.update' || i.kind === 'inbox.read' || i.kind === 'inbox.settings') {
       // The server's copy shows again (no longer yours to change, closed elsewhere...).
       await this.store.work.complete(a);
       this.afterAction(a);
@@ -1485,6 +1493,7 @@ export class ConnectEngine {
       void this.refreshNetwork(i.scopes);
     }
     if (i.kind.startsWith('inbox.') && 'inboxId' in i) void this.refreshInbox(i.inboxId);
+    if (i.kind === 'inbox.settings') void this.refreshInboxAdmin();
     if (i.kind.startsWith('scheduled.')) this.events.emit('scheduled', null);
     if (i.kind.startsWith('task.')) this.events.emit('work', { kind: 'task' });
     if (i.kind.startsWith('approval.')) this.events.emit('work', { kind: 'approval' });
@@ -1662,6 +1671,37 @@ export class ConnectEngine {
       await this.refreshInbox(id);
       return r;
     });
+  }
+
+  /**
+   * Inbox settings as saved on this phone: the server's copy, or the one waiting to be sent.
+   * Owners and admins can change them offline; the latest save wins.
+   */
+  async inboxSettings(): Promise<InboxSettings | undefined> {
+    return (
+      (await this.store.work.pendingInboxSettings()) ??
+      (await this.inboxCached<InboxSettings>('/v1/inbox/settings'))
+    );
+  }
+
+  async saveInboxSettings(settings: InboxSettings): Promise<void> {
+    await this.queue({ kind: 'inbox.settings', settings });
+    this.events.emit('inbox', { conversationId: null });
+  }
+
+  /**
+   * Channels, templates and settings changed (here, on another device or by another admin):
+   * re-read the ones on this phone, then tell the screens.
+   */
+  async refreshInboxAdmin(): Promise<void> {
+    if (this.inNetwork) return;
+    if (this.online) {
+      const keys = (await this.store.settingKeys(INBOX_PREFIX))
+        .map((k) => k.slice(INBOX_PREFIX.length))
+        .filter((p) => !p.startsWith('/v1/inbox/conversations'));
+      await Promise.allSettled(keys.map((p) => this.inboxLoad(p)));
+    }
+    this.events.emit('inbox', { conversationId: null });
   }
 
   /**

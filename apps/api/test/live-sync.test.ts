@@ -333,6 +333,45 @@ describe('client inbox', () => {
     expect((await list(owner)).unread).toBe(false);
     expect((await list(ravi)).unread).toBe(true);
   });
+
+  it('channels, templates and inbox settings reach every member', async () => {
+    const isInbox = (e: { area: string }) => e.area === 'inbox';
+    let wait = [b, r].map((s) => nextEvent(s, 'tenant:updated', isInbox));
+    const c = await api<{ connectorId: string }>(h, 'POST', '/v1/connectors', {
+      ...as(owner),
+      body: { provider: 'slack', name: 'Synced channel', environment: 'test' },
+    });
+    expect(c.status).toBe(201);
+    await Promise.all(wait);
+
+    wait = [b, r].map((s) => nextEvent(s, 'tenant:updated', isInbox));
+    await api(h, 'PATCH', `/v1/connectors/${c.body.connectorId}`, {
+      ...as(owner),
+      body: { status: 'paused' },
+    });
+    await Promise.all(wait);
+
+    wait = [b, r].map((s) => nextEvent(s, 'tenant:updated', isInbox));
+    const tpl = await api(h, 'POST', '/v1/inbox/templates', {
+      ...as(ravi),
+      body: { name: 'Synced', shortcut: 'synced', body: 'Hi {{client.firstName}}' },
+    });
+    expect(tpl.status, JSON.stringify(tpl.body)).toBe(201);
+    await Promise.all(wait);
+
+    wait = [b, r].map((s) => nextEvent(s, 'tenant:updated', isInbox));
+    const cur = await api<Record<string, unknown>>(h, 'GET', '/v1/inbox/settings', as(owner));
+    const put = await api(h, 'PUT', '/v1/inbox/settings', {
+      ...as(owner),
+      body: { ...cur.body, autoAssign: true },
+    });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
+    await Promise.all(wait);
+
+    wait = [b, r].map((s) => nextEvent(s, 'tenant:updated', isInbox));
+    await api(h, 'DELETE', `/v1/connectors/${c.body.connectorId}`, as(owner));
+    await Promise.all(wait);
+  });
 });
 
 async function simulateAgain(connectorId: string) {

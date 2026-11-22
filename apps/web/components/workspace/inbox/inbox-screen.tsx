@@ -21,7 +21,7 @@ import {
   cn,
   useToast,
 } from '@sampledge/ui';
-import type { DirectoryEntry } from '@/lib/engine';
+import { useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import { useInboxData, useInboxDetail } from '@/lib/inbox';
 import { nameOf } from '../helpers';
 import { ChannelsPanel } from './channels';
@@ -97,13 +97,16 @@ export function ClientInboxScreen({
   const [templates, setTemplates] = React.useState<InboxTemplate[]>([]);
   const [connectors, setConnectors] = React.useState<Connector[]>([]);
   const [starting, setStarting] = React.useState(false);
+  const [adminTick, setAdminTick] = React.useState(0);
+  // Channels, templates or settings changed on any device: read them again.
+  useTenantChange('inbox', () => setAdminTick((t) => t + 1));
 
   React.useEffect(() => {
     if (!online) return;
     void api.settings().then(setSettings, () => undefined);
     void api.templates().then(setTemplates, () => undefined);
     void api.connectors().then(setConnectors, () => undefined);
-  }, [api, online, tab]);
+  }, [api, online, tab, adminTick]);
 
   const items = data.list ? data.list.items.map(data.overlay) : null;
   React.useEffect(() => {

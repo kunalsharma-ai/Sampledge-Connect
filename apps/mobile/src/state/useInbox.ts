@@ -138,9 +138,27 @@ export function useInboxTemplates(): InboxTemplate[] {
   return useInboxPath<InboxTemplate[]>('/v1/inbox/templates').data ?? [];
 }
 
-/** Teams, SLA and escalation contacts (names for the details screen). */
+/**
+ * Teams, SLA and escalation settings: a save waiting on this phone wins over the server's copy,
+ * so a change made offline shows at once everywhere in the app.
+ */
 export function useInboxSettings(): InboxSettings | null {
-  return useInboxPath<InboxSettings>('/v1/inbox/settings').data ?? null;
+  const { engine } = useWorkspace();
+  const server = useInboxPath<InboxSettings>('/v1/inbox/settings').data;
+  const [s, setS] = useState<InboxSettings | null>(null);
+  useEffect(() => {
+    let live = true;
+    const read = () => void engine.inboxSettings().then((x) => live && setS(x ?? null));
+    read();
+    const off = engine.events.on('inbox', read);
+    const offWork = engine.store.work.events.on('changed', (e) => e.kind === 'inbox' && read());
+    return () => {
+      live = false;
+      off();
+      offWork();
+    };
+  }, [engine, server]);
+  return s;
 }
 
 /** The organization's channels (for the channel filter and handoff conversations). */

@@ -148,6 +148,8 @@ export const TENANT_AREAS = [
   'minutes',
   'chat_themes',
   'calls',
+  /** Client Inbox channels (connectors), reply templates and inbox settings (SLA, teams). */
+  'inbox',
 ] as const;
 export type TenantArea = (typeof TENANT_AREAS)[number];
 
