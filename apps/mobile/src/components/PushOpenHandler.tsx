@@ -15,6 +15,12 @@ export function PushOpenHandler() {
           router.push({ pathname: '/meeting/[id]', params: { id: data.meetingId } });
           return;
         }
+        // Help center replies and status changes open the question.
+        if (data.type === 'support' && typeof data.queryId === 'string') {
+          void engine.refreshSupport();
+          router.push({ pathname: '/help/query/[id]', params: { id: data.queryId } });
+          return;
+        }
         const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null;
         if (!conversationId) return;
         // A ringing call: show the incoming call sheet if it is still ringing for you.

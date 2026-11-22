@@ -39,3 +39,5 @@ export * from './chat-themes.js';
 export * from './platform.js';
 export * from './greetings.js';
 export * from './feature-help.js';
+export * from './help-faq.js';
+export * from './support.js';

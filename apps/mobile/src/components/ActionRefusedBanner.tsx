@@ -44,6 +44,7 @@ const WHAT: Record<ActionKind, string> = {
   'minutes.update': 'Saving the minutes',
   'transcript.update': 'Correcting the transcript',
   'net.act': 'SampConnect Network change',
+  'support.act': 'Help question',
   'inbox.reply': 'Reply to client',
   'inbox.note': 'Internal note',
   'inbox.update': 'Inbox conversation change',

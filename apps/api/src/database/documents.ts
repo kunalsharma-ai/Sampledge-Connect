@@ -1,3 +1,4 @@
+import type { SupportRoute, SupportSide, SupportStatus, SupportTopic } from '@sampledge/contracts';
 import type {
   ConnectorProvider,
   ConversationKind,
@@ -729,6 +730,31 @@ export interface BookmarkDoc extends TenantOwned {
   createdAt: Date;
 }
 
+/** A Help center query (docs/help-center.md). Replies are kept inline: a thread is short. */
+export interface SupportQueryDoc extends TenantOwned {
+  clientId: string;
+  requesterId: string;
+  subject: string;
+  body: string;
+  topic: SupportTopic;
+  featureId: string | null;
+  route: SupportRoute;
+  status: SupportStatus;
+  replies: {
+    _id: string;
+    clientId: string;
+    side: SupportSide;
+    authorId: string;
+    authorName: string;
+    text: string;
+    createdAt: Date;
+  }[];
+  createdAt: Date;
+  updatedAt: Date;
+  lastReplyAt: Date | null;
+  lastReplySide: SupportSide | null;
+}
+
 export interface ScheduledMessageDoc extends TenantOwned {
   conversationId: string;
   userId: string;
@@ -941,6 +967,7 @@ export interface TenantCollections {
   inbox_templates: InboxTemplateDoc;
   inbox_settings: InboxSettingsDoc;
   bookmarks: BookmarkDoc;
+  support_queries: SupportQueryDoc;
   search_history: SearchHistoryDoc;
   user_avatars: UserAvatarDoc;
   call_background_prefs: CallBackgroundPrefDoc;

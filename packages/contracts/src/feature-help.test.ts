@@ -33,3 +33,13 @@ describe('feature help', () => {
     expect(searchFeatureHelp('zzzz-nothing')).toHaveLength(0);
   });
 });
+
+describe('help FAQs', () => {
+  it('have unique ids and link to guides that exist', async () => {
+    const { HELP_FAQS, searchFaqs } = await import('./help-faq.js');
+    expect(new Set(HELP_FAQS.map((f) => f.id)).size).toBe(HELP_FAQS.length);
+    for (const f of HELP_FAQS)
+      if (f.featureId) expect(featureHelp(f.featureId), f.id).toBeDefined();
+    expect(searchFaqs('record')[0]!.id).toBe('record');
+  });
+});
