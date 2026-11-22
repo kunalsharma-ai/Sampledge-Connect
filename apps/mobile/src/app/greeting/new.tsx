@@ -32,6 +32,7 @@ import {
 } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { Button } from '../../components/Button';
+import { HeaderTitleWithHelp } from '../../components/FeatureHelp';
 import { GreetingCard } from '../../components/GreetingCard';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
@@ -141,7 +142,12 @@ export default function NewGreeting() {
   if (!policy.enabled || !offered.length)
     return (
       <Screen edges={['bottom']}>
-        <Stack.Screen options={{ title: 'Greeting card' }} />
+        <Stack.Screen
+          options={{
+            title: 'Greeting card',
+            headerTitle: () => <HeaderTitleWithHelp title="Greeting card" id="greeting-cards" />,
+          }}
+        />
         <View style={{ padding: space.xl }}>
           <Text variant="body" tone="muted">
             Greeting cards aren’t available in this organization.
@@ -152,7 +158,12 @@ export default function NewGreeting() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'Greeting card' }} />
+      <Stack.Screen
+        options={{
+          title: 'Greeting card',
+          headerTitle: () => <HeaderTitleWithHelp title="Greeting card" id="greeting-cards" />,
+        }}
+      />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

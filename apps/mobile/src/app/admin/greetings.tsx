@@ -7,6 +7,7 @@ import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Button } from '../../components/Button';
+import { HeaderTitleWithHelp } from '../../components/FeatureHelp';
 import { Glass } from '../../components/Glass';
 import { GreetingCard } from '../../components/GreetingCard';
 import { Screen } from '../../components/Screen';
@@ -51,7 +52,12 @@ export default function GreetingsAdmin() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'Greeting cards' }} />
+      <Stack.Screen
+        options={{
+          title: 'Greeting cards',
+          headerTitle: () => <HeaderTitleWithHelp title="Greeting cards" id="greeting-cards" />,
+        }}
+      />
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: 80 }}>
         <Text variant="body" tone="muted">
           Ready-made cards for festivals and special moments that people can send in any chat, with

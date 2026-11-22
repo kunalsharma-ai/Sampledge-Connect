@@ -21,6 +21,7 @@ import {
 import { greetingBannerDataUrl, greetingCardLook } from '@sampledge/design-tokens';
 import { Button, Dialog, DialogContent, Input, Textarea, cn, useToast } from '@sampledge/ui';
 import { useGreetingPolicy } from '@/lib/greetings';
+import { FeatureHelp } from '../feature-help';
 
 const SERIF = 'Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif';
 
@@ -379,7 +380,9 @@ export function GreetingComposerDialog({
 
           {/* Preview */}
           <section aria-label="Preview" className="flex min-w-0 flex-col gap-3">
-            <p className="text-label text-text">Preview</p>
+            <p className="flex items-center gap-1.5 text-label text-text">
+              Preview <FeatureHelp id="greeting-cards" size="sm" inDialog />
+            </p>
             {card ? (
               <GreetingCardView
                 card={card}
@@ -501,6 +504,7 @@ export function GreetingsAdmin() {
       <section className="rounded-xl border border-border bg-surface p-5">
         <h2 className="flex items-center gap-2 text-h3 text-text">
           <PartyPopper className="size-5 text-accent" /> Greeting cards
+          <FeatureHelp id="greeting-cards" size="sm" />
         </h2>
         <p className="mt-1 text-label text-text-muted">
           Ready-made cards for festivals and special moments that people can send in any chat, with
