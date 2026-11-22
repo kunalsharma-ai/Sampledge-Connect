@@ -27,6 +27,8 @@ import { ConversationsService } from '../conversations/conversations.service.js'
 import { REDIS } from '../redis/redis.module.js';
 import { RealtimePublisher } from './realtime.publisher.js';
 import { conversationRoom, tenantRoom, userRoom } from './rooms.js';
+import { NetworkGate } from '../network/network-gate.js';
+import { NetworkTenant } from '../network/network-tenant.js';
 
 interface SocketData {
   ctx: TenantContext;
@@ -66,7 +68,22 @@ export class RealtimeGateway
     private readonly publisher: RealtimePublisher,
     private readonly db: TenantDb,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly networkGate: NetworkGate,
+    private readonly network: NetworkTenant,
   ) {}
+
+  /**
+   * Who hears my presence: the whole organization, or in SampConnect Network only my
+   * connections (the network never broadcasts who is online to everyone).
+   */
+  private async presenceRooms(tenantId: string, userId: string): Promise<string[]> {
+    if (!(await this.network.isNetwork(tenantId))) return [tenantRoom(tenantId)];
+    const rows = await this.db
+      .for(tenantId)
+      .network_connections.find({ userId }, { projection: { otherUserId: 1 }, limit: 5000 })
+      .toArray();
+    return rows.map((r) => userRoom(tenantId, r.otherUserId));
+  }
 
   afterInit(server: Server) {
     this.server = server;
@@ -80,7 +97,8 @@ export class RealtimeGateway
         );
       this.sessions
         .resolve(token)
-        .then((ctx) => {
+        .then(async (ctx) => {
+          await this.networkGate.assertAccess(ctx);
           (socket.data as SocketData) = { ctx, token };
           next();
         })
@@ -94,7 +112,12 @@ export class RealtimeGateway
   async handleConnection(socket: AppSocket) {
     if (this.shuttingDown) return void socket.disconnect(true);
     const { ctx } = socket.data;
-    await socket.join([userRoom(ctx.tenantId, ctx.userId), tenantRoom(ctx.tenantId)]);
+    const isNetwork = await this.network.isNetwork(ctx.tenantId);
+    await socket.join(
+      isNetwork
+        ? [userRoom(ctx.tenantId, ctx.userId)]
+        : [userRoom(ctx.tenantId, ctx.userId), tenantRoom(ctx.tenantId)],
+    );
     // Join only conversations the user is a member of (public channels they haven't joined sync via REST).
     const mine = await this.db
       .for(ctx.tenantId)
@@ -127,7 +150,9 @@ export class RealtimeGateway
     try {
       await this.redis.hdel(key, socket.id);
       if ((await this.redis.hlen(key)) === 0) {
-        this.server.to(tenantRoom(tenantId)).emit('presence:update', { userId, status: 'offline' });
+        const rooms = await this.presenceRooms(tenantId, userId);
+        if (rooms.length)
+          this.server.to(rooms).emit('presence:update', { userId, status: 'offline' });
       }
     } catch (e) {
       // During shutdown Redis may already be closed; presence keys expire on their own (TTL).
@@ -138,6 +163,7 @@ export class RealtimeGateway
   private async recheck(socket: AppSocket) {
     try {
       socket.data.ctx = await this.sessions.resolve(socket.data.token);
+      await this.networkGate.assertAccess(socket.data.ctx);
       await this.redis.expire(
         `presence:${socket.data.ctx.tenantId}:${socket.data.ctx.userId}`,
         PRESENCE_TTL_S,
@@ -155,7 +181,8 @@ export class RealtimeGateway
     const { tenantId, userId } = socket.data.ctx;
     const key = `presence:${tenantId}:${userId}`;
     await this.redis.multi().hset(key, socket.id, status).expire(key, PRESENCE_TTL_S).exec();
-    this.server.to(tenantRoom(tenantId)).emit('presence:update', { userId, status });
+    const rooms = await this.presenceRooms(tenantId, userId);
+    if (rooms.length) this.server.to(rooms).emit('presence:update', { userId, status });
   }
 
   @SubscribeMessage('message:send')

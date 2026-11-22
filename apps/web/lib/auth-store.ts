@@ -2,8 +2,11 @@ import { Dexie, type EntityTable } from 'dexie';
 import { uuidv7, type Session } from '@sampledge/contracts';
 
 /** Persisted session (survives reloads and offline starts). The access token stays in memory only. */
+export type SessionSlot = 'current' | 'network';
+
 export interface StoredSession {
-  id: 'current';
+  /** 'current' is the account you signed in with; 'network' is the linked SampConnect Network session. */
+  id: SessionSlot;
   refreshToken: string;
   user: Session['user'];
   tenant: Session['tenant'];
@@ -21,17 +24,20 @@ class AuthDb extends Dexie {
 let db: AuthDb | null = null;
 const authDb = () => (db ??= new AuthDb());
 
-export async function loadSession(): Promise<StoredSession | null> {
+export async function loadSession(slot: SessionSlot = 'current'): Promise<StoredSession | null> {
   try {
-    return (await authDb().session.get('current')) ?? null;
+    return (await authDb().session.get(slot)) ?? null;
   } catch {
     return null;
   }
 }
 
-export async function saveSession(s: Session): Promise<StoredSession> {
+export async function saveSession(
+  s: Session,
+  slot: SessionSlot = 'current',
+): Promise<StoredSession> {
   const row: StoredSession = {
-    id: 'current',
+    id: slot,
     refreshToken: s.refreshToken,
     user: s.user,
     tenant: s.tenant,
@@ -41,8 +47,9 @@ export async function saveSession(s: Session): Promise<StoredSession> {
   return row;
 }
 
-export async function clearSession() {
-  await authDb().session.delete('current');
+export async function clearSession(slot?: SessionSlot) {
+  if (slot) await authDb().session.delete(slot);
+  else await authDb().session.clear();
 }
 
 /** Stable per-installation device id. */

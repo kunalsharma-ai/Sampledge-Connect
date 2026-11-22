@@ -20,7 +20,7 @@ import type {
   SummaryRange,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
-import { useAuth } from './auth';
+import { isNetworkSession, useAuth } from './auth';
 import { useEngine, useEngineChange, useTenantChange } from './engine';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -29,7 +29,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
  * here runs on the chat path, and failures never affect sending or reading messages.
  */
 export function useAi() {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, session } = useAuth();
+  // The AI assistant belongs to the organization; SampConnect Network has none.
+  const network = isNetworkSession(session);
   const { state } = useEngine();
   const online = state.connectivity === 'online';
   const [status, setStatus] = React.useState<AiStatus | null>(null);
@@ -41,12 +43,13 @@ export function useAi() {
   );
 
   const refreshStatus = React.useCallback(async () => {
+    if (network) return setStatus(null);
     try {
       setStatus(await call<AiStatus>('GET', '/status'));
     } catch {
       /* offline or AI unavailable: keep the last known status */
     }
-  }, [call]);
+  }, [call, network]);
 
   React.useEffect(() => {
     if (online) void refreshStatus();
@@ -157,7 +160,8 @@ const DISMISSED_CACHE_KEY = 'ai-dismissed-suggestions';
  */
 export function useAiDismissals() {
   const { db, engine, state } = useEngine();
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, session } = useAuth();
+  const network = isNetworkSession(session); // no AI in SampConnect Network
   const [ids, setIds] = React.useState<Set<string>>(() => new Set());
   const online = state.connectivity === 'online';
   const store = React.useCallback(
@@ -168,6 +172,7 @@ export function useAiDismissals() {
     [db],
   );
   const refresh = React.useCallback(async () => {
+    if (network) return;
     try {
       const r = await apiRequest<AiDismissedSuggestions>('GET', '/v1/ai/suggestions/dismissed', {
         token: await getAccessToken(),
@@ -176,7 +181,7 @@ export function useAiDismissals() {
     } catch {
       /* offline or AI unavailable: keep the cached set */
     }
-  }, [getAccessToken, store]);
+  }, [getAccessToken, store, network]);
   React.useEffect(() => {
     void db.meta.get(DISMISSED_CACHE_KEY).then((row) => {
       if (row) setIds((s) => (s.size ? s : new Set(row.value as string[])));

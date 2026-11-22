@@ -26,6 +26,7 @@ import {
   type TenantArea,
   type AiProposal,
 } from '@sampledge/contracts';
+import type { NetworkChangedEvent } from '@sampledge/contracts';
 
 /** Raised for transport-level failures (no response). Always retryable. */
 export class NetworkError extends Error {
@@ -58,6 +59,8 @@ export interface RealtimeHandlers {
   onScheduled?(s: ScheduledMessage): void;
   /** Task and approval changes for the signed-in user (optional). */
   onWork?(e: WorkEvent): void;
+  /** SampConnect Network changes (requests, follows, statuses, communities) for the signed-in user. */
+  onNetwork?(e: NetworkChangedEvent): void;
   /** Saved messages, people, organization settings and projects changed (optional). */
   onChange?(e: ChangeEvent): void;
 }
@@ -285,6 +288,7 @@ export class HttpSocketTransport implements Transport {
     s.on('scheduled:updated', (x) => this.handlers?.onScheduled?.(x));
     s.on('task:upsert', (task) => this.handlers?.onWork?.({ type: 'task', task }));
     s.on('approval:upsert', (approval) => this.handlers?.onWork?.({ type: 'approval', approval }));
+    s.on('network:changed', (e) => this.handlers?.onNetwork?.(e));
     s.on('bookmark:updated', (e) => this.handlers?.onChange?.({ type: 'bookmark', ...e }));
     s.on('search:recent', (e) => this.handlers?.onChange?.({ type: 'searchRecent', ...e }));
     s.on('chat-theme:changed', (e) => this.handlers?.onChange?.({ type: 'chatTheme', ...e }));

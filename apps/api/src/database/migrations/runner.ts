@@ -21,6 +21,7 @@ import { searchMigration } from './040-search.js';
 import { analyticsMigration } from './041-analytics.js';
 import { minutesMigration } from './050-minutes.js';
 import { callBackgroundsMigration } from './042-call-backgrounds.js';
+import { networkMigration } from './033-network.js';
 
 export interface Migration {
   id: string;
@@ -51,6 +52,7 @@ export const MIGRATIONS: Migration[] = [
   analyticsMigration,
   minutesMigration,
   callBackgroundsMigration,
+  networkMigration,
 ];
 
 /**

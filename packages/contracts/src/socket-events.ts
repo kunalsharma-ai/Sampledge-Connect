@@ -13,6 +13,7 @@ import type {
 import type { Notification } from './notifications.js';
 import type { AckReceiptRequest, Receipt } from './receipts.js';
 import type { Approval, Task } from './work.js';
+import type { NetworkChangedEvent } from './network.js';
 import type { AiProposal, AiSuggestionEvent, TranscriptChangedEvent } from './ai.js';
 import type { MinutesChangedEvent } from './minutes.js';
 import type { BookingPage } from './booking.js';
@@ -72,6 +73,8 @@ export interface ServerToClientEvents {
   'task:upsert': (task: Task) => void;
   /** An approval you requested or must decide was created or decided. */
   'approval:upsert': (approval: Approval) => void;
+  /** SampConnect Network: requests, follows, statuses or communities changed; refetch that scope. */
+  'network:changed': (e: NetworkChangedEvent) => void;
   /**
    * A module record in this conversation was linked or updated, or someone ran a record action.
    * Sent to the conversation room; clients refetch GET /v1/integrations/records (also on reconnect).

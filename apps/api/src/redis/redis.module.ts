@@ -34,6 +34,14 @@ const POLICIES = {
   documents: { points: 20, duration: 60 },
   /** Two-step verification codes, per account (login and settings). */
   mfa: { points: 10, duration: 300 },
+  /** SampConnect Network people search, per user. */
+  network_search: { points: 60, duration: 60 },
+  /** Connection requests and reports, per user per hour (anti-spam). */
+  network_request: { points: 40, duration: 3600 },
+  /** Invites to people not on the platform, per user per hour. */
+  network_invite: { points: 30, duration: 3600 },
+  /** Status updates and community creation, per user per hour. */
+  network_post: { points: 60, duration: 3600 },
 } as const;
 export type RateLimitPolicy = keyof typeof POLICIES;
 

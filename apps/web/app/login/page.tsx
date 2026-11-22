@@ -8,7 +8,12 @@ import { AuthShell } from '@/components/auth-shell';
 import { ApiFailure } from '@/lib/api';
 import { apiRequest } from '@/lib/api';
 import { ssoStartUrl, useAuth } from '@/lib/auth';
-import type { MfaChallenge, PublicBranding, SsoInfo } from '@sampledge/contracts';
+import {
+  NETWORK_TENANT_SLUG,
+  type MfaChallenge,
+  type PublicBranding,
+  type SsoInfo,
+} from '@sampledge/contracts';
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const LAST_SLUG = 'sampledge.lastWorkspace';
@@ -26,6 +31,8 @@ export default function LoginPage() {
   const [brand, setBrand] = React.useState<PublicBranding | null>(null);
   const [showPassword, setShowPassword] = React.useState(false);
   const [redirecting, setRedirecting] = React.useState(false);
+  // Personal SampConnect Network account (no organization): signs in to the network space.
+  const [personal, setPersonal] = React.useState(false);
 
   React.useEffect(() => {
     if (auth.status === 'signed-in' && !auth.expired) router.replace('/app');
@@ -61,7 +68,7 @@ export default function LoginPage() {
   // Ask whether this workspace offers single sign-on once the name looks complete.
   React.useEffect(() => {
     const s = slug.trim().toLowerCase();
-    if (s.length < 3 || !SLUG.test(s)) {
+    if (personal || s.length < 3 || !SLUG.test(s)) {
       setSso(null);
       setBrand(null);
       return;
@@ -79,7 +86,7 @@ export default function LoginPage() {
       live = false;
       clearTimeout(t);
     };
-  }, [slug]);
+  }, [slug, personal]);
 
   const rememberSlug = () => {
     try {
@@ -88,17 +95,17 @@ export default function LoginPage() {
       /* storage blocked */
     }
   };
-  const ssoOnly = !!sso && !sso.passwordLogin && !showPassword;
+  const ssoOnly = !personal && !!sso && !sso.passwordLogin && !showPassword;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     setPending(true);
     setError(null);
-    rememberSlug();
+    if (!personal) rememberSlug();
     try {
       const ch = await auth.login({
-        tenantSlug: String(f.get('workspace')),
+        tenantSlug: personal ? NETWORK_TENANT_SLUG : String(f.get('workspace')),
         email: String(f.get('email')),
         password: String(f.get('password')),
       });
@@ -204,35 +211,71 @@ export default function LoginPage() {
       brand={brand}
       title="Welcome back"
       subtitle={
-        brand
-          ? `Sign in to ${brand.organizationName}.`
-          : 'Sign in to your organization’s workspace.'
+        personal
+          ? 'Sign in to your personal SampConnect Network account.'
+          : brand
+            ? `Sign in to ${brand.organizationName}.`
+            : 'Sign in to your organization’s workspace.'
       }
       footer={
-        <>
-          New to SampConnect?{' '}
-          <Link href="/register" className="font-semibold text-accent hover:underline">
-            Create an organization
-          </Link>
-        </>
+        personal ? (
+          <>
+            No account yet?{' '}
+            <Link href="/signup" className="font-semibold text-accent hover:underline">
+              Create a free personal account
+            </Link>
+          </>
+        ) : (
+          <>
+            New to SampConnect?{' '}
+            <Link href="/register" className="font-semibold text-accent hover:underline">
+              Create an organization
+            </Link>
+          </>
+        )
       }
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-        <Field
-          label="Workspace"
-          htmlFor="workspace"
-          hint="The workspace URL your admin shared, e.g. acme-research"
-        >
-          <Input
-            id="workspace"
-            name="workspace"
-            autoComplete="organization"
-            required
-            placeholder="acme-research"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-          />
-        </Field>
+        <div className="flex rounded-md border border-border bg-surface p-0.5" role="tablist">
+          {[
+            { on: !personal, label: 'Organization', set: false },
+            { on: personal, label: 'Personal account', set: true },
+          ].map((t) => (
+            <button
+              key={t.label}
+              type="button"
+              role="tab"
+              aria-selected={t.on}
+              onClick={() => {
+                setPersonal(t.set);
+                setError(null);
+              }}
+              className={
+                'flex-1 rounded-sm px-3 py-1.5 text-label transition-colors ' +
+                (t.on ? 'bg-accent-soft text-text shadow-sm' : 'text-text-muted hover:text-text')
+              }
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {personal ? null : (
+          <Field
+            label="Workspace"
+            htmlFor="workspace"
+            hint="The workspace URL your admin shared, e.g. acme-research"
+          >
+            <Input
+              id="workspace"
+              name="workspace"
+              autoComplete="organization"
+              required
+              placeholder="acme-research"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+            />
+          </Field>
+        )}
         {brand?.loginMessage ? (
           <p
             className="rounded-md border border-border bg-surface-raised px-3 py-2 text-label font-normal text-text"
@@ -241,7 +284,7 @@ export default function LoginPage() {
             {brand.loginMessage}
           </p>
         ) : null}
-        {sso ? (
+        {sso && !personal ? (
           <>
             <Button
               type="button"
@@ -275,7 +318,7 @@ export default function LoginPage() {
         ) : null}
         {ssoOnly ? null : (
           <>
-            <Field label="Work email" htmlFor="email">
+            <Field label={personal ? 'Email' : 'Work email'} htmlFor="email">
               <Input
                 id="email"
                 name="email"

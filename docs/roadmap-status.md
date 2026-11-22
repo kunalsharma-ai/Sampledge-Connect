@@ -60,6 +60,15 @@ This file is the honest ledger: if a feature is not listed as Built, it does not
 | Tasks & Approvals screen, Projects screen, chat-to-task and request approval from any message, linked records in Details (web)                                    | Built (see docs/work.md)                              |
 | Automatic retries for failed module actions, conversation-scoped widget tokens, tasks/projects screens on mobile, publishing the SDK packages                     | Planned                                               |
 
+## SampConnect Network (cross-organization)
+
+| Item                                                                                                                                                                                                                                           | Status                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Connect IDs, search across organizations, free connection requests in business or friend circles, follow and unfollow, block and report, invites by email or link for people not on the platform with lightweight personal accounts (web, API) | Built (see docs/network.md) |
+| Status updates with viewers and replies, communities with groups, roles, invite links and public pages, admin policy (off switch, domain allowlist), audit, idempotent synced actions with an offline outbox (web, API)                        | Built (see docs/network.md) |
+| SMS provider sending, a moderation console for reports, network presence beyond connections, group chats outside communities                                                                                                                   | Planned                     |
+| Network screens on mobile                                                                                                                                                                                                                      | In progress (mobile thread) |
+
 ## Phase 3 and later
 
 Connector gateway and unified client inbox (in progress in its own thread).

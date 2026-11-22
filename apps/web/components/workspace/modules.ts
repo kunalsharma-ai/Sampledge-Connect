@@ -9,6 +9,9 @@ import {
   CheckSquare,
   FolderKanban,
   FolderOpen,
+  Globe,
+  UsersRound,
+  UserRoundPlus,
   Hash,
   House,
   Inbox,
@@ -40,7 +43,11 @@ export type ModuleId =
   | 'billing'
   | 'branding'
   | 'admin'
-  | 'settings';
+  | 'settings'
+  | 'network'
+  | 'network-home'
+  | 'people'
+  | 'communities';
 
 export interface ModuleDef {
   id: ModuleId;
@@ -56,6 +63,7 @@ export interface ModuleDef {
 export const MODULES: ModuleDef[] = [
   { id: 'home', label: 'Home', icon: House, built: true },
   { id: 'messages', label: 'Messages', icon: MessagesSquare, built: true },
+  { id: 'network', label: 'SampConnect Network', icon: Globe, built: true },
   { id: 'channels', label: 'Teams & Channels', icon: Hash, built: true },
   { id: 'projects', label: 'Projects', icon: FolderKanban, built: true },
   { id: 'client-inbox', label: 'Client Inbox', icon: Inbox, built: false, phase: 'Phase 3' },
@@ -72,5 +80,16 @@ export const MODULES: ModuleDef[] = [
   { id: 'branding', label: 'Branding', icon: Palette, built: true, adminOnly: true },
   { id: 'billing', label: 'Billing', icon: CreditCard, built: true, adminOnly: true },
   { id: 'admin', label: 'Administration', icon: ShieldCheck, built: true, adminOnly: true },
+  { id: 'settings', label: 'Settings', icon: Settings, built: true },
+];
+
+/** SampConnect Network space: no organization modules, only what crosses organizations. */
+export const NETWORK_MODULES: ModuleDef[] = [
+  { id: 'network-home', label: 'Home', icon: House, built: true },
+  { id: 'messages', label: 'Messages', icon: MessagesSquare, built: true },
+  { id: 'people', label: 'People', icon: UserRoundPlus, built: true },
+  { id: 'communities', label: 'Communities', icon: UsersRound, built: true },
+  { id: 'notifications', label: 'Notifications', icon: Bell, built: true },
+  { id: 'saved', label: 'Saved', icon: Bookmark, built: true },
   { id: 'settings', label: 'Settings', icon: Settings, built: true },
 ];
