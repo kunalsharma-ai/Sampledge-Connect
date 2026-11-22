@@ -11,9 +11,15 @@ import {
   type ReactNode,
 } from 'react';
 import { AppState, Platform } from 'react-native';
-import { SessionManager, type SessionState, type StoredSession } from '../auth/session';
+import {
+  SessionManager,
+  isNetworkTenant,
+  type SessionState,
+  type Space,
+  type StoredSession,
+} from '../auth/session';
 import { migrate } from '../db/migrations';
-import { openExpoDriver } from '../db/expoDriver';
+import { deleteExpoDatabase, openExpoDriver } from '../db/expoDriver';
 import { secureStorage } from '../db/secureStorage';
 import { LocalStore } from '../db/store';
 import type { SqlDriver } from '../db/driver';
@@ -35,6 +41,8 @@ interface AppContextValue {
   sessionState: SessionState;
   session: StoredSession | null;
   sessions: SessionManager;
+  /** Your organization, or SampConnect Network (each has its own offline data). */
+  space: Space;
   workspace: Workspace | null;
   engineState: EngineState | null;
   /** Wipes local data for this account and signs out. */
@@ -77,28 +85,40 @@ function dbNameFor(state: SessionState, s: StoredSession | null): string | null 
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [sessionState, setSessionState] = useState<SessionState>('loading');
+  const [space, setSpace] = useState<Space>('work');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [engineState, setEngineState] = useState<EngineState | null>(null);
   const openDb = useRef<{ name: string; driver: SqlDriver; engine: ConnectEngine } | null>(null);
 
   useEffect(() => {
-    const off = sessions.events.on('state', setSessionState);
+    const off = sessions.events.on('state', (st) => {
+      setSpace(sessions.space);
+      setSessionState(st);
+    });
+    const offSpace = sessions.events.on('space', setSpace);
     void sessions.load();
-    return off;
+    return () => {
+      off();
+      offSpace();
+    };
   }, []);
 
-  // Open (or switch) the per-account encrypted cache whenever the account changes.
+  // Open (or switch) the per-account encrypted cache whenever the account or space changes.
+  // Work and SampConnect Network are different tenants, so each gets its own database.
   useEffect(() => {
     const name = dbNameFor(sessionState, sessions.current);
     if (openDb.current?.name === name) return;
     let cancelled = false;
     void (async () => {
       if (openDb.current) {
-        openDb.current.engine.stop();
-        await openDb.current.driver.close();
+        const closing = openDb.current;
         openDb.current = null;
+        closing.engine.stop();
+        // Screens of the old space let go of it before its database closes.
         setWorkspace(null);
         setEngineState(null);
+        await new Promise((r) => setTimeout(r, 50));
+        await closing.driver.close();
       }
       if (!name) return;
       const driver = await openExpoDriver(name, await sessions.databaseKey(randomHex));
@@ -113,6 +133,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : new HttpTransport({
             baseUrl: s!.serverUrl,
             getAccessToken: () => sessions.getAccessToken(),
+            networkSpace: isNetworkTenant(s),
           });
       const realtime = demo
         ? null
@@ -132,7 +153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionState]);
+  }, [sessionState, space]);
 
   // Connectivity and foreground triggers.
   useEffect(() => {
@@ -164,18 +185,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const ws = openDb.current;
+    // The other space's session and data go too.
+    const other = sessions.isPersonal
+      ? null
+      : sessions.space === 'network'
+        ? sessions.primary
+        : sessions.networkSession;
+    const otherDb = other ? dbNameFor('active', other) : null;
+    if (other) await logoutOther(other);
     if (ws) {
       await ws.engine.logoutServer();
       await ws.engine.store.wipe();
     }
+    if (otherDb && otherDb !== ws?.name) await deleteExpoDatabase(otherDb).catch(() => undefined);
     await sessions.signOut();
   }, []);
 
   const value = useMemo<AppContextValue>(
-    () => ({ sessionState, session: sessions.current, sessions, workspace, engineState, signOut }),
-    [sessionState, workspace, engineState, signOut],
+    () => ({
+      sessionState,
+      session: sessions.current,
+      sessions,
+      space,
+      workspace,
+      engineState,
+      signOut,
+    }),
+    [sessionState, space, workspace, engineState, signOut],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+/** Signs the session of the space that is not showing out on the server (best effort). */
+async function logoutOther(s: StoredSession): Promise<void> {
+  try {
+    await new HttpTransport({
+      baseUrl: s.serverUrl,
+      getAccessToken: async () => s.accessToken,
+    }).logout();
+  } catch {
+    // expired, revoked or offline: the refresh token is forgotten on this device anyway
+  }
 }
 
 /** Registers this install for push when the build and the OS allow it (no-op otherwise). */

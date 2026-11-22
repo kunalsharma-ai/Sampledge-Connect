@@ -95,7 +95,7 @@ const approval = (over: Partial<Approval> = {}): Approval => ({
 });
 
 /** An engine over a real SQLite cache with a scripted server. */
-async function setup() {
+async function setup(opts: { network?: boolean } = {}) {
   const db = openNodeDriver();
   await migrate(db);
   const store = new LocalStore(db, SELF);
@@ -158,6 +158,8 @@ async function setup() {
       ],
     ]),
     seq: 100,
+    /** SampConnect Network: who you follow, and a profile someone else can change. */
+    net: { following: new Set<string>(), headline: 'Partnerships', requests: [] as string[] },
   };
   const step = (name: string) => {
     calls.push(name);
@@ -518,6 +520,26 @@ async function setup() {
       server.booking.set(id, p);
       return p;
     },
+    network: async (method: string, path: string, body?: { toUserId?: string }) => {
+      step(`net ${method} ${path}`);
+      const n = server.net;
+      const follow = /^\/v1\/network\/follows\/user\/(.+)$/.exec(path)?.[1];
+      if (follow && method === 'PUT') return void n.following.add(follow);
+      if (follow && method === 'DELETE') return void n.following.delete(follow);
+      if (path === '/v1/network/requests' && method === 'POST') {
+        if (body?.toUserId === 'blocks-you')
+          throw new TransportError('You can’t send a request to this person', 'api', 'FORBIDDEN');
+        n.requests.push(body!.toUserId!);
+        return { requestId: `r${n.requests.length}` };
+      }
+      const person = /^\/v1\/network\/people\/(.+)$/.exec(path)?.[1];
+      if (person && method === 'GET')
+        return {
+          profile: { userId: person, displayName: 'Maria Lopez', headline: n.headline },
+          relationship: { following: n.following.has(person), connection: 'none' },
+        };
+      throw new TransportError('Not found', 'api', 'NOT_FOUND');
+    },
     deleteBookingPage: async (id: string) => {
       step(`deleteBooking ${id}`);
       if (!server.booking.delete(id)) throw new TransportError('Gone', 'api', 'NOT_FOUND');
@@ -526,7 +548,10 @@ async function setup() {
   } as unknown as ApiTransport;
   const session = {
     state: 'active',
-    current: { user: { userId: SELF }, tenant: { tenantId: 't1' } },
+    current: {
+      user: { userId: SELF },
+      tenant: { tenantId: 't1', slug: opts.network ? 'sampledge-network' : 'acme' },
+    },
     events: new Emitter(),
     refresh: async () => null,
   } as unknown as SessionManager;
@@ -540,7 +565,7 @@ async function setup() {
   const engine = new ConnectEngine(store, api, session, rt as unknown as RealtimeClient);
   await engine.start();
   const refused: string[] = [];
-  engine.events.on('actionRefused', (e) => refused.push(`${e.kind}: ${e.reason}`));
+  engine.events.on('actionRefused', (e) => refused.push(`${e.label ?? e.kind}: ${e.reason}`));
   /** Goes online and waits for the queue to drain. */
   const online = async () => {
     down = false;
@@ -1533,5 +1558,94 @@ describe('transcript corrections offline and together', () => {
       'transcript.update: Someone else corrected the same lines. Reload to see their version.',
     ]);
     expect((await t.engine.getTranscript('rec1'))!.segments[1]!.text).toBe('Theirs');
+  });
+});
+
+describe('SampConnect Network offline', () => {
+  const MARIA = 'b'.repeat(24);
+  const profile = `/v1/network/people/${MARIA}`;
+  type Person = { profile: { headline: string }; relationship: { following: boolean } };
+
+  it('a follow made offline is queued in order, sent once, and the cached profile follows', async () => {
+    const t = await setup({ network: true });
+    await t.online();
+    expect((await t.engine.netLoad<Person>(profile))?.relationship.following).toBe(false);
+    t.setDown(true);
+    t.engine.setNetworkUp(false);
+    await t.engine.netAct({
+      method: 'PUT',
+      path: `/v1/network/follows/user/${MARIA}`,
+      label: 'Following Maria',
+      scopes: ['follows'],
+    });
+    await t.engine.netAct({
+      method: 'DELETE',
+      path: `/v1/network/follows/user/${MARIA}`,
+      label: 'Unfollowing Maria',
+      scopes: ['follows'],
+    });
+    await t.engine.netAct({
+      method: 'PUT',
+      path: `/v1/network/follows/user/${MARIA}`,
+      label: 'Following Maria',
+      scopes: ['follows'],
+    });
+    expect((await t.engine.netPending()).map((p) => p.method)).toEqual(['PUT', 'DELETE', 'PUT']);
+    // Offline, the cached copy still shows.
+    expect((await t.engine.netCached<Person>(profile))?.profile.headline).toBe('Partnerships');
+    t.calls.length = 0;
+    await t.online();
+    expect(t.calls.filter((c) => c.startsWith('net PUT') || c.startsWith('net DELETE'))).toEqual([
+      `net PUT /v1/network/follows/user/${MARIA}`,
+      `net DELETE /v1/network/follows/user/${MARIA}`,
+      `net PUT /v1/network/follows/user/${MARIA}`,
+    ]);
+    expect(await t.engine.netPending()).toEqual([]);
+    expect((await t.engine.netCached<Person>(profile))?.relationship.following).toBe(true);
+    // The network space never asks for organization-only lists.
+    expect(t.calls.some((c) => /^(listTasks|listBookingPages|listWorkingHours)/.test(c))).toBe(
+      false,
+    );
+  });
+
+  it('a change made elsewhere refetches the cached lists of that scope', async () => {
+    const t = await setup({ network: true });
+    await t.online();
+    await t.engine.netLoad(profile);
+    t.server.net.headline = 'Head of Partnerships';
+    const seen: (string | null)[] = [];
+    t.engine.events.on('network', (e) => seen.push(e.scope));
+    t.rt.events.emit('network', { scope: 'profile', id: MARIA });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.engine.netCached<Person>(profile))?.profile.headline).toBe(
+      'Head of Partnerships',
+    );
+    expect(seen).toContain('profile');
+  });
+
+  it('a request the server refuses is dropped and reported with its words', async () => {
+    const t = await setup({ network: true });
+    t.setDown(true);
+    await t.engine.netAct({
+      method: 'POST',
+      path: '/v1/network/requests',
+      body: { clientActionId: 'c1', toUserId: 'blocks-you' },
+      label: 'Connection request to Jo',
+      scopes: ['requests'],
+    });
+    await t.engine.netAct({
+      method: 'POST',
+      path: '/v1/network/requests',
+      body: { clientActionId: 'c2', toUserId: MARIA },
+      label: 'Connection request to Maria',
+      scopes: ['requests'],
+    });
+    await t.online();
+    expect(t.refused).toEqual([
+      'Connection request to Jo: You can’t send a request to this person',
+    ]);
+    // The refusal doesn't hold back the next change.
+    expect(t.server.net.requests).toEqual([MARIA]);
+    expect(await t.engine.netPending()).toEqual([]);
   });
 });

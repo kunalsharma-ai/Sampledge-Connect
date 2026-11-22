@@ -1,4 +1,11 @@
-import { isMfaChallenge, uuidv7, type MfaChallenge, type Session } from '@sampledge/contracts';
+import {
+  NETWORK_TENANT_SLUG,
+  isMfaChallenge,
+  uuidv7,
+  type MfaChallenge,
+  type NetworkSignupRequest,
+  type Session,
+} from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
 import { TransportError, type ApiTransport } from '../sync/transport';
 
@@ -34,17 +41,42 @@ export interface StoredSession {
  */
 export type SessionState = 'loading' | 'signedOut' | 'active' | 'expired' | 'demo';
 
+/** Which space the app shows: your organization, or SampConnect Network. */
+export type Space = 'work' | 'network';
+type Slot = 'work' | 'network';
+
+export const isNetworkTenant = (s: { tenant: { slug: string } } | null | undefined): boolean =>
+  s?.tenant.slug === NETWORK_TENANT_SLUG;
+
+/** This install, as the server lists it under your devices (its id is added here). */
+export interface DeviceLabel {
+  name: string;
+  platform: 'ios' | 'android';
+}
+
 const SESSION_KEY = 'sampledge.session.v1';
+/** The network session of a work account (made once by POST /v1/network/link). */
+const NETWORK_SESSION_KEY = 'sampledge.session.network.v1';
+const SPACE_KEY = 'sampledge.space';
 const DEVICE_KEY = 'sampledge.deviceId';
 const DEMO_KEY = 'sampledge.demo';
 const DB_KEY = 'sampledge.dbKey';
 const REFRESH_MARGIN_MS = 60_000;
 
+/**
+ * The account you signed in with (`work`: an organization, or a personal SampConnect Network
+ * account) and, for a work account, its linked network session (`network`). Each slot keeps
+ * its own tokens and refreshes on its own; {@link current} is the one the app is showing.
+ */
 export class SessionManager {
-  readonly events = new Emitter<{ state: SessionState }>();
+  readonly events = new Emitter<{ state: SessionState; space: Space }>();
   private _state: SessionState = 'loading';
-  private session: StoredSession | null = null;
-  private refreshing: Promise<string | undefined> | null = null;
+  private slots: Record<Slot, StoredSession | null> = { work: null, network: null };
+  private _space: Space = 'work';
+  private refreshing: Record<Slot, Promise<string | undefined> | null> = {
+    work: null,
+    network: null,
+  };
 
   constructor(
     private readonly secrets: SecretStorage,
@@ -56,14 +88,41 @@ export class SessionManager {
     return this._state;
   }
 
+  /** The session the app is showing. */
   get current(): StoredSession | null {
-    return this.session;
+    return this.slots[this.activeSlot];
+  }
+
+  /** The account you signed in with. */
+  get primary(): StoredSession | null {
+    return this.slots.work;
+  }
+
+  /** The linked network session of a work account, if it has been opened. */
+  get networkSession(): StoredSession | null {
+    return this.isPersonal ? this.slots.work : this.slots.network;
+  }
+
+  /** A personal SampConnect Network account (no organization). */
+  get isPersonal(): boolean {
+    return isNetworkTenant(this.slots.work);
+  }
+
+  get space(): Space {
+    return this.isPersonal ? 'network' : this.activeSlot;
+  }
+
+  private get activeSlot(): Slot {
+    return this._space === 'network' && this.slots.network && !this.isPersonal ? 'network' : 'work';
   }
 
   async load(): Promise<SessionState> {
     const raw = await this.secrets.get(SESSION_KEY);
     if (raw) {
-      this.session = JSON.parse(raw) as StoredSession;
+      this.slots.work = JSON.parse(raw) as StoredSession;
+      const net = await this.secrets.get(NETWORK_SESSION_KEY);
+      this.slots.network = net ? (JSON.parse(net) as StoredSession) : null;
+      this._space = (await this.secrets.get(SPACE_KEY)) === 'network' ? 'network' : 'work';
       this.setState('active');
     } else if ((await this.secrets.get(DEMO_KEY)) === '1') {
       this.setState('demo');
@@ -71,6 +130,34 @@ export class SessionManager {
       this.setState('signedOut');
     }
     return this._state;
+  }
+
+  /**
+   * Opens SampConnect Network. A work account is linked on first use (that needs a connection),
+   * then the app switches to its own network space; later switches work offline.
+   */
+  async openNetwork(device: DeviceLabel): Promise<void> {
+    const work = this.slots.work;
+    if (!work || this._state !== 'active') throw new Error('Sign in to open SampConnect Network.');
+    if (!this.isPersonal && !this.slots.network) {
+      const s = await this.apiFor(work.serverUrl).linkNetwork({
+        device: { ...device, deviceId: await this.deviceId() },
+      });
+      await this.persist('network', work.serverUrl, s);
+    }
+    await this.setSpace('network');
+  }
+
+  /** Back to your organization (a personal account has only the network). */
+  async openWork(): Promise<void> {
+    await this.setSpace('work');
+  }
+
+  private async setSpace(space: Space): Promise<void> {
+    const before = this.space;
+    this._space = space;
+    await this.secrets.set(SPACE_KEY, space);
+    if (this.space !== before) this.events.emit('space', this.space);
   }
 
   async deviceId(): Promise<string> {
@@ -135,16 +222,27 @@ export class SessionManager {
     await this.finishSignIn(base, s);
   }
 
+  /** Creates a free personal SampConnect Network account and signs in with it. */
+  async signUpPersonal(
+    serverUrl: string,
+    input: Omit<NetworkSignupRequest, 'device'>,
+    device: DeviceLabel,
+  ): Promise<void> {
+    const base = normaliseUrl(serverUrl);
+    const s = await this.apiFor(base).signUpPersonal({
+      ...input,
+      device: { ...device, deviceId: await this.deviceId() },
+    });
+    await this.finishSignIn(base, s);
+  }
+
   private async finishSignIn(serverUrl: string, s: Session): Promise<void> {
     // Signing in as someone else on this device must not mix their caches.
-    if (
-      this.session &&
-      (this.session.user.userId !== s.user.userId ||
-        this.session.tenant.tenantId !== s.tenant.tenantId)
-    ) {
+    const was = this.slots.work;
+    if (was && (was.user.userId !== s.user.userId || was.tenant.tenantId !== s.tenant.tenantId)) {
       throw new Error('Sign out first to switch accounts on this device.');
     }
-    await this.persist(serverUrl, s);
+    await this.persist('work', serverUrl, s);
     await this.secrets.delete(DEMO_KEY);
     this.setState('active');
   }
@@ -154,49 +252,76 @@ export class SessionManager {
     this.setState('demo');
   }
 
+  /** Forgets both sessions (the caller wipes both spaces' local data first). */
   async signOut(): Promise<void> {
-    this.session = null;
-    await this.secrets.delete(SESSION_KEY);
-    await this.secrets.delete(DEMO_KEY);
+    this.slots = { work: null, network: null };
+    this._space = 'work';
+    for (const k of [SESSION_KEY, NETWORK_SESSION_KEY, SPACE_KEY, DEMO_KEY])
+      await this.secrets.delete(k);
     this.setState('signedOut');
   }
 
   /**
-   * Returns a usable access token, refreshing it shortly before expiry.
-   * Offline: returns the current token (requests will fail as network errors and be retried).
+   * Returns a usable access token for the space the app is showing, refreshing it shortly
+   * before expiry. Offline: returns the current token (requests fail as network errors and
+   * are retried).
    */
-  async getAccessToken(): Promise<string | undefined> {
-    const s = this.session;
+  getAccessToken(): Promise<string | undefined> {
+    return this.tokenFor(this.activeSlot);
+  }
+
+  /** Token of the session you signed in with, whichever space is showing. */
+  primaryToken(): Promise<string | undefined> {
+    return this.tokenFor('work');
+  }
+
+  private async tokenFor(slot: Slot): Promise<string | undefined> {
+    const s = this.slots[slot];
     if (!s || this._state !== 'active') return undefined;
     if (s.accessTokenExpiresAt - this.now() > REFRESH_MARGIN_MS) return s.accessToken;
-    return this.refresh();
+    return this.refreshSlot(slot);
   }
 
-  /** Forces a refresh (e.g. after a SESSION_EXPIRED response). Single-flight. */
+  /** Forces a refresh of the showing space (e.g. after a SESSION_EXPIRED response). Single-flight. */
   refresh(): Promise<string | undefined> {
-    this.refreshing ??= this.doRefresh().finally(() => {
-      this.refreshing = null;
-    });
-    return this.refreshing;
+    return this.refreshSlot(this.activeSlot);
   }
 
-  private async doRefresh(): Promise<string | undefined> {
-    const s = this.session;
+  private refreshSlot(slot: Slot): Promise<string | undefined> {
+    this.refreshing[slot] ??= this.doRefresh(slot).finally(() => {
+      this.refreshing[slot] = null;
+    });
+    return this.refreshing[slot];
+  }
+
+  private async doRefresh(slot: Slot): Promise<string | undefined> {
+    const s = this.slots[slot];
     if (!s) return undefined;
     try {
       const next = await this.apiFor(s.serverUrl).refresh(s.refreshToken);
-      await this.persist(s.serverUrl, next);
+      await this.persist(slot, s.serverUrl, next);
       if (this._state === 'expired') this.setState('active');
       return next.accessToken;
     } catch (err) {
       if (err instanceof TransportError && err.kind === 'network') return s.accessToken;
+      if (slot === 'network') {
+        // The link was revoked (the organization turned the network off, or you left it):
+        // forget it and go back to work, which still signs in.
+        const before = this.space;
+        this.slots.network = null;
+        this._space = 'work';
+        await this.secrets.delete(NETWORK_SESSION_KEY);
+        await this.secrets.set(SPACE_KEY, 'work');
+        if (before !== 'work') this.events.emit('space', 'work');
+        return undefined;
+      }
       this.setState('expired');
       return undefined;
     }
   }
 
-  private async persist(serverUrl: string, s: Session): Promise<void> {
-    this.session = {
+  private async persist(slot: Slot, serverUrl: string, s: Session): Promise<void> {
+    const stored: StoredSession = {
       serverUrl,
       accessToken: s.accessToken,
       refreshToken: s.refreshToken,
@@ -205,7 +330,11 @@ export class SessionManager {
       tenant: s.tenant,
       workspaceId: s.workspaceId,
     };
-    await this.secrets.set(SESSION_KEY, JSON.stringify(this.session));
+    this.slots[slot] = stored;
+    await this.secrets.set(
+      slot === 'work' ? SESSION_KEY : NETWORK_SESSION_KEY,
+      JSON.stringify(stored),
+    );
   }
 
   private setState(state: SessionState): void {

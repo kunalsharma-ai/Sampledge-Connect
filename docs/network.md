@@ -52,6 +52,31 @@ Every network action is idempotent and synced everywhere:
   online. A failure can be retried or discarded from _Home → Pending_.
 - Signing out wipes the local data for both spaces.
 
+## Mobile app
+
+- **Spaces.** A work account opens the network from _More → SampConnect Network_ (the link needs a
+  connection once; later switches work offline) and goes back with _Work: <organization>_. The
+  app keeps both sessions in the keystore, each refreshing on its own, and each space has its own
+  encrypted database, so chats and lists never mix. If the organization turns the network off,
+  the network session's refresh is refused, the link is forgotten and the app returns to work.
+- **Personal accounts.** The sign-in screen has an _Organization / Personal account_ choice. A
+  personal account signs in without a workspace (`tenantSlug: 'sampledge-network'`), and _Create a
+  free account_ calls `POST /v1/network/public/signup`.
+- **Screens.** In the network space, Home shows requests waiting and recent chats, the _People_
+  tab takes the place of the Client Inbox (Find, Requests, Connections, Followers), and a person's
+  page has Connect (with a circle and a note), Accept / Decline / Withdraw, Message, Follow,
+  Move between circles, Remove, Block and Report. _More_ has Invite (link, email or text from your
+  own phone), Network profile and privacy, and Blocked people. Status updates and communities are
+  marked Planned on the phone.
+- **Offline and sync.** Every list is cached by path and shown offline. Every change goes through
+  the phone's action queue as one ordered `net.act` (with the same `clientActionId` bodies as the
+  web), shows at once with a _Queued_ tag, and is sent on reconnect. A refused change is dropped and
+  a banner says why. `network:changed` refetches the cached lists of that scope, and a reconnect
+  refetches all of them.
+- **Organization-only features.** In the network space the app does not call routes the server's
+  `NetworkGate` refuses (meetings, tasks, approvals, scheduled messages, AI, branding...): the
+  transport refuses them locally and those entries are hidden.
+
 ## Admin controls
 
 _Administration → SampConnect Network_ (`GET/PUT /v1/admin/network`, stored in
@@ -99,4 +124,4 @@ Types and schemas are in `packages/contracts/src/network.ts`.
 - Sending SMS invites through an SMS provider (today the phone's own SMS app sends the link)
 - A moderation console for reports (reports are stored and audited, but there is no review screen yet)
 - Presence for people other than your connections, and group chats outside communities
-- Network screens on mobile (in progress in the mobile thread)
+- Status updates and communities on mobile

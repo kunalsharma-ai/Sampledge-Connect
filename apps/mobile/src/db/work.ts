@@ -26,6 +26,7 @@ import {
   type MeetingMinutes,
 } from '@sampledge/contracts';
 import { Emitter } from '../lib/emitter';
+import type { NetworkScope } from '../lib/networkSpace';
 import type { SqlDriver, SqlExecutor } from './driver';
 
 /**
@@ -104,6 +105,20 @@ export type ActionInput =
       language: string | null;
       baseRevision: number;
       patch: TranscriptPatch;
+    }
+  /**
+   * A SampConnect Network change (connect, follow, block, invite...). Every network change
+   * shares one queue so they reach the server in the order you made them; each carries an
+   * idempotency key (or sets a state), so sending one again never does it twice.
+   */
+  | {
+      kind: 'net.act';
+      method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      path: string;
+      body?: unknown;
+      /** Words for the person, e.g. "Connection request to Maria". */
+      label: string;
+      scopes: NetworkScope[];
     };
 
 export interface TranscriptPatch {
@@ -182,7 +197,8 @@ type CacheKind =
   | 'profile'
   | 'search'
   | 'minutes'
-  | 'transcript';
+  | 'transcript'
+  | 'network';
 /** Things that can be created on this device before the server knows them. */
 export type LocalKind = 'task' | 'approval' | 'scheduled' | 'poll' | 'booking';
 
@@ -252,6 +268,8 @@ const targetOf = (a: ActionInput): string => {
       return `minutes:${a.minutesId}`;
     case 'transcript.update':
       return transcriptTarget(a.attachmentId, a.language);
+    case 'net.act':
+      return 'network';
   }
 };
 
@@ -269,7 +287,9 @@ const kindOfCache = (k: ActionKind): CacheKind =>
         ? 'bookmark'
         : k === 'poll.vote'
           ? 'vote'
-          : (k.split('.')[0] as CacheKind);
+          : k === 'net.act'
+            ? 'network'
+            : (k.split('.')[0] as CacheKind);
 
 interface ActionRow {
   id: string;
@@ -456,6 +476,7 @@ export class WorkStore {
           if (!waiting.length) await insert(input);
           break;
         case 'poll.create':
+        case 'net.act':
           await insert(input);
           break;
         case 'task.create':
@@ -1103,6 +1124,17 @@ export class WorkStore {
     await this.db.run(`DELETE FROM actions WHERE id = ?`, [hit.id]);
     this.events.emit('changed', { kind: 'profile' });
     return true;
+  }
+
+  /** SampConnect Network changes still waiting, oldest first (shown as "Queued"). */
+  async pendingNetwork(): Promise<Extract<ActionInput, { kind: 'net.act' }>[]> {
+    return (
+      await this.db.all<ActionRow>(
+        `SELECT * FROM actions WHERE target = 'network' AND state != 'failed' ORDER BY enqueued_at, rowid`,
+      )
+    )
+      .map(toAction)
+      .flatMap((a) => (a.input.kind === 'net.act' ? [a.input] : []));
   }
 
   /** How you look on camera, changed on this device and not on the server yet. */

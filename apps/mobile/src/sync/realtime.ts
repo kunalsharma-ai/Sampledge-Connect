@@ -2,6 +2,7 @@ import { io, type Socket } from 'socket.io-client';
 import type {
   MinutesChangedEvent,
   TranscriptChangedEvent,
+  NetworkChangedEvent,
   Ack,
   AckReceiptRequest,
   Call,
@@ -73,6 +74,8 @@ type RealtimeEvents = {
   minutes: MinutesChangedEvent;
   /** A recording transcript was corrected, checked or translated. */
   transcript: TranscriptChangedEvent;
+  /** Something in your SampConnect Network changed (on any device, or by someone else). */
+  network: NetworkChangedEvent;
 };
 
 /**
@@ -156,6 +159,7 @@ export class RealtimeClient {
     socket.on('meetings:changed', (e) => this.events.emit('meetingsChanged', e));
     socket.on('minutes:changed', (e) => this.events.emit('minutes', e));
     socket.on('transcript:changed', (e) => this.events.emit('transcript', e));
+    socket.on('network:changed', (e) => this.events.emit('network', e));
     socket.on('session:expired', () => {
       socket.disconnect();
       this.events.emit('sessionExpired', undefined);

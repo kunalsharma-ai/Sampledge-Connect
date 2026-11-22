@@ -1612,6 +1612,20 @@ export class LocalStore {
       ?.value;
   }
 
+  /** Keys of the settings that start with `prefix`. */
+  async settingKeys(prefix: string): Promise<string[]> {
+    const rows = await this.db.all<{ key: string }>(
+      `SELECT key FROM kv WHERE substr(key, 1, ?) = ?`,
+      [prefix.length, prefix],
+    );
+    return rows.map((r) => r.key);
+  }
+
+  async deleteSetting(key: string): Promise<void> {
+    await this.db.run('DELETE FROM kv WHERE key = ?', [key]);
+    this.events.emit('settings', { key });
+  }
+
   async setSetting(key: string, value: string): Promise<void> {
     await this.db.run(
       'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
