@@ -28,6 +28,7 @@ import { useWorkspace } from '../../state/AppProvider';
 import { useCallBackground } from '../../state/useCallBackground';
 import { alpha, radius, space } from '../../theme/themes';
 import { useTheme } from '../../theme/ThemeProvider';
+import { cameraEffectsAvailable } from '../../../modules/camera-effects';
 
 type Draft = Pick<CallBackgroundPolicy, 'defaultChoice' | 'enforceLogo'>;
 
@@ -191,9 +192,9 @@ export default function CallBackgroundScreen() {
           <View style={styles.notice}>
             <Ionicons name="phone-portrait-outline" size={18} color={c.accent} />
             <Text variant="meta" tone="muted" style={{ flex: 1 }}>
-              Backgrounds are applied to your camera when you join from a browser or the desktop
-              app. Applying them to a phone’s camera is planned; until then a phone sends your
-              camera as it is.
+              {cameraEffectsAvailable()
+                ? 'Applied to your camera in calls on this phone, in a browser and in the desktop app. Everything is done on the device; your camera picture never leaves it unprocessed.'
+                : 'This version of the app sends your camera as it is. Update the app to use backgrounds on this phone; browsers and the desktop app already apply them.'}
             </Text>
           </View>
         </Glass>
