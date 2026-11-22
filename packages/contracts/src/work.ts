@@ -170,6 +170,21 @@ export const CreateApprovalRequestSchema = z.object({
 });
 export type CreateApprovalRequest = z.input<typeof CreateApprovalRequestSchema>;
 
+/**
+ * PATCH /v1/approvals/:id: the requester fixes a request before anyone has decided on it
+ * (after a decision, cancel and ask again so nobody approves something that changed).
+ */
+export const UpdateApprovalRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    description: z.string().trim().max(4000),
+    amount: MoneySchema.nullable(),
+    dueAt: z.string().datetime().nullable(),
+  })
+  .partial()
+  .refine((r) => Object.keys(r).length > 0, 'nothing to update');
+export type UpdateApprovalRequest = z.input<typeof UpdateApprovalRequestSchema>;
+
 export const DecideApprovalRequestSchema = z.object({
   decision: z.enum(['approve', 'reject']),
   comment: z.string().trim().max(2000).default(''),
@@ -235,3 +250,21 @@ export const CreateProjectRequestSchema = z.object({
   private: z.boolean().default(false),
 });
 export type CreateProjectRequest = z.input<typeof CreateProjectRequestSchema>;
+
+export const PROJECT_STATUSES = ['active', 'on_hold', 'at_risk', 'completed', 'cancelled'] as const;
+
+/**
+ * PATCH /v1/projects/:id: a project made in SampConnect (Samptrek projects are edited in
+ * Samptrek). Owners of the project and people with `work.manage`. The name also renames the
+ * project channel.
+ */
+export const UpdateProjectRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(2000),
+    status: z.enum(PROJECT_STATUSES),
+    dueAt: z.string().datetime().nullable(),
+  })
+  .partial()
+  .refine((r) => Object.keys(r).length > 0, 'nothing to update');
+export type UpdateProjectRequest = z.input<typeof UpdateProjectRequestSchema>;

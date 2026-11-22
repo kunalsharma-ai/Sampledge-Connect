@@ -13,9 +13,11 @@ import {
   type TenantPermissionPolicy,
 } from '@sampledge/contracts';
 import { TenantDb } from '../src/database/tenant-db.js';
+import type { Approval, NetworkStatus, Project, Task } from '@sampledge/contracts';
 import {
   api,
   connect,
+  device,
   grantPlatformRole,
   inviteAndLogin,
   nextEvent,
@@ -211,5 +213,181 @@ describe('editing rules', () => {
     // A policy saved knowing the permission keeps the super admin's choice.
     const known = cleanPolicy({ ...legacy, _known: [...TENANT_PERMISSIONS] })!;
     expect(known.member).toEqual(['directory.read']);
+  });
+});
+
+describe('editing elsewhere', () => {
+  it('renames a group or channel and changes a channel description, live', async () => {
+    const ch = (
+      await as<Conversation>(owner, 'POST', '/v1/conversations', {
+        kind: 'channel_public',
+        name: 'wave 4',
+        memberIds: [ravi.user.userId],
+      })
+    ).body;
+    const sock = await connect(h, ravi.accessToken);
+    const live = nextEvent(
+      sock,
+      'conversation:upsert',
+      (c) => c.conversationId === ch.conversationId && c.name === 'Wave 4 fieldwork',
+    );
+    const r = await as<Conversation>(owner, 'PATCH', `/v1/conversations/${ch.conversationId}`, {
+      name: 'Wave 4 fieldwork',
+      topic: 'Daily quotas and field issues',
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ name: 'Wave 4 fieldwork', topic: 'Daily quotas and field issues' });
+    await live;
+    sock.disconnect();
+    // Plain members can't; bad channel names are refused; archiving still works.
+    expect(
+      (await as(ravi, 'PATCH', `/v1/conversations/${ch.conversationId}`, { name: 'mine' })).status,
+    ).toBe(403);
+    expect(
+      (await as(owner, 'PATCH', `/v1/conversations/${ch.conversationId}`, { name: '#!' })).status,
+    ).toBe(400);
+    expect(
+      (await as(owner, 'PATCH', `/v1/conversations/${ch.conversationId}`, { archived: true }))
+        .status,
+    ).toBe(200);
+    // A group gets a name but no description.
+    expect(
+      (await as<Conversation>(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, { name: 'Q4 tracker team' }))
+        .body.name,
+    ).toBe('Q4 tracker team');
+    expect(
+      (await as(owner, 'PATCH', `/v1/conversations/${group.conversationId}`, { topic: 'x' })).status,
+    ).toBe(400);
+  });
+
+  it('edits every part of a task', async () => {
+    const t = (
+      await as<Task>(ravi, 'POST', '/v1/tasks', { title: 'Check quotas', assigneeIds: [ravi.user.userId] })
+    ).body;
+    const due = new Date(Date.now() + 86_400_000).toISOString();
+    const r = await as<Task>(ravi, 'PATCH', `/v1/tasks/${t.taskId}`, {
+      title: 'Check quotas for UK',
+      description: 'Boost 25-34',
+      priority: 'high',
+      assigneeIds: [ravi.user.userId, lena.user.userId],
+      dueAt: due,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      title: 'Check quotas for UK',
+      description: 'Boost 25-34',
+      priority: 'high',
+      dueAt: due,
+    });
+    expect(r.body.assigneeIds).toEqual([ravi.user.userId, lena.user.userId]);
+  });
+
+  it('edits an approval until someone decides', async () => {
+    const a = (
+      await as<Approval>(ravi, 'POST', '/v1/approvals', {
+        title: 'Incentive top-up',
+        approverIds: [owner.user.userId],
+        amount: { amountMinor: 50000, currency: 'GBP' },
+      })
+    ).body;
+    const sock = await connect(h, owner.accessToken);
+    const live = nextEvent(
+      sock,
+      'approval:upsert',
+      (x) => x.approvalId === a.approvalId && x.title === 'Incentive top-up (UK)',
+    );
+    const r = await as<Approval>(ravi, 'PATCH', `/v1/approvals/${a.approvalId}`, {
+      title: 'Incentive top-up (UK)',
+      description: 'Low response in 25-34',
+      amount: { amountMinor: 65000, currency: 'GBP' },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.amount).toEqual({ amountMinor: 65000, currency: 'GBP' });
+    await live;
+    sock.disconnect();
+    // Approvers can't change it.
+    expect((await as(owner, 'PATCH', `/v1/approvals/${a.approvalId}`, { title: 'x' })).status).toBe(
+      403,
+    );
+    await as(owner, 'POST', `/v1/approvals/${a.approvalId}/decision`, { decision: 'approve' });
+    const late = await as<{ error: { message: string } }>(
+      ravi,
+      'PATCH',
+      `/v1/approvals/${a.approvalId}`,
+      { title: 'Incentive top-up (UK, revised)' },
+    );
+    expect(late.status).toBe(409);
+  });
+
+  it('edits a project and renames its channel', async () => {
+    const p = (
+      await as<Project>(owner, 'POST', '/v1/projects', { name: 'Brand tracker', memberIds: [ravi.user.userId] })
+    ).body;
+    const r = await as<Project>(owner, 'PATCH', `/v1/projects/${p.projectId}`, {
+      name: 'Brand tracker 2027',
+      description: 'Quarterly waves',
+      status: 'at_risk',
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ name: 'Brand tracker 2027', description: 'Quarterly waves', status: 'at_risk' });
+    const ch = await as<Conversation>(owner, 'GET', `/v1/conversations/${p.conversationId}`);
+    expect(ch.body.name).toBe('Brand tracker 2027');
+    expect((await as(ravi, 'PATCH', `/v1/projects/${p.projectId}`, { name: 'x' })).status).toBe(403);
+  });
+
+  it('edits a poll until the first vote', async () => {
+    const poll = (
+      await as<Message>(lena, 'POST', `/v1/conversations/${group.conversationId}/polls`, {
+        clientMessageId: uuidv7(),
+        question: 'Kick-off day?',
+        options: ['Mon', 'Tue'],
+      })
+    ).body;
+    const r = await as<Message>(lena, 'PATCH', `/v1/messages/${poll.messageId}/poll`, {
+      question: 'Kick-off day next week?',
+      options: ['Mon', 'Tue', 'Wed'],
+      multiple: true,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.poll).toMatchObject({ question: 'Kick-off day next week?', multiple: true });
+    expect(r.body.poll!.options.map((o) => o.text)).toEqual(['Mon', 'Tue', 'Wed']);
+    expect(r.body.editedAt).not.toBeNull();
+    expect(
+      (await as(ravi, 'PATCH', `/v1/messages/${poll.messageId}/poll`, { question: 'x', options: ['a', 'b'] }))
+        .status,
+    ).toBe(403);
+    await as(ravi, 'PUT', `/v1/messages/${poll.messageId}/poll/vote`, { optionIds: ['o1'] });
+    const late = await as(lena, 'PATCH', `/v1/messages/${poll.messageId}/poll`, {
+      question: 'Kick-off?',
+      options: ['Mon', 'Tue'],
+    });
+    expect(late.status).toBe(409);
+  });
+
+  it('edits a status update', async () => {
+    const net = (
+      await api<Session>(h, 'POST', '/v1/network/link', {
+        token: ravi.accessToken,
+        body: { device: device() },
+      })
+    ).body;
+    const st = (
+      await as<NetworkStatus>(net, 'POST', '/v1/network/statuses', {
+        clientStatusId: uuidv7(),
+        kind: 'text',
+        text: 'At ESOMAR this weke',
+      })
+    ).body;
+    const r = await as<NetworkStatus>(net, 'PATCH', `/v1/network/statuses/${st.statusId}`, {
+      text: 'At ESOMAR this week',
+      background: 'sunset',
+      allowReplies: false,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ text: 'At ESOMAR this week', background: 'sunset', allowReplies: false });
+    expect(r.body.editedAt).toBeTruthy();
+    expect(
+      (await as(net, 'PATCH', `/v1/network/statuses/${st.statusId}`, { text: '' })).status,
+    ).toBe(400);
   });
 });

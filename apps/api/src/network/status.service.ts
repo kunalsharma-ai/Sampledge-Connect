@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
 import {
   CreateStatusSchema,
+  EditStatusSchema,
   StatusMediaUploadSchema,
   StatusReplySchema,
   type NetworkStatus,
@@ -103,6 +104,7 @@ export class StatusService {
       audience: s.audience,
       allowReplies: s.allowReplies,
       createdAt: s.createdAt.toISOString(),
+      editedAt: s.editedAt?.toISOString() ?? null,
       expiresAt: s.expiresAt.toISOString(),
       viewedByMe: viewed || s.authorId === viewerId,
       viewCount:
@@ -302,6 +304,32 @@ export class StatusService {
         person: toPerson(byId.get(x.viewerId)!),
         viewedAt: x.viewedAt.toISOString(),
       }));
+  }
+
+  /** The author fixes a status: words, background, replies on or off. Everyone sees it live. */
+  async edit(ctx: TenantContext, statusId: string, input: unknown): Promise<NetworkStatus> {
+    const net = await this.network.assertNetwork(ctx);
+    const req = parse(EditStatusSchema, input);
+    const me = await this.network.requireProfile(ctx.userId);
+    const s = await net.network_statuses.findOne({
+      _id: statusId,
+      authorId: ctx.userId,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!s) throw notFound('Status');
+    const next = { ...s, ...req };
+    if (next.kind === 'text' && !next.text)
+      throw new AppError('VALIDATION_FAILED', 'A text status needs some words');
+    const updated = (await net.network_statuses.findOneAndUpdate(
+      { _id: statusId },
+      { $set: { ...req, editedAt: new Date() } },
+      { returnDocument: 'after' },
+    ))!;
+    await this.network.changed(await this.audienceOf(updated), {
+      scope: 'statuses',
+      id: statusId,
+    });
+    return this.toDto(updated, me, ctx.userId, true);
   }
 
   async remove(ctx: TenantContext, statusId: string): Promise<void> {

@@ -1099,6 +1099,8 @@ export interface NetworkStatusDoc extends TenantOwned {
   userIds: string[];
   allowReplies: boolean;
   createdAt: Date;
+  /** The author changed the words, background or replies after posting. */
+  editedAt?: Date | null;
   /** A TTL index removes the status at this time. */
   expiresAt: Date;
 }

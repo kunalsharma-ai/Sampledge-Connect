@@ -120,6 +120,13 @@ export const CreatePollRequestSchema = z.object({
 });
 export type CreatePollRequest = z.input<typeof CreatePollRequestSchema>;
 
+/**
+ * PATCH /v1/messages/:id/poll — the person who asked changes the poll while nobody has voted
+ * and it is still open (after the first vote, close it and ask again). Same rules as creating.
+ */
+export const EditPollRequestSchema = CreatePollRequestSchema.omit({ clientMessageId: true });
+export type EditPollRequest = z.input<typeof EditPollRequestSchema>;
+
 /** PUT /v1/messages/:id/poll/vote — replaces the caller's choice; [] withdraws it. */
 export const PollVoteRequestSchema = z.object({
   optionIds: z.array(z.string().min(1).max(32)).max(MAX_POLL_OPTIONS),

@@ -5,6 +5,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   AckReceiptRequestSchema,
   CreatePollRequestSchema,
+  EditPollRequestSchema,
   PollVoteRequestSchema,
   type MyPollVote,
   EditMessageRequestSchema,
@@ -31,6 +32,7 @@ import { withLock } from '../redis/lock.js';
 import { pollClosedAt, toMessage, toReceipt } from './message.mapper.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 import { MessageEditingService } from './message-editing.service.js';
+import { AuditService } from '../audit/audit.service.js';
 
 @Injectable()
 export class MessagesService {
@@ -45,6 +47,7 @@ export class MessagesService {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly webhooks: WebhooksService,
     private readonly editing: MessageEditingService,
+    private readonly audit: AuditService,
   ) {}
 
   private lockKey(tenantId: string, conversationId: string) {
@@ -624,6 +627,67 @@ export class MessagesService {
       this.log.error(`notification fan-out failed for ${doc._id}: ${String(e)}`);
     }
     return message;
+  }
+
+  /** Change a poll nobody has voted on yet (question, options, settings). */
+  async editPoll(ctx: TenantContext, messageId: string, input: unknown): Promise<Message> {
+    const req = parse(EditPollRequestSchema, input);
+    const t = this.db.for(ctx.tenantId);
+    const m = await t.messages.findOne({ _id: messageId });
+    if (!m?.poll) throw notFound('Poll');
+    await this.conversations.authorize(ctx, m.conversationId, 'message.edit.own');
+    if (m.senderId !== ctx.userId) throw forbidden('Only the person who asked can edit the poll');
+    if (m.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+    await this.editing.assertCanEdit(ctx, m);
+    const closesAt = req.closesAt ? new Date(req.closesAt) : null;
+    if (closesAt && closesAt.getTime() < Date.now() + 60_000)
+      throw new AppError('VALIDATION_FAILED', 'The closing time must be at least a minute away');
+    const doc = await withLock(
+      this.redis,
+      this.lockKey(ctx.tenantId, m.conversationId),
+      async () => {
+        const cur = await t.messages.findOne({ _id: messageId });
+        if (!cur?.poll || cur.deletedAt) throw new AppError('CONFLICT', 'Message was deleted');
+        if (pollClosedAt(cur.poll)) throw new AppError('CONFLICT', 'This poll is closed');
+        if (cur.poll.votes.length)
+          throw new AppError(
+            'CONFLICT',
+            'People have already voted, so the poll can’t change. Close it and start a new one.',
+          );
+        const seq = await this.nextSequence(ctx.tenantId, m.conversationId, false);
+        return t.messages.findOneAndUpdate(
+          { _id: messageId, 'poll.votes': { $size: 0 } },
+          {
+            $set: {
+              content: { text: `📊 ${req.question}`, mentions: [] },
+              poll: {
+                ...cur.poll,
+                question: req.question,
+                // Fresh ids: nobody has voted, so nothing points at the old ones.
+                options: req.options.map((text, i) => ({ optionId: `o${i + 1}`, text })),
+                multiple: req.multiple,
+                anonymous: req.anonymous,
+                closesAt,
+              },
+              editedAt: new Date(),
+              changeSequence: seq,
+            },
+          },
+          { returnDocument: 'after' },
+        );
+      },
+    );
+    if (!doc) throw new AppError('CONFLICT', 'Someone voted at the same time; reload and try again');
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'poll.edited',
+      target: { type: 'message', id: messageId },
+      metadata: { conversationId: m.conversationId, options: req.options.length },
+    });
+    const dto = toMessage(doc);
+    this.realtime.toConversation(ctx.tenantId, m.conversationId, 'message:updated', dto);
+    return dto;
   }
 
   /** Replace the caller's vote. An empty list withdraws it. */

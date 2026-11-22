@@ -1,12 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { MongoServerError } from 'mongodb';
-import { CreateProjectRequestSchema, type Project, type RecordRef } from '@sampledge/contracts';
-import { AppError, notFound, parse } from '../common/errors.js';
+import {
+  CreateProjectRequestSchema,
+  UpdateProjectRequestSchema,
+  tenantCan,
+  type Project,
+  type RecordRef,
+} from '@sampledge/contracts';
+import { AppError, forbidden, notFound, parse } from '../common/errors.js';
 import type { TenantContext } from '../common/tenant-context.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { WorkStore } from '../integrations/collections.js';
 import type { ProjectDoc } from '../integrations/docs.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { AuditService } from '../audit/audit.service.js';
 
 const PROJECT_STATUSES = ['active', 'on_hold', 'at_risk', 'completed', 'cancelled'] as const;
 const asStatus = (v: unknown): ProjectDoc['status'] | null =>
@@ -29,6 +36,7 @@ export class ProjectsService {
     private readonly store: WorkStore,
     private readonly conversations: ConversationsService,
     private readonly realtime: RealtimePublisher,
+    private readonly audit: AuditService,
   ) {}
 
   private async counts(tenantId: string, conversationIds: string[]) {
@@ -113,6 +121,43 @@ export class ProjectsService {
     if (!p || !p.conversationId) throw notFound('Project');
     await this.conversations.authorize(ctx, p.conversationId, 'conversation.read');
     return this.toDto(p, await this.counts(ctx.tenantId, [p.conversationId]));
+  }
+
+  /** Owners of a SampConnect project (or `work.manage`): name, description, status, due date. */
+  async update(ctx: TenantContext, id: string, body: unknown): Promise<Project> {
+    const req = parse(UpdateProjectRequestSchema, body);
+    const t = this.store.for(ctx.tenantId);
+    const p = await t.projects.findOne({ _id: id });
+    if (!p || !p.conversationId) throw notFound('Project');
+    await this.conversations.authorize(ctx, p.conversationId, 'conversation.read');
+    if (!p.ownerIds.includes(ctx.userId) && !tenantCan(ctx, 'work.manage'))
+      throw forbidden('Only the project’s owners and admins can edit it');
+    if (p.source !== 'connect')
+      throw new AppError('CONFLICT', 'This project comes from Samptrek; edit it there');
+    const set: Partial<ProjectDoc> = { updatedAt: new Date() };
+    if (req.name !== undefined) set.name = req.name;
+    if (req.description !== undefined) set.description = req.description;
+    if (req.status !== undefined) set.status = req.status;
+    if (req.dueAt !== undefined) set.dueAt = req.dueAt ? new Date(req.dueAt) : null;
+    const updated = (await t.projects.findOneAndUpdate(
+      { _id: id },
+      { $set: set },
+      { returnDocument: 'after' },
+    ))!;
+    // The project channel carries the same name (best effort: a channel-name rule may differ).
+    if (req.name !== undefined && req.name !== p.name)
+      await this.conversations
+        .rename({ ...ctx, role: 'owner' }, p.conversationId, { name: req.name })
+        .catch(() => undefined);
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'project.edited',
+      target: { type: 'project', id },
+      metadata: { fields: Object.keys(set).filter((k) => k !== 'updatedAt') },
+    });
+    this.realtime.toTenant(ctx.tenantId, 'project:changed', { projectId: id });
+    return this.toDto(updated, await this.counts(ctx.tenantId, [p.conversationId]));
   }
 
   async create(ctx: TenantContext, body: unknown): Promise<Project> {

@@ -4,6 +4,7 @@ import {
   CreateApprovalRequestSchema,
   DecideApprovalRequestSchema,
   ListApprovalsQuerySchema,
+  UpdateApprovalRequestSchema,
   MODULE_CATALOG,
   formatFact,
   tenantCan,
@@ -321,6 +322,47 @@ export class ApprovalsService {
       action: 'approval.decided',
       target: { type: 'approval', id },
       metadata: { decision: req.decision, status, category: a.category },
+    });
+    await this.settled(ctx.tenantId, updated, ctx.userId);
+    return toApproval(updated);
+  }
+
+  /**
+   * The requester fixes the request while nobody has decided yet. Approvers see the change
+   * live and the card in the conversation updates.
+   */
+  async update(ctx: TenantContext, id: string, body: unknown): Promise<Approval> {
+    const req = parse(UpdateApprovalRequestSchema, body);
+    const a = await this.load(ctx, id);
+    if (a.requesterId !== ctx.userId) throw forbidden('Only the person who asked can edit it');
+    if (a.origin === 'module')
+      throw new AppError('CONFLICT', 'This request came from a module; change it there');
+    if (a.status !== 'pending')
+      throw new AppError('CONFLICT', `This request is already ${a.status}`);
+    if (a.decisions.length)
+      throw new AppError(
+        'CONFLICT',
+        'Someone already decided on this request. Cancel it and ask again instead.',
+      );
+    const set: Partial<ApprovalDoc> = {};
+    if (req.title !== undefined) set.title = req.title;
+    if (req.description !== undefined) set.description = req.description;
+    if (req.amount !== undefined) set.amount = req.amount;
+    if (req.dueAt !== undefined) set.dueAt = req.dueAt ? new Date(req.dueAt) : null;
+    const updated = await this.store.for(ctx.tenantId).approvals.findOneAndUpdate(
+      // Only while still undecided: a decision racing this edit wins.
+      { _id: id, status: 'pending', decisions: { $size: 0 } },
+      { $set: set },
+      { returnDocument: 'after' },
+    );
+    if (!updated)
+      throw new AppError('CONFLICT', 'Someone decided at the same time; reload and try again');
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      action: 'approval.edited',
+      target: { type: 'approval', id },
+      metadata: { fields: Object.keys(set) },
     });
     await this.settled(ctx.tenantId, updated, ctx.userId);
     return toApproval(updated);

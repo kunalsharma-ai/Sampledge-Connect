@@ -171,6 +171,10 @@ export class NetworkController {
   createStatus(@Ctx() ctx: TenantContext, @Body() body: unknown) {
     return this.statuses.create(ctx, body);
   }
+  @Patch('statuses/:id')
+  editStatus(@Ctx() ctx: TenantContext, @Param('id') id: string, @Body() body: unknown) {
+    return this.statuses.edit(ctx, id, body);
+  }
   @Put('statuses/:id/view')
   @HttpCode(204)
   view(@Ctx() ctx: TenantContext, @Param('id') id: string) {
