@@ -247,9 +247,11 @@ export class OutboxProcessor {
     const { store, runAction, refuseAction } = this.opts;
     if (!runAction || !refuseAction) return;
     while (this.opts.canSend()) {
-      const a = await store.work.next();
-      if (!a?.due) break;
-      await store.work.markSending(a.id);
+      const waiting = await store.work.next();
+      if (!waiting?.due) break;
+      // Read it again as it is claimed: a change queued meanwhile may have merged into it.
+      const a = await store.work.claim(waiting.id);
+      if (!a) continue;
       try {
         await runAction(a);
       } catch (raw) {

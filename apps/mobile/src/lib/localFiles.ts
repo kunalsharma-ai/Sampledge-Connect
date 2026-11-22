@@ -1,4 +1,6 @@
+import { fetch as expoFetch } from 'expo/fetch';
 import { Directory, File, Paths, UploadType } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 /**
  * Files you attach are copied into the app's document folder right away, so a message
@@ -64,4 +66,41 @@ export async function localFileSize(uri: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Downloads a document the API makes (minutes, chat export) into the app's cache folder and
+ * returns its address there. Errors come back as the API's own message.
+ */
+export async function downloadDocument(
+  url: string,
+  init: { method: string; headers: Record<string, string>; body?: string },
+  fileName: string,
+): Promise<string> {
+  const res = await expoFetch(url, init);
+  if (!res.ok)
+    throw Object.assign(new Error(await documentError(res)), { status: res.status });
+  const dir = new Directory(Paths.cache, 'documents');
+  if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+  const file = new File(dir, fileName.replace(/[\\/:*?"<>|]+/g, ' '));
+  if (file.exists) file.delete();
+  file.create();
+  file.write(new Uint8Array(await res.arrayBuffer()));
+  return file.uri;
+}
+
+async function documentError(res: { status: number; text(): Promise<string> }): Promise<string> {
+  try {
+    const j = JSON.parse(await res.text()) as { error?: { message?: string } };
+    if (j.error?.message) return j.error.message;
+  } catch {
+    // not JSON
+  }
+  return `Download failed (HTTP ${res.status})`;
+}
+
+/** Opens the share sheet for a downloaded document (save to Files, send, open in another app). */
+export async function shareDocument(uri: string, mimeType: string, title: string): Promise<void> {
+  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing isn’t available on this device');
+  await Sharing.shareAsync(uri, { mimeType, dialogTitle: title });
 }

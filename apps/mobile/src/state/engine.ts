@@ -25,6 +25,14 @@ import {
   type CallBackgroundChoice,
   type CallBackgroundPolicyInput,
   type CallBackgroundState,
+  type CallMinutesResponse,
+  type ChatExportAccess,
+  type ChatExportRequest,
+  type MeetingMinutes,
+  type MinutesConfig,
+  type MinutesDocumentQuery,
+  type MinutesChangedEvent,
+  documentFileName,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -100,6 +108,7 @@ import {
   type LocalScheduled,
   type LocalTask,
   type QueuedAction,
+  type MinutesPatch,
 } from '../db/work';
 import { Emitter } from '../lib/emitter';
 import { forwardSnapshot } from '../lib/forward';
@@ -152,6 +161,10 @@ const THEME_KEY = 'chatTheme';
 const RECENT_KEY = 'search.recent';
 /** Settings key for the server's copy of your call background, the rules and the branding. */
 const CALL_BG_KEY = 'callBackground';
+/** Settings keys for minutes: the organization's options, and the minutes of each call. */
+const MINUTES_CONFIG_KEY = 'minutes.config';
+const minutesKey = (callId: string) => `minutes.call.${callId}`;
+const minutesListKey = (conversationId: string) => `minutes.list.${conversationId}`;
 
 export class ConnectEngine {
   readonly events = new Emitter<{
@@ -187,6 +200,10 @@ export class ConnectEngine {
     chatTheme: ChatThemeState;
     /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
     callBackground: CallBackgroundState;
+    /** Minutes of a call changed here, on another device or by someone else. */
+    minutes: { callId: string; conversationId: string };
+    /** A recording transcript was corrected, checked or translated. */
+    transcript: { attachmentId: string };
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -308,6 +325,10 @@ export class ConnectEngine {
           if (e.area === 'call_background')
             void this.refreshCallBackground().catch(() => undefined);
         }),
+        this.realtime.events.on('minutes', (e) => void this.receiveMinutes(e)),
+        this.realtime.events.on('transcript', (e) =>
+          this.events.emit('transcript', { attachmentId: e.attachmentId }),
+        ),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
             const m = await this.store.getMessageByServerId(v.messageId);
@@ -506,6 +527,7 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'minutes') void this.refreshMinutesConfig().catch(() => undefined);
     if (area === 'calls' || area === 'branding')
       void this.refreshCallBackground().catch(() => undefined);
     if (area === 'branding' && this.online) {
@@ -1272,6 +1294,14 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setChatTheme(i.themeId)),
         );
         break;
+      case 'minutes.update': {
+        const m = await this.api.updateMinutes(i.minutesId, {
+          baseRevision: i.baseRevision,
+          ...i.patch,
+        });
+        await this.saveMinutes(m);
+        break;
+      }
       case 'callbg.set':
         await this.saveCallBackground(await this.api.setCallBackground(i.choice));
         break;
@@ -1340,6 +1370,9 @@ export class ConnectEngine {
     if (i.kind === 'search.recent') void this.emitRecent();
     if (i.kind === 'theme.set') void this.emitChatTheme();
     if (i.kind.startsWith('callbg.')) void this.emitCallBackground();
+    if (i.kind === 'minutes.update')
+      // Saved or refused (someone changed the same part): show the server's copy either way.
+      void this.refreshCallMinutes(i.callId).catch(() => this.emitMinutesFor(i.callId));
     if (i.kind === 'hours.set')
       void this.getWorkingHours()
         .then((h) => this.events.emit('workingHours', h))
@@ -1808,6 +1841,152 @@ export class ConnectEngine {
     const state = await this.api.getChatTheme();
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
     await this.emitChatTheme();
+  }
+
+  // ------------------------------------------------------------ minutes of meeting
+
+  /** What the apps should offer (templates, languages, export rule). Cached for offline use. */
+  async minutesConfig(): Promise<MinutesConfig | null> {
+    if (this.online) await this.refreshMinutesConfig().catch(() => undefined);
+    const raw = await this.store.getSetting(MINUTES_CONFIG_KEY);
+    return raw ? (JSON.parse(raw) as MinutesConfig) : null;
+  }
+
+  private async refreshMinutesConfig(): Promise<void> {
+    await this.store.setSetting(MINUTES_CONFIG_KEY, JSON.stringify(await this.api.minutesConfig()));
+  }
+
+  /**
+   * The minutes of a call as last seen on this phone, with edits not sent yet laid over them.
+   * Null when this phone has never loaded them.
+   */
+  async getCallMinutes(callId: string): Promise<CallMinutesResponse | null> {
+    const raw = await this.store.getSetting(minutesKey(callId));
+    if (!raw) return null;
+    const r = JSON.parse(raw) as CallMinutesResponse;
+    if (!r.minutes) return r;
+    const pending = await this.store.work.pendingMinutes(r.minutes.minutesId);
+    return pending ? { ...r, minutes: { ...r.minutes, ...pending } } : r;
+  }
+
+  /** Fetches the minutes of a call when online and emits `minutes`. */
+  async reloadCallMinutes(callId: string): Promise<void> {
+    if (this.online) await this.refreshCallMinutes(callId);
+  }
+
+  private async refreshCallMinutes(callId: string): Promise<void> {
+    const r = await this.api.callMinutes(callId);
+    await this.store.setSetting(minutesKey(callId), JSON.stringify(r));
+    if (r.minutes) await this.rememberInList(r.minutes);
+    await this.emitMinutesFor(callId);
+  }
+
+  /** Minutes made for calls in a conversation (newest first); cached for offline reading. */
+  async listMinutes(conversationId: string): Promise<MeetingMinutes[]> {
+    if (this.online) {
+      try {
+        const items = await this.api.listMinutes(conversationId);
+        await this.store.setSetting(minutesListKey(conversationId), JSON.stringify(items));
+        return items;
+      } catch {
+        // fall back to the copy on this phone
+      }
+    }
+    const raw = await this.store.getSetting(minutesListKey(conversationId));
+    return raw ? (JSON.parse(raw) as MeetingMinutes[]) : [];
+  }
+
+  /** Makes the draft (or writes it again from the sources). Needs a connection. */
+  async generateMinutes(callId: string, language: string, regenerate = false): Promise<void> {
+    const m = await this.serverAction(() =>
+      this.api.generateMinutes(callId, { language, regenerate }),
+    );
+    await this.saveMinutes(m);
+  }
+
+  /**
+   * Edits fields of the minutes. Shows at once and works offline; edits merge per field, and a
+   * field someone else changed meanwhile is refused with their version shown.
+   */
+  async editMinutes(m: MeetingMinutes, patch: MinutesPatch): Promise<void> {
+    const raw = await this.store.getSetting(minutesKey(m.callId));
+    const base = raw ? (JSON.parse(raw) as CallMinutesResponse).minutes : null;
+    await this.queue({
+      kind: 'minutes.update',
+      minutesId: m.minutesId,
+      callId: m.callId,
+      baseRevision: base?.revision ?? m.revision,
+      patch,
+    });
+    await this.emitMinutesFor(m.callId);
+  }
+
+  async shareMinutes(m: MeetingMinutes): Promise<void> {
+    await this.saveMinutes(await this.serverAction(() => this.api.shareMinutes(m.minutesId)));
+  }
+
+  async deleteMinutes(m: MeetingMinutes): Promise<void> {
+    await this.serverAction(() => this.api.deleteMinutes(m.minutesId));
+    await this.refreshCallMinutes(m.callId).catch(() => undefined);
+    await this.dropFromList(m);
+  }
+
+  /** Downloads the minutes as PDF or Word; returns the file on this device. */
+  downloadMinutes(m: MeetingMinutes, q: MinutesDocumentQuery): Promise<string> {
+    const ext = q.format === 'docx' ? 'docx' : 'pdf';
+    const name = documentFileName('Minutes', m.title, new Date(m.startedAt), ext);
+    return this.serverAction(() => this.api.downloadMinutes(m.minutesId, q, name));
+  }
+
+  chatExportAccess(conversationId: string): Promise<ChatExportAccess> {
+    return this.serverAction(() => this.api.chatExportAccess(conversationId));
+  }
+
+  /** Downloads the conversation as PDF, Word or text; returns the file on this device. */
+  exportChat(conversationId: string, title: string, req: ChatExportRequest): Promise<string> {
+    const name = documentFileName('Chat', title, new Date(), req.format ?? 'pdf');
+    return this.serverAction(() => this.api.exportChat(conversationId, req, name));
+  }
+
+  private async receiveMinutes(e: MinutesChangedEvent): Promise<void> {
+    if (await this.store.getSetting(minutesKey(e.callId)))
+      await this.refreshCallMinutes(e.callId).catch(() => undefined);
+    else this.events.emit('minutes', { callId: e.callId, conversationId: e.conversationId });
+  }
+
+  private async saveMinutes(m: MeetingMinutes): Promise<void> {
+    const raw = await this.store.getSetting(minutesKey(m.callId));
+    const prev = raw ? (JSON.parse(raw) as CallMinutesResponse) : null;
+    await this.store.setSetting(
+      minutesKey(m.callId),
+      JSON.stringify({ canCreate: prev?.canCreate ?? true, blockedReason: null, minutes: m }),
+    );
+    await this.rememberInList(m);
+    await this.emitMinutesFor(m.callId);
+  }
+
+  private async rememberInList(m: MeetingMinutes): Promise<void> {
+    const key = minutesListKey(m.conversationId);
+    const raw = await this.store.getSetting(key);
+    const list = raw ? (JSON.parse(raw) as MeetingMinutes[]) : [];
+    const next = [m, ...list.filter((x) => x.minutesId !== m.minutesId)].sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt),
+    );
+    await this.store.setSetting(key, JSON.stringify(next));
+  }
+
+  private async dropFromList(m: MeetingMinutes): Promise<void> {
+    const key = minutesListKey(m.conversationId);
+    const raw = await this.store.getSetting(key);
+    if (!raw) return;
+    const list = (JSON.parse(raw) as MeetingMinutes[]).filter((x) => x.minutesId !== m.minutesId);
+    await this.store.setSetting(key, JSON.stringify(list));
+    this.events.emit('minutes', { callId: m.callId, conversationId: m.conversationId });
+  }
+
+  private async emitMinutesFor(callId: string): Promise<void> {
+    const r = await this.getCallMinutes(callId);
+    this.events.emit('minutes', { callId, conversationId: r?.minutes?.conversationId ?? '' });
   }
 
   // ------------------------------------------------------------ call background

@@ -222,6 +222,40 @@ export default function ConversationInfo() {
             </Pressable>
             <Pressable
               onPress={() =>
+                router.push({ pathname: '/minutes', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Minutes of meetings in this conversation"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="document-text-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Minutes of meetings
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/export-chat', params: { conversationId: id, title } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Export this conversation"
+              style={[
+                styles.row,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+              ]}
+            >
+              <Ionicons name="download-outline" size={20} color={c.accent} />
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Export chat
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
                 router.push({ pathname: '/recordings', params: { conversationId: id, title } })
               }
               accessibilityRole="button"
