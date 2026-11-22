@@ -36,6 +36,24 @@ describe('greeting catalogue', () => {
     for (const c of GREETING_CATEGORIES) expect(all.some((o) => o.category === c.id)).toBe(true);
   });
 
+  it('covers festivals and special days around the world', () => {
+    const ids = (cat: string) => all.filter((o) => o.category === cat).map((o) => o.id);
+    for (const id of [
+      'lunar-new-year',
+      'hanukkah',
+      'mid-autumn',
+      'rosh-hashanah',
+      'kwanzaa',
+      'day-of-the-dead',
+      'songkran',
+    ])
+      expect(ids('world')).toContain(id);
+    for (const id of ['earth-day', 'yoga-day', 'mental-health-day', 'national-day'])
+      expect(ids('days')).toContain(id);
+    expect(searchOccasions(all, 'dia de muertos').map((o) => o.id)).toContain('day-of-the-dead');
+    expect(searchOccasions(all, 'mooncake').map((o) => o.id)).toContain('mid-autumn');
+  });
+
   it('keeps condolences quiet and free of playful messages', () => {
     const c = all.find((o) => o.id === 'condolence')!;
     expect(c.quiet).toBe(true);

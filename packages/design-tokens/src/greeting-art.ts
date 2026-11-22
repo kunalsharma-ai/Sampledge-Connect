@@ -617,6 +617,218 @@ export const GREETING_MOTIFS: Record<string, Motif> = {
     leaf(-40, 86, 46, -160, p.b) +
     leaf(40, 86, 46, -20, p.b) +
     `<ellipse cx="0" cy="88" rx="60" ry="6" fill="#000" opacity="0.15"/>`,
+  mooncake: (p) =>
+    `<circle cx="-50" cy="-46" r="40" fill="${p.c}" opacity="0.95"/>` +
+    `<ellipse cx="20" cy="74" rx="90" ry="12" fill="#000" opacity="0.15"/>` +
+    [
+      [-4, 30, 50],
+      [62, 44, 36],
+    ]
+      .map(
+        ([x, y, r]) =>
+          `<circle cx="${x}" cy="${y}" r="${r}" fill="#C27B2C"/><circle cx="${x}" cy="${y! - 4}" r="${r! - 6}" fill="#E09B45"/>` +
+          Array.from({ length: 10 }, (_, i) => {
+            const a = (i / 10) * Math.PI * 2;
+            return `<circle cx="${x! + Math.cos(a) * (r! - 6)}" cy="${y! - 4 + Math.sin(a) * (r! - 6)}" r="${r! * 0.16}" fill="#E09B45"/>`;
+          }).join('') +
+          `<circle cx="${x}" cy="${y! - 4}" r="${r! * 0.5}" fill="none" stroke="#A4621E" stroke-width="2.5"/>` +
+          flower(x!, y! - 4, r! * 0.32, '#A4621E', '#C27B2C', 4),
+      )
+      .join('') +
+    sparkle(80, -60, 9, p.c),
+  fullMoon: (p) =>
+    `<circle cx="0" cy="-20" r="62" fill="${p.c}"/><circle cx="-20" cy="-34" r="10" fill="#000" opacity="0.06"/><circle cx="18" cy="-6" r="14" fill="#000" opacity="0.06"/>` +
+    `<path d="M-110 70Q-60 30 -10 60T110 50L110 100L-110 100Z" fill="${p.b}"/>` +
+    [
+      [-70, 40],
+      [-40, 56],
+      [60, 36],
+    ]
+      .map(
+        ([x, y]) =>
+          `<circle cx="${x}" cy="${y}" r="11" fill="#F97316"/><path d="M${x! - 5} ${y! - 10}L${x! + 5} ${y! - 10}L${x} ${y! - 6}Z" fill="#3F6212"/>`,
+      )
+      .join('') +
+    sparkle(84, -70, 8, '#fff'),
+  appleHoney: (p) =>
+    `<path d="M-20 -50C-70 -70 -100 -20 -90 20C-80 60 -50 80 -20 70C-10 66 -10 66 0 70C30 80 60 60 66 20C74 -20 40 -70 -20 -50Z" fill="#DC2626"/>` +
+    `<path d="M-60 -30C-70 -10 -70 10 -62 26" stroke="#fff" stroke-width="6" fill="none" opacity="0.35" stroke-linecap="round"/>` +
+    `<path d="M-20 -50Q-18 -76 -6 -88" stroke="#5B3A12" stroke-width="5" fill="none"/>` +
+    leaf(-12, -80, 34, -20, '#16A34A') +
+    `<path d="M50 20L106 20L100 90L56 90Z" fill="#FCD34D" opacity="0.9"/><rect x="46" y="12" width="64" height="12" rx="4" fill="${p.c}"/>` +
+    `<path d="M66 60Q78 50 90 60" stroke="#D97706" stroke-width="3" fill="none"/>` +
+    sparkle(90, -60, 9, p.c),
+  cup: (p) =>
+    `<path d="M-40 -70L40 -70Q40 0 0 10Q-40 0 -40 -70Z" fill="${p.c}"/><path d="M-34 -56L34 -56Q32 -10 0 -2Q-32 -10 -34 -56Z" fill="#7F1D1D"/>` +
+    `<rect x="-5" y="8" width="10" height="56" fill="${p.c}"/><ellipse cx="0" cy="68" rx="40" ry="10" fill="${p.c}"/>` +
+    [-80, 70]
+      .map(
+        (x) =>
+          `<rect x="${x - 26}" y="40" width="62" height="44" rx="4" fill="#F5E6C8"/>` +
+          [0, 1, 2, 3]
+            .map(
+              (i) =>
+                `<path d="M${x - 20} ${50 + i * 10}L${x + 30} ${50 + i * 10}" stroke="#D4B483" stroke-width="2" stroke-dasharray="2 5"/>`,
+            )
+            .join(''),
+      )
+      .join('') +
+    sparkle(74, -60, 9, p.c),
+  kinara: () =>
+    `<path d="M-100 40L100 40L80 70L-80 70Z" fill="#7C4A1E"/><rect x="-100" y="34" width="200" height="10" rx="3" fill="#92400E"/>` +
+    ['#DC2626', '#DC2626', '#DC2626', '#111827', '#16A34A', '#16A34A', '#16A34A']
+      .map((c, i) => {
+        const x = -84 + i * 28;
+        return (
+          `<rect x="${x - 7}" y="-30" width="14" height="64" rx="2" fill="${c}"/>` +
+          flame(x, -32, 24)
+        );
+      })
+      .join(''),
+  mask: (p) =>
+    `<path d="M-100 -20C-60 -40 -20 -30 0 -14C20 -30 60 -40 100 -20C100 30 60 50 20 30C10 24 -10 24 -20 30C-60 50 -100 30 -100 -20Z" fill="${p.a}"/>` +
+    `<path d="M-70 -4C-56 -14 -38 -14 -28 -2C-40 8 -60 8 -70 -4ZM70 -4C56 -14 38 -14 28 -2C40 8 60 8 70 -4Z" fill="#111827"/>` +
+    `<path d="M-100 -20C-60 -40 -20 -30 0 -14C20 -30 60 -40 100 -20" stroke="${p.c}" stroke-width="5" fill="none"/>` +
+    [0, 1, 2]
+      .map(
+        (i) =>
+          `<path d="M${60 + i * 10} -30Q${70 + i * 18} -90 ${110 + i * 4} -${100 - i * 10}" stroke="${[p.b, p.c, '#22C55E'][i]}" stroke-width="7" fill="none" stroke-linecap="round"/>`,
+      )
+      .join('') +
+    `<path d="M-100 0L-120 70" stroke="${p.c}" stroke-width="5" stroke-linecap="round"/>` +
+    [-60, -30, 30, 60]
+      .map((x, i) => `<circle cx="${x}" cy="${i % 3 ? 22 : 18}" r="4" fill="${p.c}"/>`)
+      .join(''),
+  pumpkin: (p) =>
+    `<ellipse cx="0" cy="20" rx="96" ry="70" fill="#EA580C"/>` +
+    [-56, -20, 20, 56]
+      .map(
+        (x) =>
+          `<ellipse cx="${x}" cy="20" rx="34" ry="68" fill="none" stroke="#C2410C" stroke-width="4"/>`,
+      )
+      .join('') +
+    `<path d="M-6 -48Q-4 -76 14 -84" stroke="#3F6212" stroke-width="10" fill="none" stroke-linecap="round"/>` +
+    `<path d="M-50 -4L-26 -4L-38 -26Z M26 -4L50 -4L38 -26Z" fill="#FDE047"/>` +
+    `<path d="M-56 30Q0 70 56 30L44 40L32 32L20 44L8 34L-8 44L-20 34L-32 44L-44 34Z" fill="#FDE047"/>` +
+    sparkle(80, -70, 9, p.c) +
+    `<path d="M-90 -80Q-80 -90 -70 -80Q-60 -90 -50 -80Q-60 -76 -70 -70Q-80 -76 -90 -80Z" fill="#111827" opacity="0.8"/>`,
+  marigolds: (p) =>
+    `<path d="M-110 70Q0 20 110 70" stroke="#16A34A" stroke-width="3" fill="none"/>` +
+    [
+      [-70, -10, 30],
+      [-10, -40, 36],
+      [56, -14, 30],
+      [-40, 50, 22],
+      [30, 46, 24],
+      [86, 40, 18],
+      [-92, 40, 16],
+    ]
+      .map(([x, y, r], i) =>
+        i % 2
+          ? marigold(x!, y!, r!)
+          : marigold(x!, y!, r!)
+              .replace(/#F59E0B/, '#EA580C')
+              .replace(/#FBBF24/, '#F97316'),
+      )
+      .join('') +
+    sparkle(0, -96, 9, p.c),
+  waterSplash: (p) =>
+    `<path d="M0 -90C30 -40 50 -10 50 20C50 50 28 70 0 70C-28 70 -50 50 -50 20C-50 -10 -30 -40 0 -90Z" fill="#38BDF8"/>` +
+    `<path d="M-26 10C-26 30 -12 46 4 48" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.6"/>` +
+    [
+      [-80, -40, 12],
+      [80, -30, 14],
+      [-70, 50, 10],
+      [86, 50, 9],
+      [60, -80, 8],
+      [-60, -80, 7],
+    ]
+      .map(
+        ([x, y, r]) =>
+          `<path d="M${x} ${y! - r! * 1.6}C${x! + r!} ${y! - r! * 0.4} ${x! + r!} ${y! + r!} ${x} ${y! + r!}C${x! - r!} ${y! + r!} ${x! - r!} ${y! - r! * 0.4} ${x} ${y! - r! * 1.6}Z" fill="#7DD3FC"/>`,
+      )
+      .join('') +
+    flower(-90, 0, 18, p.a, p.c, 5) +
+    flower(92, 6, 16, p.b, p.c, 5),
+  globe: (p) =>
+    `<circle r="76" fill="#2563EB"/>` +
+    `<path d="M-50 -50C-30 -60 -10 -40 -20 -20C-30 0 -60 -4 -66 -20C-70 -32 -60 -44 -50 -50Z M10 -70C30 -66 50 -50 40 -30C30 -10 10 -20 6 -36C2 -50 0 -66 10 -70Z M-10 10C20 0 50 10 56 30C60 50 30 66 10 56C-10 46 -30 30 -10 10Z" fill="#22C55E"/>` +
+    `<circle r="76" fill="none" stroke="#fff" stroke-width="3" opacity="0.4"/>` +
+    `<path d="M-60 -40Q-50 -60 -30 -68" stroke="#fff" stroke-width="6" fill="none" opacity="0.4" stroke-linecap="round"/>` +
+    leaf(-90, 70, 40, -70, '#16A34A') +
+    leaf(90, 70, 40, -110, '#16A34A') +
+    heart(70, -70, 14, p.c),
+  sapling: (p) =>
+    `<path d="M-90 70Q0 40 90 70L90 90L-90 90Z" fill="#92400E"/>` +
+    `<path d="M0 66Q-4 10 0 -30" stroke="#15803D" stroke-width="7" fill="none" stroke-linecap="round"/>` +
+    leaf(0, -20, 70, -150, '#22C55E') +
+    leaf(0, -30, 76, -30, '#16A34A') +
+    leaf(0, 20, 44, -170, '#4ADE80') +
+    `<circle cx="70" cy="-60" r="26" fill="${p.c}" opacity="0.9"/>` +
+    [-80, -50]
+      .map(
+        (x) =>
+          `<path d="M${x} -40Q${x + 10} -70 ${x} -90" stroke="#7DD3FC" stroke-width="3" fill="none" stroke-dasharray="2 8" stroke-linecap="round"/>`,
+      )
+      .join(''),
+  yogaPose: (p) =>
+    `<circle cx="0" cy="-30" r="80" fill="${p.c}" opacity="0.35"/>` +
+    `<circle cx="0" cy="-60" r="15" fill="#fff"/>` +
+    `<path d="M0 -44L0 10" stroke="#fff" stroke-width="16" stroke-linecap="round"/>` +
+    `<path d="M0 -28L-40 -60M0 -28L40 -60" stroke="#fff" stroke-width="9" stroke-linecap="round"/>` +
+    `<path d="M-60 40Q-30 10 0 20Q30 10 60 40Q30 34 0 36Q-30 34 -60 40Z" fill="#fff"/>` +
+    `<ellipse cx="0" cy="60" rx="96" ry="10" fill="${p.a}" opacity="0.8"/>` +
+    leaf(-90, 40, 34, -60, '#16A34A') +
+    leaf(90, 40, 34, -120, '#16A34A'),
+  gear: (p) =>
+    `<g transform="translate(-20 0)">` +
+    Array.from(
+      { length: 10 },
+      (_, i) =>
+        `<rect x="-10" y="-74" width="20" height="24" rx="3" fill="${p.c}" transform="rotate(${i * 36})"/>`,
+    ).join('') +
+    `<circle r="56" fill="${p.c}"/><circle r="22" fill="${p.d}"/></g>` +
+    `<g transform="rotate(40 50 40)"><rect x="40" y="-40" width="18" height="120" rx="6" fill="#94A3B8"/><path d="M28 -60L70 -60L70 -36Q49 -20 28 -36Z" fill="#CBD5E1"/></g>` +
+    sparkle(80, -80, 9, '#fff'),
+  stethoscope: (p) =>
+    heart(10, 20, 56, p.a) +
+    `<path d="M-60 -90L-60 -40Q-60 0 -20 0Q20 0 20 -40L20 -90" stroke="#334155" stroke-width="7" fill="none" stroke-linecap="round"/>` +
+    `<path d="M-20 0Q-20 60 40 70Q90 76 90 30" stroke="#334155" stroke-width="7" fill="none"/>` +
+    `<circle cx="90" cy="24" r="16" fill="#94A3B8"/><circle cx="90" cy="24" r="8" fill="#E2E8F0"/>` +
+    `<path d="M4 16L16 16L16 4L28 4L28 16L40 16L40 28L28 28L28 40L16 40L16 28L4 28Z" fill="#fff"/>`,
+  ribbon: (p) =>
+    `<path d="M0 -40C-30 -90 -70 -60 -40 -10L30 90L50 70L-14 -16C-30 -40 -14 -60 0 -40Z" fill="${p.a}"/>` +
+    `<path d="M0 -40C30 -90 70 -60 40 -10L-30 90L-50 70L14 -16C30 -40 14 -60 0 -40Z" fill="${p.b}"/>` +
+    leaf(-90, 60, 40, -60, '#4ADE80') +
+    leaf(80, -40, 34, -20, '#4ADE80') +
+    heart(70, 50, 14, p.c),
+  dove: (p) =>
+    `<path d="M-90 10C-60 -10 -20 0 0 10C30 -10 60 -10 90 -40C70 0 50 20 20 30C0 50 -40 50 -60 30C-70 20 -80 16 -90 10Z" fill="#fff"/>` +
+    `<path d="M-20 10C-20 -40 10 -80 50 -90C40 -60 30 -20 10 10Z" fill="#F1F5F9"/>` +
+    `<circle cx="-62" cy="12" r="3" fill="#111827"/><path d="M-90 10L-104 16L-90 18Z" fill="${p.c}"/>` +
+    `<path d="M-100 20Q-120 30 -110 50" stroke="#16A34A" stroke-width="3" fill="none"/>` +
+    leaf(-108, 30, 18, 120, '#22C55E') +
+    leaf(-112, 44, 18, 160, '#22C55E') +
+    sparkle(80, 50, 8, p.c),
+  rainbow: () =>
+    ['#EF4444', '#F97316', '#FACC15', '#22C55E', '#3B82F6', '#8B5CF6']
+      .map(
+        (c, i) =>
+          `<path d="M${-100 + i * 14} 60A${100 - i * 14} ${100 - i * 14} 0 0 1 ${100 - i * 14} 60" stroke="${c}" stroke-width="14" fill="none"/>`,
+      )
+      .join('') +
+    `<ellipse cx="-86" cy="62" rx="34" ry="18" fill="#fff"/><ellipse cx="86" cy="62" rx="34" ry="18" fill="#fff"/>` +
+    heart(0, 20, 18, '#EF4444'),
+  teacups: (p) =>
+    [-46, 46]
+      .map(
+        (x, i) =>
+          `<path d="M${x - 36} -6L${x + 36} -6Q${x + 34} 50 ${x} 54Q${x - 34} 50 ${x - 36} -6Z" fill="${i ? p.b : p.a}"/>` +
+          `<path d="M${x + (i ? -36 : 36)} 6Q${x + (i ? -60 : 60)} 10 ${x + (i ? -34 : 34)} 34" stroke="${i ? p.b : p.a}" stroke-width="7" fill="none"/>` +
+          `<ellipse cx="${x}" cy="60" rx="50" ry="8" fill="${p.c}"/>` +
+          `<path d="M${x - 8} -20Q${x - 16} -40 ${x - 6} -56M${x + 8} -20Q${x} -40 ${x + 10} -56" stroke="#fff" stroke-width="3" fill="none" opacity="0.7"/>`,
+      )
+      .join('') + heart(0, -70, 16, p.c),
 };
 
 /** Which motif and colours each occasion uses. Unknown ids fall back to `celebrate`. */
@@ -700,6 +912,91 @@ export const GREETING_OCCASION_ART: Record<string, { motif: string; palette: Gre
   'republic-day': {
     motif: 'tricolour',
     palette: { a: '#FF9933', b: '#138808', c: '#000080', d: '#0B1A44' },
+  },
+  'mid-autumn': {
+    motif: 'mooncake',
+    palette: { a: '#B91C1C', b: '#7C2D12', c: '#FDE68A', d: '#2A0A0A' },
+  },
+  chuseok: {
+    motif: 'fullMoon',
+    palette: { a: '#1E3A8A', b: '#3F6212', c: '#FEF3C7', d: '#0B1A3A' },
+  },
+  'rosh-hashanah': {
+    motif: 'appleHoney',
+    palette: { a: '#1D4ED8', b: '#B91C1C', c: '#F59E0B', d: '#0B1A44' },
+  },
+  passover: { motif: 'cup', palette: { a: '#1E40AF', b: '#60A5FA', c: '#D4A017', d: '#0B1A44' } },
+  kwanzaa: { motif: 'kinara', palette: { a: '#15803D', b: '#B91C1C', c: '#FBBF24', d: '#0F1F12' } },
+  'st-patricks-day': {
+    motif: 'clover',
+    palette: { a: '#15803D', b: '#22C55E', c: '#FACC15', d: '#052E16' },
+  },
+  carnival: { motif: 'mask', palette: { a: '#7C3AED', b: '#EC4899', c: '#FACC15', d: '#2E1065' } },
+  halloween: {
+    motif: 'pumpkin',
+    palette: { a: '#EA580C', b: '#7C3AED', c: '#FDE047', d: '#1C0B2E' },
+  },
+  'day-of-the-dead': {
+    motif: 'marigolds',
+    palette: { a: '#C026D3', b: '#EA580C', c: '#FDE047', d: '#3B0A3F' },
+  },
+  songkran: {
+    motif: 'waterSplash',
+    palette: { a: '#0EA5E9', b: '#EC4899', c: '#FDE047', d: '#0C2A4A' },
+  },
+  'loy-krathong': {
+    motif: 'lotus',
+    palette: { a: '#F472B6', b: '#22C55E', c: '#FDE68A', d: '#0B1A3A' },
+  },
+  'earth-day': {
+    motif: 'globe',
+    palette: { a: '#0EA5E9', b: '#16A34A', c: '#F43F5E', d: '#0B2A3A' },
+  },
+  'environment-day': {
+    motif: 'sapling',
+    palette: { a: '#16A34A', b: '#65A30D', c: '#FACC15', d: '#052E16' },
+  },
+  'yoga-day': {
+    motif: 'yogaPose',
+    palette: { a: '#EA580C', b: '#F59E0B', c: '#FDE68A', d: '#3A1606' },
+  },
+  'labour-day': {
+    motif: 'gear',
+    palette: { a: '#B91C1C', b: '#EA580C', c: '#FBBF24', d: '#2A0A0A' },
+  },
+  'childrens-day': {
+    motif: 'balloons',
+    palette: { a: '#F43F5E', b: '#22C55E', c: '#38BDF8', d: '#1E1B4B' },
+  },
+  'nurses-day': {
+    motif: 'stethoscope',
+    palette: { a: '#F472B6', b: '#38BDF8', c: '#FDE68A', d: '#0B2540' },
+  },
+  'doctors-day': {
+    motif: 'stethoscope',
+    palette: { a: '#EF4444', b: '#0EA5E9', c: '#FDE68A', d: '#0B2540' },
+  },
+  'mental-health-day': {
+    motif: 'ribbon',
+    palette: { a: '#22C55E', b: '#16A34A', c: '#FDE68A', d: '#052E16' },
+  },
+  'peace-day': {
+    motif: 'dove',
+    palette: { a: '#0EA5E9', b: '#38BDF8', c: '#FBBF24', d: '#0B2540' },
+  },
+  'kindness-day': {
+    motif: 'envelope',
+    palette: { a: '#F59E0B', b: '#F472B6', c: '#FDE047', d: '#3A1606' },
+  },
+  'mens-day': { motif: 'tie', palette: { a: '#2563EB', b: '#0F172A', c: '#FBBF24', d: '#0B1A3A' } },
+  'grandparents-day': {
+    motif: 'teacups',
+    palette: { a: '#0D9488', b: '#E11D48', c: '#FBBF24', d: '#042F2E' },
+  },
+  pride: { motif: 'rainbow', palette: { a: '#8B5CF6', b: '#EC4899', c: '#FACC15', d: '#1E1B4B' } },
+  'national-day': {
+    motif: 'fireworks',
+    palette: { a: '#DC2626', b: '#2563EB', c: '#FACC15', d: '#0B1A3A' },
   },
   'new-year': {
     motif: 'fireworks',
