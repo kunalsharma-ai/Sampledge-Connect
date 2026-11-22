@@ -23,6 +23,7 @@ import {
 } from '@sampledge/contracts';
 import { Avatar, Kbd, Tooltip, cn } from '@sampledge/ui';
 import { schedulePresets } from '@/lib/polls';
+import { GreetingButton } from './greetings';
 import { useAuth } from '@/lib/auth';
 import { rejectReason, uploadFile } from '@/lib/uploads';
 import { canRecord, type ClipKind, type RecordedClip } from '@/lib/recorder';
@@ -72,6 +73,7 @@ export function Composer({
   conversationId,
   onSchedule,
   onCreatePoll,
+  onGreeting,
   prefill,
 }: {
   placeholder: string;
@@ -88,6 +90,8 @@ export function Composer({
   onSchedule?: (text: string, mentions: string[], sendAt: Date) => Promise<void>;
   /** Offers the poll button. */
   onCreatePoll?: () => void;
+  /** Offers the greeting card button (works offline: cards queue like messages). */
+  onGreeting?: () => void;
   /** Puts text in the box (e.g. an AI suggested reply). The person still presses send. */
   prefill?: { text: string; nonce: number } | null;
 }) {
@@ -551,6 +555,7 @@ export function Composer({
                 </span>
               </Tooltip>
             ) : null}
+            {onGreeting ? <GreetingButton onClick={onGreeting} /> : null}
             {PLANNED_TOOLS.map((t) => (
               <Tooltip key={t.label} content={t.label} side="top">
                 <span>

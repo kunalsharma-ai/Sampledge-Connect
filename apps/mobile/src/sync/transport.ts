@@ -111,6 +111,8 @@ import {
   type SetReactionRequest,
   type SyncRequest,
   type SyncResponse,
+  type GreetingPolicy,
+  type GreetingPolicyState,
 } from '@sampledge/contracts';
 
 import { downloadDocument, putFileBytes } from '../lib/localFiles';
@@ -236,6 +238,10 @@ export interface ApiTransport {
   setChatTheme(themeId: ChatThemeId | null): Promise<ChatThemeState>;
   /** Owners and admins: the default theme and which themes people may choose. */
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState>;
+  /** Greeting card rules: on/off and hidden categories. */
+  getGreetingPolicy(): Promise<GreetingPolicyState>;
+  /** Owners and admins. */
+  setGreetingPolicy(policy: GreetingPolicy): Promise<GreetingPolicyState>;
   /** Your background in calls, the organization rules and the branding for the company one. */
   getCallBackground(): Promise<CallBackgroundState>;
   setCallBackground(choice: CallBackgroundChoice): Promise<CallBackgroundState>;
@@ -679,6 +685,14 @@ export class HttpTransport implements ApiTransport {
 
   setChatThemePolicy(policy: ChatThemePolicy): Promise<ChatThemeState> {
     return this.request('PUT', '/v1/admin/chat-themes', policy);
+  }
+
+  getGreetingPolicy(): Promise<GreetingPolicyState> {
+    return this.request('GET', '/v1/greetings/policy', undefined);
+  }
+
+  setGreetingPolicy(policy: GreetingPolicy): Promise<GreetingPolicyState> {
+    return this.request('PUT', '/v1/admin/greetings', policy);
   }
 
   getCallBackground(): Promise<CallBackgroundState> {
@@ -1615,6 +1629,8 @@ export class NoServerTransport implements ApiTransport {
   getChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatTheme = async (): Promise<ChatThemeState> => this.fail();
   setChatThemePolicy = async (): Promise<ChatThemeState> => this.fail();
+  getGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
+  setGreetingPolicy = async (): Promise<GreetingPolicyState> => this.fail();
   getCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   setCallBackground = async (): Promise<CallBackgroundState> => this.fail();
   uploadCallBackground = async (): Promise<CallBackgroundState> => this.fail();

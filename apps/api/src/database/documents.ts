@@ -31,6 +31,8 @@ export interface TenantDoc {
   plan: 'trial' | 'starter' | 'professional' | 'business' | 'enterprise';
   /** White-label settings (see BrandingInputSchema); older tenants may have none. */
   branding: Record<string, unknown> | null;
+  /** Greeting cards (see GreetingPolicySchema): Administration → Greeting cards. Missing = on. */
+  greetingPolicy?: { enabled: boolean; hiddenCategories: string[] };
   /** Chat theme default and allowed list (see ChatThemePolicySchema); absent = all allowed. */
   chatThemePolicy?: {
     defaultThemeId: string;

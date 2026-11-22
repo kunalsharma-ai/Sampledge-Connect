@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Languages, MessagesSquare, Pin, RotateCcw, Trash2 } from 'lucide-react';
 import {
   forwardedOf,
+  greetingOf,
   type Conversation,
   type ForwardedSnapshot,
   type Receipt,
@@ -17,6 +18,7 @@ import {
 import { Avatar, MessageStatusIcon, Skeleton, StateView, cn } from '@sampledge/ui';
 import type { DirectoryEntry } from '@/lib/engine';
 import { avatarOf, formatDay, formatTime, nameOf, senderNameOf } from './helpers';
+import { GreetingCardView } from './greetings';
 import { MessageAttachments } from './attachments';
 import { ForwardedCard } from './forward';
 import { useChatTheme, useChatThemeStyle } from '@/lib/chat-theme';
@@ -355,6 +357,24 @@ export function Timeline({
                             offline={offline}
                             canModerate={canModerate}
                           />
+                        ) : greetingOf(m) && !m.deletedAt ? (
+                          <div className={cn('flex flex-col', own ? 'items-end' : 'items-start')}>
+                            <GreetingCardView
+                              card={greetingOf(m)!}
+                              text={m.content.text}
+                              from={own ? nameOf(me, directory) : name}
+                              pending={m.status === 'queued' || m.status === 'sending'}
+                              className={cn(m.status === 'failed' && 'ring-2 ring-danger')}
+                            />
+                            {m.editedAt || (m as { pendingChange?: boolean }).pendingChange ? (
+                              <span className="mt-1 text-meta text-text-subtle">
+                                {m.editedAt ? '(edited)' : ''}
+                                {(m as { pendingChange?: boolean }).pendingChange
+                                  ? ' · not synced yet'
+                                  : ''}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : m.deletedAt || m.content.text ? (
                           <div
                             className={cn(
