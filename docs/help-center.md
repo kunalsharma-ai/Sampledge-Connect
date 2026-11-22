@@ -23,12 +23,12 @@ the owner, admin and support platform roles).
 `support_queries` (tenant collection, migration `054-support`), replies stored inline. Contracts in
 `packages/contracts/src/support.ts`.
 
-| Route | Who |
-| --- | --- |
-| `GET/POST /v1/support/queries` | anyone: own questions, ask (idempotent by `clientId`) |
-| `GET/PATCH /v1/support/queries/:id`, `POST …/:id/replies` | asker, owners, admins |
-| `GET /v1/support/admin/queries` | owners and admins |
-| `GET /v1/platform/support/queries`, `POST …/:tenantId/:id/replies`, `PATCH …/:tenantId/:id` | `support.view` |
+| Route                                                                                       | Who                                                   |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `GET/POST /v1/support/queries`                                                              | anyone: own questions, ask (idempotent by `clientId`) |
+| `GET/PATCH /v1/support/queries/:id`, `POST …/:id/replies`                                   | asker, owners, admins                                 |
+| `GET /v1/support/admin/queries`                                                             | owners and admins                                     |
+| `GET /v1/platform/support/queries`, `POST …/:tenantId/:id/replies`, `PATCH …/:tenantId/:id` | `support.view`                                        |
 
 Statuses: `open`, `in_progress`, `answered`, `resolved`. A reply from an admin or support sets
 `answered`; a reply from the asker reopens it. Askers may only set `resolved` or `open`.
