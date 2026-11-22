@@ -1,5 +1,9 @@
 import type {
   Circle,
+  Community,
+  CommunityGroup,
+  CommunityInviteLink,
+  CommunityMember,
   Connection,
   ConnectionRequest,
   MyNetworkProfile,
@@ -252,3 +256,213 @@ export const AUDIENCE_LABEL: Record<NetworkStatus['audience'], string> = {
   public: 'Everyone',
   selected: 'Only people I pick',
 };
+
+// ─── Communities ─────────────────────────────────────────────────────────────
+
+export const LOCAL_COMMUNITY = 'local:';
+
+export const ROLE_LABEL = {
+  owner: 'Owner',
+  admin: 'Admin',
+  moderator: 'Moderator',
+  member: 'Member',
+} as const;
+
+const C_BASE = /^\/v1\/network\/communities\/([^/?]+)/;
+const commOf = (path: string): string | null => C_BASE.exec(path)?.[1] ?? null;
+const rest = (path: string, id: string): string =>
+  path.slice(`/v1/network/communities/${id}`.length);
+
+/** A community you created here that is not on the server yet. */
+function localCommunity(p: PendingNet): Community {
+  const b = (p.body ?? {}) as Record<string, unknown>;
+  return {
+    communityId: `${LOCAL_COMMUNITY}${String(b.clientActionId ?? '')}`,
+    slug: '',
+    name: String(b.name ?? ''),
+    description: String(b.description ?? ''),
+    rules: String(b.rules ?? ''),
+    visibility: b.visibility === 'private' ? 'private' : 'public',
+    joinPolicy: b.joinPolicy === 'approval' ? 'approval' : 'open',
+    memberCount: 1,
+    followerCount: 0,
+    avatarColor: '#6366f1',
+    createdAt: new Date().toISOString(),
+    myRole: 'owner',
+    myStatus: 'member',
+    following: false,
+    groups: [],
+    publicUrl: null,
+  };
+}
+
+/** Whether a waiting change is about this community (for the "Queued" tag). */
+export const pendingForCommunity = (id: string, pending: readonly PendingNet[]): boolean =>
+  id.startsWith(LOCAL_COMMUNITY) ||
+  pending.some((p) => p.path.endsWith(`/community/${id}`) || commOf(p.path) === id);
+
+/**
+ * A community as it will be once your waiting changes land: joining, leaving, following,
+ * settings, and groups you made or joined, so a tap shows at once, offline too.
+ */
+export function withPendingCommunity(c: Community, pending: readonly PendingNet[]): Community {
+  let out: Community = { ...c, groups: [...c.groups] };
+  for (const p of pending) {
+    const b = (p.body ?? {}) as Record<string, unknown>;
+    if (p.path === `/v1/network/follows/community/${c.communityId}`) {
+      out = { ...out, following: p.method === 'PUT' };
+      continue;
+    }
+    if (commOf(p.path) !== c.communityId) continue;
+    const r = rest(p.path, c.communityId);
+    if (r === '/join' && out.myStatus !== 'member') {
+      const asks = out.joinPolicy === 'approval' && out.myStatus !== 'invited';
+      out = asks
+        ? { ...out, myStatus: 'pending' }
+        : { ...out, myStatus: 'member', myRole: 'member', memberCount: out.memberCount + 1 };
+    } else if (r === '/leave' && out.myStatus === 'member') {
+      out = {
+        ...out,
+        myStatus: null,
+        myRole: null,
+        memberCount: Math.max(0, out.memberCount - 1),
+        groups: [],
+      };
+    } else if (r === '/decline') out = { ...out, myStatus: null };
+    else if (r === '' && p.method === 'PATCH') {
+      const { clientActionId: _a, ...fields } = b;
+      out = { ...out, ...(fields as Partial<Community>) };
+    } else if (r === '/groups' && p.method === 'POST') {
+      const g: CommunityGroup = {
+        conversationId: `${LOCAL_COMMUNITY}${String(b.clientActionId ?? '')}`,
+        name: String(b.name ?? ''),
+        topic: String(b.topic ?? ''),
+        kind: 'group',
+        access: b.access === 'private' ? 'private' : 'open',
+        announcementsOnly: !!b.announcementsOnly,
+        memberCount: 1,
+        joined: true,
+      };
+      out = { ...out, groups: [...out.groups, g] };
+    } else {
+      const m = /^\/groups\/([^/?]+)(\/join|\/leave)?$/.exec(r);
+      if (!m) continue;
+      const [, cid, verb] = m;
+      if (p.method === 'DELETE' && !verb)
+        out = { ...out, groups: out.groups.filter((g) => g.conversationId !== cid) };
+      else if (verb)
+        out = {
+          ...out,
+          groups: out.groups.map((g) =>
+            g.conversationId !== cid || g.joined === (verb === '/join')
+              ? g
+              : {
+                  ...g,
+                  joined: verb === '/join',
+                  memberCount: Math.max(0, g.memberCount + (verb === '/join' ? 1 : -1)),
+                },
+          ),
+        };
+    }
+  }
+  return out;
+}
+
+/**
+ * Your communities with what you did here laid over: ones you created (shown at once with a
+ * local id), ones you left taken out, and the rest as `withPendingCommunity` shows them.
+ */
+export function withPendingCommunities(
+  list: readonly Community[],
+  pending: readonly PendingNet[],
+): Community[] {
+  const made = pending
+    .filter((p) => p.method === 'POST' && p.path === '/v1/network/communities')
+    .map(localCommunity);
+  return [...made.reverse(), ...list.map((c) => withPendingCommunity(c, pending))].filter(
+    (c) => c.myStatus !== null || c.following,
+  );
+}
+
+/** A community made here that is still waiting: built from the queue, for its page. */
+export function localCommunityById(
+  id: string,
+  pending: readonly PendingNet[],
+): Community | undefined {
+  return withPendingCommunities([], pending).find((c) => c.communityId === id);
+}
+
+/** Members with your waiting approvals, denials, role changes, removals and bans laid over. */
+export function withPendingMembers(
+  communityId: string,
+  members: readonly CommunityMember[],
+  pending: readonly PendingNet[],
+): CommunityMember[] {
+  let out = [...members];
+  for (const p of pending) {
+    if (commOf(p.path) !== communityId) continue;
+    const r = rest(p.path, communityId);
+    const b = (p.body ?? {}) as Record<string, unknown>;
+    let m: RegExpExecArray | null;
+    if ((m = /^\/members\/([^/?]+)\/(approve|deny)$/.exec(r))) {
+      const [, uid, verb] = m;
+      out =
+        verb === 'approve'
+          ? out.map((x) => (x.person.userId === uid ? { ...x, status: 'active' } : x))
+          : out.filter((x) => x.person.userId !== uid);
+    } else if ((m = /^\/members\/([^/?]+)\/role$/.exec(r))) {
+      const uid = m[1];
+      const role = b.role as CommunityMember['role'];
+      out = out.map((x) => (x.person.userId === uid ? { ...x, role } : x));
+    } else if ((m = /^\/members\/([^/?]+)(\?ban=true)?$/.exec(r)) && p.method === 'DELETE') {
+      const [, uid, ban] = m;
+      out = ban
+        ? out.map((x) => (x.person.userId === uid ? { ...x, status: 'banned', role: 'member' } : x))
+        : out.filter((x) => x.person.userId !== uid);
+    } else if ((m = /^\/bans\/([^/?]+)$/.exec(r)))
+      out = out.filter((x) => x.person.userId !== m![1]);
+  }
+  return out;
+}
+
+/** Invite links with your waiting new links and revokes laid over. */
+export function withPendingLinks(
+  communityId: string,
+  links: readonly CommunityInviteLink[],
+  pending: readonly PendingNet[],
+): (CommunityInviteLink & { queued?: boolean })[] {
+  let out: (CommunityInviteLink & { queued?: boolean })[] = [...links];
+  for (const p of pending) {
+    if (commOf(p.path) !== communityId) continue;
+    const r = rest(p.path, communityId);
+    if (r === '/links' && p.method === 'POST') {
+      const b = (p.body ?? {}) as Record<string, unknown>;
+      out = [
+        {
+          linkId: `${LOCAL_COMMUNITY}${String(b.clientActionId ?? '')}`,
+          url: '',
+          expiresAt: null,
+          maxUses: null,
+          uses: 0,
+          revoked: false,
+          queued: true,
+        },
+        ...out,
+      ];
+    } else {
+      const m = /^\/links\/([^/?]+)$/.exec(r);
+      if (m && p.method === 'DELETE')
+        out = out.map((l) => (l.linkId === m[1] ? { ...l, revoked: true } : l));
+    }
+  }
+  return out;
+}
+
+/** People you invited here who the server has not heard about yet. */
+export function pendingInvites(communityId: string, pending: readonly PendingNet[]): Set<string> {
+  const ids = new Set<string>();
+  for (const p of pending)
+    if (p.path === `/v1/network/communities/${communityId}/invite`)
+      for (const u of (p.body as { userIds?: string[] } | undefined)?.userIds ?? []) ids.add(u);
+  return ids;
+}

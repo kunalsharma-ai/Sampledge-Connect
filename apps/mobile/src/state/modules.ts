@@ -172,12 +172,4 @@ export const MODULES: ModuleEntry[] = [
     href: '/settings/appearance',
     summary: 'Themes, offline storage and account.',
   },
-  {
-    key: 'communities',
-    title: 'Communities',
-    icon: 'people-circle-outline',
-    status: 'planned',
-    summary:
-      'Public and private communities with Announcements and General groups, roles, invite links and join approval. Available on the web now; coming to the phone next.',
-  },
 ];
