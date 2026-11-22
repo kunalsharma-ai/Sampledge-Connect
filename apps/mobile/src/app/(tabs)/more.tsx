@@ -135,6 +135,12 @@ export default function More() {
               divider
             />
             <Row
+              icon="person-circle-outline"
+              title="Call background"
+              onPress={() => router.push('/settings/call-background')}
+              divider
+            />
+            <Row
               icon="notifications-outline"
               title="Notifications"
               onPress={() => router.push('/settings/notifications')}

@@ -156,20 +156,44 @@ background and locks the picker (external guests keep their own). Changes reach 
 Your own preview is mirrored like a mirror, so text in the background reads backwards to you; everyone
 else sees it the right way round.
 
-| Method | Path                                         | Who            | Notes                                                  |
-| ------ | -------------------------------------------- | -------------- | ------------------------------------------------------ |
-| GET    | `/v1/me/call-background`                     | member         | Choice, what applies now, own image link, rules, brand |
-| PUT    | `/v1/me/call-background`                     | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
-| PUT    | `/v1/me/call-background`                     | member         | also `{kind: 'upload', imageId}` (mine or company)     |
-| POST   | `/v1/me/call-backgrounds?name=`              | member         | Raw PNG/JPEG/WebP body, 2 MB; adds and selects it      |
-| DELETE | `/v1/me/call-backgrounds/:imageId`           | member         | Removes one of mine                                    |
-| PUT    | `/v1/me/call-background/image`               | member         | Older single-image form of the POST above              |
-| DELETE | `/v1/me/call-background/image`               | member         | Older form: removes my latest image                    |
-| PUT    | `/v1/me/call-appearance`                     | member         | My look (see Appearance below)                         |
-| PUT    | `/v1/admin/call-backgrounds`                 | owner, admin   | `{defaultChoice, enforceLogo}`                         |
-| POST   | `/v1/admin/call-backgrounds/images?name=`    | owner, admin   | Adds to the company library                            |
-| DELETE | `/v1/admin/call-backgrounds/images/:imageId` | owner, admin   | Removes it (a default using it goes back to none)      |
-| GET    | `/v1/call-backgrounds/:tenantId/:key`        | anyone w/ link | The image, 128-bit random key, changes on every upload |
+<<<<<<< HEAD
+
+| Method                                                                                               | Path                                                                | Who            | Notes                                                  |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------- | ------------------------------------------------------ |
+| GET                                                                                                  | `/v1/me/call-background`                                            | member         | Choice, what applies now, own image link, rules, brand |
+| PUT                                                                                                  | `/v1/me/call-background`                                            | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
+| PUT                                                                                                  | `/v1/me/call-background`                                            | member         | also `{kind: 'upload', imageId}` (mine or company)     |
+| POST                                                                                                 | `/v1/me/call-backgrounds?name=`                                     | member         | Raw PNG/JPEG/WebP body, 2 MB; adds and selects it      |
+| DELETE                                                                                               | `/v1/me/call-backgrounds/:imageId`                                  | member         | Removes one of mine                                    |
+| PUT                                                                                                  | `/v1/me/call-background/image`                                      | member         | Older single-image form of the POST above              |
+| DELETE                                                                                               | `/v1/me/call-background/image`                                      | member         | Older form: removes my latest image                    |
+| PUT                                                                                                  | `/v1/me/call-appearance`                                            | member         | My look (see Appearance below)                         |
+| PUT                                                                                                  | `/v1/admin/call-backgrounds`                                        | owner, admin   | `{defaultChoice, enforceLogo}`                         |
+| POST                                                                                                 | `/v1/admin/call-backgrounds/images?name=`                           | owner, admin   | Adds to the company library                            |
+| DELETE                                                                                               | `/v1/admin/call-backgrounds/images/:imageId`                        | owner, admin   | Removes it (a default using it goes back to none)      |
+| GET                                                                                                  | `/v1/call-backgrounds/:tenantId/:key`                               | anyone w/ link | The image, 128-bit random key, changes on every upload |
+| =======                                                                                              |
+| On mobile, **More → Call background** shows the same choices: none, blur, the company background     |
+| (drawn from Branding), your own image and the 20 prebuilt scenes (their 320x180 thumbnails ship in   |
+| the app). Picking one, uploading your image (shrunk on the phone to fit 1920x1080 as JPEG, under     |
+| 2 MB) and removing it are queued offline as `callbg.set`, `callbg.image` and `callbg.imageRemove` on |
+| one target, so they reach the server in the order you made them. The image waits in app storage      |
+| until it is sent. The screen follows `meetings:changed {area: 'call_background'}` and                |
+| `tenant:updated {area: 'calls'                                                                       | 'branding'}` live. Owners and admins get **Manage** for the default |
+| and **Require the company background** (needs a connection). Applying a background to a phone's own  |
+| camera is planned: native WebRTC has no segmentation yet, so a phone sends the camera as it is, and  |
+| the screen says so.                                                                                  |
+
+| Method | Path                                  | Who            | Notes                                                  |
+| ------ | ------------------------------------- | -------------- | ------------------------------------------------------ |
+| GET    | `/v1/me/call-background`              | member         | Choice, what applies now, own image link, rules, brand |
+| PUT    | `/v1/me/call-background`              | member         | `{kind: none, blur, preset (+presetId), custom, logo}` |
+| PUT    | `/v1/me/call-background/image`        | member         | Raw PNG/JPEG/WebP body, 2 MB; selects it               |
+| DELETE | `/v1/me/call-background/image`        | member         | Removes it (back to the default if it was in use)      |
+| PUT    | `/v1/admin/call-backgrounds`          | owner, admin   | `{defaultChoice, enforceLogo}`                         |
+| GET    | `/v1/call-backgrounds/:tenantId/:key` | anyone w/ link | The image, 128-bit random key, changes on every upload |
+
+> > > > > > > origin/main
 
 Live updates: `meetings:changed {area: 'call_background'}` to all of my devices, and
 `tenant:updated {area: 'calls'}` (rules) or `{area: 'branding'}` (logo, colors) to everyone.

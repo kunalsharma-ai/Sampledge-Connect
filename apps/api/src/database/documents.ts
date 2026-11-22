@@ -31,7 +31,11 @@ export interface TenantDoc {
   /** White-label settings (see BrandingInputSchema); older tenants may have none. */
   branding: Record<string, unknown> | null;
   /** Chat theme default and allowed list (see ChatThemePolicySchema); absent = all allowed. */
-  chatThemePolicy?: { defaultThemeId: string; allowed: string[] | null } | null;
+  chatThemePolicy?: {
+    defaultThemeId: string;
+    allowed: string[] | null;
+    allowCustomImages?: boolean;
+  } | null;
   /** 'shared' today; 'dedicated:<dbName>' is the enterprise upgrade path. */
   dataPlacement: string;
   createdAt: Date;

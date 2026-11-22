@@ -78,6 +78,27 @@ describe('chat themes', () => {
     sock.disconnect();
   });
 
+  it('lets admins switch personal pictures off and on', async () => {
+    // Rules saved before the switch existed still allow pictures.
+    expect((await state(ravi)).policy.allowCustomImages).toBe(true);
+    const sock = await connect(h, ravi.accessToken);
+    const live = nextEvent(sock, 'tenant:updated', (e) => e.area === 'chat_themes');
+    const off = await api<ChatThemeState>(h, 'PUT', '/v1/admin/chat-themes', {
+      token: owner.accessToken,
+      body: { defaultThemeId: 'default', allowed: null, allowCustomImages: false },
+    });
+    expect(off.status).toBe(200);
+    await live;
+    expect((await state(ravi)).policy).toMatchObject({ allowed: null, allowCustomImages: false });
+    // Leaving the field out means allowed.
+    await api(h, 'PUT', '/v1/admin/chat-themes', {
+      token: owner.accessToken,
+      body: { defaultThemeId: 'default', allowed: null },
+    });
+    expect((await state(ravi)).policy.allowCustomImages).toBe(true);
+    sock.disconnect();
+  });
+
   it('rejects unknown themes', async () => {
     const r = await api(h, 'PUT', '/v1/me/chat-theme', {
       token: ravi.accessToken,

@@ -22,6 +22,9 @@ import {
   type ChatThemeId,
   type ChatThemePolicy,
   type ChatThemeState,
+  type CallBackgroundChoice,
+  type CallBackgroundPolicyInput,
+  type CallBackgroundState,
   type Message,
   type NotifyLevel,
   type PushStatus,
@@ -106,6 +109,7 @@ import { OutboxProcessor } from '../sync/outbox';
 import { CallController } from './calls';
 import type { RealtimeClient, SocketState } from '../sync/realtime';
 import { SyncEngine } from '../sync/syncEngine';
+import { UNKNOWN_CALL_BACKGROUND, withPendingCallBackground } from '../lib/callBackground';
 import {
   TransportError,
   type ApiTransport,
@@ -146,6 +150,8 @@ const HOURS_KEY = 'workingHours';
 /** Settings key for the server's copy of your chat theme and the organization's rules. */
 const THEME_KEY = 'chatTheme';
 const RECENT_KEY = 'search.recent';
+/** Settings key for the server's copy of your call background, the rules and the branding. */
+const CALL_BG_KEY = 'callBackground';
 
 export class ConnectEngine {
   readonly events = new Emitter<{
@@ -179,6 +185,8 @@ export class ConnectEngine {
     workingHours: WorkingHours;
     /** Your chat theme or the organization's rules changed, here or elsewhere. */
     chatTheme: ChatThemeState;
+    /** Your call background, the organization's rules or the branding changed, here or elsewhere. */
+    callBackground: CallBackgroundState;
   }>();
   private readonly outbox: OutboxProcessor;
   /** Call signalling (live calls, ringing, the call you are in). */
@@ -249,7 +257,10 @@ export class ConnectEngine {
     await this.store.requeueInflight();
     await this.store.work.requeueInflight();
     // Copies of files whose message was discarded or evicted.
-    pruneLocalFiles(await this.store.liveFileUris());
+    const live = await this.store.liveFileUris();
+    for (const p of await this.store.work.pendingCallBackground())
+      if (p.kind === 'callbg.image') live.add(p.localUri);
+    pruneLocalFiles(live);
     this.patch({ lastSyncAt: (await this.store.getSetting('sync.lastSuccessAt')) ?? null });
     await this.refreshPending();
     this.unsubs.push(
@@ -294,6 +305,8 @@ export class ConnectEngine {
         ),
         this.realtime.events.on('meetingsChanged', (e) => {
           if (e.area === 'working_hours') void this.refreshWorkingHours().catch(() => undefined);
+          if (e.area === 'call_background')
+            void this.refreshCallBackground().catch(() => undefined);
         }),
         this.realtime.events.on('myVote', (v) => {
           void this.store.work.setVote(v.messageId, v.optionIds).then(async () => {
@@ -493,6 +506,8 @@ export class ConnectEngine {
   /** An admin changed an organization setting on another device: pick it up here. */
   private async receiveTenant(area: TenantArea): Promise<void> {
     if (area === 'chat_themes') void this.refreshChatTheme().catch(() => undefined);
+    if (area === 'calls' || area === 'branding')
+      void this.refreshCallBackground().catch(() => undefined);
     if (area === 'branding' && this.online) {
       try {
         this.events.emit('branding', await this.api.getBranding());
@@ -1257,6 +1272,16 @@ export class ConnectEngine {
           JSON.stringify(await this.api.setChatTheme(i.themeId)),
         );
         break;
+      case 'callbg.set':
+        await this.saveCallBackground(await this.api.setCallBackground(i.choice));
+        break;
+      case 'callbg.image':
+        await this.saveCallBackground(await this.api.uploadCallBackground(i.localUri));
+        deleteLocalFile(i.localUri);
+        break;
+      case 'callbg.imageRemove':
+        await this.saveCallBackground(await this.api.removeCallBackgroundImage());
+        break;
       case 'hours.set':
         await this.store.setSetting(
           HOURS_KEY,
@@ -1314,6 +1339,7 @@ export class ConnectEngine {
     if (i.kind.startsWith('booking.')) this.events.emit('booking', null);
     if (i.kind === 'search.recent') void this.emitRecent();
     if (i.kind === 'theme.set') void this.emitChatTheme();
+    if (i.kind.startsWith('callbg.')) void this.emitCallBackground();
     if (i.kind === 'hours.set')
       void this.getWorkingHours()
         .then((h) => this.events.emit('workingHours', h))
@@ -1346,6 +1372,7 @@ export class ConnectEngine {
           this.refreshRecentSearches(),
           this.refreshWorkingHours(),
           this.refreshChatTheme(),
+          this.refreshCallBackground(),
         ]);
         this.events.emit('work', { kind: 'task' });
         this.events.emit('work', { kind: 'approval' });
@@ -1781,6 +1808,75 @@ export class ConnectEngine {
     const state = await this.api.getChatTheme();
     await this.store.setSetting(THEME_KEY, JSON.stringify(state));
     await this.emitChatTheme();
+  }
+
+  // ------------------------------------------------------------ call background
+
+  /**
+   * Your background in calls: the server's copy on this phone with changes not sent yet laid
+   * over it, so the picker shows your pick at once, on or offline.
+   */
+  async getCallBackground(): Promise<CallBackgroundState> {
+    const raw = await this.store.getSetting(CALL_BG_KEY);
+    const saved = raw ? (JSON.parse(raw) as CallBackgroundState) : UNKNOWN_CALL_BACKGROUND;
+    return withPendingCallBackground(saved, await this.store.work.pendingCallBackground());
+  }
+
+  /** Picks a background. Works offline and follows you to every device. */
+  async setCallBackground(choice: CallBackgroundChoice): Promise<void> {
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [{ kind: 'callbg.set', choice }]),
+      );
+    else await this.queue({ kind: 'callbg.set', choice });
+    await this.emitCallBackground();
+  }
+
+  /** Your own image (a JPEG already in app storage, see prepareCallBackground). Selects it. */
+  async setCallBackgroundImage(localUri: string): Promise<void> {
+    const input = { kind: 'callbg.image' as const, localUri };
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [input]),
+      );
+    else await this.queue(input);
+    await this.emitCallBackground();
+  }
+
+  async removeCallBackgroundImage(): Promise<void> {
+    const input = { kind: 'callbg.imageRemove' as const };
+    if (this.session.state === 'demo')
+      await this.saveCallBackground(
+        withPendingCallBackground(await this.getCallBackground(), [input]),
+      );
+    else await this.queue(input);
+    await this.emitCallBackground();
+  }
+
+  /** Owners and admins: the default background and whether the company one is required. */
+  async setCallBackgroundPolicy(policy: CallBackgroundPolicyInput): Promise<void> {
+    await this.saveCallBackground(
+      await this.serverAction(() => this.api.setCallBackgroundPolicy(policy)),
+    );
+    await this.emitCallBackground();
+  }
+
+  /** Fetches the latest when online (the picker calls this when it opens). */
+  reloadCallBackground(): Promise<void> {
+    return this.online ? this.refreshCallBackground().catch(() => undefined) : Promise.resolve();
+  }
+
+  private async refreshCallBackground(): Promise<void> {
+    await this.saveCallBackground(await this.api.getCallBackground());
+    await this.emitCallBackground();
+  }
+
+  private saveCallBackground(s: CallBackgroundState): Promise<void> {
+    return this.store.setSetting(CALL_BG_KEY, JSON.stringify(s));
+  }
+
+  private async emitCallBackground(): Promise<void> {
+    this.events.emit('callBackground', await this.getCallBackground());
   }
 
   private async emitChatTheme(): Promise<void> {
