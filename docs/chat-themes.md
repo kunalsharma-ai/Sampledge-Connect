@@ -37,6 +37,8 @@ Owners and admins see **Organization rules**. There they choose the default for 
 
 More → Chat theme has the same tiles, grouped by category, and owners and admins get **Organization rules** (Manage: tap to offer or hide a theme, long-press to make it the default; saving needs a connection). Conversations use the same colors from `chatThemeStyle`, and the scenes and patterns are drawn from the same SVG art with `react-native-svg`. Your pick is kept on the phone, queued as `theme.set` (target `my-chat-theme`) and sent on reconnect; `chat-theme:changed` and `tenant:updated` (`chat_themes`) refetch live.
 
+Own pictures on mobile: Chat theme → **Use your own picture** (all chats) or a conversation's Details → **Chat background** (that conversation; it wins). The photo comes from the phone's library, is shrunk to a 2560 px long edge as JPEG and kept on the phone only (device key-value storage), never uploaded. The editor has opacity, brightness, contrast, saturation, warmth, blur and dim sliders, the seven filters, tap-to-focus with zoom for cropping, and rotate and flip (baked into the saved JPEG). Colors use the shared `chatBackgroundColorMatrix` through react-native-svg's `FeColorMatrix`, so a picture looks the same as on the web. When the organization turns own pictures off (`customImagesAllowed(policy)` is false), pictures stay saved but are hidden.
+
 ## Your own picture
 
 Anyone can put a picture from their own device behind their chats. On a computer they pick a file or drop it on the control. On a phone the browser offers the photo library or the camera. Nothing is uploaded and there is nothing to set up.

@@ -1,9 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CHAT_THEMES, type ChatThemeId, type ChatThemePolicy } from '@sampledge/contracts';
+import {
+  CHAT_THEMES,
+  customImagesAllowed,
+  type ChatThemeId,
+  type ChatThemePolicy,
+} from '@sampledge/contracts';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
+import { router } from 'expo-router';
 import { Button } from '../../components/Button';
+import { PhotoBackdrop } from '../../components/ChatBackdrop';
+import { useChatImageSlot } from '../../lib/chatImageStore';
 import { Glass } from '../../components/Glass';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
@@ -38,7 +46,8 @@ export default function ChatThemeScreen() {
     return (
       <Screen edges={['bottom']}>
         <View style={{ padding: space.lg }}>
-          <Text tone="muted">
+          <OwnPictureRow />
+          <Text tone="muted" style={{ marginTop: space.lg }}>
             {blocked
               ? `${blocked} Your chat theme loads the first time you are online.`
               : 'Loading your chat theme…'}
@@ -81,6 +90,7 @@ export default function ChatThemeScreen() {
           How your conversations look: the background and your message bubbles. Works with your app
           theme and follows you to every device.
         </Text>
+        {customImagesAllowed(policy) ? <OwnPictureRow /> : null}
         {isAdmin ? (
           <Glass>
             <View style={{ padding: space.lg, gap: space.md }}>
@@ -98,7 +108,8 @@ export default function ChatThemeScreen() {
                 .{' '}
                 {draft.allowed
                   ? `People can choose ${draft.allowed.length} of ${CHAT_THEMES.length} themes.`
-                  : 'People can choose any theme.'}
+                  : 'People can choose any theme.'}{' '}
+                {customImagesAllowed(draft) ? 'Own pictures allowed.' : 'Own pictures off.'}
               </Text>
               {managing ? (
                 <>
@@ -135,6 +146,20 @@ export default function ChatThemeScreen() {
                         </Pressable>
                       );
                     })}
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text variant="label">Let people use their own pictures</Text>
+                      <Text variant="meta" tone="muted">
+                        Pictures stay on each person’s device; turning this off hides them.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={customImagesAllowed(draft)}
+                      onValueChange={(on) => setDraft({ ...draft, allowCustomImages: on })}
+                      accessibilityLabel="Let people use their own pictures"
+                      trackColor={{ true: c.accent, false: c.border }}
+                    />
                   </View>
                   <Button
                     title={blocked ? 'Needs a connection' : 'Save rules'}
@@ -195,6 +220,42 @@ export default function ChatThemeScreen() {
         })}
       </ScrollView>
     </Screen>
+  );
+}
+
+/** Your own picture from this phone, edited in the chat background screen. */
+function OwnPictureRow() {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  const image = useChatImageSlot(null);
+  return (
+    <Glass>
+      <Pressable
+        onPress={() => router.push('/chat-background')}
+        accessibilityRole="button"
+        accessibilityLabel={image ? 'Your picture, edit' : 'Use your own picture'}
+        style={styles.ownRow}
+      >
+        <View
+          style={[styles.ownThumb, { borderColor: c.border, backgroundColor: c.surfaceSunken }]}
+        >
+          {image ? (
+            <PhotoBackdrop image={image} base={c.background} testID="own-picture-thumb" />
+          ) : (
+            <Ionicons name="image-outline" size={22} color={c.accent} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="bodyStrong">{image ? 'Your picture' : 'Use your own picture'}</Text>
+          <Text variant="meta" tone="muted">
+            {image
+              ? 'Shown behind all chats on this phone. Tap to edit or change it.'
+              : 'Pick any photo from this phone and edit it. Kept on this phone only.'}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+      </Pressable>
+    </Glass>
   );
 }
 
@@ -277,6 +338,16 @@ function ThemeTile({
 }
 
 const styles = StyleSheet.create({
+  ownRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
+  ownThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: {
