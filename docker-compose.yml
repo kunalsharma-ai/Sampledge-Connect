@@ -73,7 +73,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
     volumes: [recordings-spool:/recordings]
-    ports: ['4000:4000']
+    ports: ['${API_PORT:-4000}:4000']
 
   web:
     build:
@@ -85,11 +85,14 @@ services:
         NEXT_PUBLIC_RTC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     restart: unless-stopped
     depends_on: [api]
-    ports: ['3000:3000']
+    ports: ['${WEB_PORT:-3000}:3000']
 
   # Self-hosted SFU for voice/video calls and screen sharing (LiveKit, Apache-2.0).
   # Media goes browser/phone <-> this server only; no third-party media or STUN service is used.
   # On a VPS set LIVEKIT_NODE_IP to the server's public IP and open the ports below.
+  # Every port is configurable in .env (LIVEKIT_*_PORT*). If `docker compose up` fails with
+  # "address already in use", another program holds one of them: run scripts/check-ports.sh
+  # and move the clashing range (see docs/deploy.md, "Port already in use").
   # Behind a strict firewall, enable TURN/TLS (see docs/calls.md).
   livekit:
     image: livekit/livekit-server:v1.13.11
@@ -99,9 +102,9 @@ services:
       LIVEKIT_CONFIG: |
         port: 7880
         rtc:
-          tcp_port: 7881
-          port_range_start: 50000
-          port_range_end: 50100
+          tcp_port: ${LIVEKIT_TCP_PORT:-7881}
+          port_range_start: ${LIVEKIT_RTC_PORT_START:-50000}
+          port_range_end: ${LIVEKIT_RTC_PORT_END:-50100}
           use_external_ip: false
           # Set LIVEKIT_NODE_IP to the host's real LAN/public IP. 127.0.0.1 only works for a
           # browser on this machine and breaks call recording (egress can't connect).
@@ -111,9 +114,9 @@ services:
           empty_timeout: 120
         turn:
           enabled: true
-          udp_port: 3478
-          relay_range_start: 50101
-          relay_range_end: 50200
+          udp_port: ${LIVEKIT_TURN_PORT:-3478}
+          relay_range_start: ${LIVEKIT_TURN_RELAY_START:-50101}
+          relay_range_end: ${LIVEKIT_TURN_RELAY_END:-50200}
         redis:
           address: redis:6379
         webhook:
@@ -121,11 +124,14 @@ services:
           urls: ['http://api:4000/v1/calls/livekit/webhook']
         logging:
           level: info
+    # Media ports are published on the same number inside and out, because LiveKit tells
+    # browsers and phones to connect to exactly these ports on LIVEKIT_NODE_IP.
     ports:
-      - '7880:7880'
-      - '7881:7881'
-      - '3478:3478/udp'
-      - '50000-50200:50000-50200/udp'
+      - '${LIVEKIT_HTTP_PORT:-7880}:7880'
+      - '${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}'
+      - '${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp'
+      - '${LIVEKIT_RTC_PORT_START:-50000}-${LIVEKIT_RTC_PORT_END:-50100}:${LIVEKIT_RTC_PORT_START:-50000}-${LIVEKIT_RTC_PORT_END:-50100}/udp'
+      - '${LIVEKIT_TURN_RELAY_START:-50101}-${LIVEKIT_TURN_RELAY_END:-50200}:${LIVEKIT_TURN_RELAY_START:-50101}-${LIVEKIT_TURN_RELAY_END:-50200}/udp'
 
   # Self-hosted call/meeting recording (LiveKit Egress, Apache-2.0). Joins a call as a hidden
   # participant, renders the speaker layout (cameras + screen share) in its own headless Chrome

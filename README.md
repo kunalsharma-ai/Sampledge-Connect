@@ -24,6 +24,10 @@ pnpm test
 pnpm test:integration   # API against real MongoDB + Redis
 ```
 
+Full stack in Docker: `sh scripts/check-ports.sh && docker compose up -d --build`. If a port is
+already in use on your machine, change it in `.env` (see "Port already in use" in
+[docs/deploy.md](docs/deploy.md)).
+
 ## Documentation
 
 | Doc                                                    | What it covers                                                                |

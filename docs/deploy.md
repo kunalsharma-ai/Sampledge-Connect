@@ -36,6 +36,34 @@ these figures are in [launch-readiness.md](launch-readiness.md).
 - DNS: `app.example.com` (web), `api.example.com` (API), `rtc.example.com` (calls).
 - Firewall: 80/443 TCP for the proxy; for calls 7881 TCP, 3478 UDP and 50000–50200 UDP.
   Keep 27017 and 6379 closed to the internet (compose binds them to 127.0.0.1).
+- Before the first start, run `sh scripts/check-ports.sh`. It lists any port the stack needs
+  that another program already holds (see **Port already in use** below).
+
+### Port already in use
+
+If `docker compose up` stops with `failed to bind host port 0.0.0.0:50098/udp: address
+already in use` (or any other port), another program on the machine holds that port, and
+Docker refuses to start LiveKit, which also stops the rest of the stack. Common causes are a
+second LiveKit/WebRTC server, a VPN or game client, or a short-lived UDP socket the system
+handed out: on Linux the system picks outgoing ports from 32768–60999 and on macOS and Windows
+from 49152–65535, so the default 50000–50200 range can collide by chance.
+
+1. Find what holds it: `sudo ss -tulpn | grep 50098` (Linux) or `sudo lsof -nP -i :50098` (macOS).
+2. Stop that program, or move SampConnect's ports in `.env`. A range below 32768 avoids the
+   system's own ports on every OS:
+
+   ```bash
+   LIVEKIT_RTC_PORT_START=20000
+   LIVEKIT_RTC_PORT_END=20100
+   LIVEKIT_TURN_RELAY_START=20101
+   LIVEKIT_TURN_RELAY_END=20200
+   ```
+
+3. Open the new range in the firewall, run `sh scripts/check-ports.sh`, then `docker compose up -d`.
+
+The other host ports move the same way: `WEB_PORT`, `API_PORT`, `LIVEKIT_HTTP_PORT` (also
+update `LIVEKIT_PUBLIC_URL` and the web build's RTC URL), `LIVEKIT_TCP_PORT` and
+`LIVEKIT_TURN_PORT`. All of them are listed in `.env.example`.
 
 ## 2. Secrets (`.env` next to `docker-compose.yml`)
 
