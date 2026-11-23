@@ -67,7 +67,7 @@ Legacy env (still read when nothing is saved in Integrations):
 | `SMTP_USER`        | `meetings@example.com`               | Optional; omit for an IP-allowlisted relay.                   |
 | `SMTP_PASSWORD`    | (secret)                             | Required with `SMTP_USER`.                                    |
 | `SMTP_FROM`        | `SampConnect <meetings@example.com>` | The sender guests see. Must be allowed by your SPF/DKIM.      |
-| `PUBLIC_WEB_URL`   | `https://connect.example.com`        | Base of join links. Defaults to the first `CORS_ORIGINS`.     |
+| `PUBLIC_WEB_URL`   | `https://connect.example.com`        | Base of join links (and of the API at `/api`).                |
 
 Deliverability: send from a domain you control with SPF, DKIM and DMARC set up, or invites
 land in spam. The calendar invite's ORGANIZER is the organizer's own email address.

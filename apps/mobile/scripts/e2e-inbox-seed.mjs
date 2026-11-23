@@ -1,6 +1,6 @@
 // Seeds the Client Inbox on a local API (after e2e-seed.mjs): test-mode channels and client
 // conversations, so the mobile inbox has something real to show.
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const uuid = () => crypto.randomUUID();
 async function call(method, path, body, token) {
   const r = await fetch(API + path, {

@@ -9,7 +9,7 @@ const pathMod = require('path');
 // Usage: pnpm web:export, then node scripts/e2e-network.cjs <screenshot-dir> with the API
 // seeded by e2e-seed.mjs.
 const out = process.argv[2];
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const APP = 'http://localhost:8099';
 const pw = 'correct-horse-battery-1';
 const failures = [];
@@ -129,7 +129,7 @@ const MARIA = { email: 'maria.e2e@example.com', password: 'maria-password-123' }
   await p.goto(`${APP}/`, { waitUntil: 'networkidle' });
   await p.waitForTimeout(1500);
   const inputs = p.locator('input');
-  await inputs.nth(0).fill(API);
+  await inputs.nth(0).fill(APP);
   await inputs.nth(1).fill('northwind');
   await inputs.nth(2).fill('sam@northwind.test');
   await inputs.nth(3).fill(pw);
@@ -277,7 +277,7 @@ const MARIA = { email: 'maria.e2e@example.com', password: 'maria-password-123' }
   await q.getByRole('radio', { name: 'Personal account' }).click();
   await q.waitForTimeout(300);
   const qi = q.locator('input');
-  await qi.nth(0).fill(API);
+  await qi.nth(0).fill(APP);
   await qi.nth(1).fill(MARIA.email);
   await qi.nth(2).fill(MARIA.password);
   await shot('08-personal-sign-in', q);

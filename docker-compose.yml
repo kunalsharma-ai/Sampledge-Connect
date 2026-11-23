@@ -4,10 +4,12 @@
 #
 # Networks (see docs/deploy.md, "Networks and ports"):
 #   internal   every service talks to every other here; nothing on it is published.
-#   publicweb  shared with your own reverse proxy (Traefik, Caddy, nginx, …). Only the
-#              gateway joins it, so the proxy reaches SampConnect as gateway:3000/4000/7880.
-# Only the `gateway` service publishes host ports. The call servers share its network, so
-# their media ports come from that one service too, and every port number is set in .env.
+#   publicweb  shared with your own reverse proxy (Nginx Proxy Manager, Traefik, Caddy, …).
+#              Only the gateway joins it. Point your domain at http://gateway:80; the proxy
+#              does TLS. /api/** goes to the API, /rtc to call signalling, the rest to web.
+# No web port is published on the host. The only published ports are call media (UDP/TCP),
+# which can't go through an HTTP proxy; every number is set in .env. To try SampConnect
+# without a proxy, add deploy/local/docker-compose.local.yml to COMPOSE_FILE (see .env.example).
 services:
   gateway:
     image: nginx:1.29-alpine
@@ -23,12 +25,9 @@ services:
         # names reach them.
         aliases: [livekit, jitsi-jvb]
       publicweb: {}
+    # Web, API and call signalling: port 80 inside, reached only over publicweb (no TLS here).
+    expose: ['80']
     ports:
-      # Web, API and call signalling. Set HTTP_BIND_IP=127.0.0.1 when a proxy on this host
-      # (or on the publicweb network) is the only thing that should reach them.
-      - '${HTTP_BIND_IP:-0.0.0.0}:${WEB_PORT:-3000}:3000'
-      - '${HTTP_BIND_IP:-0.0.0.0}:${API_PORT:-4000}:4000'
-      - '${HTTP_BIND_IP:-0.0.0.0}:${LIVEKIT_HTTP_PORT:-7880}:7880'
       # Call media (LiveKit). Same number inside and out: LiveKit tells browsers and phones
       # to connect to exactly these ports on LIVEKIT_NODE_IP. All media of every call is
       # multiplexed on the one UDP port, so there is no port range to clash with.
@@ -80,11 +79,13 @@ services:
       NODE_ENV: production
       MONGO_URL: mongodb://mongo:27017
       REDIS_URL: redis://redis:6379
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?set JWT_PRIVATE_KEY}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?set JWT_PUBLIC_KEY}
+      # The address people open (your proxy's domain). The API is at PUBLIC_WEB_URL/api and
+      # call signalling at PUBLIC_WEB_URL/rtc, so those two need no settings of their own.
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
       # Calls: the API signs SFU join tokens and receives LiveKit webhooks.
-      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
       LIVEKIT_API_URL: http://livekit:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-sampledge}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET (openssl rand -base64 48)}
@@ -95,12 +96,8 @@ services:
       FILES_URL_SECRET: ${FILES_URL_SECRET:?set FILES_URL_SECRET (openssl rand -base64 48)}
       # Encrypts integration secrets stored in the database (SMTP, Stripe, SSO, AI, …).
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?set SETTINGS_ENCRYPTION_KEY (openssl rand -base64 32)}
-      # Public address of this API (SSO redirect URI, signed links).
-      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
-      # Prometheus scrape token for /health/metrics. Leave empty to turn the endpoint off.
+      # Prometheus scrape token for /api/health/metrics. Leave empty to turn the endpoint off.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
-      # Links in emails (guest join links) point here.
-      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
       # Optional first-run default for email. After start, manage SMTP in Admin → Integrations
       # (stored encrypted in the database); these values only seed the platform default.
       # To try it locally: docker compose --profile mail-test up, then open http://localhost:8025.
@@ -118,9 +115,9 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        # Compiled into the browser bundle: the public addresses people's browsers use.
-        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
-        NEXT_PUBLIC_RTC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+        # Same address as the page: the gateway routes /api and /rtc, so the image works on
+        # any domain.
+        NEXT_PUBLIC_API_URL: /api
     restart: unless-stopped
     depends_on: [api]
     networks: [internal]
@@ -128,8 +125,8 @@ services:
   # Self-hosted SFU for voice/video calls and screen sharing (LiveKit, Apache-2.0).
   # Media goes browser/phone <-> this server only; no third-party media or STUN service is used.
   # On a VPS set LIVEKIT_NODE_IP to the server's public IP and open the gateway's call ports.
-  # It runs inside the gateway's network (reachable as livekit:7880 on the internal network),
-  # so it publishes nothing itself. Every port is configurable in .env (LIVEKIT_*_PORT). If
+  # It runs inside the gateway's network (reachable as livekit:7880 on the internal network,
+  # and at /rtc on the gateway's port 80 for signalling), so it publishes nothing itself. Every port is configurable in .env (LIVEKIT_*_PORT). If
   # `docker compose up` fails with "address already in use", run scripts/check-ports.sh and
   # move the clashing port (see docs/deploy.md, "Port already in use").
   # Behind a strict firewall, enable TURN/TLS (see docs/calls.md).
@@ -163,7 +160,7 @@ services:
           address: redis:6379
         webhook:
           api_key: ${LIVEKIT_API_KEY:-sampledge}
-          urls: ['http://api:4000/v1/calls/livekit/webhook']
+          urls: ['http://api:4000/api/v1/calls/livekit/webhook']
         logging:
           level: info
 

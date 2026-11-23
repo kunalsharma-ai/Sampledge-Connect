@@ -1,11 +1,25 @@
 import { fileURLToPath } from 'node:url';
 import type { NextConfig } from 'next';
 
-const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const apiWs = api.replace(/^http/, 'ws');
-/** Self-hosted SFU for calls (must match the API's LIVEKIT_PUBLIC_URL). */
-const rtc = process.env.NEXT_PUBLIC_RTC_URL ?? 'ws://localhost:7880';
-const rtcHttp = rtc.replace(/^ws/, 'http');
+// The API and call signalling share this site's address (issue #128): the gateway sends
+// /api/** to the API and /rtc to the call server, so 'self' covers both. Separate addresses
+// are only needed when a build points elsewhere (NEXT_PUBLIC_API_URL / NEXT_PUBLIC_RTC_URL).
+/** ` http(s)://host` and ` ws(s)://host` for an absolute URL, or nothing for a path. */
+const origins = (u: string | undefined) => {
+  if (!u || !/^(https?|wss?):\/\//.test(u)) return { http: '', ws: '' };
+  const o = new URL(u).origin;
+  const http = o.replace(/^ws/, 'http');
+  return { http: ` ${http}`, ws: ` ${http.replace(/^http/, 'ws')}` };
+};
+const api = origins(process.env.NEXT_PUBLIC_API_URL);
+const rtc = origins(process.env.NEXT_PUBLIC_RTC_URL);
+/**
+ * Without the gateway (`pnpm dev`, CI) the API runs on its own port. Requests to /api/** are
+ * then forwarded to it by this server, so the browser still sees one origin.
+ */
+const apiProxy =
+  process.env.API_PROXY_TARGET ??
+  (process.env.NODE_ENV === 'development' ? 'http://localhost:4000' : '');
 
 /** Security headers. Messages are rendered as text, never HTML. */
 const csp = [
@@ -15,9 +29,9 @@ const csp = [
     (process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  `img-src 'self' data: blob: ${api}`,
-  `connect-src 'self' ${api} ${apiWs} ${rtc} ${rtcHttp}`,
-  `media-src 'self' blob: mediastream: ${api}`,
+  `img-src 'self' data: blob:${api.http}`,
+  `connect-src 'self'${api.http}${api.ws}${rtc.http}${rtc.ws}`,
+  `media-src 'self' blob: mediastream:${api.http}`,
   "worker-src 'self'",
   // Jitsi Meet calls show the organization's own Jitsi server in a frame. Its address is saved
   // in Integrations (database), so it can't be listed here at build time; https is required.
@@ -38,6 +52,14 @@ const config: NextConfig = {
       }
     : {}),
   poweredByHeader: false,
+  ...(apiProxy
+    ? {
+        async rewrites() {
+          const target = apiProxy.replace(/\/+$/, '');
+          return [{ source: '/api/:path*', destination: `${target}/api/:path*` }];
+        },
+      }
+    : {}),
   async headers() {
     return [
       {

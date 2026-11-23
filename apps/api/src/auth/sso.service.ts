@@ -3,7 +3,13 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import argon2 from 'argon2';
 import type { Redis } from 'ioredis';
 import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose';
-import { ClientIdSchema, DeviceInfoSchema, type Session, type SsoInfo } from '@sampledge/contracts';
+import {
+  API_PREFIX,
+  ClientIdSchema,
+  DeviceInfoSchema,
+  type Session,
+  type SsoInfo,
+} from '@sampledge/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AppError } from '../common/errors.js';
 import { TenantDb } from '../database/tenant-db.js';
@@ -364,7 +370,9 @@ export class SsoService implements OnModuleInit {
   }
 
   private redirectUri(requestOrigin: string | null) {
-    const base = this.cfg.PUBLIC_API_URL ?? requestOrigin ?? 'https://<your-api-host>';
+    const base =
+      this.cfg.PUBLIC_API_URL ??
+      (requestOrigin ? `${requestOrigin}${API_PREFIX}` : `https://<your-host>${API_PREFIX}`);
     return `${base.replace(/\/+$/, '')}/v1/auth/sso/callback`;
   }
 
@@ -396,7 +404,7 @@ export class SsoService implements OnModuleInit {
   }
 
   private allowedOrigins() {
-    return [this.cfg.PUBLIC_WEB_URL, ...this.cfg.CORS_ORIGINS.split(',')]
+    return [this.cfg.PUBLIC_WEB_URL]
       .filter((x): x is string => !!x)
       .map((x) => {
         try {

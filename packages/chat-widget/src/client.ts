@@ -1,6 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 import {
+  apiBaseFor,
   backoffDelay,
+  socketTarget,
   uuidv7,
   type Conversation,
   type Message,
@@ -35,6 +37,7 @@ export interface WidgetState {
 type Listener = (s: WidgetState) => void;
 
 export interface WidgetClientOptions {
+  /** Your SampConnect address, e.g. https://connect.example.com (its API is at /api). */
   apiUrl: string;
   session: WidgetSession;
   conversationId?: string;
@@ -72,7 +75,11 @@ export class WidgetClient {
   private disposed = false;
   private state: WidgetState;
 
+  /** API base: the site address plus /api (either form is accepted in `apiUrl`). */
+  private readonly base: string;
+
   constructor(private readonly opts: WidgetClientOptions) {
+    this.base = apiBaseFor(opts.apiUrl);
     this.session = opts.session;
     const cid = opts.conversationId ?? opts.session.conversationId;
     if (!cid)
@@ -160,7 +167,7 @@ export class WidgetClient {
   private onOffline = () => this.set({ status: 'offline' });
 
   private async api<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
-    const res = await this.f(this.opts.apiUrl.replace(/\/+$/, '') + path, {
+    const res = await this.f(this.base + path, {
       method,
       headers: {
         authorization: `Bearer ${this.session.accessToken}`,
@@ -192,7 +199,7 @@ export class WidgetClient {
 
   private async refresh() {
     try {
-      const res = await this.f(`${this.opts.apiUrl.replace(/\/+$/, '')}/v1/auth/refresh`, {
+      const res = await this.f(`${this.base}/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ refreshToken: this.session.refreshToken }),
@@ -250,7 +257,9 @@ export class WidgetClient {
 
   private connectSocket() {
     if (this.disposed) return;
-    const s: Socket<ServerToClientEvents> = io(this.opts.apiUrl, {
+    const t = socketTarget(this.base, globalThis.location?.origin);
+    const s: Socket<ServerToClientEvents> = io(t.url, {
+      path: t.path,
       auth: { token: this.session.accessToken },
       transports: ['websocket'],
     });

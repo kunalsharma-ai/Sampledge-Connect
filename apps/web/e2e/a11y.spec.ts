@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-const API = process.env.API_URL ?? 'http://localhost:4000';
+const API = process.env.API_URL ?? 'http://localhost:3000/api';
 const THEMES = ['midnight-executive', 'arctic-professional'] as const;
 
 let org: { slug: string; email: string; password: string };

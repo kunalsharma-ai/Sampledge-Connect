@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Accessibility checks against a running web app and API (see docs/launch-readiness.md).
- *   WEB_URL=http://localhost:3000 API_URL=http://localhost:4000 pnpm --filter @sampledge/web e2e
+ *   WEB_URL=http://localhost:3000 API_URL=http://localhost:3000/api pnpm --filter @sampledge/web e2e
  * CHROMIUM_PATH points at a preinstalled Chromium when the bundled one isn't downloaded.
  */
 export default defineConfig({

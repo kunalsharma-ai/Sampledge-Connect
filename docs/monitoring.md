@@ -2,27 +2,27 @@
 
 ## Health checks
 
-| Endpoint            | Use                              | Healthy answer                                     |
-| ------------------- | -------------------------------- | -------------------------------------------------- |
-| `GET /health/live`  | Liveness (restart the container) | `200 {"status":"ok"}`                              |
-| `GET /health/ready` | Readiness (send traffic)         | `200` with `mongo` and `redis` `ok`; 503 otherwise |
-| `GET /login` (web)  | Web liveness                     | `200`                                              |
+| Endpoint                | Use                              | Healthy answer                                     |
+| ----------------------- | -------------------------------- | -------------------------------------------------- |
+| `GET /api/health/live`  | Liveness (restart the container) | `200 {"status":"ok"}`                              |
+| `GET /api/health/ready` | Readiness (send traffic)         | `200` with `mongo` and `redis` `ok`; 503 otherwise |
+| `GET /login` (web)      | Web liveness                     | `200`                                              |
 
 The Docker images use these as `HEALTHCHECK`s. Point an external uptime monitor at
-`https://api.example.com/health/ready` and `https://app.example.com/login` every minute.
+`https://connect.example.com/api/health/ready` and `https://connect.example.com/login` every minute.
 
 ## Metrics (Prometheus)
 
-Set `METRICS_TOKEN` and scrape `GET /health/metrics` with `Authorization: Bearer <token>`.
+Set `METRICS_TOKEN` and scrape `GET /api/health/metrics` with `Authorization: Bearer <token>`.
 Without the variable the endpoint answers 404. Each API replica reports its own numbers.
 
 ```yaml
 scrape_configs:
   - job_name: sampledge-connect-api
     scheme: https
-    metrics_path: /health/metrics
+    metrics_path: /api/health/metrics
     authorization: { credentials: '<METRICS_TOKEN>' }
-    static_configs: [{ targets: ['api.example.com'] }]
+    static_configs: [{ targets: ['connect.example.com'] }]
 ```
 
 | Metric                                                                                        | Type      | Meaning                                                         |

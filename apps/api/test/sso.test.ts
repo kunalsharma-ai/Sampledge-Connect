@@ -150,7 +150,12 @@ beforeAll(async () => {
   await new Promise<void>((r) => idp.listen(0, '127.0.0.1', r));
   issuer = `http://127.0.0.1:${(idp.address() as { port: number }).port}`;
 
-  h = await startHarness({ CORS_ORIGINS: WEB });
+  // The API's public address is part of the redirect URI the provider sends people back to.
+  const port = await freePort();
+  h = await startHarness(
+    { PUBLIC_WEB_URL: WEB, PUBLIC_API_URL: `http://127.0.0.1:${port}/api` },
+    { port },
+  );
   const t = await registerTenant(h);
   owner = t.session;
   slug = t.slug;
@@ -316,3 +321,12 @@ describe('single sign-on from the mobile app', () => {
     expect(r.location).toMatch(/^sampledge:\/\/sso#sso_error=/);
   });
 });
+
+function freePort(): Promise<number> {
+  return new Promise((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address() as { port: number };
+      s.close(() => resolve(port));
+    });
+  });
+}

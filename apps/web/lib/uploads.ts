@@ -8,7 +8,7 @@ import {
   type UploadTicket,
 } from '@sampledge/contracts';
 import { ApiFailure, apiRequest } from './api';
-import { API_URL } from './config';
+import { API_URL, toApiUrl } from './config';
 
 /** Client-side checks that mirror the server's, so the user hears about a bad file immediately. */
 export function rejectReason(file: File): string | null {
@@ -109,7 +109,7 @@ export async function attachmentUrl(
         token: await getToken(),
       });
       // Absolute when the API has PUBLIC_API_URL configured, otherwise a path on the API.
-      const url = new URL(r.url, API_URL).toString();
+      const url = toApiUrl(r.url);
       urlCache.set(attachmentId, { url, expires: Date.parse(r.expiresAt) });
       return url;
     })().finally(() => inflight.delete(attachmentId));

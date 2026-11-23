@@ -12,7 +12,7 @@ const pathMod = require('path');
 // Usage: pnpm web:export, then node scripts/e2e-sso.cjs <screenshot-dir> with the API seeded by
 // e2e-seed.mjs and CORS_ORIGINS including http://localhost:8099.
 const out = process.argv[2];
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const APP = 'http://localhost:8099';
 const pw = 'correct-horse-battery-1';
 const failures = [];
@@ -190,7 +190,7 @@ ${hidden}<input name="email" aria-label="Work email" placeholder="you@northwind.
     await p.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p.waitForTimeout(1500);
     const inputs = p.locator('input');
-    await inputs.nth(0).fill(API);
+    await inputs.nth(0).fill(APP);
     await inputs.nth(1).fill('northwind');
     await p.waitForTimeout(1500);
     return { ctx, p };

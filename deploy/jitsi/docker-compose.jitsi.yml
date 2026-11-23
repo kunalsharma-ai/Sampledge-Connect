@@ -8,13 +8,13 @@
 # open a room without SampConnect. After `up`, connect it in Admin → Integrations → Calls
 # (Jitsi Meet): server URL = JITSI_PUBLIC_URL, app id and secret below. See docs/jitsi.md.
 #
-# Like everything else, Jitsi publishes no ports of its own: the gateway publishes TCP
-# ${JITSI_HTTP_PORT:-8000} (put it behind your TLS proxy) and UDP ${JITSI_JVB_PORT:-10000}.
+# Like everything else, Jitsi publishes no web port: give it its own host name on your reverse
+# proxy and point that at http://gateway:8000 over the publicweb network (the proxy does TLS).
+# The gateway publishes only the video bridge's media port, UDP ${JITSI_JVB_PORT:-10000}.
 # Set JITSI_ADVERTISE_IP to the server's public or LAN IP.
 services:
   gateway:
     ports:
-      - '${HTTP_BIND_IP:-0.0.0.0}:${JITSI_HTTP_PORT:-8000}:8000'
       # Video bridge media. Same number inside and out (advertised to clients).
       - '${JITSI_JVB_PORT:-10000}:${JITSI_JVB_PORT:-10000}/udp'
 
@@ -56,7 +56,7 @@ services:
       DISABLE_DEEP_LINKING: 'true'
       ENABLE_PREJOIN_PAGE: 'false'
       # Per-organization logo, colours and name inside the call, served by the API.
-      BRANDING_DATA_URL: ${PUBLIC_API_URL:-http://localhost:4000}/v1/calls/jitsi/branding
+      BRANDING_DATA_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}/api/v1/calls/jitsi/branding
       JVB_DISABLE_STUN: '1'
       JVB_ADVERTISE_IPS: ${JITSI_ADVERTISE_IP:-127.0.0.1}
       JVB_PORT: ${JITSI_JVB_PORT:-10000}

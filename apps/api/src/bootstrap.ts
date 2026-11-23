@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import { API_PREFIX } from '@sampledge/contracts';
 import { AppModule } from './app.module.js';
 import type { AppConfig } from './config/config.js';
 import { RedisIoAdapter } from './realtime/redis-io.adapter.js';
@@ -36,11 +37,16 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
   app.useBodyParser('text', { type: ['text/xml', 'application/xml'], limit: '256kb' });
   // Caption clips and call background images are read per route (common/raw-body.ts): a global
   // audio/* or image/* parser would swallow attachment uploads, which stream their body.
-  // Chat widget origins are configured per module in the database (Integrations), not env.
+  // Every route lives under /api (issue #128): the gateway sends /api/** here and everything
+  // else to the web app, on one address. So the web app and the API share an origin and need
+  // no CORS. The one cross-origin caller is the Connect chat widget that organizations embed on
+  // their own websites; its origins are configured per module in the database (Integrations).
+  // Any other origin gets no CORS headers, so browsers block it.
+  app.setGlobalPrefix(API_PREFIX.slice(1));
   const moduleSettings = app.get(ModuleSettingsService);
   app.enableCors({
     origin: (origin, cb) => {
-      if (!origin || cfg.corsOrigins.includes(origin)) return cb(null, true);
+      if (!origin) return cb(null, true);
       moduleSettings.widgetOriginAllowed(origin).then(
         (ok) => cb(null, ok),
         () => cb(null, false),
@@ -50,7 +56,7 @@ export async function createApp(cfg: AppConfig): Promise<NestExpressApplication>
     allowedHeaders: ['Authorization', 'Content-Type', 'Content-Length'],
     maxAge: 600,
   });
-  app.useWebSocketAdapter(new RedisIoAdapter(app, cfg));
+  app.useWebSocketAdapter(new RedisIoAdapter(app, cfg, moduleSettings));
   app.enableShutdownHooks();
   return app;
 }

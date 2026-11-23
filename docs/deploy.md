@@ -5,20 +5,20 @@ Connect. Larger setups use the same images behind a load balancer; see **Scaling
 
 ## What runs
 
-| Service   | Image                                   | Port (internal)       | Notes                                          |
-| --------- | --------------------------------------- | --------------------- | ---------------------------------------------- |
-| `gateway` | `nginx:1.29-alpine`                     | 3000, 4000, 7880–7882 | The only service that publishes ports          |
-| `web`     | `ghcr.io/<owner>/sampledge-connect-web` | 3000                  | Next.js server; public URLs baked in at build  |
-| `api`     | `ghcr.io/<owner>/sampledge-connect-api` | 4000                  | REST + Socket.IO; runs migrations on start     |
-| `mongo`   | `mongo:7`                               | 27017                 | Replica set recommended in production          |
-| `redis`   | `redis:8-alpine`                        | 6379                  | Sessions cache, rate limits, presence, fan-out |
-| `livekit` | `livekit/livekit-server`                | 7880, 7881, UDP 7882  | Calls; runs in the gateway's network           |
-| `egress`  | `livekit/egress`                        | –                     | Call recording; ~2 CPU / 2 GB per recording    |
+| Service   | Image                                   | Port (internal)      | Notes                                          |
+| --------- | --------------------------------------- | -------------------- | ---------------------------------------------- |
+| `gateway` | `nginx:1.29-alpine`                     | 80, 7880–7882        | Publishes call media only; web is on publicweb |
+| `web`     | `ghcr.io/<owner>/sampledge-connect-web` | 3000                 | Next.js server; serves everything but `/api`   |
+| `api`     | `ghcr.io/<owner>/sampledge-connect-api` | 4000                 | REST + Socket.IO under `/api`; runs migrations |
+| `mongo`   | `mongo:7`                               | 27017                | Replica set recommended in production          |
+| `redis`   | `redis:8-alpine`                        | 6379                 | Sessions cache, rate limits, presence, fan-out |
+| `livekit` | `livekit/livekit-server`                | 7880, 7881, UDP 7882 | Calls; runs in the gateway's network           |
+| `egress`  | `livekit/egress`                        | –                    | Call recording; ~2 CPU / 2 GB per recording    |
 
 Images are built and pushed by `.github/workflows/release.yml` on every merge to `main`
-(`:main`, `:sha-<short>`) and on version tags (`v1.2.3` → `:1.2.3`, `:latest`). Set the
-repository variables `PUBLIC_API_URL` and `PUBLIC_RTC_URL` so the web image points at your
-domain, or build the web image yourself with `--build-arg`.
+(`:main`, `:sha-<short>`) and on version tags (`v1.2.3` → `:1.2.3`, `:latest`). The web
+image calls the API at `/api` and call signalling at `/rtc` on its own address, so one image
+works on any domain; nothing about your domain is baked in.
 
 ## Sizing
 
@@ -34,8 +34,12 @@ these figures are in [launch-readiness.md](launch-readiness.md).
 ## 1. Prepare the server
 
 - Ubuntu 24.04 or similar with Docker Engine and the compose plugin.
-- DNS: `app.example.com` (web), `api.example.com` (API), `rtc.example.com` (calls).
-- Firewall: 80/443 TCP for the proxy; for calls 7881 TCP, 7882 UDP, 3478 UDP and
+- DNS: one name, for example `connect.example.com`, pointing at your reverse proxy. Web, API
+  (`/api`) and call signalling (`/rtc`) all live on it. With Jitsi, a second name such as
+  `meet.example.com`.
+- A reverse proxy that owns that name and its TLS certificate (Nginx Proxy Manager, Traefik,
+  Caddy, …), joined to the `publicweb` Docker network. SampConnect itself does no TLS.
+- Firewall: 80/443 TCP for your proxy; for calls 7881 TCP, 7882 UDP, 3478 UDP and
   30000–30100 UDP (TURN relay).
   MongoDB and Redis are never published (they only exist on the internal network).
 - Before the first start, run `sh scripts/check-ports.sh`. It lists any port the stack needs
@@ -43,37 +47,50 @@ these figures are in [launch-readiness.md](launch-readiness.md).
 
 ### Networks and ports
 
-Only one container, `gateway`, publishes ports. Everything else talks over the `internal`
-network and is not reachable from outside the host:
+SampConnect publishes **no web port**. The `gateway` container serves one plain-HTTP site on
+port 80 inside Docker, and your reverse proxy reaches it over the `publicweb` network as
+`http://gateway:80`. The proxy owns the domain and the TLS certificate.
 
 ```
-                     host ports (all set in .env)                  internal network
- browsers/phones ──► WEB_PORT 3000 ─────► gateway (nginx) ──────► web:3000
- your proxy      ──► API_PORT 4000 ─────►                 ──────► api:4000 ──► mongo, redis
-                     LIVEKIT_HTTP_PORT 7880 ─┐
-                     LIVEKIT_TCP_PORT  7881 ─┼─ same network as the gateway: livekit
-                     LIVEKIT_UDP_PORT  7882/udp (all call media)       (egress, api reach it
-                     LIVEKIT_TURN_PORT 3478/udp                         as livekit:7880)
-                     LIVEKIT_TURN_RELAY_START-END 30000-30100/udp
+ browsers/phones ──HTTPS──► your proxy ──publicweb──► gateway:80 (nginx, plain HTTP)
+                                                        /api/**  ──► api:4000 ──► mongo, redis
+                                                        /rtc     ──► livekit:7880 (signalling)
+                                                        /        ──► web:3000
+                     host ports (call media only, all set in .env)
+                     LIVEKIT_TCP_PORT  7881 ─┐
+                     LIVEKIT_UDP_PORT  7882/udp (all call media)  ─ same network as the gateway: livekit
+                     LIVEKIT_TURN_PORT 3478/udp                   (egress and the API reach it
+                     LIVEKIT_TURN_RELAY_START-END 30000-30100/udp   as livekit:7880)
 ```
 
-- **Call media uses one UDP port.** LiveKit multiplexes the media of every call on
-  `LIVEKIT_UDP_PORT` instead of a range of ports. The only range left is the TURN relay
-  (30000–30100), below 32768 where Linux, macOS and Windows never hand out ports on their own.
-  LiveKit and the Jitsi video bridge run inside the gateway's network namespace, so their ports
-  come from the gateway without a proxy hop in the media path.
-- **`publicweb` network.** The gateway also joins a network named `publicweb`, so a reverse proxy
-  in another compose project (Traefik, Caddy, nginx proxy manager, …) on that network reaches
-  SampConnect as `gateway:3000` (web), `gateway:4000` (API), `gateway:7880` (calls) and, with
-  Jitsi, `gateway:8000`. Compose creates the network if it doesn't exist. If your proxy already
-  created it, set `PUBLIC_NETWORK_EXTERNAL=true`; set `PUBLIC_NETWORK` to use another name. When
-  the proxy is the only thing that should reach the HTTP ports, also set `HTTP_BIND_IP=127.0.0.1`
-  so web, API and signalling stay off the host's public interfaces (media ports stay public).
+- **One address, one origin.** `/api/**` goes to the API (every API route is mounted under
+  `/api`, Socket.IO at `/api/socket.io`), `/rtc` to LiveKit's signalling WebSocket, everything
+  else to the web app. The browser sees one origin, so there is no CORS to configure: the API
+  only answers same-origin browsers. The one exception is the Connect chat widget that
+  organizations embed on their own websites; its allowed origins are set per module in
+  **Integrations** (database), not in env.
+- **`PUBLIC_WEB_URL` is the only address to set.** The API's public address is
+  `PUBLIC_WEB_URL/api` and call signalling `PUBLIC_WEB_URL` as `wss://` (LiveKit clients add
+  `/rtc`). `PUBLIC_API_URL` and `LIVEKIT_PUBLIC_URL` still override them if you need to.
+- **Call media can't go through an HTTP proxy**, so those are the only ports the gateway
+  publishes. LiveKit multiplexes the media of every call on `LIVEKIT_UDP_PORT` instead of a range
+  of ports. The only range left is the TURN relay (30000–30100), below 32768 where Linux, macOS
+  and Windows never hand out ports on their own. LiveKit and the Jitsi video bridge run inside the
+  gateway's network namespace, so their ports come from the gateway without a proxy hop in the
+  media path.
+- **`publicweb` network.** Compose creates it if it doesn't exist. If your proxy already created
+  it, set `PUBLIC_NETWORK_EXTERNAL=true`; set `PUBLIC_NETWORK` to use another name.
 - The gateway takes the client address from `X-Forwarded-For` when the request comes from a
   private address (your proxy) and passes a single hop on, which the API's `trust proxy 1`
   expects, so rate limits and the audit log keep seeing real client IPs.
+- **No proxy yet?** To try SampConnect on one machine, add the local file to `.env`:
+  `COMPOSE_FILE=docker-compose.yml:deploy/local/docker-compose.local.yml`. It publishes the
+  gateway on `http://localhost:8080` (loopback only, `LOCAL_HTTP_PORT`), which is also the
+  default `PUBLIC_WEB_URL`. Don't use it in production.
 - For local development, `docker compose -f docker-compose.dev.yml up -d` starts MongoDB and
-  Redis on `127.0.0.1` (ports `MONGO_PORT`, `REDIS_PORT`) without touching the full stack.
+  Redis on `127.0.0.1` (ports `MONGO_PORT`, `REDIS_PORT`) without touching the full stack. With
+  `pnpm dev`, the web dev server forwards `/api/**` to the API on `localhost:4000`, so it is one
+  origin there too.
 
 ### Port already in use
 
@@ -91,9 +108,9 @@ programs; the stack now needs only the ports listed above.
 
 3. Open the new port in the firewall, run `sh scripts/check-ports.sh`, then `docker compose up -d`.
 
-Every published port moves the same way: `WEB_PORT`, `API_PORT`, `LIVEKIT_HTTP_PORT` (also
-update `LIVEKIT_PUBLIC_URL` and the web build's RTC URL), `LIVEKIT_TCP_PORT`,
-`LIVEKIT_UDP_PORT`, `LIVEKIT_TURN_PORT`, `LIVEKIT_TURN_RELAY_START`/`END`, and with Jitsi `JITSI_HTTP_PORT` and `JITSI_JVB_PORT`.
+Every published port moves the same way: `LIVEKIT_TCP_PORT`, `LIVEKIT_UDP_PORT`,
+`LIVEKIT_TURN_PORT`, `LIVEKIT_TURN_RELAY_START`/`END`, with Jitsi `JITSI_JVB_PORT`, and with the
+local file `LOCAL_HTTP_PORT`.
 All of them are listed in `.env.example`. Upgrading from a version with the UDP range:
 `LIVEKIT_RTC_PORT_START`/`END` are no longer used, so remove them from `.env`, open
 `LIVEKIT_UDP_PORT` and the relay range in the firewall, and close 50000–50200.
@@ -113,10 +130,7 @@ FILES_URL_SECRET=$(openssl rand -base64 48)
 SETTINGS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 LIVEKIT_API_SECRET=$(openssl rand -base64 48)
 METRICS_TOKEN=$(openssl rand -hex 24)
-CORS_ORIGINS=https://app.example.com
-PUBLIC_WEB_URL=https://app.example.com
-PUBLIC_API_URL=https://api.example.com
-LIVEKIT_PUBLIC_URL=wss://rtc.example.com
+PUBLIC_WEB_URL=https://connect.example.com
 PLATFORM_ADMIN_EMAILS=your-org-slug:you@example.com
 ENV
 chmod 600 .env jwt.key
@@ -131,28 +145,41 @@ secrets unreadable (you would re-enter them); losing the JWT keys signs everyone
 docker compose pull            # or: docker compose build
 docker compose up -d
 docker compose logs -f api     # "listening on :4000"; migrations run before that
-curl -s localhost:4000/health/ready   # {"status":"ok","mongo":"ok","redis":"ok"}
+docker compose exec gateway wget -qO- http://127.0.0.1/api/health/ready
+# {"status":"ok","mongo":"ok","redis":"ok"}
 ```
 
 ## 4. HTTPS reverse proxy
 
-Any proxy works; it must pass WebSocket upgrades to the API. Caddy on the same host:
+Your proxy joins the `publicweb` network and sends the whole domain to `http://gateway:80`.
+It does TLS; the gateway does the routing (`/api/**` to the API, `/rtc` to calls, the rest to
+the web app). It must pass WebSocket upgrades (Socket.IO at `/api/socket.io`, call signalling
+at `/rtc`).
 
-```
-app.example.com {
-  reverse_proxy 127.0.0.1:3000
-}
-api.example.com {
-  reverse_proxy 127.0.0.1:4000
-}
-rtc.example.com {
-  reverse_proxy 127.0.0.1:7880
-}
-```
+- **Nginx Proxy Manager:** a Proxy Host for `connect.example.com`, scheme `http`, forward
+  hostname `gateway`, port `80`, **Websockets Support** on, an SSL certificate of your choice.
+  No custom locations are needed.
+- **Caddy** in a container on `publicweb`:
 
-A proxy in its own compose project joins the `publicweb` network instead and points at the
-gateway by name (`reverse_proxy gateway:3000`, `gateway:4000`, `gateway:7880`); see
-**Networks and ports** above.
+  ```
+  connect.example.com {
+    reverse_proxy gateway:80
+  }
+  ```
+
+- **Traefik:** a router with the rule ``Host(`connect.example.com`)`` and a service pointing at
+  `http://gateway:80`.
+
+With Jitsi, add a second host (for example `meet.example.com`) pointing at `http://gateway:8000`.
+
+**Upgrading from separate web/API/RTC hosts:** remove `CORS_ORIGINS`, `PUBLIC_API_URL`,
+`LIVEKIT_PUBLIC_URL`, `NEXT_PUBLIC_RTC_URL`, `WEB_PORT`, `API_PORT`, `LIVEKIT_HTTP_PORT`,
+`JITSI_HTTP_PORT` and `HTTP_BIND_IP` from `.env` (`scripts/check-ports.sh` lists the ones it
+finds), set `PUBLIC_WEB_URL` to your one domain and point it at `gateway:80`. Then:
+re-register the SSO redirect URI (`https://connect.example.com/api/v1/auth/sso/callback`,
+**Test connection** shows it), update webhook URLs you gave to outside services (client
+inbox channels, Stripe) to their new `/api/...` address shown in Integrations, and set the
+mobile app's server address to the same domain (people sign in once more).
 
 The API trusts one proxy hop (`trust proxy 1`) for client IPs in rate limits and the audit
 log. That hop is the gateway: it takes the client address your proxy put in

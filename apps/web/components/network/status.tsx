@@ -23,7 +23,7 @@ import {
 } from '@sampledge/ui';
 import { apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { API_URL } from '@/lib/config';
+import { API_URL, toApiUrl } from '@/lib/config';
 import { useNet, useNetwork } from '@/lib/network';
 import { relativeShort } from '../workspace/helpers';
 import { Switch } from './profile';
@@ -326,13 +326,13 @@ export function StatusViewer({
               s.kind === 'image' ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={new URL(s.media.url, API_URL).toString()}
+                  src={toApiUrl(s.media.url)}
                   alt={s.text || 'Status photo'}
                   className="max-h-full w-full object-contain"
                 />
               ) : (
                 <video
-                  src={new URL(s.media.url, API_URL).toString()}
+                  src={toApiUrl(s.media.url)}
                   autoPlay
                   playsInline
                   className="max-h-full w-full"

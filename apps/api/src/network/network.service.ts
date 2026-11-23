@@ -90,10 +90,7 @@ export class NetworkService {
   // ─── helpers ────────────────────────────────────────────────────────────────
 
   get webBase(): string {
-    return (this.cfg.PUBLIC_WEB_URL ?? this.cfg.corsOrigins[0] ?? 'http://localhost:3000').replace(
-      /\/+$/,
-      '',
-    );
+    return (this.cfg.PUBLIC_WEB_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
   }
 
   async net(): Promise<ScopedDb> {

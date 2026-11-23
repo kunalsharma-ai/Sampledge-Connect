@@ -38,7 +38,7 @@ pnpm web:export && pnpm screenshots   # needs Playwright with Chromium; writes s
 
 ## End-to-end against a real API
 
-With `apps/api` running locally (Mongo and Redis up, default `http://localhost:4000`) and an empty
+With `apps/api` running locally (Mongo and Redis up, default `http://localhost:4000`, routes under `/api`; `serve-web.mjs` forwards the preview's `/api/**` to it so the app sees one origin) and an empty
 database, this seeds a workspace (Northwind Research, four members, a channel and a DM), signs in as
 Sam through the web preview and checks sign-in, cursor sync, a live Socket.IO message, an offline
 queued send and recovery of a message missed while offline. It exits non-zero on any failure.
@@ -55,7 +55,7 @@ node scripts/e2e-real-server.cjs screenshots/e2e   # API=… APP=… override th
 
 The calls part runs when the API has `LIVEKIT_*` set and a LiveKit server is up (for example
 `docker compose up livekit`, or `livekit/livekit-server` with `--network host` and the webhook at
-`http://127.0.0.1:4000/v1/calls/livekit/webhook`). It signs in a second phone as Priya, rings,
+`http://127.0.0.1:4000/api/v1/calls/livekit/webhook`). It signs in a second phone as Priya, rings,
 answers with a fake camera and microphone, and checks media, raised hand, end for everyone, the
 join banner and decline. Without a media server it is skipped.
 

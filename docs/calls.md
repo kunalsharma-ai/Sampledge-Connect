@@ -56,11 +56,12 @@ LiveKit container reads.
 | --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `LIVEKIT_API_SECRET`  | compose `.env` (API and LiveKit) | `openssl rand -base64 48` (32+ chars)                                                                                  |
 | `LIVEKIT_API_KEY`     | compose `.env`                   | `sampledge` (default)                                                                                                  |
-| `LIVEKIT_PUBLIC_URL`  | API                              | `wss://rtc.example.com` (what browsers and phones connect to)                                                          |
+| `LIVEKIT_PUBLIC_URL`  | API                              | Optional. Defaults to `PUBLIC_WEB_URL` as `wss://`; the gateway serves signalling at `/rtc` on the same domain         |
 | `LIVEKIT_NODE_IP`     | LiveKit                          | The server's public IP (VPS) or LAN IP (on-premises). Never `127.0.0.1`: egress fails with "Start signal not received" |
-| `NEXT_PUBLIC_RTC_URL` | web build                        | Same as `LIVEKIT_PUBLIC_URL`; it is added to the page's Content-Security-Policy                                        |
+| `NEXT_PUBLIC_RTC_URL` | web build                        | Only for a call server on another address; added to the page's Content-Security-Policy                                 |
 
-Open these ports on the server: TCP 7880 (signalling, put it behind your TLS reverse proxy as `wss://`),
+Signalling needs no port of its own: it is `wss://<your domain>/rtc`, through your TLS proxy and the
+gateway like the rest of the site. Open these ports on the server for media:
 TCP 7881 (media over TCP), UDP 7882 (media), UDP 3478 (TURN) and UDP 30000–30100 (TURN relay, for
 callers behind strict NAT). All media of every call shares the one UDP port (ICE/UDP mux) instead of a
 port range, and the relay range sits below 32768, clear of the ports operating systems hand out to

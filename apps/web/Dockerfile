@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1.7
 # Build from the repository root:
-#   docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://api.example.com \
-#     --build-arg NEXT_PUBLIC_RTC_URL=wss://rtc.example.com -t sampledge-web .
-# NEXT_PUBLIC_* values are compiled into the browser bundle, so they are build arguments.
+#   docker build -f apps/web/Dockerfile -t sampledge-web .
+# The browser reaches the API at /api and call signalling at /rtc on the same address (the
+# gateway routes them), so the image works on any domain with the defaults below. Only set
+# NEXT_PUBLIC_API_URL / NEXT_PUBLIC_RTC_URL to point a build at another address; they are
+# compiled into the browser bundle, so they are build arguments.
 FROM node:26.13.1-alpine AS base
 RUN npm install -g pnpm@12.21.0
 WORKDIR /repo
 
 FROM base AS build
-ARG NEXT_PUBLIC_API_URL=http://localhost:4000
-ARG NEXT_PUBLIC_RTC_URL=ws://localhost:7880
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_RTC_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_RTC_URL=$NEXT_PUBLIC_RTC_URL \
     NEXT_OUTPUT=standalone \

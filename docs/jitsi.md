@@ -47,12 +47,12 @@ already running keep the engine they started on.
    ```
 
    The Jitsi services live in that file, so their secrets are only needed when you use it. Like the
-   rest of the stack they publish no ports of their own: the `gateway` publishes them (see
+   rest of the stack they publish no ports of their own: the `gateway` publishes the bridge's media port (see
    "Networks and ports" in [deploy.md](deploy.md)).
 
-3. Put `JITSI_PUBLIC_URL` behind your TLS reverse proxy (to port `JITSI_HTTP_PORT`, default 8000,
-   or to `gateway:8000` on the `publicweb` network, with WebSocket upgrade for `/xmpp-websocket`
-   and `/colibri-ws/`). Open **UDP 10000** (`JITSI_JVB_PORT`) for media. On a host without IPv6 set
+3. Give `JITSI_PUBLIC_URL` its own host name on your TLS reverse proxy and point it at
+   `http://gateway:8000` on the `publicweb` network, with WebSocket upgrade for `/xmpp-websocket`
+   and `/colibri-ws/`. No Jitsi web port is published on the host. Open **UDP 10000** (`JITSI_JVB_PORT`) for media. On a host without IPv6 set
    `JITSI_ENABLE_IPV6=0`.
 4. In SampConnect: **Integrations → Calls (Jitsi Meet)**: server URL, app ID, app secret, and
    **Use Jitsi Meet for** (every call, or only when LiveKit isn't set up). **Test connection**,

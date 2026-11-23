@@ -35,13 +35,13 @@ import {
   cn,
   useToast,
 } from '@sampledge/ui';
-import { API_URL } from '@/lib/config';
+import { absoluteApiUrl } from '@/lib/config';
 import type { InboxApi } from '@/lib/inbox';
 import { MODE_LABEL, PROVIDER_META, ProviderMark, TestModeBadge, selectClass } from './shared';
 import { FeatureHelp } from '../../feature-help';
 
 const MODE_TONE = { two_way: 'success', limited: 'warning', handoff: 'neutral' } as const;
-const webhookUrl = (path: string) => new URL(path, API_URL || window.location.origin).toString();
+const webhookUrl = (path: string) => absoluteApiUrl(path);
 const when = (iso: string | null) =>
   iso
     ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })

@@ -1,4 +1,6 @@
 import {
+  apiBaseFor,
+  apiUrl,
   ERROR_CODES,
   type NetworkSignupRequest,
   type AdminOverview,
@@ -478,6 +480,7 @@ export interface DirectoryUser {
 }
 
 export interface HttpTransportOptions {
+  /** The server address people sign in with (the API is under its /api; either form works). */
   baseUrl: string;
   getAccessToken: () => Promise<string | undefined>;
   fetchImpl?: typeof fetch;
@@ -489,8 +492,11 @@ export interface HttpTransportOptions {
 /** fetch-based client for the SampConnect API (`/v1/...`). */
 export class HttpTransport implements ApiTransport {
   private readonly fetchImpl: typeof fetch;
+  /** The API base: the server address plus /api. */
+  private readonly base: string;
 
   constructor(private readonly opts: HttpTransportOptions) {
+    this.base = apiBaseFor(opts.baseUrl);
     this.fetchImpl = opts.fetchImpl ?? ((...a) => fetch(...a));
   }
 
@@ -520,7 +526,7 @@ export class HttpTransport implements ApiTransport {
 
   network<T = unknown>(method: NetworkMethod, path: string, body?: unknown): Promise<T> {
     if (!path.startsWith('/v1/network/')) throw new Error(`Not a network path: ${path}`);
-    return this.request<T>(method, path, body).then((r) => withAbsoluteMedia(r, this.opts.baseUrl));
+    return this.request<T>(method, path, body).then((r) => withAbsoluteMedia(r, this.base));
   }
 
   /** Client Inbox and its channels (`/v1/inbox/...`, `/v1/connectors...`). */
@@ -601,7 +607,7 @@ export class HttpTransport implements ApiTransport {
     let res: { status: number; body: string };
     try {
       res = await putFileBytes(
-        new URL(path, this.opts.baseUrl).toString(),
+        apiUrl(this.base, path),
         localUri,
         { authorization: `Bearer ${token}`, 'content-type': contentType },
         method,
@@ -632,7 +638,7 @@ export class HttpTransport implements ApiTransport {
       `/v1/attachments/${encodeURIComponent(attachmentId)}/url`,
       undefined,
     );
-    return { ...r, url: new URL(r.url, this.opts.baseUrl).toString() };
+    return { ...r, url: apiUrl(this.base, r.url) };
   }
 
   /** Member directory (needs directory.read; guests get FORBIDDEN). */
@@ -644,9 +650,7 @@ export class HttpTransport implements ApiTransport {
 
   /** Photo paths come relative to the server; images need the full address. */
   private withAvatar<T extends { avatarUrl?: string | null }>(u: T): T {
-    return u.avatarUrl
-      ? { ...u, avatarUrl: new URL(u.avatarUrl, this.opts.baseUrl).toString() }
-      : u;
+    return u.avatarUrl ? { ...u, avatarUrl: apiUrl(this.base, u.avatarUrl) } : u;
   }
 
   updateProfile(req: UpdateProfileRequest): Promise<DirectoryUser> {
@@ -886,7 +890,7 @@ export class HttpTransport implements ApiTransport {
     if (!token) throw new TransportError('Not signed in', 'api', 'UNAUTHENTICATED');
     try {
       return await downloadDocument(
-        new URL(path, this.opts.baseUrl).toString(),
+        apiUrl(this.base, path),
         {
           method,
           headers: {
@@ -908,7 +912,7 @@ export class HttpTransport implements ApiTransport {
   }
 
   private withBackgroundUrl(s: CallBackgroundState): CallBackgroundState {
-    const abs = (u: string) => new URL(u, this.opts.baseUrl).toString();
+    const abs = (u: string) => apiUrl(this.base, u);
     return {
       ...s,
       customImageUrl: s.customImageUrl ? abs(s.customImageUrl) : null,
@@ -1484,7 +1488,7 @@ export class HttpTransport implements ApiTransport {
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 20_000);
     let res: Response;
     try {
-      res = await this.fetchImpl(new URL(path, this.opts.baseUrl).toString(), {
+      res = await this.fetchImpl(apiUrl(this.base, path), {
         method,
         headers,
         body: hasBody ? (raw ? body : JSON.stringify(body)) : undefined,
@@ -1738,7 +1742,7 @@ export function withAbsoluteMedia<T>(value: T, baseUrl: string): T {
         typeof (x as { url?: unknown }).url === 'string'
       ) {
         const m = x as { url: string };
-        out[k] = { ...m, url: m.url.startsWith('/') ? new URL(m.url, baseUrl).toString() : m.url };
+        out[k] = { ...m, url: m.url.startsWith('/') ? apiUrl(baseUrl, m.url) : m.url };
       } else out[k] = walk(x);
     }
     return out;
