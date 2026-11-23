@@ -1,0 +1,95 @@
+# Jitsi Meet: optional second call engine (Apache-2.0), self-hosted and branded as SampConnect.
+# Turn it on by adding this file to COMPOSE_FILE in .env, then run plain `docker compose up -d`:
+#   COMPOSE_FILE=docker-compose.yml:deploy/jitsi/docker-compose.jitsi.yml
+# (Windows: separate the two with `;`). Paths below are relative to the repository root.
+#
+# Branding (deploy/jitsi): SampConnect logo and name, no Jitsi watermark or app promotion, no
+# public STUN, gravatar or analytics. Every join is signed by the API (JWT), so nobody can
+# open a room without SampConnect. After `up`, connect it in Admin → Integrations → Calls
+# (Jitsi Meet): server URL = JITSI_PUBLIC_URL, app id and secret below. See docs/jitsi.md.
+#
+# Like everything else, Jitsi publishes no ports of its own: the gateway publishes TCP
+# ${JITSI_HTTP_PORT:-8000} (put it behind your TLS proxy) and UDP ${JITSI_JVB_PORT:-10000}.
+# Set JITSI_ADVERTISE_IP to the server's public or LAN IP.
+services:
+  gateway:
+    ports:
+      - '${HTTP_BIND_IP:-0.0.0.0}:${JITSI_HTTP_PORT:-8000}:8000'
+      # Video bridge media. Same number inside and out (advertised to clients).
+      - '${JITSI_JVB_PORT:-10000}:${JITSI_JVB_PORT:-10000}/udp'
+
+  jitsi-web:
+    image: jitsi/web:stable-10314
+    restart: unless-stopped
+    depends_on: [jitsi-prosody]
+    networks: [internal]
+    environment: &jitsi-env
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:-http://localhost:8000}
+      TZ: ${TZ:-UTC}
+      XMPP_SERVER: xmpp.meet.jitsi
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_BOSH_URL_BASE: http://xmpp.meet.jitsi:5280
+      JVB_HOST: jitsi-jvb
+      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_PASSWORD:?set JITSI_JICOFO_PASSWORD (openssl rand -hex 16)}
+      JVB_AUTH_PASSWORD: ${JITSI_JVB_PASSWORD:?set JITSI_JVB_PASSWORD (openssl rand -hex 16)}
+      ENABLE_AUTH: '1'
+      AUTH_TYPE: jwt
+      ENABLE_GUESTS: '0'
+      JWT_APP_ID: ${JITSI_APP_ID:-sampconnect}
+      JWT_APP_SECRET: ${JITSI_APP_SECRET:?set JITSI_APP_SECRET (openssl rand -base64 48)}
+      JWT_ACCEPTED_ISSUERS: ${JITSI_APP_ID:-sampconnect}
+      JWT_ACCEPTED_AUDIENCES: ${JITSI_APP_ID:-sampconnect}
+      ENABLE_XMPP_WEBSOCKET: '1'
+      ENABLE_COLIBRI_WEBSOCKET: '1'
+      ENABLE_LETSENCRYPT: '0'
+      DISABLE_HTTPS: '1'
+      # Set JITSI_ENABLE_IPV6=0 on hosts without IPv6 (nginx won't start otherwise).
+      ENABLE_IPV6: ${JITSI_ENABLE_IPV6:-1}
+      ENABLE_HTTP_REDIRECT: '0'
+      ENABLE_P2P: 'false'
+      ENABLE_WELCOME_PAGE: 'false'
+      ENABLE_CLOSE_PAGE: 'false'
+      DISABLE_DEEP_LINKING: 'true'
+      ENABLE_PREJOIN_PAGE: 'false'
+      # Per-organization logo, colours and name inside the call, served by the API.
+      BRANDING_DATA_URL: ${PUBLIC_API_URL:-http://localhost:4000}/v1/calls/jitsi/branding
+      JVB_DISABLE_STUN: '1'
+      JVB_ADVERTISE_IPS: ${JITSI_ADVERTISE_IP:-127.0.0.1}
+      JVB_PORT: ${JITSI_JVB_PORT:-10000}
+    volumes:
+      - ./deploy/jitsi/custom-config.js:/config/custom-config.js:ro
+      - ./deploy/jitsi/custom-interface_config.js:/config/custom-interface_config.js:ro
+      - ./deploy/jitsi/title.html:/usr/share/jitsi-meet/title.html:ro
+      - ./deploy/jitsi/branding/sampconnect-wordmark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
+      - ./deploy/jitsi/branding/sampconnect-mark.svg:/usr/share/jitsi-meet/images/favicon.svg:ro
+      - ./deploy/jitsi/branding/sampconnect-logo.png:/usr/share/jitsi-meet/images/sampconnect-logo.png:ro
+      - ./deploy/jitsi/branding/sampconnect-logo.png:/usr/share/jitsi-meet/images/apple-touch-icon.png:ro
+
+  jitsi-prosody:
+    image: jitsi/prosody:stable-10314
+    restart: unless-stopped
+    expose: ['5222', '5280']
+    environment: *jitsi-env
+    networks:
+      internal:
+        aliases: [xmpp.meet.jitsi]
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:stable-10314
+    restart: unless-stopped
+    depends_on: [jitsi-prosody]
+    networks: [internal]
+    environment: *jitsi-env
+
+  # Runs inside the gateway's network like LiveKit (reachable as jitsi-jvb), so its media
+  # port is published by the gateway (deploy/jitsi/ports.yml).
+  jitsi-jvb:
+    image: jitsi/jvb:stable-10314
+    restart: unless-stopped
+    network_mode: service:gateway
+    depends_on: [gateway, jitsi-prosody]
+    environment: *jitsi-env

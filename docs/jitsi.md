@@ -40,10 +40,20 @@ already running keep the engine they started on.
    JITSI_ADVERTISE_IP=203.0.113.10   # the server's public (or LAN) IP
    ```
 
-2. Start it: `docker compose --profile jitsi up -d`.
+2. Turn it on and start it. Add this line to `.env`, then run `docker compose up -d`:
+
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:deploy/jitsi/docker-compose.jitsi.yml   # Windows: use ; not :
+   ```
+
+   The Jitsi services live in that file, so their secrets are only needed when you use it. Like the
+   rest of the stack they publish no ports of their own: the `gateway` publishes them (see
+   "Networks and ports" in [deploy.md](deploy.md)).
+
 3. Put `JITSI_PUBLIC_URL` behind your TLS reverse proxy (to port `JITSI_HTTP_PORT`, default 8000,
-   with WebSocket upgrade for `/xmpp-websocket` and `/colibri-ws/`). Open **UDP 10000**
-   (`JITSI_JVB_PORT`) for media. On a host without IPv6 set `JITSI_ENABLE_IPV6=0`.
+   or to `gateway:8000` on the `publicweb` network, with WebSocket upgrade for `/xmpp-websocket`
+   and `/colibri-ws/`). Open **UDP 10000** (`JITSI_JVB_PORT`) for media. On a host without IPv6 set
+   `JITSI_ENABLE_IPV6=0`.
 4. In SampConnect: **Integrations → Calls (Jitsi Meet)**: server URL, app ID, app secret, and
    **Use Jitsi Meet for** (every call, or only when LiveKit isn't set up). **Test connection**,
    then **Save**. It applies at once on every device; no restart. Settings are stored encrypted in

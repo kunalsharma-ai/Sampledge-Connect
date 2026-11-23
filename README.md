@@ -17,16 +17,17 @@ Phase 1 (product foundation) is being built in reviewable pull requests. See [`d
 ## Getting started
 
 ```bash
-docker compose up -d mongo redis
+docker compose -f docker-compose.dev.yml up -d   # MongoDB + Redis on localhost
 pnpm install
 pnpm build
 pnpm test
 pnpm test:integration   # API against real MongoDB + Redis
 ```
 
-Full stack in Docker: `sh scripts/check-ports.sh && docker compose up -d --build`. If a port is
-already in use on your machine, change it in `.env` (see "Port already in use" in
-[docs/deploy.md](docs/deploy.md)).
+Full stack in Docker: `sh scripts/check-ports.sh && docker compose up -d --build`. Only the
+`gateway` service publishes ports (web, API, call signalling and one UDP media port); everything
+else stays on an internal network. If a port is already in use on your machine, change it in
+`.env` (see "Networks and ports" in [docs/deploy.md](docs/deploy.md)).
 
 ## Documentation
 

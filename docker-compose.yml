@@ -1,11 +1,49 @@
 # Local development and single-server (VPS / LAN) deployment.
-#   docker compose up -d mongo redis      # dependencies only, run apps with pnpm dev
+#   docker compose -f docker-compose.dev.yml up -d   # dev: mongo + redis only, for pnpm dev
 #   docker compose up -d --build          # full stack
+#
+# Networks (see docs/deploy.md, "Networks and ports"):
+#   internal   every service talks to every other here; nothing on it is published.
+#   publicweb  shared with your own reverse proxy (Traefik, Caddy, nginx, …). Only the
+#              gateway joins it, so the proxy reaches SampConnect as gateway:3000/4000/7880.
+# Only the `gateway` service publishes host ports. The call servers share its network, so
+# their media ports come from that one service too, and every port number is set in .env.
 services:
+  gateway:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    volumes: ['./deploy/gateway/nginx.conf:/etc/nginx/nginx.conf:ro']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8099/healthz']
+      interval: 10s
+      retries: 5
+    networks:
+      internal:
+        # LiveKit (and the Jitsi bridge) run inside this container's network, so these
+        # names reach them.
+        aliases: [livekit, jitsi-jvb]
+      publicweb: {}
+    ports:
+      # Web, API and call signalling. Set HTTP_BIND_IP=127.0.0.1 when a proxy on this host
+      # (or on the publicweb network) is the only thing that should reach them.
+      - '${HTTP_BIND_IP:-0.0.0.0}:${WEB_PORT:-3000}:3000'
+      - '${HTTP_BIND_IP:-0.0.0.0}:${API_PORT:-4000}:4000'
+      - '${HTTP_BIND_IP:-0.0.0.0}:${LIVEKIT_HTTP_PORT:-7880}:7880'
+      # Call media (LiveKit). Same number inside and out: LiveKit tells browsers and phones
+      # to connect to exactly these ports on LIVEKIT_NODE_IP. All media of every call is
+      # multiplexed on the one UDP port, so there is no port range to clash with.
+      - '${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}'
+      - '${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp'
+      - '${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp'
+      # TURN relay range, only used by callers behind strict NAT. Its default sits below
+      # 32768, the start of the ports Linux, macOS and Windows hand out to other programs,
+      # so it doesn't collide by chance. Change both ends in .env.
+      - '${LIVEKIT_TURN_RELAY_START:-30000}-${LIVEKIT_TURN_RELAY_END:-30100}:${LIVEKIT_TURN_RELAY_START:-30000}-${LIVEKIT_TURN_RELAY_END:-30100}/udp'
+
   mongo:
     image: mongo:7
     restart: unless-stopped
-    ports: ['127.0.0.1:27017:27017']
+    networks: [internal]
     volumes: [mongo-data:/data/db]
     healthcheck:
       test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.runCommand({ ping: 1 })']
@@ -25,7 +63,7 @@ services:
         '--maxmemory-policy',
         'volatile-lru',
       ]
-    ports: ['127.0.0.1:6379:6379']
+    networks: [internal]
     volumes: [redis-data:/data]
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
@@ -37,6 +75,7 @@ services:
     depends_on:
       mongo: { condition: service_healthy }
       redis: { condition: service_healthy }
+    networks: [internal]
     environment:
       NODE_ENV: production
       MONGO_URL: mongodb://mongo:27017
@@ -73,7 +112,6 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
     volumes: [recordings-spool:/recordings]
-    ports: ['${API_PORT:-4000}:4000']
 
   web:
     build:
@@ -85,26 +123,29 @@ services:
         NEXT_PUBLIC_RTC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     restart: unless-stopped
     depends_on: [api]
-    ports: ['${WEB_PORT:-3000}:3000']
+    networks: [internal]
 
   # Self-hosted SFU for voice/video calls and screen sharing (LiveKit, Apache-2.0).
   # Media goes browser/phone <-> this server only; no third-party media or STUN service is used.
-  # On a VPS set LIVEKIT_NODE_IP to the server's public IP and open the ports below.
-  # Every port is configurable in .env (LIVEKIT_*_PORT*). If `docker compose up` fails with
-  # "address already in use", another program holds one of them: run scripts/check-ports.sh
-  # and move the clashing range (see docs/deploy.md, "Port already in use").
+  # On a VPS set LIVEKIT_NODE_IP to the server's public IP and open the gateway's call ports.
+  # It runs inside the gateway's network (reachable as livekit:7880 on the internal network),
+  # so it publishes nothing itself. Every port is configurable in .env (LIVEKIT_*_PORT). If
+  # `docker compose up` fails with "address already in use", run scripts/check-ports.sh and
+  # move the clashing port (see docs/deploy.md, "Port already in use").
   # Behind a strict firewall, enable TURN/TLS (see docs/calls.md).
   livekit:
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
+    network_mode: service:gateway
+    depends_on: [gateway]
     environment:
       LIVEKIT_KEYS: '${LIVEKIT_API_KEY:-sampledge}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET}'
       LIVEKIT_CONFIG: |
         port: 7880
         rtc:
           tcp_port: ${LIVEKIT_TCP_PORT:-7881}
-          port_range_start: ${LIVEKIT_RTC_PORT_START:-50000}
-          port_range_end: ${LIVEKIT_RTC_PORT_END:-50100}
+          # One UDP port carries the media of every call (ICE/UDP mux).
+          udp_port: ${LIVEKIT_UDP_PORT:-7882}
           use_external_ip: false
           # Set LIVEKIT_NODE_IP to the host's real LAN/public IP. 127.0.0.1 only works for a
           # browser on this machine and breaks call recording (egress can't connect).
@@ -115,8 +156,9 @@ services:
         turn:
           enabled: true
           udp_port: ${LIVEKIT_TURN_PORT:-3478}
-          relay_range_start: ${LIVEKIT_TURN_RELAY_START:-50101}
-          relay_range_end: ${LIVEKIT_TURN_RELAY_END:-50200}
+          # Published by the gateway (see its ports).
+          relay_range_start: ${LIVEKIT_TURN_RELAY_START:-30000}
+          relay_range_end: ${LIVEKIT_TURN_RELAY_END:-30100}
         redis:
           address: redis:6379
         webhook:
@@ -124,14 +166,6 @@ services:
           urls: ['http://api:4000/v1/calls/livekit/webhook']
         logging:
           level: info
-    # Media ports are published on the same number inside and out, because LiveKit tells
-    # browsers and phones to connect to exactly these ports on LIVEKIT_NODE_IP.
-    ports:
-      - '${LIVEKIT_HTTP_PORT:-7880}:7880'
-      - '${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}'
-      - '${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp'
-      - '${LIVEKIT_RTC_PORT_START:-50000}-${LIVEKIT_RTC_PORT_END:-50100}:${LIVEKIT_RTC_PORT_START:-50000}-${LIVEKIT_RTC_PORT_END:-50100}/udp'
-      - '${LIVEKIT_TURN_RELAY_START:-50101}-${LIVEKIT_TURN_RELAY_END:-50200}:${LIVEKIT_TURN_RELAY_START:-50101}-${LIVEKIT_TURN_RELAY_END:-50200}/udp'
 
   # Self-hosted call/meeting recording (LiveKit Egress, Apache-2.0). Joins a call as a hidden
   # participant, renders the speaker layout (cameras + screen share) in its own headless Chrome
@@ -140,6 +174,7 @@ services:
     image: livekit/egress:v1.11.0
     restart: unless-stopped
     depends_on: [livekit, redis, recordings-init]
+    networks: [internal]
     cap_add: [SYS_ADMIN] # Chrome sandbox
     shm_size: 1g # Chrome needs more than Docker's default 64 MB /dev/shm
     environment:
@@ -157,101 +192,32 @@ services:
   recordings-init:
     image: alpine:3.22
     command: ['sh', '-c', 'chmod 0777 /recordings']
+    network_mode: none
     volumes: [recordings-spool:/recordings]
 
   # Test mailbox for trying guest invites without a real mail server (only with
   # `--profile mail-test`). Set SMTP_HOST=mailpit SMTP_PORT=1025
   # SMTP_FROM="SampConnect <meetings@example.test>" and read mail at http://localhost:8025.
-  # Nothing leaves this machine. Don't run it in production.
+  # Nothing leaves this machine. Don't run it in production; it is the one exception to "only
+  # the gateway publishes ports", on loopback only and never started without the profile.
   mailpit:
     image: axllent/mailpit:v1.27
     profiles: [mail-test]
     restart: unless-stopped
-    ports: ['127.0.0.1:8025:8025']
+    networks: [internal]
+    ports: ['127.0.0.1:${MAILPIT_PORT:-8025}:8025']
 
-  # ---- Jitsi Meet (optional second call engine, Apache-2.0), only with `--profile jitsi` ----
-  # Self-hosted, branded as SampConnect (deploy/jitsi): SampConnect logo and name, no Jitsi
-  # watermark or app promotion, no public STUN, gravatar or analytics. Every join is signed by
-  # the API (JWT), so nobody can open a room without SampConnect. After `up`, connect it in
-  # Admin → Integrations → Calls (Jitsi Meet): server URL = JITSI_PUBLIC_URL, app id and secret
-  # below. See docs/jitsi.md. Open TCP ${JITSI_HTTP_PORT:-8000} (behind your TLS proxy) and
-  # UDP ${JITSI_JVB_PORT:-10000}; set JITSI_ADVERTISE_IP to the server's public or LAN IP.
-  jitsi-web:
-    image: jitsi/web:stable-10314
-    profiles: [jitsi]
-    restart: unless-stopped
-    depends_on: [jitsi-prosody]
-    environment: &jitsi-env
-      PUBLIC_URL: ${JITSI_PUBLIC_URL:-http://localhost:8000}
-      TZ: ${TZ:-UTC}
-      XMPP_SERVER: xmpp.meet.jitsi
-      XMPP_DOMAIN: meet.jitsi
-      XMPP_AUTH_DOMAIN: auth.meet.jitsi
-      XMPP_MUC_DOMAIN: muc.meet.jitsi
-      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
-      XMPP_GUEST_DOMAIN: guest.meet.jitsi
-      XMPP_BOSH_URL_BASE: http://xmpp.meet.jitsi:5280
-      JVB_HOST: jitsi-jvb
-      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_PASSWORD:?set JITSI_JICOFO_PASSWORD (openssl rand -hex 16)}
-      JVB_AUTH_PASSWORD: ${JITSI_JVB_PASSWORD:?set JITSI_JVB_PASSWORD (openssl rand -hex 16)}
-      ENABLE_AUTH: '1'
-      AUTH_TYPE: jwt
-      ENABLE_GUESTS: '0'
-      JWT_APP_ID: ${JITSI_APP_ID:-sampconnect}
-      JWT_APP_SECRET: ${JITSI_APP_SECRET:?set JITSI_APP_SECRET (openssl rand -base64 48)}
-      JWT_ACCEPTED_ISSUERS: ${JITSI_APP_ID:-sampconnect}
-      JWT_ACCEPTED_AUDIENCES: ${JITSI_APP_ID:-sampconnect}
-      ENABLE_XMPP_WEBSOCKET: '1'
-      ENABLE_COLIBRI_WEBSOCKET: '1'
-      ENABLE_LETSENCRYPT: '0'
-      DISABLE_HTTPS: '1'
-      # Set JITSI_ENABLE_IPV6=0 on hosts without IPv6 (nginx won't start otherwise).
-      ENABLE_IPV6: ${JITSI_ENABLE_IPV6:-1}
-      ENABLE_HTTP_REDIRECT: '0'
-      ENABLE_P2P: 'false'
-      ENABLE_WELCOME_PAGE: 'false'
-      ENABLE_CLOSE_PAGE: 'false'
-      DISABLE_DEEP_LINKING: 'true'
-      ENABLE_PREJOIN_PAGE: 'false'
-      # Per-organization logo, colours and name inside the call, served by the API.
-      BRANDING_DATA_URL: ${PUBLIC_API_URL:-http://localhost:4000}/v1/calls/jitsi/branding
-      JVB_DISABLE_STUN: '1'
-      JVB_ADVERTISE_IPS: ${JITSI_ADVERTISE_IP:-127.0.0.1}
-      JVB_PORT: ${JITSI_JVB_PORT:-10000}
-    volumes:
-      - ./deploy/jitsi/custom-config.js:/config/custom-config.js:ro
-      - ./deploy/jitsi/custom-interface_config.js:/config/custom-interface_config.js:ro
-      - ./deploy/jitsi/title.html:/usr/share/jitsi-meet/title.html:ro
-      - ./deploy/jitsi/branding/sampconnect-wordmark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
-      - ./deploy/jitsi/branding/sampconnect-mark.svg:/usr/share/jitsi-meet/images/favicon.svg:ro
-      - ./deploy/jitsi/branding/sampconnect-logo.png:/usr/share/jitsi-meet/images/sampconnect-logo.png:ro
-      - ./deploy/jitsi/branding/sampconnect-logo.png:/usr/share/jitsi-meet/images/apple-touch-icon.png:ro
-    ports: ['${JITSI_HTTP_PORT:-8000}:80']
+  # Jitsi Meet (optional second call engine) lives in deploy/jitsi/docker-compose.jitsi.yml,
+  # so its secrets are only needed when you use it. See docs/jitsi.md.
 
-  jitsi-prosody:
-    image: jitsi/prosody:stable-10314
-    profiles: [jitsi]
-    restart: unless-stopped
-    expose: ['5222', '5280']
-    environment: *jitsi-env
-    networks:
-      default:
-        aliases: [xmpp.meet.jitsi]
-
-  jitsi-jicofo:
-    image: jitsi/jicofo:stable-10314
-    profiles: [jitsi]
-    restart: unless-stopped
-    depends_on: [jitsi-prosody]
-    environment: *jitsi-env
-
-  jitsi-jvb:
-    image: jitsi/jvb:stable-10314
-    profiles: [jitsi]
-    restart: unless-stopped
-    depends_on: [jitsi-prosody]
-    environment: *jitsi-env
-    ports: ['${JITSI_JVB_PORT:-10000}:${JITSI_JVB_PORT:-10000}/udp']
+networks:
+  internal: {}
+  # Your reverse proxy's network. Compose creates it when it doesn't exist yet. If your proxy
+  # already made one (`docker network create publicweb`), set PUBLIC_NETWORK_EXTERNAL=true so
+  # SampConnect joins it instead; PUBLIC_NETWORK picks another name.
+  publicweb:
+    name: ${PUBLIC_NETWORK:-publicweb}
+    external: ${PUBLIC_NETWORK_EXTERNAL:-false}
 
 volumes:
   mongo-data:

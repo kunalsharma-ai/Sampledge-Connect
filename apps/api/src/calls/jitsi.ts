@@ -2,7 +2,7 @@ import { SignJWT } from 'jose';
 import type { IntegrationValues } from '@sampledge/contracts';
 
 /**
- * A self-hosted Jitsi Meet server (deploy/jitsi, `docker compose --profile jitsi`), saved in
+ * A self-hosted Jitsi Meet server (deploy/jitsi/docker-compose.jitsi.yml), saved in
  * Integrations → Calls (Jitsi Meet). The API signs a short JWT for every join (prosody's
  * token_verification checks it), so a room can only be opened from SampConnect.
  *
@@ -133,7 +133,7 @@ export async function testJitsi(v: IntegrationValues): Promise<{ ok: boolean; me
     return {
       ok: false,
       message:
-        'meet.jit.si is Jitsi’s public server. It can’t check SampConnect sign-ins or show your logo, and anyone could join. Run your own server (docker compose --profile jitsi, see docs/jitsi.md) and enter its address.',
+        'meet.jit.si is Jitsi’s public server. It can’t check SampConnect sign-ins or show your logo, and anyone could join. Run your own server (deploy/jitsi/docker-compose.jitsi.yml, see docs/jitsi.md) and enter its address.',
     };
   const s = jitsiFromValues(v);
   if (!s) return { ok: false, message: 'Enter the server URL, app ID and app secret' };
