@@ -68,7 +68,7 @@ Arctic Professional (light), at desktop and phone size. Serious and critical iss
 `accessibility` CI job.
 
 ```bash
-WEB_URL=http://localhost:3000 API_URL=http://localhost:3000/api pnpm --filter @sampledge/web e2e
+WEB_URL=http://localhost:8080 API_URL=http://localhost:8080/api pnpm --filter @sampledge/web e2e
 ```
 
 Fixed for launch:

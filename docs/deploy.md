@@ -89,8 +89,9 @@ port 80 inside Docker, and your reverse proxy reaches it over the `publicweb` ne
   default `PUBLIC_WEB_URL`. Don't use it in production.
 - For local development, `docker compose -f docker-compose.dev.yml up -d` starts MongoDB and
   Redis on `127.0.0.1` (ports `MONGO_PORT`, `REDIS_PORT`) without touching the full stack. With
-  `pnpm dev`, the web dev server forwards `/api/**` to the API on `localhost:4000`, so it is one
-  origin there too.
+  `pnpm dev`, run `node scripts/dev-gateway.mjs` and open `http://localhost:8080`: it plays the
+  gateway's part (`/api/**` and its WebSocket to the API on :4000, the rest to the web app on
+  :3000), so development is one origin too.
 
 ### Port already in use
 
