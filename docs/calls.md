@@ -60,6 +60,9 @@ LiveKit container reads.
 
 Open these ports on the server: TCP 7880 (signalling, put it behind your TLS reverse proxy as `wss://`),
 TCP 7881, UDP 3478 (TURN), UDP 50000–50200 (media and TURN relay).
+These are the defaults; each one can be changed in `.env` (`LIVEKIT_TCP_PORT`, `LIVEKIT_TURN_PORT`,
+`LIVEKIT_RTC_PORT_START`/`END`, `LIVEKIT_TURN_RELAY_START`/`END`) when another program already uses it.
+See "Port already in use" in [deploy.md](deploy.md).
 
 Browsers only allow camera and microphone on `https://` (or `localhost`), so production needs TLS on both
 the web app and the SFU URL. For networks that block UDP entirely, enable LiveKit's TURN/TLS on 443 with your
