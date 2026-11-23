@@ -27,6 +27,8 @@ import {
 import { Track, type Participant } from 'livekit-client';
 import {
   formatCallDuration,
+  isJitsiLeftEvent,
+  readJitsiMessage,
   type Call,
   type CallSystemMetadata,
   type Conversation,
@@ -58,7 +60,7 @@ export function CallButtons({
 }) {
   const calls = useCalls();
   const enabled = calls.config?.enabled ?? false;
-  const inThis = calls.current?.call.conversationId === conversation.conversationId;
+  const inThis = calls.inCall?.conversationId === conversation.conversationId;
   const reason = !calls.config
     ? 'Checking call setup…'
     : !enabled
@@ -115,7 +117,7 @@ export function LiveCallBanner({
 }) {
   const calls = useCalls();
   const call = calls.live.get(conversation.conversationId);
-  if (!call || calls.current?.call.callId === call.callId) return null;
+  if (!call || calls.inCall?.callId === call.callId) return null;
   const joined = joinedOf(call);
   return (
     <div className="flex items-center gap-3 border-b border-success/25 bg-success/10 px-4 py-2 sm:px-6">
@@ -755,6 +757,226 @@ export function CallStage({
 }
 
 /**
+ * A call on the organization's Jitsi Meet server, inside SampConnect. Jitsi (branded as
+ * SampConnect with the organization's logo and colours) draws the call; around it SampConnect
+ * keeps the title, the lobby for outside guests, the conversation's chat, minimize, leave and
+ * end for everyone. Minimizing hides the frame without unloading it, so the call goes on.
+ */
+export function JitsiCallStage({
+  conversations,
+  me,
+  directory,
+  onOpenConversation,
+}: {
+  conversations: Conversation[];
+  me: string;
+  directory: Map<string, DirectoryEntry>;
+  onOpenConversation: (conversationId: string) => void;
+}) {
+  const calls = useCalls();
+  const reduce = useReducedMotion();
+  const j = calls.jitsi;
+  const frame = React.useRef<HTMLIFrameElement>(null);
+  const [loaded, setLoaded] = React.useState(false);
+  const [chatOpen, setChatOpen] = React.useState(false);
+  const [confirmEnd, setConfirmEnd] = React.useState(false);
+  const elapsed = useElapsed(j?.call.startedAt ?? new Date().toISOString());
+  const url = j?.join.url ?? null;
+  const leaveRef = React.useRef(calls.leave);
+  leaveRef.current = calls.leave;
+
+  React.useEffect(() => {
+    setLoaded(false);
+    setChatOpen(false);
+    setConfirmEnd(false);
+  }, [url]);
+
+  // The Jitsi page talks to us over postMessage: answer its handshake, and leave the call
+  // when the person presses Jitsi's own hang-up button.
+  React.useEffect(() => {
+    if (!url) return;
+    const origin = new URL(url).origin;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== origin || e.source !== frame.current?.contentWindow) return;
+      const { reply, event } = readJitsiMessage(e.data);
+      if (reply) frame.current?.contentWindow?.postMessage(reply, origin);
+      if (isJitsiLeftEvent(event)) void leaveRef.current();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [url]);
+
+  if (!j) return null;
+  const { call } = j;
+  const conv = conversations.find((c) => c.conversationId === call.conversationId);
+  const title = conv ? conversationTitle(conv, me, directory) : 'Call';
+  const inRoom =
+    joinedOf(call).length + (call.guests ?? []).filter((g) => g.state === 'joined').length;
+  const ringing = call.participants.filter((p) => p.state === 'ringing').length;
+  const canEndForAll =
+    call.startedBy === me || conv?.myRole === 'owner' || conv?.myRole === 'moderator';
+  const statusLine = !loaded
+    ? 'Connecting…'
+    : inRoom <= 1 && ringing
+      ? `Ringing ${ringing} ${ringing === 1 ? 'person' : 'people'}…`
+      : elapsed;
+
+  return (
+    <>
+      {j.minimized ? (
+        <motion.div
+          initial={reduce ? false : { opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed bottom-20 right-4 z-[60] flex items-center gap-3 rounded-full border border-border-strong bg-[#0b1220]/95 py-2 pl-4 pr-2 text-white shadow-2xl backdrop-blur md:bottom-6"
+          data-testid="call-pill"
+        >
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-success" />
+          </span>
+          <button
+            className="min-w-0 text-left"
+            onClick={() => calls.setMinimized(false)}
+            aria-label="Return to call"
+          >
+            <p className="max-w-40 truncate text-label">{title}</p>
+            <p className="text-meta text-white/70">
+              {statusLine}
+              {call.lobby?.length ? (
+                <span className="font-semibold text-warning"> · {call.lobby.length} in lobby</span>
+              ) : null}
+            </p>
+          </button>
+          <button
+            onClick={() => calls.setMinimized(false)}
+            aria-label="Expand call"
+            className="flex size-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
+          >
+            <Maximize2 className="size-4" />
+          </button>
+          <button
+            onClick={() => void calls.leave()}
+            aria-label="Leave call"
+            className="flex size-9 items-center justify-center rounded-full bg-danger hover:opacity-90"
+          >
+            <PhoneOff className="size-4" />
+          </button>
+        </motion.div>
+      ) : null}
+      <div
+        className={cn(
+          'fixed inset-0 z-[60] flex flex-col bg-[#080F1F] text-white',
+          // Hidden, not unmounted: the frame keeps the call (and its audio) going.
+          j.minimized && 'pointer-events-none invisible',
+        )}
+        role="dialog"
+        aria-label={`Call in ${title}`}
+        aria-hidden={j.minimized || undefined}
+        data-testid="jitsi-call-stage"
+      >
+        <header className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-display text-h3">{title}</p>
+            <p className="flex items-center gap-2 text-meta text-white/70">
+              <span data-testid="call-status">{statusLine}</span>
+              <span aria-hidden>·</span>
+              <Users className="size-3.5" /> {Math.max(inRoom, 1)}
+            </p>
+          </div>
+          <span className="hidden rounded-full border border-white/15 px-2.5 py-1 text-meta text-white/70 sm:inline">
+            Jitsi Meet · your own server
+          </span>
+          <Tooltip content={chatOpen ? 'Hide chat' : 'Chat with the conversation'}>
+            <button
+              onClick={() => setChatOpen((o) => !o)}
+              aria-label={chatOpen ? 'Hide chat' : 'Chat'}
+              className={cn(
+                'rounded-md p-2 text-white/80 hover:bg-white/10',
+                chatOpen && 'bg-white/10 text-white',
+              )}
+            >
+              <MessageSquare className="size-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Back to chat (keep the call going)">
+            <button
+              onClick={() => {
+                calls.setMinimized(true);
+                onOpenConversation(call.conversationId);
+              }}
+              aria-label="Minimize call"
+              className="rounded-md p-2 text-white/80 hover:bg-white/10"
+            >
+              <Minimize2 className="size-4" />
+            </button>
+          </Tooltip>
+          {canEndForAll ? (
+            confirmEnd ? (
+              <Button
+                size="sm"
+                className="bg-danger text-white hover:bg-danger/90"
+                onClick={() => void calls.endForAll()}
+              >
+                End for everyone?
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-white/80 hover:bg-white/10 hover:text-white"
+                onClick={() => setConfirmEnd(true)}
+              >
+                End for all
+              </Button>
+            )
+          ) : null}
+          <Button
+            size="sm"
+            className="bg-danger text-white hover:bg-danger/90"
+            onClick={() => void calls.leave()}
+          >
+            <PhoneOff /> Leave
+          </Button>
+        </header>
+        <LobbyPanel call={call} onDecide={(id, allow) => void calls.decideGuest(id, allow)} />
+        <div className="relative flex min-h-0 flex-1 gap-3 p-2 sm:p-3">
+          <div className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black">
+            {!loaded ? (
+              <p className="absolute inset-0 flex items-center justify-center text-meta text-white/60">
+                Connecting to your call server…
+              </p>
+            ) : null}
+            <iframe
+              ref={frame}
+              key={url}
+              src={url ?? undefined}
+              title={`Call in ${title}`}
+              onLoad={() => setLoaded(true)}
+              allow="camera; microphone; display-capture; fullscreen; autoplay; clipboard-write; speaker-selection"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              className="absolute inset-0 size-full border-0"
+              data-testid="jitsi-frame"
+            />
+          </div>
+          {chatOpen ? (
+            <div className="absolute inset-3 z-10 flex sm:static sm:inset-auto">
+              <MemberCallChat
+                conversationId={call.conversationId}
+                since={call.startedAt}
+                me={me}
+                directory={directory}
+                onClose={() => setChatOpen(false)}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
  * External guests waiting to be let in. Everyone in the call sees it and anyone can decide;
  * the first answer wins and the list updates for everyone.
  */
@@ -879,7 +1101,7 @@ export function CallCard({
   const media = meta.media === 'video' ? 'Video' : 'Voice';
   const live = calls.live.get(message.conversationId);
   const isLive = meta.status === 'started' && live?.callId === meta.callId;
-  const inIt = calls.current?.call.callId === meta.callId;
+  const inIt = calls.inCall?.callId === meta.callId;
   const starter = meta.startedBy === me ? 'You' : nameOf(meta.startedBy, directory).split(' ')[0];
   const Icon =
     meta.status === 'missed' || meta.status === 'declined'

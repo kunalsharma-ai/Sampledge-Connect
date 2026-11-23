@@ -360,6 +360,8 @@ export interface CallParticipantDoc {
   leftAt: Date | null;
   /** When a `ringing` invite turns into `missed`. */
   ringUntil: Date | null;
+  /** Jitsi calls: the last "still here" from this person's app. */
+  seenAt?: Date | null;
 }
 
 export interface CallDoc extends TenantOwned {
@@ -371,6 +373,8 @@ export interface CallDoc extends TenantOwned {
   endedAt: Date | null;
   /** SFU room name. Embeds the tenant and call ids, so tokens can never cross tenants. */
   room: string;
+  /** Media engine (missing on calls from before Jitsi support: livekit). */
+  engine?: 'livekit' | 'jitsi';
   participants: CallParticipantDoc[];
   /** The system message (call card) this call posted in its conversation. */
   messageId: string | null;
@@ -403,6 +407,8 @@ export interface CallGuestDoc {
   decidedBy: string;
   joinedAt: Date | null;
   leftAt: Date | null;
+  /** Jitsi calls: the last "still here" from the guest's page. */
+  seenAt?: Date | null;
 }
 
 export interface CallRecordingDoc {

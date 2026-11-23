@@ -179,6 +179,51 @@ export const CORE_INTEGRATION_PROVIDERS: IntegrationProviderDef[] = [
     ],
   },
   {
+    id: 'jitsi',
+    label: 'Calls (Jitsi Meet)',
+    description:
+      'Your own Jitsi Meet server, branded as SampConnect with your logo and colours, as the call engine. Every join is signed, so only SampConnect can open a room.',
+    category: 'calls',
+    scopes: ['tenant', 'platform'],
+    testable: true,
+    fields: [
+      {
+        key: 'serverUrl',
+        label: 'Server URL',
+        type: 'url',
+        required: true,
+        placeholder: 'https://meet.example.com',
+        help: 'The address of your Jitsi Meet server (JITSI_PUBLIC_URL). The public meet.jit.si can’t be used: it can’t check SampConnect sign-ins or show your branding.',
+      },
+      {
+        key: 'appId',
+        label: 'App ID',
+        type: 'string',
+        required: true,
+        default: 'sampconnect',
+        help: 'JWT_APP_ID on the Jitsi server (JITSI_APP_ID in docker-compose).',
+      },
+      {
+        key: 'appSecret',
+        label: 'App secret',
+        type: 'secret',
+        required: true,
+        help: 'JWT_APP_SECRET on the Jitsi server (JITSI_APP_SECRET in docker-compose).',
+      },
+      {
+        key: 'use',
+        label: 'Use Jitsi Meet for',
+        type: 'select',
+        default: 'all',
+        options: [
+          { value: 'all', label: 'Every call and meeting' },
+          { value: 'fallback', label: 'Only when LiveKit isn’t set up' },
+        ],
+        help: 'Calls already in progress keep the engine they started on.',
+      },
+    ],
+  },
+  {
     id: 'sms',
     label: 'Text messages (SMS)',
     description:

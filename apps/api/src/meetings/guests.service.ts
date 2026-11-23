@@ -552,6 +552,23 @@ export class GuestsService {
     return none('waiting', call);
   }
 
+  /**
+   * Jitsi calls: the guest's page says it is still in the call (every 20 s). Answers whether
+   * the guest may stay, so a guest whose invite was withdrawn leaves the call.
+   */
+  async presence(
+    token: string,
+  ): Promise<{ state: 'in_call' | 'denied' | 'not_admitted' | 'ended' }> {
+    const { meeting: m, guest: g } = await this.resolve(token);
+    const call = await this.calls.liveCall(m.tenantId, m.conversationId);
+    if (!call) return { state: 'ended' };
+    const me = call.guests?.find((x) => x.guestId === g.guestId);
+    if (!me) return { state: 'not_admitted' };
+    if (me.state === 'denied') return { state: 'denied' };
+    await this.calls.guestPresence(m.tenantId, call, g.guestId);
+    return { state: 'in_call' };
+  }
+
   async leaveLobby(token: string): Promise<void> {
     const { meeting: m, guest: g } = await this.resolve(token);
     const call = await this.calls.liveCall(m.tenantId, m.conversationId);

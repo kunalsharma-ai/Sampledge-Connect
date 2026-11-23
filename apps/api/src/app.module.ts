@@ -76,6 +76,7 @@ import { StatusController } from './directory/status.controller.js';
 import { ScheduledMessagesController } from './scheduled/scheduled-messages.controller.js';
 import { ScheduledMessagesService } from './scheduled/scheduled-messages.service.js';
 import { CallsController } from './calls/calls.controller.js';
+import { JitsiBrandingController } from './calls/jitsi-branding.controller.js';
 import { CallsService } from './calls/calls.service.js';
 import { MeetingsController } from './meetings/meetings.controller.js';
 import { GuestsController } from './meetings/guests.controller.js';
@@ -188,6 +189,7 @@ export class AppModule {
         StatusController,
         ScheduledMessagesController,
         CallsController,
+        JitsiBrandingController,
         CallBackgroundsController,
         MeetingsController,
         GuestsController,

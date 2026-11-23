@@ -35,6 +35,7 @@ const PUBLIC = new Set([
   'POST /v1/billing/stripe/webhook', // Stripe signature
   'GET /v1/branding/public/:slug', // sign-in page branding
   'POST /v1/calls/livekit/webhook', // LiveKit signature
+  'GET /v1/calls/jitsi/branding', // Jitsi page restyle: name, logo, colours (public anyway)
   'POST /v1/connectors/webhooks/:key', // provider signature; unknown keys answer 404
   'GET /v1/connectors/webhooks/:key', // WeChat URL verification (signed query)
   'GET /v1/files/:tenantId/:id', // signed, expiring URL
@@ -57,6 +58,7 @@ const PUBLIC = new Set([
   'GET /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby',
   'POST /v1/guest/:token/lobby/leave',
+  'POST /v1/guest/:token/presence',
   'POST /v1/guest/:token/rsvp',
 ]);
 

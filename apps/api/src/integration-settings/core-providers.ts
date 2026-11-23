@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { LiveKitClient } from '../calls/livekit.js';
 import { IntegrationSettingsService } from './integration-settings.service.js';
 import { testSms } from './sms.js';
+import { testJitsi } from '../calls/jitsi.js';
 
 /**
  * Connection tests and legacy env fallbacks for the core providers declared in
@@ -47,6 +48,8 @@ export class CoreIntegrationHooks implements OnModuleInit {
     });
 
     this.settings.attach('sms', { test: (v) => testSms(v) });
+
+    this.settings.attach('jitsi', { test: (v) => testJitsi(v) });
 
     this.settings.attach('livekit', {
       envFallback: (cfg) =>
