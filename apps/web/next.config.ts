@@ -15,11 +15,12 @@ const api = origins(process.env.NEXT_PUBLIC_API_URL);
 const rtc = origins(process.env.NEXT_PUBLIC_RTC_URL);
 /**
  * Without the gateway (`pnpm dev`, CI) the API runs on its own port. Requests to /api/** are
- * then forwarded to it by this server, so the browser still sees one origin.
+ * then forwarded to it by this server, so the browser still sees one origin. Rewrites are
+ * fixed at build time, so set API_PROXY_TARGET for `next build` (CI does).
  */
 const apiProxy =
   process.env.API_PROXY_TARGET ??
-  (process.env.NODE_ENV === 'development' ? 'http://localhost:4000' : '');
+  (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:4000' : '');
 
 /** Security headers. Messages are rendered as text, never HTML. */
 const csp = [
