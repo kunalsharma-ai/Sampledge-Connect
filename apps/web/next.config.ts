@@ -19,6 +19,9 @@ const csp = [
   `connect-src 'self' ${api} ${apiWs} ${rtc} ${rtcHttp}`,
   `media-src 'self' blob: mediastream: ${api}`,
   "worker-src 'self'",
+  // Jitsi Meet calls show the organization's own Jitsi server in a frame. Its address is saved
+  // in Integrations (database), so it can't be listed here at build time; https is required.
+  `frame-src 'self' https:${process.env.NODE_ENV === 'development' ? ' http://localhost:* http://127.0.0.1:*' : ''}`,
   "manifest-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
@@ -45,9 +48,18 @@ const config: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
+            // `*` lets the Jitsi frame (only frames allowed by frame-src above) ask for the
+            // camera and microphone; the browser still asks the person.
+            value:
+              'camera=*, microphone=*, display-capture=*, fullscreen=*, speaker-selection=*, geolocation=()',
           },
         ],
+      },
+      {
+        // Jitsi calls offer SampConnect's photo backgrounds and draw them on a canvas, which
+        // needs CORS on the images.
+        source: '/backgrounds/:path*',
+        headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }],
       },
       {
         // A guest's link token is in the path: never send it to other sites.

@@ -8,9 +8,11 @@ import {
   VideoPresets,
   type Participant,
 } from 'livekit-client';
-import type {
-  Call,
-  CallJoinResponse,
+import {
+  JITSI_PRESENCE_EVERY_SECONDS,
+  type Call,
+  type CallJoin,
+  type CallJoinResponse,
   CallMedia,
   CallRingingEvent,
   CallsConfig,
@@ -32,12 +34,27 @@ export interface CurrentCall {
   error: string | null;
 }
 
+/**
+ * A call on the organization's Jitsi Meet server: the server's record plus the signed page to
+ * show. Jitsi draws the call itself (in an iframe); SampConnect keeps the record, ringing,
+ * lobby and chat.
+ */
+export interface JitsiCall {
+  call: Call;
+  join: CallJoin;
+  minimized: boolean;
+}
+
 interface CallsContextValue {
   config: CallsConfig | null;
   /** Live calls by conversation id (for "Join" banners). */
   live: Map<string, Call>;
   incoming: CallRingingEvent | null;
   current: CurrentCall | null;
+  /** The Jitsi Meet call this tab is in (instead of `current`), if any. */
+  jitsi: JitsiCall | null;
+  /** The call this tab is in, whichever engine it runs on. */
+  inCall: Call | null;
   /** Last error from start/join, shown as a toast. */
   error: string | null;
   clearError(): void;
@@ -91,6 +108,9 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
   const [live, setLive] = React.useState<Map<string, Call>>(new Map());
   const [incoming, setIncoming] = React.useState<CallRingingEvent | null>(null);
   const [current, setCurrent] = React.useState<CurrentCall | null>(null);
+  const [jitsi, setJitsi] = React.useState<JitsiCall | null>(null);
+  const jitsiRef = React.useRef<JitsiCall | null>(null);
+  jitsiRef.current = jitsi;
   const [error, setError] = React.useState<string | null>(null);
   const currentRef = React.useRef<CurrentCall | null>(null);
   currentRef.current = current;
@@ -152,11 +172,23 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     const c = currentRef.current;
     currentRef.current = null;
     setCurrent(null);
+    // Jitsi: unmounting the iframe ends this tab's media.
+    jitsiRef.current = null;
+    setJitsi(null);
     if (c) await c.room.disconnect().catch(() => undefined);
   }, []);
 
   const connectTo = React.useCallback(
     async (res: CallJoinResponse, video: boolean) => {
+      if (res.join.engine === 'jitsi') {
+        await disconnectRoom();
+        const next: JitsiCall = { call: res.call, join: res.join, minimized: false };
+        jitsiRef.current = next;
+        setJitsi(next);
+        return;
+      }
+      jitsiRef.current = null;
+      setJitsi(null);
       await currentRef.current?.room.disconnect().catch(() => undefined);
       const dev = deviceOptions();
       const room = new Room({
@@ -281,7 +313,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
   );
 
   const leave = React.useCallback(async () => {
-    const c = currentRef.current;
+    const c = currentRef.current ?? jitsiRef.current;
     await disconnectRoom();
     if (c) {
       const call = await req<Call>('POST', `/v1/calls/${c.call.callId}/leave`).catch(() => null);
@@ -290,13 +322,24 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
   }, [disconnectRoom, req, upsertLive]);
 
   const endForAll = React.useCallback(async () => {
-    const c = currentRef.current;
+    const c = currentRef.current ?? jitsiRef.current;
     await disconnectRoom();
     if (c) {
       const call = await req<Call>('POST', `/v1/calls/${c.call.callId}/end`).catch(() => null);
       if (call) upsertLive(call);
     }
   }, [disconnectRoom, req, upsertLive]);
+
+  // Jitsi calls: the Jitsi server doesn't tell SampConnect who is in a room, so the app says
+  // "still here" every 20 s. A closed tab stops, and the others see this person leave.
+  const jitsiCallId = jitsi?.call.callId ?? null;
+  React.useEffect(() => {
+    if (!jitsiCallId) return;
+    const ping = () => void req('POST', `/v1/calls/${jitsiCallId}/presence`).catch(() => undefined);
+    ping();
+    const t = setInterval(ping, JITSI_PRESENCE_EVERY_SECONDS * 1000);
+    return () => clearInterval(t);
+  }, [jitsiCallId, req]);
 
   // Live events: ringing, joins/leaves, call ended.
   React.useEffect(
@@ -305,13 +348,18 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
         if (e.type === 'ringing') {
           upsertLive(e.ringing.call);
           // Don't ring for a call this tab is already in (answered on this device).
-          if (currentRef.current?.call.callId !== e.ringing.call.callId) setIncoming(e.ringing);
+          const here = currentRef.current?.call.callId ?? jitsiRef.current?.call.callId;
+          if (here !== e.ringing.call.callId) setIncoming(e.ringing);
           return;
         }
         upsertLive(e.call);
         if (currentRef.current?.call.callId === e.call.callId) {
           if (e.type === 'ended') void disconnectRoom();
           else setCurrent((c) => (c ? { ...c, call: e.call } : c));
+        }
+        if (jitsiRef.current?.call.callId === e.call.callId) {
+          if (e.type === 'ended') void disconnectRoom();
+          else setJitsi((j) => (j ? { ...j, call: e.call } : j));
         }
         setIncoming((i) => {
           if (!i || i.call.callId !== e.call.callId) return i;
@@ -396,7 +444,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
 
   const decideGuest = React.useCallback(
     async (guestId: string, allow: boolean) => {
-      const c = currentRef.current;
+      const c = currentRef.current ?? jitsiRef.current;
       if (!c) return;
       try {
         const call = await req<Call>(
@@ -404,6 +452,7 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
           `/v1/calls/${c.call.callId}/lobby/${guestId}/${allow ? 'admit' : 'deny'}`,
         );
         setCurrent((x) => (x && x.call.callId === call.callId ? { ...x, call } : x));
+        setJitsi((x) => (x && x.call.callId === call.callId ? { ...x, call } : x));
       } catch (e) {
         bump({ error: messageOf(e) });
       }
@@ -425,6 +474,8 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     live,
     incoming,
     current,
+    jitsi,
+    inCall: current?.call ?? jitsi?.call ?? null,
     error,
     clearError: () => setError(null),
     start,
@@ -432,7 +483,10 @@ export function CallsProvider({ children }: { children: React.ReactNode }) {
     decline,
     leave,
     endForAll,
-    setMinimized: (m) => setCurrent((c) => (c ? { ...c, minimized: m } : c)),
+    setMinimized: (m) => {
+      setCurrent((c) => (c ? { ...c, minimized: m } : c));
+      setJitsi((j) => (j ? { ...j, minimized: m } : j));
+    },
     toggleMic,
     toggleCamera,
     toggleScreenShare,

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { guestIdentity, isGuestIdentity } from '@sampledge/contracts';
+import { JITSI_PRESENCE_EVERY_SECONDS, guestIdentity, isGuestIdentity } from '@sampledge/contracts';
 import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CallVideo } from '../../calls/CallVideo';
 import { CameraEffects } from '../../calls/CameraEffects';
+import { JitsiCallView } from '../../calls/JitsiCallView';
 import { useCallMedia, type CallTile } from '../../calls/useCallMedia';
 import { useLiveCaptions } from '../../calls/useLiveCaptions';
 import { Avatar, PersonAvatar } from '../../components/Avatar';
@@ -48,7 +49,9 @@ export default function CallScreen() {
   const [now, setNow] = useState(Date.now());
   const leaving = useRef(false);
 
-  const media = useCallMedia(call?.join ?? null, call?.media ?? 'audio', {
+  // Jitsi Meet calls are drawn by the organization's Jitsi server in a WebView instead.
+  const isJitsi = call?.join.engine === 'jitsi';
+  const media = useCallMedia(isJitsi ? null : (call?.join ?? null), call?.media ?? 'audio', {
     onTokenExpired: () => engine.calls.rejoin(),
   });
   const captions = useLiveCaptions(media.room, {
@@ -95,6 +98,14 @@ export default function CallScreen() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Jitsi calls: tell SampConnect we're still here (the Jitsi server can't).
+  useEffect(() => {
+    if (!isJitsi) return;
+    void engine.calls.presence();
+    const t = setInterval(() => void engine.calls.presence(), JITSI_PRESENCE_EVERY_SECONDS * 1000);
+    return () => clearInterval(t);
+  }, [isJitsi, engine]);
 
   // People in the room, then people still being rung.
   const tiles = useMemo(() => {
@@ -179,6 +190,90 @@ export default function CallScreen() {
     leaving.current = true;
     await (forAll ? engine.calls.endForAll() : engine.calls.leave());
   };
+
+  const lobbyView = lobby.length ? (
+    <View
+      style={[styles.lobby, { borderColor: alpha(c.warning, 0.5) }]}
+      accessibilityLabel={`${lobby.length} waiting in the lobby`}
+      accessibilityLiveRegion="polite"
+    >
+      <Text variant="label" style={{ color: '#FDE68A' }}>
+        Waiting in the lobby · {lobby.length}
+      </Text>
+      {lobby.map((g) => (
+        <View key={g.guestId} style={styles.lobbyRow}>
+          <Avatar name={g.name} size={34} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text variant="bodyStrong" numberOfLines={1} style={{ color: '#FFFFFF' }}>
+              {g.name}
+            </Text>
+            <Text variant="meta" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.65)' }}>
+              Guest from outside · {g.email}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => void decide(g.guestId, 'deny')}
+            disabled={!!deciding}
+            accessibilityRole="button"
+            accessibilityLabel={`Deny ${g.name}`}
+            style={[styles.lobbyBtn, { backgroundColor: alpha('#FFFFFF', 0.14) }]}
+          >
+            <Text variant="label" style={{ color: '#FFFFFF' }}>
+              {deciding === `deny:${g.guestId}` ? '…' : 'Deny'}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void decide(g.guestId, 'admit')}
+            disabled={!!deciding}
+            accessibilityRole="button"
+            accessibilityLabel={`Admit ${g.name}`}
+            style={[styles.lobbyBtn, { backgroundColor: c.accent }]}
+          >
+            <Text variant="label" style={{ color: c.onAccent }}>
+              {deciding === `admit:${g.guestId}` ? '…' : 'Admit'}
+            </Text>
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  ) : null;
+
+  if (isJitsi)
+    return (
+      <View style={[styles.fill, { backgroundColor: '#080F1F', paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Text variant="heading" numberOfLines={1} style={{ color: '#FFFFFF' }}>
+            {title}
+          </Text>
+          <Text variant="meta" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            {call.media === 'video' ? 'Video call' : 'Voice call'} ·{' '}
+            {othersJoined
+              ? formatDuration((now - new Date(call.call.startedAt).getTime()) / 1000)
+              : 'Ringing…'}{' '}
+            · Jitsi Meet
+          </Text>
+        </View>
+        {lobbyView}
+        <JitsiCallView url={call.join.url} onLeft={() => void leave()} />
+        <View style={[styles.controls, { paddingBottom: insets.bottom + space.md }]}>
+          <Control
+            icon="chatbubble-ellipses"
+            label={chatUnread ? `Chat · ${chatUnread}` : 'Chat'}
+            active={chatUnread > 0}
+            onPress={openChat}
+          />
+          <Control icon="call" label="Leave" danger onPress={() => void leave()} />
+          {canEnd ? (
+            <Control
+              icon="stop-circle"
+              label="End for all"
+              danger
+              onPress={() => void leave(true)}
+            />
+          ) : null}
+        </View>
+      </View>
+    );
 
   return (
     <View style={[styles.fill, { backgroundColor: '#05070D', paddingTop: insets.top }]}>
@@ -265,52 +360,7 @@ export default function CallScreen() {
           </Text>
         ) : null}
       </ScrollView>
-      {lobby.length ? (
-        <View
-          style={[styles.lobby, { borderColor: alpha(c.warning, 0.5) }]}
-          accessibilityLabel={`${lobby.length} waiting in the lobby`}
-          accessibilityLiveRegion="polite"
-        >
-          <Text variant="label" style={{ color: '#FDE68A' }}>
-            Waiting in the lobby · {lobby.length}
-          </Text>
-          {lobby.map((g) => (
-            <View key={g.guestId} style={styles.lobbyRow}>
-              <Avatar name={g.name} size={34} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text variant="bodyStrong" numberOfLines={1} style={{ color: '#FFFFFF' }}>
-                  {g.name}
-                </Text>
-                <Text variant="meta" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.65)' }}>
-                  Guest from outside · {g.email}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => void decide(g.guestId, 'deny')}
-                disabled={!!deciding}
-                accessibilityRole="button"
-                accessibilityLabel={`Deny ${g.name}`}
-                style={[styles.lobbyBtn, { backgroundColor: alpha('#FFFFFF', 0.14) }]}
-              >
-                <Text variant="label" style={{ color: '#FFFFFF' }}>
-                  {deciding === `deny:${g.guestId}` ? '…' : 'Deny'}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void decide(g.guestId, 'admit')}
-                disabled={!!deciding}
-                accessibilityRole="button"
-                accessibilityLabel={`Admit ${g.name}`}
-                style={[styles.lobbyBtn, { backgroundColor: c.accent }]}
-              >
-                <Text variant="label" style={{ color: c.onAccent }}>
-                  {deciding === `admit:${g.guestId}` ? '…' : 'Admit'}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      {lobbyView}
       {audioOpen ? (
         <View
           style={[styles.lobby, { borderColor: alpha('#FFFFFF', 0.18) }]}

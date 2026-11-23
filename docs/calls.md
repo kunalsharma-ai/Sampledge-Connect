@@ -1,5 +1,7 @@
 # Voice and video calls
 
+> Calls can also run on your own Jitsi Meet server, branded as SampConnect: see [jitsi.md](jitsi.md).
+
 Calls run entirely on infrastructure you host. There is no third-party media, signalling, STUN or TURN service.
 
 ## How it works

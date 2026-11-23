@@ -149,7 +149,13 @@ export const GuestJoinStateSchema = z.object({
   captionsSaved: z.boolean().optional(),
   /** Same shape as CallJoin (kept local: calls.ts imports this file). */
   join: z
-    .object({ url: z.string(), token: z.string(), expiresAt: z.string().datetime() })
+    .object({
+      /** livekit (default) or jitsi: then `url` is the Jitsi page to show. */
+      engine: z.enum(['livekit', 'jitsi']).optional(),
+      url: z.string(),
+      token: z.string(),
+      expiresAt: z.string().datetime(),
+    })
     .nullable(),
 });
 export type GuestJoinState = z.infer<typeof GuestJoinStateSchema>;

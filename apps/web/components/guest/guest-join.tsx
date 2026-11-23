@@ -42,6 +42,11 @@ import { deviceOptions } from '@/lib/call-devices';
 import { ApiFailure, apiRequest, postCaptionClip } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { screenTrackOf } from '@/lib/calls';
+import {
+  JITSI_PRESENCE_EVERY_SECONDS,
+  isJitsiLeftEvent,
+  readJitsiMessage,
+} from '@sampledge/contracts';
 
 const POLL_MS = 3000;
 const EMPTY_DIRECTORY = new Map();
@@ -58,6 +63,7 @@ type Phase =
   | { kind: 'details' }
   | { kind: 'asking' } // pressed Join: polling the lobby
   | { kind: 'in-call'; room: Room }
+  | { kind: 'in-jitsi'; url: string } // the organization's Jitsi Meet server draws the call
   | { kind: 'left'; reason: 'left' | 'ended' | 'removed' };
 
 function useGuestApi(token: string) {
@@ -78,6 +84,11 @@ function useGuestApi(token: string) {
       sendChat: (text: string) =>
         apiRequest<GuestChatResponse>('POST', `${base}/chat`, { body: { text } }),
       caption: (clip: Blob) => postCaptionClip(`${base}/captions`, clip),
+      presence: () =>
+        apiRequest<{ state: 'in_call' | 'denied' | 'not_admitted' | 'ended' }>(
+          'POST',
+          `${base}/presence`,
+        ),
       icsUrl: `${API_URL}${base}/calendar.ics`,
     };
   }, [token]);
@@ -134,9 +145,12 @@ export function GuestJoin({ token }: { token: string }) {
         setState(s);
         if (phase.kind === 'asking' && s.state === 'admitted' && s.join) {
           await connect(s.join);
-        } else if (phase.kind === 'in-call' && s.state !== 'admitted') {
+        } else if (
+          (phase.kind === 'in-call' || phase.kind === 'in-jitsi') &&
+          s.state !== 'admitted'
+        ) {
           setPhase({ kind: 'left', reason: s.state === 'denied' ? 'removed' : 'ended' });
-          phase.room.disconnect();
+          if (phase.kind === 'in-call') phase.room.disconnect();
         }
       } catch (e) {
         if (live && e instanceof ApiFailure && e.status === 404) {
@@ -162,7 +176,31 @@ export function GuestJoin({ token }: { token: string }) {
     return () => window.removeEventListener('pagehide', onHide);
   }, [phase.kind, api]);
 
+  // Jitsi: tell SampConnect we're still in the call (it can't ask the Jitsi server).
+  React.useEffect(() => {
+    if (phase.kind !== 'in-jitsi') return;
+    const ping = () =>
+      void api
+        .presence()
+        .then((r) => {
+          if (r.state === 'denied') setPhase({ kind: 'left', reason: 'removed' });
+          else if (r.state === 'ended') setPhase({ kind: 'left', reason: 'ended' });
+        })
+        .catch(() => undefined);
+    ping();
+    const t = setInterval(ping, JITSI_PRESENCE_EVERY_SECONDS * 1000);
+    return () => clearInterval(t);
+  }, [phase.kind, api]);
+
   async function connect(join: NonNullable<GuestJoinState['join']>) {
+    if (join.engine === 'jitsi') {
+      // Start with the microphone and camera as chosen on the check screen.
+      const url = join.url
+        .replace(/config\.startWithAudioMuted=[^&]*/, `config.startWithAudioMuted=${!mic}`)
+        .replace(/config\.startWithVideoMuted=[^&]*/, `config.startWithVideoMuted=${!cam}`);
+      setPhase({ kind: 'in-jitsi', url });
+      return;
+    }
     const dev = deviceOptions();
     const room = new Room({
       adaptiveStream: true,
@@ -213,6 +251,17 @@ export function GuestJoin({ token }: { token: string }) {
           Opening your invitation…
         </p>
       </Shell>
+    );
+
+  if (phase.kind === 'in-jitsi')
+    return (
+      <GuestJitsiCall
+        url={phase.url}
+        title={view.title}
+        onLeave={() =>
+          setPhase((p) => (p.kind === 'in-jitsi' ? { kind: 'left', reason: 'left' } : p))
+        }
+      />
     );
 
   if (phase.kind === 'in-call')
@@ -836,5 +885,65 @@ function GuestCall({
         <RemoteAudio participants={remotes} />
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+/**
+ * A guest in a call on the organization's Jitsi Meet server (branded with its logo and
+ * colours). Leaving here or with Jitsi's own hang-up button returns to the invitation page.
+ */
+function GuestJitsiCall({
+  url,
+  title,
+  onLeave,
+}: {
+  url: string;
+  title: string;
+  onLeave: () => void;
+}) {
+  const frame = React.useRef<HTMLIFrameElement>(null);
+  const [loaded, setLoaded] = React.useState(false);
+  const leaveRef = React.useRef(onLeave);
+  leaveRef.current = onLeave;
+  React.useEffect(() => {
+    const origin = new URL(url).origin;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== origin || e.source !== frame.current?.contentWindow) return;
+      const { reply, event } = readJitsiMessage(e.data);
+      if (reply) frame.current?.contentWindow?.postMessage(reply, origin);
+      if (isJitsiLeftEvent(event)) leaveRef.current();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [url]);
+  return (
+    <div
+      className="fixed inset-0 flex flex-col bg-[#080F1F] text-white"
+      data-testid="guest-jitsi-call"
+    >
+      <header className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+        <p className="min-w-0 flex-1 truncate font-display text-h3">{title}</p>
+        <Button size="sm" className="bg-danger text-white hover:bg-danger/90" onClick={onLeave}>
+          <PhoneOff /> Leave
+        </Button>
+      </header>
+      <div className="relative min-h-0 flex-1 p-2 sm:p-3">
+        {!loaded ? (
+          <p className="absolute inset-0 flex items-center justify-center text-meta text-white/60">
+            Connecting…
+          </p>
+        ) : null}
+        <iframe
+          ref={frame}
+          src={url}
+          title={`Meeting: ${title}`}
+          onLoad={() => setLoaded(true)}
+          allow="camera; microphone; display-capture; fullscreen; autoplay; clipboard-write; speaker-selection"
+          allowFullScreen
+          referrerPolicy="no-referrer"
+          className="size-full rounded-xl border border-white/10 bg-black"
+        />
+      </div>
+    </div>
   );
 }

@@ -99,7 +99,14 @@ import type {
 } from '@sampledge/contracts';
 import { ForwardDialog, forwardPreview } from './forward';
 import { presenceOf } from '@/lib/status';
-import { CallButtons, CallErrorToast, CallStage, IncomingCall, LiveCallBanner } from './calls';
+import {
+  CallButtons,
+  CallErrorToast,
+  CallStage,
+  IncomingCall,
+  JitsiCallStage,
+  LiveCallBanner,
+} from './calls';
 import { ChatExportButton } from './chat-export';
 import { ProjectsScreen } from './projects-screen';
 import { TasksScreen } from './tasks-screen';
@@ -1206,6 +1213,15 @@ function WorkspaceInner({ network }: { network: boolean }) {
           <FeatureGuideHost isAdmin={isAdmin} isPlatform={!!platformRole} />
           <IncomingCall conversations={conversations ?? []} me={me} directory={directory} />
           <CallStage
+            conversations={conversations ?? []}
+            me={me}
+            directory={directory}
+            onOpenConversation={(id) => {
+              setModule('messages');
+              setActiveId(id);
+            }}
+          />
+          <JitsiCallStage
             conversations={conversations ?? []}
             me={me}
             directory={directory}

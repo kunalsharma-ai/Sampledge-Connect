@@ -124,6 +124,21 @@ export class CallController {
     await this.act(cur.call.callId, 'end');
   }
 
+  /**
+   * Jitsi calls: "still in the call", every JITSI_PRESENCE_EVERY_SECONDS while the call screen
+   * is open. The Jitsi server doesn't report who is in a room, so a phone that stops sending
+   * this is marked as having left.
+   */
+  async presence(): Promise<void> {
+    const cur = this._state.current;
+    if (!cur || cur.join.engine !== 'jitsi') return;
+    try {
+      this.applyCall(await this.api.callAction(cur.call.callId, 'presence'));
+    } catch {
+      // Offline for a moment: the next one catches up.
+    }
+  }
+
   /** A fresh token when the old one expired mid-call (the SFU asks again on reconnect). */
   async rejoin(): Promise<CallJoin | null> {
     const cur = this._state.current;

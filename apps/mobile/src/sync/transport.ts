@@ -286,7 +286,7 @@ export interface ApiTransport {
   getCall(callId: string): Promise<Call>;
   startCall(conversationId: string, media: CallMedia): Promise<CallJoinResponse>;
   joinCall(callId: string): Promise<CallJoinResponse>;
-  callAction(callId: string, action: 'leave' | 'decline' | 'end'): Promise<Call>;
+  callAction(callId: string, action: 'leave' | 'decline' | 'end' | 'presence'): Promise<Call>;
   /** A DM with someone you already talk to returns the existing conversation. */
   createConversation(req: CreateConversationRequest): Promise<Conversation>;
   getConversation(conversationId: string): Promise<Conversation>;
@@ -941,7 +941,7 @@ export class HttpTransport implements ApiTransport {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/join`, {});
   }
 
-  callAction(callId: string, action: 'leave' | 'decline' | 'end'): Promise<Call> {
+  callAction(callId: string, action: 'leave' | 'decline' | 'end' | 'presence'): Promise<Call> {
     return this.request('POST', `/v1/calls/${encodeURIComponent(callId)}/${action}`, {});
   }
 

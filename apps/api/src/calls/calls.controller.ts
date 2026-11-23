@@ -81,6 +81,14 @@ export class CallsController {
     return this.calls.leave(ctx, callId);
   }
 
+  /** Jitsi calls: "still here", every JITSI_PRESENCE_EVERY_SECONDS while in the call. */
+  @Post('calls/:callId/presence')
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  presence(@Ctx() ctx: TenantContext, @Param('callId') callId: string) {
+    return this.calls.presence(ctx, callId);
+  }
+
   @Post('calls/:callId/decline')
   @UseGuards(AuthGuard)
   @HttpCode(200)

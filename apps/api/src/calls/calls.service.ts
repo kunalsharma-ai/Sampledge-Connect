@@ -13,7 +13,10 @@ import {
   guestIdentity,
   isGuestIdentity,
   GUEST_IDENTITY_PREFIX,
+  JITSI_PRESENCE_TIMEOUT_SECONDS,
   type Call,
+  type CallEngine,
+  type CallJoin,
   type CallJoinResponse,
   type CallSystemMetadata,
   type CallsConfig,
@@ -46,6 +49,7 @@ import {
   type EgressInfo,
   type LiveKitWebhookEvent,
 } from './livekit.js';
+import { jitsiFromValues, jitsiJoin, jitsiTenant, type JitsiSettings } from './jitsi.js';
 
 const JOIN_TOKEN_TTL_S = 10 * 60;
 /** How long a "joined" participant may be missing from the SFU before we mark them left. */
@@ -129,6 +133,32 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     this.stopListening = settings.onChange('livekit', () => this.clients.clear());
   }
 
+  /** The organization's Jitsi Meet server (Integrations → Calls (Jitsi Meet)), or null. */
+  async jitsi(tenantId: string): Promise<JitsiSettings | null> {
+    const r = await this.settings.get(tenantId, 'jitsi');
+    return r?.enabled ? jitsiFromValues(r.values) : null;
+  }
+
+  /**
+   * The engine new calls start on: Jitsi when it is saved for "every call" (or LiveKit isn't
+   * set up), else LiveKit. null when neither is set up.
+   */
+  async engineFor(tenantId: string): Promise<CallEngine | null> {
+    const [jitsi, sfu] = await Promise.all([this.jitsi(tenantId), this.sfu(tenantId)]);
+    if (jitsi && (jitsi.use === 'all' || !sfu)) return 'jitsi';
+    return sfu ? 'livekit' : null;
+  }
+
+  private async requireJitsi(tenantId: string): Promise<JitsiSettings> {
+    const j = await this.jitsi(tenantId);
+    if (!j)
+      throw new AppError(
+        'UNAVAILABLE',
+        'This call runs on Jitsi Meet, which is no longer set up. An administrator can add it again in Integrations → Calls (Jitsi Meet).',
+      );
+    return j;
+  }
+
   /**
    * The media server for an organization: its own (Integrations → Calls), else the platform
    * default, else legacy env. null when calls aren't set up.
@@ -161,13 +191,16 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async config(ctx: TenantContext): Promise<CallsConfig> {
-    const sfu = await this.sfu(ctx.tenantId);
+    const engine = await this.engineFor(ctx.tenantId);
+    // Recording and captions are SampConnect's own (LiveKit) call screen features; Jitsi
+    // brings its own controls.
+    const own = engine === 'livekit';
     return {
-      enabled: !!sfu,
-      provider: sfu ? 'livekit' : null,
+      enabled: !!engine,
+      provider: engine,
       ringTimeoutSeconds: this.cfg.CALL_RING_TIMEOUT_SECONDS,
-      recordingEnabled: await this.recordingAllowed(ctx.tenantId),
-      captionsEnabled: !!(await this.transcripts.settings(ctx.tenantId)),
+      recordingEnabled: own && (await this.recordingAllowed(ctx.tenantId)),
+      captionsEnabled: own && !!(await this.transcripts.settings(ctx.tenantId)),
       captionsSaved: !!(
         await this.db.for(ctx.tenantId).tenant_settings.findOne({}, { projection: { minutes: 1 } })
       )?.minutes?.keepCaptions,
@@ -194,6 +227,8 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     const lk = await this.requireSfu(ctx.tenantId);
     const call = await this.load(ctx, callId);
     if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
+    if (call.engine === 'jitsi')
+      throw new AppError('FORBIDDEN', 'Recording isn’t available in Jitsi Meet calls yet');
     if (!(await this.recordingAllowed(ctx.tenantId)))
       throw new AppError(
         'FORBIDDEN',
@@ -396,7 +431,9 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     conversationId: string,
     input: unknown,
   ): Promise<CallJoinResponse> {
-    const lk = await this.requireSfu(ctx.tenantId);
+    const engine = await this.engineFor(ctx.tenantId);
+    if (!engine) await this.requireSfu(ctx.tenantId); // throws the "not set up" error
+    const lk = engine === 'livekit' ? await this.requireSfu(ctx.tenantId) : null;
     const req = parse(StartCallRequestSchema, input ?? {});
     const { conversation } = await this.conversations.authorize(
       ctx,
@@ -412,14 +449,20 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     const ringUntil = new Date(now.getTime() + this.cfg.CALL_RING_TIMEOUT_SECONDS * 1000);
     const members = await this.conversations.memberIds(ctx.tenantId, conversationId);
     const callId = newId();
-    const room = `sc_${ctx.tenantId}_${callId}`;
-    try {
-      await lk.createRoom(room, { emptyTimeoutSeconds: 120, maxParticipants: 300 });
-    } catch {
-      throw new AppError(
-        'UNAVAILABLE',
-        "The media server isn't reachable right now. Try again shortly.",
-      );
+    // Jitsi rooms live under the organization's path, which also picks its branding.
+    const room =
+      engine === 'jitsi'
+        ? `${jitsiTenant(ctx.tenantId)}/${callId}`
+        : `sc_${ctx.tenantId}_${callId}`;
+    if (lk) {
+      try {
+        await lk.createRoom(room, { emptyTimeoutSeconds: 120, maxParticipants: 300 });
+      } catch {
+        throw new AppError(
+          'UNAVAILABLE',
+          "The media server isn't reachable right now. Try again shortly.",
+        );
+      }
     }
     let doc: CallDoc;
     try {
@@ -432,9 +475,10 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
         startedAt: now,
         endedAt: null,
         room,
+        engine: engine ?? 'livekit',
         participants: [ctx.userId, ...members.filter((m) => m !== ctx.userId)].map((userId) =>
           userId === ctx.userId
-            ? { userId, state: 'joined', joinedAt: now, leftAt: null, ringUntil: null }
+            ? { userId, state: 'joined', joinedAt: now, leftAt: null, ringUntil: null, seenAt: now }
             : { userId, state: 'ringing', joinedAt: null, leftAt: null, ringUntil },
         ),
         messageId: null,
@@ -483,8 +527,9 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async join(ctx: TenantContext, callId: string): Promise<CallJoinResponse> {
-    await this.requireSfu(ctx.tenantId);
     const call = await this.load(ctx, callId);
+    if (call.engine === 'jitsi') await this.requireJitsi(ctx.tenantId);
+    else await this.requireSfu(ctx.tenantId);
     if (call.status !== 'live') throw new AppError('CONFLICT', 'This call has ended');
     const updated = await this.setState(ctx.tenantId, call, ctx.userId, 'joined');
     if (!updated) throw new AppError('CONFLICT', 'This call has ended');
@@ -496,6 +541,57 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     if (call.status !== 'live') return toCall(call);
     const updated = await this.setState(ctx.tenantId, call, ctx.userId, 'left');
     return toCall((await this.maybeFinish(ctx.tenantId, updated ?? call)) ?? updated ?? call);
+  }
+
+  /**
+   * Jitsi calls: "I'm still in the call", sent by the app every JITSI_PRESENCE_EVERY_SECONDS.
+   * The Jitsi server doesn't tell us who is in a room, so this is how a closed tab or a
+   * crashed phone gets noticed (the sweeper marks silent people as left). Someone the sweeper
+   * marked as left by mistake is put back.
+   */
+  async presence(ctx: TenantContext, callId: string): Promise<Call> {
+    const call = await this.load(ctx, callId);
+    if (call.status !== 'live') return toCall(call);
+    const me = call.participants.find((p) => p.userId === ctx.userId);
+    if (!me || me.state !== 'joined') {
+      const updated = await this.setState(ctx.tenantId, call, ctx.userId, 'joined');
+      return toCall(updated ?? call);
+    }
+    const updated = await this.db
+      .for(ctx.tenantId)
+      .calls.findOneAndUpdate(
+        { _id: call._id, status: 'live', 'participants.userId': ctx.userId },
+        { $set: { 'participants.$.seenAt': new Date() } },
+        { returnDocument: 'after' },
+      );
+    return toCall(updated ?? call);
+  }
+
+  /** Jitsi calls: an admitted guest's page says they are in the call (see presence()). */
+  async guestPresence(tenantId: string, call: CallDoc, guestId: string): Promise<CallDoc> {
+    const g = call.guests?.find((x) => x.guestId === guestId);
+    if (!g || g.state === 'denied' || call.status !== 'live') return call;
+    const now = new Date();
+    const changed = g.state !== 'joined';
+    const updated = await this.db.for(tenantId).calls.findOneAndUpdate(
+      { _id: call._id, status: 'live', 'guests.guestId': guestId },
+      {
+        $set: {
+          'guests.$.seenAt': now,
+          ...(changed
+            ? {
+                'guests.$.state': 'joined',
+                'guests.$.leftAt': null,
+                ...(g.joinedAt ? {} : { 'guests.$.joinedAt': now }),
+                lastActivityAt: now,
+              }
+            : {}),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (updated && changed) this.broadcast(tenantId, updated);
+    return updated ?? call;
   }
 
   async decline(ctx: TenantContext, callId: string): Promise<Call> {
@@ -646,7 +742,20 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       }
     }
     let presentIds: Set<string> | null = null;
-    const lk = await this.lk(call.tenantId).catch(() => null);
+    const jitsi = call.engine === 'jitsi';
+    const lk = jitsi ? null : await this.lk(call.tenantId).catch(() => null);
+    if (jitsi) {
+      // No participant list from Jitsi: people whose app stopped confirming have left.
+      const cutoff = now.getTime() - JITSI_PRESENCE_TIMEOUT_SECONDS * 1000;
+      for (const p of participants) {
+        const last = Math.max(p.seenAt?.getTime() ?? 0, p.joinedAt?.getTime() ?? 0);
+        if (p.state === 'joined' && last < cutoff) {
+          p.state = 'left';
+          p.leftAt = now;
+          changed = true;
+        }
+      }
+    }
     if (lk) {
       let present: Set<string> | null = null;
       try {
@@ -678,6 +787,17 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     );
     if (lobby.length !== (call.lobby ?? []).length) changed = true;
     const guests = (call.guests ?? []).map((g) => ({ ...g }));
+    if (jitsi) {
+      const cutoff = now.getTime() - JITSI_PRESENCE_TIMEOUT_SECONDS * 1000;
+      for (const g of guests) {
+        const last = Math.max(g.seenAt?.getTime() ?? 0, g.joinedAt?.getTime() ?? 0);
+        if (g.state === 'joined' && last < cutoff) {
+          g.state = 'left';
+          g.leftAt = now;
+          changed = true;
+        }
+      }
+    }
     if (presentIds) {
       for (const g of guests) {
         const here = presentIds.has(guestIdentity(g.guestId));
@@ -816,7 +936,15 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** SFU token for an admitted guest. Identity `guest:<id>` keeps them apart from members. */
-  async guestJoinToken(call: CallDoc, guest: { guestId: string; name: string }) {
+  async guestJoinToken(call: CallDoc, guest: { guestId: string; name: string }): Promise<CallJoin> {
+    if (call.engine === 'jitsi')
+      return jitsiJoin(await this.requireJitsi(call.tenantId), {
+        tenantId: call.tenantId,
+        callId: call._id,
+        user: { id: guestIdentity(guest.guestId), name: `${guest.name} (guest)` },
+        moderator: false,
+        media: call.media,
+      });
     const lk = await this.requireSfu(call.tenantId);
     const { token, expiresAt } = await lk.token({
       identity: guestIdentity(guest.guestId),
@@ -832,7 +960,12 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       },
       ttlSeconds: JOIN_TOKEN_TTL_S,
     });
-    return { url: lk.settings.publicUrl, token, expiresAt: expiresAt.toISOString() };
+    return {
+      engine: 'livekit',
+      url: lk.settings.publicUrl,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    };
   }
 
   /** Takes a guest out of a call (their invite was withdrawn). */
@@ -855,7 +988,8 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       },
       { returnDocument: 'after' },
     );
-    const lk = await this.lk(tenantId);
+    // Jitsi: the guest's page sees "denied" on its next presence call and closes the call.
+    const lk = call.engine === 'jitsi' ? null : await this.lk(tenantId);
     if (lk) await lk.removeParticipant(call.room, guestIdentity(guestId)).catch(() => undefined);
     if (updated) this.broadcast(tenantId, updated);
   }
@@ -922,6 +1056,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
             ...(state === 'joined'
               ? {
                   'participants.$.leftAt': null,
+                  'participants.$.seenAt': now,
                   ...(existing.joinedAt ? {} : { 'participants.$.joinedAt': now }),
                 }
               : state === 'left'
@@ -937,7 +1072,16 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       updated = await t.calls.findOneAndUpdate(
         { _id: call._id, status: 'live', 'participants.userId': { $ne: userId } },
         {
-          $push: { participants: { userId, state, joinedAt: now, leftAt: null, ringUntil: null } },
+          $push: {
+            participants: {
+              userId,
+              state,
+              joinedAt: now,
+              leftAt: null,
+              ringUntil: null,
+              seenAt: now,
+            },
+          },
           $set: { lastActivityAt: now },
         },
         { returnDocument: 'after' },
@@ -1018,7 +1162,7 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       // Stop before closing the room so egress finalizes the file cleanly.
       await this.requestStop(tenantId, ended).catch(() => undefined);
     }
-    const lk = await this.lk(tenantId).catch(() => null);
+    const lk = ended.engine === 'jitsi' ? null : await this.lk(tenantId).catch(() => null);
     if (lk) void lk.deleteRoom(ended.room).catch(() => undefined);
     return ended;
   }
@@ -1047,11 +1191,19 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
-  private async joinToken(ctx: TenantContext, call: CallDoc) {
-    const lk = await this.requireSfu(ctx.tenantId);
+  private async joinToken(ctx: TenantContext, call: CallDoc): Promise<CallJoin> {
     const user = await this.db
       .for(ctx.tenantId)
       .users.findOne({ _id: ctx.userId }, { projection: { displayName: 1 } });
+    if (call.engine === 'jitsi')
+      return jitsiJoin(await this.requireJitsi(ctx.tenantId), {
+        tenantId: ctx.tenantId,
+        callId: call._id,
+        user: { id: ctx.userId, name: user?.displayName ?? 'Member' },
+        moderator: true,
+        media: call.media,
+      });
+    const lk = await this.requireSfu(ctx.tenantId);
     const { token, expiresAt } = await lk.token({
       identity: ctx.userId,
       name: user?.displayName ?? 'Guest',
@@ -1066,6 +1218,11 @@ export class CallsService implements OnModuleInit, OnApplicationShutdown {
       },
       ttlSeconds: JOIN_TOKEN_TTL_S,
     });
-    return { url: lk.settings.publicUrl, token, expiresAt: expiresAt.toISOString() };
+    return {
+      engine: 'livekit',
+      url: lk.settings.publicUrl,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    };
   }
 }

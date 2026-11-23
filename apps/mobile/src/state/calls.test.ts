@@ -210,4 +210,22 @@ describe('calls', () => {
     expect(t.calls.state.error).toBeNull();
     expect(asked).toEqual(['g1:admit', 'g1:deny']);
   });
+
+  it('sends "still here" for Jitsi calls only', async () => {
+    const lk = setup();
+    await lk.calls.join('call-1', 'video');
+    await lk.calls.presence();
+    expect(lk.actions).not.toContain('presence');
+
+    const jitsiJoin = {
+      ...join,
+      engine: 'jitsi' as const,
+      url: 'https://meet.example/t/call-1?jwt=x',
+    };
+    const t = setup({ joinCall: async () => ({ call: call(), join: jitsiJoin }) });
+    await t.calls.join('call-1', 'video');
+    expect(t.calls.state.current?.join.engine).toBe('jitsi');
+    await t.calls.presence();
+    expect(t.actions).toContain('presence');
+  });
 });

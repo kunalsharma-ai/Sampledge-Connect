@@ -58,13 +58,90 @@ export const CallSchema = z.object({
 });
 export type Call = z.infer<typeof CallSchema>;
 
-/** Connection details for the SFU. The token is valid for one room and expires quickly. */
+/**
+ * The media engine a call runs on. `livekit`: SampConnect's own call screen on the self-hosted
+ * LiveKit SFU. `jitsi`: a self-hosted Jitsi Meet server, branded as SampConnect, shown inside
+ * the app (iframe on the web, WebView on phones). A call keeps its engine until it ends, even
+ * if an admin switches engines meanwhile.
+ */
+export const CALL_ENGINES = ['livekit', 'jitsi'] as const;
+export const CallEngineSchema = z.enum(CALL_ENGINES);
+export type CallEngine = z.infer<typeof CallEngineSchema>;
+
+/**
+ * Connection details for one call. The token is valid for one room and expires.
+ * livekit: `url` is the SFU WebSocket URL and `token` the LiveKit access token.
+ * jitsi: `url` is the full page to open (server/tenant/room?jwt=…#config…) and `token` the
+ * signed Jitsi JWT already in it. Older clients that don't know `engine` assume livekit.
+ */
 export const CallJoinSchema = z.object({
-  /** WebSocket URL of the self-hosted SFU (LIVEKIT_PUBLIC_URL). */
+  engine: CallEngineSchema.optional(),
   url: z.string(),
   token: z.string(),
   expiresAt: z.string().datetime(),
 });
+
+/** Jitsi calls only: how often apps confirm they are still in the call (POST …/presence). */
+export const JITSI_PRESENCE_EVERY_SECONDS = 20;
+/** Jitsi calls only: someone who hasn't confirmed for this long is marked as having left. */
+export const JITSI_PRESENCE_TIMEOUT_SECONDS = 60;
+
+/**
+ * Events the Jitsi page sends to the app that embeds it (window.postMessage, the "postis"
+ * format Jitsi's external API uses). Only these names matter to SampConnect.
+ */
+export const JITSI_LEFT_EVENTS = [
+  'video-conference-left',
+  'video-ready-to-close',
+  'ready-to-close',
+] as const;
+
+/** A message in the "postis" format, or null. Jitsi sends them as JSON strings. */
+export function parsePostis(
+  data: unknown,
+): { scope: string; method: string; params: unknown } | null {
+  let d = data;
+  if (typeof d === 'string') {
+    try {
+      d = JSON.parse(d);
+    } catch {
+      return null;
+    }
+  }
+  if (!d || typeof d !== 'object') return null;
+  const m = d as { postis?: unknown; scope?: unknown; method?: unknown; params?: unknown };
+  if (m.postis !== true || typeof m.scope !== 'string' || typeof m.method !== 'string') return null;
+  if (!m.scope.startsWith('jitsi_meet_external_api')) return null;
+  return { scope: m.scope, method: m.method, params: m.params };
+}
+
+/**
+ * Handles one postMessage from the Jitsi page. Returns the reply to post back (the page waits
+ * for its "__ready__" ping to be echoed before it sends events) and the event name, if any.
+ */
+export function readJitsiMessage(data: unknown): { reply: string | null; event: string | null } {
+  const m = parsePostis(data);
+  if (!m) return { reply: null, event: null };
+  if (m.method === '__ready__')
+    return {
+      reply: JSON.stringify({
+        postis: true,
+        scope: m.scope,
+        method: '__ready__',
+        params: m.params,
+      }),
+      event: null,
+    };
+  if (m.method !== 'message') return { reply: null, event: null };
+  const p = m.params as { type?: unknown; name?: unknown; data?: { name?: unknown } } | null;
+  if (!p || p.type !== 'event') return { reply: null, event: null };
+  const name = typeof p.data?.name === 'string' ? p.data.name : p.name;
+  return { reply: null, event: typeof name === 'string' ? name : null };
+}
+
+/** Whether a Jitsi page event means the person has left the call. */
+export const isJitsiLeftEvent = (name: string | null) =>
+  !!name && (JITSI_LEFT_EVENTS as readonly string[]).includes(name);
 export type CallJoin = z.infer<typeof CallJoinSchema>;
 
 export const CallJoinResponseSchema = z.object({ call: CallSchema, join: CallJoinSchema });
@@ -77,7 +154,8 @@ export type StartCallRequest = z.input<typeof StartCallRequestSchema>;
 /** GET /v1/calls/config: whether this deployment has a media server configured. */
 export const CallsConfigSchema = z.object({
   enabled: z.boolean(),
-  provider: z.enum(['livekit']).nullable(),
+  /** The engine new calls start on, or null when no call server is set up. */
+  provider: CallEngineSchema.nullable(),
   /** Seconds an invite rings before it counts as missed. */
   ringTimeoutSeconds: z.number().int().positive(),
   /** Whether calls can be recorded here (egress configured and allowed by the organization). */

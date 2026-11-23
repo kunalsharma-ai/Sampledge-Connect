@@ -88,6 +88,14 @@ export class GuestsController {
     return this.guests.captionClip(token, audio, req.headers['content-type']);
   }
 
+  /** Jitsi calls: "still in the call" from the guest's page (every 20 s). */
+  @Post(':token/presence')
+  @HttpCode(200)
+  async presence(@Param('token') token: string, @Req() req: Request) {
+    await this.limit(req);
+    return this.guests.presence(token);
+  }
+
   @Post(':token/lobby/leave')
   @HttpCode(200)
   async leave(@Param('token') token: string, @Req() req: Request) {
