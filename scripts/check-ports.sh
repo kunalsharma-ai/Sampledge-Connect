@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-# Checks that the host ports docker-compose.yml publishes are free before `docker compose up`.
+# Checks that the host ports the gateway publishes are free before `docker compose up`.
+# (Only the gateway service publishes ports; see docs/deploy.md, "Networks and ports".)
 # Reads overrides from .env next to docker-compose.yml. Linux (ss) or macOS (lsof).
 #   sh scripts/check-ports.sh
 set -eu
@@ -17,11 +18,19 @@ WEB_PORT=$(val WEB_PORT 3000)
 API_PORT=$(val API_PORT 4000)
 LK_HTTP=$(val LIVEKIT_HTTP_PORT 7880)
 LK_TCP=$(val LIVEKIT_TCP_PORT 7881)
+LK_UDP=$(val LIVEKIT_UDP_PORT 7882)
 LK_TURN=$(val LIVEKIT_TURN_PORT 3478)
-RTC_START=$(val LIVEKIT_RTC_PORT_START 50000)
-RTC_END=$(val LIVEKIT_RTC_PORT_END 50100)
-RELAY_START=$(val LIVEKIT_TURN_RELAY_START 50101)
-RELAY_END=$(val LIVEKIT_TURN_RELAY_END 50200)
+RELAY_START=$(val LIVEKIT_TURN_RELAY_START 30000)
+RELAY_END=$(val LIVEKIT_TURN_RELAY_END 30100)
+JITSI_HTTP=$(val JITSI_HTTP_PORT 8000)
+JITSI_JVB=$(val JITSI_JVB_PORT 10000)
+
+# Jitsi's ports are only published when its compose file is in COMPOSE_FILE.
+compose_file=${COMPOSE_FILE:-}
+if [ -z "$compose_file" ] && [ -f .env ]; then
+  compose_file=$(sed -n 's/^[[:space:]]*COMPOSE_FILE=//p' .env | tail -n 1)
+fi
+case "$compose_file" in *docker-compose.jitsi.yml*) JITSI=1 ;; *) JITSI=0 ;; esac
 
 if command -v ss >/dev/null 2>&1; then
   TCP_USED=$(ss -Htln | awk '{print $4}' | sed 's/.*://' | sort -un)
@@ -56,20 +65,32 @@ check tcp "$WEB_PORT" "$WEB_PORT" WEB_PORT
 check tcp "$API_PORT" "$API_PORT" API_PORT
 check tcp "$LK_HTTP" "$LK_HTTP" LIVEKIT_HTTP_PORT
 check tcp "$LK_TCP" "$LK_TCP" LIVEKIT_TCP_PORT
+check udp "$LK_UDP" "$LK_UDP" LIVEKIT_UDP_PORT
 check udp "$LK_TURN" "$LK_TURN" LIVEKIT_TURN_PORT
-check udp "$RTC_START" "$RTC_END" LIVEKIT_RTC_PORT_START-END
 check udp "$RELAY_START" "$RELAY_END" LIVEKIT_TURN_RELAY_START-END
-check tcp 27017 27017 mongo
-check tcp 6379 6379 redis
+if [ "$JITSI" -eq 1 ]; then
+  check tcp "$JITSI_HTTP" "$JITSI_HTTP" JITSI_HTTP_PORT
+  check udp "$JITSI_JVB" "$JITSI_JVB" JITSI_JVB_PORT
+fi
 
-if [ "$RELAY_START" -le "$RTC_END" ] && [ "$RTC_START" -le "$RELAY_END" ]; then
-  echo "The media range and the TURN relay range overlap; give them separate ranges."
+in_relay() { [ "$1" -ge "$RELAY_START" ] && [ "$1" -le "$RELAY_END" ]; }
+if in_relay "$LK_UDP" || in_relay "$LK_TURN" || { [ "$JITSI" -eq 1 ] && in_relay "$JITSI_JVB"; }; then
+  echo "A UDP port sits inside the TURN relay range; move it or the range."
   problems=1
 fi
+if [ "$LK_UDP" = "$LK_TURN" ] || { [ "$JITSI" -eq 1 ] && { [ "$JITSI_JVB" = "$LK_UDP" ] || [ "$JITSI_JVB" = "$LK_TURN" ]; }; }; then
+  echo "Two UDP settings use the same port; give each its own."
+  problems=1
+fi
+for old in LIVEKIT_RTC_PORT_START LIVEKIT_RTC_PORT_END; do
+  if [ -f .env ] && grep -q "^[[:space:]]*$old=" .env; then
+    echo "note    $old in .env is no longer used (call media now uses LIVEKIT_UDP_PORT); remove it."
+  fi
+done
 
 if [ "$problems" -ne 0 ]; then
   echo
-  echo "Set a free port or range in .env (see .env.example), open it in the firewall, then run"
+  echo "Set a free port in .env (see .env.example), open it in the firewall, then run"
   echo "'docker compose up' again. See docs/deploy.md, \"Port already in use\"."
   exit 1
 fi

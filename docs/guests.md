@@ -77,7 +77,8 @@ Each guest's latest email outcome (`sending`, `sent`, `failed` with the server's
 
 ### Trying it without a mail server
 
-`docker compose --profile mail-test up` starts **Mailpit**, a local test mailbox. Set
+`docker compose --profile mail-test up` (or, for local development,
+`docker compose -f docker-compose.dev.yml --profile mail-test up -d`) starts **Mailpit**, a local test mailbox. Set
 host `mailpit`, port `1025`, security None (in Integrations, or `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_FROM="SampConnect <meetings@example.test>"`)
 and read every message at <http://localhost:8025>. Nothing leaves the machine. The integration
 tests use an in-process SMTP server the same way.
