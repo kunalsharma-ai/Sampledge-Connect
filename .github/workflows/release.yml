@@ -53,9 +53,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # The web image bakes in public URLs; set them as repository variables for your domain.
+          # The web image calls /api and /rtc on its own address (the gateway routes them), so
+          # one image works on any domain. Set these repository variables only to override.
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:4000' }}
-            NEXT_PUBLIC_RTC_URL=${{ vars.PUBLIC_RTC_URL || 'ws://localhost:7880' }}
+            NEXT_PUBLIC_API_URL=${{ vars.PUBLIC_API_URL || '/api' }}
+            NEXT_PUBLIC_RTC_URL=${{ vars.PUBLIC_RTC_URL || '' }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}

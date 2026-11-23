@@ -4,7 +4,7 @@ import { HttpTransport, TransportError } from './transport';
 function transport(respond: (url: string, init: RequestInit) => Response | Promise<Response>) {
   const calls: { url: string; init: RequestInit }[] = [];
   const t = new HttpTransport({
-    baseUrl: 'https://api.example.com',
+    baseUrl: 'https://connect.example.com',
     getAccessToken: async () => 'tok',
     fetchImpl: (async (url: string, init: RequestInit) => {
       calls.push({ url, init });
@@ -33,7 +33,7 @@ describe('HttpTransport', () => {
     );
     const ack = await t.sendMessage(req);
     expect(ack.duplicate).toBe(false);
-    expect(calls[0]!.url).toBe('https://api.example.com/v1/conversations/c%201/messages');
+    expect(calls[0]!.url).toBe('https://connect.example.com/api/v1/conversations/c%201/messages');
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer tok');
   });
 
@@ -41,7 +41,7 @@ describe('HttpTransport', () => {
     const { t, calls } = transport(() => json(200, { text: 'Hello' }));
     const clip = new Blob([new Uint8Array(8)], { type: 'audio/webm' });
     expect(await t.transcribeCaption('call 1', clip)).toEqual({ text: 'Hello' });
-    expect(calls[0]!.url).toBe('https://api.example.com/v1/calls/call%201/captions');
+    expect(calls[0]!.url).toBe('https://connect.example.com/api/v1/calls/call%201/captions');
     expect((calls[0]!.init.headers as Record<string, string>)['content-type']).toBe('audio/webm');
     expect(calls[0]!.init.body).toBe(clip);
   });
@@ -64,7 +64,7 @@ describe('HttpTransport', () => {
 
     const receipts = transport(() => json(200, { conversationId: 'c' }));
     await receipts.t.ackReceipt({ conversationId: 'c', kind: 'read', upToSequence: 3 });
-    expect(receipts.calls[0]!.url).toBe('https://api.example.com/v1/messages/receipts');
+    expect(receipts.calls[0]!.url).toBe('https://connect.example.com/api/v1/messages/receipts');
 
     const expired = transport(() => new Response('', { status: 401 })).t;
     expect(((await expired.sync({}).catch((e) => e)) as TransportError).isAuth).toBe(true);

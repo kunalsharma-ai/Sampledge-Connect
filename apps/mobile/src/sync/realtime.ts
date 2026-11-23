@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import type { SupportChangedEvent } from '@sampledge/contracts';
+import { apiBaseFor, socketTarget, type SupportChangedEvent } from '@sampledge/contracts';
 import type {
   InboxChangedEvent,
   MinutesChangedEvent,
@@ -114,7 +114,10 @@ export class RealtimeClient {
       if (!this.socket.connected) this.socket.connect();
       return;
     }
-    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(this.url, {
+    // The API, and its socket, live under /api on the server address.
+    const target = socketTarget(apiBaseFor(this.url));
+    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(target.url, {
+      path: target.path,
       transports: ['websocket'],
       // Called on every (re)connect attempt so a refreshed token is always used.
       auth: (cb) => void this.getToken().then((token) => cb({ token })),

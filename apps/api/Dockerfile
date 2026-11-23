@@ -26,5 +26,5 @@ RUN addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /out ./
 USER app
 EXPOSE 4000
-HEALTHCHECK --interval=15s --timeout=3s CMD wget -qO- http://127.0.0.1:4000/health/live || exit 1
+HEALTHCHECK --interval=15s --timeout=3s CMD wget -qO- http://127.0.0.1:4000/api/health/live || exit 1
 CMD ["node", "dist/main.js"]

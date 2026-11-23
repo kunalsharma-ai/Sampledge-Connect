@@ -3,6 +3,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
 import type { Server, ServerOptions } from 'socket.io';
+import { SOCKET_IO_PATH } from '@sampledge/contracts';
 import type { AppConfig } from '../config/config.js';
 
 /**
@@ -16,6 +17,7 @@ export class RedisIoAdapter extends IoAdapter {
   constructor(
     app: INestApplicationContext,
     private readonly cfg: AppConfig,
+    private readonly widgetOrigins?: { widgetOriginAllowed(origin: string): Promise<boolean> },
   ) {
     super(app);
     this.pub = new Redis(cfg.REDIS_URL, { lazyConnect: false });
@@ -24,7 +26,38 @@ export class RedisIoAdapter extends IoAdapter {
   override createIOServer(port: number, options?: ServerOptions): Server {
     const server: Server = super.createIOServer(port, {
       ...options,
-      cors: { origin: this.cfg.corsOrigins, credentials: false },
+      // Same address as the web app, behind the gateway's /api route.
+      path: SOCKET_IO_PATH,
+      // Same-origin only, plus the chat widget's configured origins (see bootstrap.ts).
+      cors: {
+        origin: (origin: string | undefined, cb: (e: Error | null, ok?: boolean) => void) => {
+          if (!origin || !this.widgetOrigins) return cb(null, !origin);
+          this.widgetOrigins.widgetOriginAllowed(origin).then(
+            (ok) => cb(null, ok),
+            () => cb(null, false),
+          );
+        },
+        credentials: false,
+      },
+      // Browsers don't apply CORS to WebSockets, so check the Origin header here as well.
+      allowRequest: (req, cb) => {
+        const origin = req.headers.origin;
+        if (!origin) return cb(null, true); // phones and servers send none
+        const fwd = req.headers['x-forwarded-host'];
+        const host = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(',')[0]?.trim() || req.headers.host;
+        let sameHost = false;
+        try {
+          sameHost = new URL(origin).host === host;
+        } catch {
+          return cb(null, false);
+        }
+        if (sameHost) return cb(null, true);
+        if (!this.widgetOrigins) return cb(null, false);
+        this.widgetOrigins.widgetOriginAllowed(origin).then(
+          (ok) => cb(null, ok),
+          () => cb(null, false),
+        );
+      },
       maxHttpBufferSize: 256 * 1024,
       pingInterval: 20_000,
       pingTimeout: 20_000,

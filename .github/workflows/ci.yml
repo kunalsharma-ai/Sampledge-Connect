@@ -64,9 +64,9 @@ jobs:
       MONGO_URL: mongodb://localhost:27017
       MONGO_DB: sc_a11y
       REDIS_URL: redis://localhost:6379
-      CORS_ORIGINS: http://localhost:3000
-      PUBLIC_API_URL: http://localhost:4000
-      NEXT_PUBLIC_API_URL: http://localhost:4000
+      # One origin, as behind the gateway: scripts/dev-gateway.mjs on :8080 sends /api/** to
+      # the API and the rest to the web app.
+      PUBLIC_WEB_URL: http://localhost:8080
       # Many sign-ins from one address in a few minutes; limits are covered by API tests.
       RATE_LIMIT_DISABLED: 'true'
       NODE_ENV: development
@@ -84,12 +84,13 @@ jobs:
         run: |
           (cd apps/api && node dist/database/migrate-cli.js && (node dist/main.js > ../../api.log 2>&1 &))
           (cd apps/web && (NODE_ENV=production npx next start --port 3000 > ../../web.log 2>&1 &))
-          for i in $(seq 60); do curl -sf localhost:4000/health/ready && curl -sf -o /dev/null localhost:3000/login && exit 0; sleep 2; done
+          (node scripts/dev-gateway.mjs > gateway.log 2>&1 &)
+          for i in $(seq 60); do curl -sf localhost:8080/api/health/ready && curl -sf -o /dev/null localhost:8080/login && exit 0; sleep 2; done
           cat api.log web.log; exit 1
       - run: pnpm --filter @sampledge/web e2e
         env:
-          WEB_URL: http://localhost:3000
-          API_URL: http://localhost:4000
+          WEB_URL: http://localhost:8080
+          API_URL: http://localhost:8080/api
           CI: 'true'
       - if: failure()
         uses: actions/upload-artifact@v7

@@ -48,8 +48,8 @@ Single sign-on (OIDC)**, stored in the database like every other integration (th
 is encrypted). Nothing goes in env.
 
 1. In your provider, create a web application and register the redirect URI
-   `https://<your-api-host>/v1/auth/sso/callback`. **Test connection** shows the exact URI.
-   Set `PUBLIC_API_URL` so it doesn't depend on the request's host header.
+   `https://<your-domain>/api/v1/auth/sso/callback`. **Test connection** shows the exact URI.
+   Set `PUBLIC_WEB_URL` so it doesn't depend on the request's host header.
 2. In Connect, enter the issuer URL (for Entra ID:
    `https://login.microsoftonline.com/<tenant-id>/v2.0`), client ID and client secret, then
    **Test connection**. It reads `<issuer>/.well-known/openid-configuration`.
@@ -73,7 +73,7 @@ How it works:
 - Connect then issues its own device session, exactly like a password login. The browser gets
   it through a one-time code in the URL fragment (`/login#sso=…`, valid 60 seconds, single use),
   never the tokens themselves. Errors come back as `/login#sso_error=…`.
-- People are only sent back to the web app's own origins (`PUBLIC_WEB_URL`, `CORS_ORIGINS`).
+- People are only sent back to the web app's own origins (`PUBLIC_WEB_URL`).
 - Connect's own two-step verification isn't asked for SSO logins. Your provider's MFA policy
   applies instead.
 - Audit log: logins record method `sso`; failures are `auth.sso_failed` with the reason;

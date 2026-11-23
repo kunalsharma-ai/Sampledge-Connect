@@ -11,7 +11,7 @@ import {
 } from '@sampledge/contracts';
 import { Badge, Button, Field, Input, StateView, cn, useToast } from '@sampledge/ui';
 import { apiRequest } from '@/lib/api';
-import { API_URL } from '@/lib/config';
+import { toApiUrl } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
 import { useEngineChange, useTenantChange, type DirectoryEntry } from '@/lib/engine';
 import { attachmentUrl, formatBytes } from '@/lib/uploads';
@@ -491,7 +491,7 @@ function ExportPanel({ api }: { api: ReturnType<typeof useRecordingsApi> }) {
         return;
       }
       const a = document.createElement('a');
-      a.href = new URL(r.url, API_URL).toString();
+      a.href = toApiUrl(r.url);
       a.click();
       toast({
         title: 'Backup download started',

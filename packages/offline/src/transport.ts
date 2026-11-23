@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import {
+  socketTarget,
   type InboxChangedEvent,
   ERROR_CODES,
   type Ack,
@@ -256,7 +257,10 @@ export class HttpSocketTransport implements Transport {
       if (!this.socket.connected) this.socket.connect();
       return;
     }
-    const s: Socket<ServerToClientEvents, ClientToServerEvents> = io(this.opts.baseUrl, {
+    // The API base may be a path on this site (`/api`); socket.io needs origin + engine path.
+    const t = socketTarget(this.opts.baseUrl, globalThis.location?.origin);
+    const s: Socket<ServerToClientEvents, ClientToServerEvents> = io(t.url, {
+      path: t.path,
       transports: ['websocket'],
       reconnection: false,
       autoConnect: false,

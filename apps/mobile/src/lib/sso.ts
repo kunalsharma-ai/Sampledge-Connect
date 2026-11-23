@@ -1,3 +1,4 @@
+import { apiBaseFor } from '@sampledge/contracts';
 /**
  * Helpers for single sign-on from the app (docs/sign-in.md, "From the mobile app").
  * The flow itself lives in auth/ssoFlow.ts; these stay pure so they can be tested.
@@ -47,7 +48,7 @@ export function ssoStartUrl(
   },
 ): string {
   const p = new URLSearchParams(q);
-  return `${serverUrl}/v1/auth/sso/${encodeURIComponent(tenantSlug)}/start?${p.toString()}`;
+  return `${apiBaseFor(serverUrl)}/v1/auth/sso/${encodeURIComponent(tenantSlug)}/start?${p.toString()}`;
 }
 
 export type SsoReturn = { code: string } | { error: string };

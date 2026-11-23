@@ -101,7 +101,7 @@ import { ConnectChat } from '@sampledge/chat-widget';
 />;
 ```
 
-Your web origin must be listed under the module's **Chat widget origins** in Integrations. That setting is the CORS allowlist and is read from the database.
+`apiUrl` is your SampConnect address; the widget talks to its API under `/api` (passing the `/api` address works too). Your web origin must be listed under the module's **Chat widget origins** in Integrations. That setting is the only CORS allowlist (everything else on SampConnect is same-origin) and is read from the database.
 
 The widget refreshes tokens by itself, receives messages live, and keeps unsent messages in a local outbox that survives a reload. Failed messages offer Retry and Discard. Module and task cards render compactly. "Open in Connect" deep-links to `/app?c=<conversationId>`.
 

@@ -55,11 +55,7 @@ export class BookingService {
   }
 
   private url(slug: string) {
-    const base = (
-      this.cfg.PUBLIC_WEB_URL ??
-      this.cfg.corsOrigins[0] ??
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
+    const base = (this.cfg.PUBLIC_WEB_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
     return `${base}/book/${slug}`;
   }
 

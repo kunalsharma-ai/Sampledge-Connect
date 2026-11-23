@@ -1,3 +1,4 @@
+import { apiBaseFor } from '@sampledge/contracts';
 import { z } from 'zod';
 
 const EnvSchema = z.object({
@@ -6,8 +7,6 @@ const EnvSchema = z.object({
   MONGO_URL: z.string().default('mongodb://localhost:27017'),
   MONGO_DB: z.string().default('sampledge_connect'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
-  /** Comma-separated list of allowed browser origins. */
-  CORS_ORIGINS: z.string().default('http://localhost:3000'),
   /** Ed25519 keys in PKCS8 / SPKI PEM. Required in production. */
   JWT_PRIVATE_KEY: z.string().optional(),
   JWT_PUBLIC_KEY: z.string().optional(),
@@ -23,7 +22,11 @@ const EnvSchema = z.object({
   FILES_URL_SECRET: z.string().min(32).optional(),
   /** Where attachment bytes live. `gridfs` (MongoDB) is built; `nextcloud` is planned. */
   FILE_STORAGE: z.enum(['gridfs']).default('gridfs'),
-  /** Public base URL of this API, used to build absolute signed URLs. */
+  /**
+   * Public base URL of this API, used to build absolute signed URLs. The API answers under
+   * `/api` on the web app's address, so this defaults to PUBLIC_WEB_URL + `/api`; a value
+   * without the `/api` suffix gets it added.
+   */
   PUBLIC_API_URL: z.string().url().optional(),
   /** Push delivery. `expo` sends through Expo Push; `none` stores tokens but sends nothing. FCM/APNs direct are planned. */
   PUSH_PROVIDER: z.enum(['none', 'expo']).default('none'),
@@ -39,7 +42,10 @@ const EnvSchema = z.object({
    * Self-hosted LiveKit SFU for voice and video calls. Calls are disabled until all three
    * of LIVEKIT_PUBLIC_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are set.
    */
-  /** URL browsers and phones use to reach the SFU, e.g. wss://rtc.example.com. */
+  /**
+   * URL browsers and phones use to reach the SFU. The gateway serves LiveKit's signalling at
+   * `/rtc` on the web app's address, so this defaults to PUBLIC_WEB_URL as ws(s)://.
+   */
   LIVEKIT_PUBLIC_URL: z.string().url().optional(),
   /** URL the API uses for the SFU's server API (defaults to the public URL over http/https). */
   LIVEKIT_API_URL: z.string().url().optional(),
@@ -102,7 +108,7 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
-export type AppConfig = z.infer<typeof EnvSchema> & { corsOrigins: string[] };
+export type AppConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // An empty variable (common in docker compose: `X: ${X:-}`) means "not set".
@@ -125,12 +131,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   if (cfg.SMTP_USER && !cfg.SMTP_PASSWORD)
     throw new Error('SMTP_PASSWORD is required when SMTP_USER is set');
-  return {
-    ...cfg,
-    corsOrigins: cfg.CORS_ORIGINS.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  };
+  // Everything is served from one address (issue #128): web at `/`, API at `/api`, call
+  // signalling at `/rtc`. Derive the API and SFU addresses from the web address.
+  const web = cfg.PUBLIC_WEB_URL?.replace(/\/+$/, '');
+  const PUBLIC_API_URL = cfg.PUBLIC_API_URL
+    ? apiBaseFor(cfg.PUBLIC_API_URL)
+    : web
+      ? apiBaseFor(web)
+      : undefined;
+  const LIVEKIT_PUBLIC_URL =
+    cfg.LIVEKIT_PUBLIC_URL ?? (web ? web.replace(/^http/, 'ws') : undefined);
+  return { ...cfg, PUBLIC_API_URL, LIVEKIT_PUBLIC_URL };
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');

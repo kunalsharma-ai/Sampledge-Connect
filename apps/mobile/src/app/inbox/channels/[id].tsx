@@ -1,4 +1,6 @@
 import {
+  apiBaseFor,
+  apiUrl,
   CONNECTOR_CATALOG,
   tenantCan,
   type Connector,
@@ -71,7 +73,7 @@ export default function ChannelScreen() {
   const d = CONNECTOR_CATALOG[ch.provider];
   const path = `/v1/connectors/${ch.connectorId}`;
   const webhook =
-    ch.webhookPath && session ? new URL(ch.webhookPath, session.serverUrl).toString() : null;
+    ch.webhookPath && session ? apiUrl(apiBaseFor(session.serverUrl), ch.webhookPath) : null;
 
   const act = async (key: string, run: () => Promise<unknown>, ok: string) => {
     setBusy(key);

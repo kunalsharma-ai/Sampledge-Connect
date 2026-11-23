@@ -42,7 +42,8 @@ export class NetworkGate {
   /** Called by the auth guard for every request; a no-op for organization sessions. */
   async check(ctx: TenantContext, method: string, path: string): Promise<void> {
     if (!(await this.network.isNetwork(ctx.tenantId))) return;
-    const p = path.split('?')[0]!;
+    // Routes are mounted under /api (issue #128); the list above is relative to it.
+    const p = path.split('?')[0]!.replace(/^\/api(?=\/)/, '');
     const ok = ALLOWED.some(
       (a) =>
         (p === a.prefix || p.startsWith(`${a.prefix}/`)) &&

@@ -11,7 +11,7 @@ import { WidgetClient, type PendingMessage, type WidgetState } from './client.js
 export type WidgetTheme = keyof typeof THEMES;
 
 export interface ConnectChatProps {
-  /** Connect API base URL, e.g. https://connect.example.com */
+  /** Your SampConnect address, e.g. https://connect.example.com (its API is at /api). */
   apiUrl: string;
   /** From your server: ConnectClient.createWidgetSession({ user, record }). */
   session: WidgetSession;

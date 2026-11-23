@@ -1,4 +1,4 @@
-import { API_URL } from '@/lib/config';
+import { toApiUrl } from '@/lib/config';
 import { guestSenderName } from '@sampledge/contracts';
 import type { Conversation } from '@sampledge/contracts';
 import type { DirectoryEntry } from '@/lib/engine';
@@ -23,7 +23,7 @@ export function conversationTitle(
 export function avatarUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   try {
-    return new URL(path, API_URL).toString();
+    return toApiUrl(path);
   } catch {
     return null;
   }

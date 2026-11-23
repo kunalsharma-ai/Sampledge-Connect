@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Accessibility checks against a running web app and API (see docs/launch-readiness.md).
- *   WEB_URL=http://localhost:3000 API_URL=http://localhost:4000 pnpm --filter @sampledge/web e2e
+ *   WEB_URL=http://localhost:8080 API_URL=http://localhost:8080/api pnpm --filter @sampledge/web e2e
  * CHROMIUM_PATH points at a preinstalled Chromium when the bundled one isn't downloaded.
  */
 export default defineConfig({
@@ -12,7 +12,7 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: process.env.WEB_URL ?? 'http://localhost:3000',
+    baseURL: process.env.WEB_URL ?? 'http://localhost:8080',
     trace: 'off',
     ...(process.env.CHROMIUM_PATH
       ? { launchOptions: { executablePath: process.env.CHROMIUM_PATH } }

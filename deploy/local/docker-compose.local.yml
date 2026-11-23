@@ -1,0 +1,9 @@
+# Try SampConnect on this machine without a reverse proxy. Add this file to COMPOSE_FILE in .env:
+#   COMPOSE_FILE=docker-compose.yml:deploy/local/docker-compose.local.yml
+# then open http://localhost:8080 (PUBLIC_WEB_URL defaults to that). It publishes the gateway's
+# port 80 on loopback only. Don't use it in production: there your proxy on the publicweb
+# network reaches http://gateway:80 and handles the domain and TLS (docs/deploy.md).
+services:
+  gateway:
+    ports:
+      - '127.0.0.1:${LOCAL_HTTP_PORT:-8080}:80'

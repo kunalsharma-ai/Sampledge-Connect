@@ -30,7 +30,7 @@ describe('sso helpers', () => {
         platform: 'ios',
       }),
     );
-    expect(u.pathname).toBe('/v1/auth/sso/northwind/start');
+    expect(u.pathname).toBe('/api/v1/auth/sso/northwind/start');
     expect(u.searchParams.get('returnTo')).toBe('sampledge://sso');
     expect(u.searchParams.get('deviceName')).toBe('Asha’s iPhone');
     expect(u.searchParams.get('platform')).toBe('ios');

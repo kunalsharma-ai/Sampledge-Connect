@@ -929,7 +929,7 @@ export function PaymentsTab({ onChanged }: { onChanged: () => Promise<void> }) {
       <Field
         label="Webhook signing secret"
         htmlFor="st-hook"
-        hint="Add a webhook endpoint at https://<your-api-host>/v1/billing/stripe/webhook for checkout, subscription and invoice events."
+        hint="Add a webhook endpoint at https://<your-domain>/api/v1/billing/stripe/webhook for checkout, subscription and invoice events."
       >
         <Input
           id="st-hook"

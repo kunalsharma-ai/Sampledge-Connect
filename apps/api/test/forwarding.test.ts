@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  apiUrl,
   forwardedOf,
   uuidv7,
   type Attachment,
@@ -164,7 +165,7 @@ describe('forwarding', () => {
       token: olga.accessToken,
     });
     expect(u.status).toBe(200);
-    const res = await fetch(new URL(u.body.url, h.url));
+    const res = await fetch(apiUrl(h.url, u.body.url));
     expect(await res.text()).toBe('pricing sheet');
   });
 });

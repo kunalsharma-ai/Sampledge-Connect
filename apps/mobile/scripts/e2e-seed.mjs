@@ -1,5 +1,5 @@
 // Seeds a local API with a workspace, members, conversations and messages for end-to-end checks.
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const uuid = () => crypto.randomUUID();
 async function call(method, path, body, token) {
   const r = await fetch(API + path, {

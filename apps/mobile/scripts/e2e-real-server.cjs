@@ -2,7 +2,7 @@ const { chromium, devices } = require('playwright');
 // End-to-end check of the web preview against a running API seeded by e2e-seed.mjs.
 // Usage: node scripts/e2e-real-server.cjs <screenshot-dir>  (API and APP env vars override the defaults)
 const out = process.argv[2];
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const APP = process.env.APP ?? 'http://localhost:8099';
 const failures = [];
 const check = (label, ok) => {
@@ -58,7 +58,7 @@ function totp(secret, offset = 0) {
   await p.goto(`${APP}/`, { waitUntil: 'networkidle' });
   await p.waitForTimeout(1500);
   const inputs = p.locator('input');
-  await inputs.nth(0).fill(API);
+  await inputs.nth(0).fill(APP);
   await inputs.nth(1).fill('northwind');
   await inputs.nth(2).fill('sam@northwind.test');
   await inputs.nth(3).fill(pw);
@@ -562,7 +562,7 @@ function totp(secret, offset = 0) {
     await p2.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p2.waitForTimeout(1500);
     const in2 = p2.locator('input');
-    await in2.nth(0).fill(API);
+    await in2.nth(0).fill(APP);
     await in2.nth(1).fill('northwind');
     await in2.nth(2).fill('priya@northwind.test');
     await in2.nth(3).fill(pw);
@@ -1351,7 +1351,7 @@ function totp(secret, offset = 0) {
     await p3.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p3.waitForTimeout(1500);
     const f = p3.locator('input');
-    await f.nth(0).fill(API);
+    await f.nth(0).fill(APP);
     await f.nth(1).fill('northwind');
     await f.nth(2).fill('priya@northwind.test');
     await f.nth(3).fill(pw);
@@ -1459,7 +1459,7 @@ function totp(secret, offset = 0) {
     await p4.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p4.waitForTimeout(1500);
     const f4 = p4.locator('input');
-    await f4.nth(0).fill(API);
+    await f4.nth(0).fill(APP);
     await f4.nth(1).fill('northwind');
     await f4.nth(2).fill('lena@northwind.test');
     await f4.nth(3).fill(pw);
@@ -1864,7 +1864,7 @@ function totp(secret, offset = 0) {
     await p5.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p5.waitForTimeout(1500);
     const f5 = p5.locator('input');
-    await f5.nth(0).fill(API);
+    await f5.nth(0).fill(APP);
     await f5.nth(1).fill('northwind');
     await f5.nth(2).fill('priya@northwind.test');
     await f5.nth(3).fill(pw);
@@ -1987,7 +1987,7 @@ function totp(secret, offset = 0) {
     await p6.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p6.waitForTimeout(1500);
     const f6 = p6.locator('input');
-    await f6.nth(0).fill(API);
+    await f6.nth(0).fill(APP);
     await f6.nth(1).fill('northwind');
     await f6.nth(2).fill('priya@northwind.test');
     await f6.nth(3).fill(pw);
@@ -2162,7 +2162,7 @@ function totp(secret, offset = 0) {
     await p7.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p7.waitForTimeout(1500);
     const f7 = p7.locator('input');
-    await f7.nth(0).fill(API);
+    await f7.nth(0).fill(APP);
     await f7.nth(1).fill('northwind');
     await f7.nth(2).fill('priya@northwind.test');
     await f7.nth(3).fill(pw);
@@ -2220,7 +2220,7 @@ function totp(secret, offset = 0) {
       await p8.goto(`${APP}/`, { waitUntil: 'networkidle' });
       await p8.waitForTimeout(1500);
       const f8 = p8.locator('input');
-      await f8.nth(0).fill(API);
+      await f8.nth(0).fill(APP);
       await f8.nth(1).fill('northwind');
       await f8.nth(2).fill('priya@northwind.test');
       await f8.nth(3).fill(pw);
@@ -2269,7 +2269,7 @@ function totp(secret, offset = 0) {
       await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
       await p9.waitForTimeout(1500);
       const f9 = p9.locator('input');
-      await f9.nth(0).fill(API);
+      await f9.nth(0).fill(APP);
       await f9.nth(1).fill('northwind');
       await p9.waitForTimeout(1500);
       check(
@@ -2333,7 +2333,7 @@ function totp(secret, offset = 0) {
     await p9.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p9.waitForTimeout(1500);
     const f9 = p9.locator('input');
-    await f9.nth(0).fill(API);
+    await f9.nth(0).fill(APP);
     await f9.nth(1).fill('northwind');
     await f9.nth(2).fill('priya@northwind.test');
     await f9.nth(3).fill(pw);

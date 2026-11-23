@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { MongoClient } from 'mongodb';
 import { io, type Socket } from 'socket.io-client';
 import {
+  socketTarget,
   uuidv7,
   type ClientToServerEvents,
   type ServerToClientEvents,
@@ -35,7 +36,8 @@ export async function startHarness(
   const app = await createApp(cfg);
   await app.listen(opts.port ?? 0, '127.0.0.1');
   const addr = app.getHttpServer().address() as { port: number };
-  const url = `http://127.0.0.1:${addr.port}`;
+  // The API answers under /api (issue #128); `url` is that base, so `url + '/v1/...'` works.
+  const url = `http://127.0.0.1:${addr.port}/api`;
   return {
     app,
     url,
@@ -119,7 +121,9 @@ export type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export function connect(h: Harness, token: string): Promise<ClientSocket> {
   return new Promise((resolve, reject) => {
-    const s: ClientSocket = io(h.url, {
+    const t = socketTarget(h.url);
+    const s: ClientSocket = io(t.url, {
+      path: t.path,
       auth: { token },
       transports: ['websocket'],
       reconnection: false,

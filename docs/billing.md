@@ -32,7 +32,7 @@ A price of 0 makes a free plan: it starts at once, with no payment step.
 ## Paying online (Stripe)
 
 1. In Stripe, copy a secret key. Start with a test key (`sk_test_…`): nobody is charged.
-2. Add a webhook endpoint at `https://<your-api-host>/v1/billing/stripe/webhook` for
+2. Add a webhook endpoint at `https://<your-domain>/api/v1/billing/stripe/webhook` for
    `checkout.session.completed`, `customer.subscription.created/updated/deleted` and
    `invoice.created/finalized/paid/payment_failed/voided/marked_uncollectible`. Copy its signing
    secret (`whsec_…`).

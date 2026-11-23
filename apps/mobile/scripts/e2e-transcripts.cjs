@@ -8,7 +8,7 @@ const pathMod = require('path');
 // seeded by e2e-seed.mjs and Mongo on localhost. There is no speech-to-text server here, so
 // the finished transcript is written straight into the database.
 const out = process.argv[2];
-const API = process.env.API ?? 'http://localhost:4000';
+const API = process.env.API ?? 'http://localhost:4000/api';
 const APP = 'http://localhost:8099';
 const pw = 'correct-horse-battery-1';
 const failures = [];
@@ -196,7 +196,7 @@ const DIST = pathMod.join(__dirname, '..', 'dist-web');
     await p.goto(`${APP}/`, { waitUntil: 'networkidle' });
     await p.waitForTimeout(1500);
     const inputs = p.locator('input');
-    await inputs.nth(0).fill(API);
+    await inputs.nth(0).fill(APP);
     await inputs.nth(1).fill('northwind');
     await inputs.nth(2).fill(email);
     await inputs.nth(3).fill(pw);

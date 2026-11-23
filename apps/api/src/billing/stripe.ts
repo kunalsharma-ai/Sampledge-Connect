@@ -25,7 +25,7 @@ export const STRIPE_PROVIDER: IntegrationProviderDef = {
       type: 'secret',
       required: true,
       placeholder: 'whsec_…',
-      help: 'Add a webhook endpoint at https://<your-api-host>/v1/billing/stripe/webhook for checkout.session.completed, customer.subscription.*, invoice.*.',
+      help: 'Add a webhook endpoint at https://<your-domain>/api/v1/billing/stripe/webhook for checkout.session.completed, customer.subscription.*, invoice.*.',
     },
     {
       key: 'apiBase',

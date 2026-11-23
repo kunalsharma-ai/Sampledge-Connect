@@ -638,10 +638,7 @@ export class BillingService implements OnModuleInit {
   }
 
   private webUrl() {
-    return (this.cfg.PUBLIC_WEB_URL ?? this.cfg.corsOrigins[0] ?? 'http://localhost:3000').replace(
-      /\/+$/,
-      '',
-    );
+    return (this.cfg.PUBLIC_WEB_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
   }
 }
 

@@ -3,14 +3,18 @@
  * can't ship without authentication or role checks by accident.
  * See docs/launch-readiness.md.
  */
+import { io } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { socketTarget } from '@sampledge/contracts';
 import { device, inviteAndLogin, registerTenant, startHarness, type Harness } from './harness.js';
 
 let h: Harness;
 let routes: { method: string; path: string }[];
+let allRoutes: { method: string; path: string }[];
 beforeAll(async () => {
   h = await startHarness();
-  routes = listRoutes(h);
+  allRoutes = listRoutes(h);
+  routes = apiRoutes(allRoutes);
 });
 afterAll(() => h.close());
 
@@ -84,6 +88,11 @@ function listRoutes(h: Harness) {
   return out;
 }
 
+/** Route paths relative to the /api prefix (which h.url already ends with). */
+function apiRoutes(all: { method: string; path: string }[]) {
+  return all.map((r) => ({ ...r, path: r.path.replace(/^\/api(?=\/)/, '') }));
+}
+
 const fill = (path: string) => path.replace(/:\w+/g, '0123456789abcdef01234567');
 
 async function call(method: string, path: string, token?: string) {
@@ -103,6 +112,10 @@ async function call(method: string, path: string, token?: string) {
 describe('authentication on every route', () => {
   it('finds the API routes', () => {
     expect(routes.length).toBeGreaterThan(150);
+  });
+
+  it('mounts every route under /api, so the gateway can send /api/** here', () => {
+    expect(allRoutes.filter((r) => !r.path.startsWith('/api/'))).toEqual([]);
   });
 
   it('every non-public route answers 401 without a session', async () => {
@@ -198,6 +211,27 @@ describe('request hardening', () => {
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 
+  it('refuses realtime sockets opened by other sites, and takes same-origin ones', async () => {
+    const owner = await registerTenant(h, 'Socket Origin Co');
+    const t = socketTarget(h.url);
+    const open = (origin: string | undefined) =>
+      new Promise<'ok' | 'refused'>((resolve) => {
+        const s = io(t.url, {
+          path: t.path,
+          auth: { token: owner.session.accessToken },
+          transports: ['websocket'],
+          reconnection: false,
+          forceNew: true,
+          extraHeaders: origin ? { origin } : {},
+        });
+        s.once('connect', () => (s.close(), resolve('ok')));
+        s.once('connect_error', () => (s.close(), resolve('refused')));
+      });
+    expect(await open('https://evil.example')).toBe('refused');
+    expect(await open(new URL(h.url).origin)).toBe('ok');
+    expect(await open(undefined)).toBe('ok'); // phones send no Origin
+  });
+
   it('gives the same answer for a wrong password and an unknown email', async () => {
     const owner = await registerTenant(h, 'Enumeration Co');
     const login = (email: string) =>
@@ -264,7 +298,7 @@ describe('metrics endpoint', () => {
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).toContain(
-        'sc_http_requests_total{method="GET",route="/v1/billing/plans",status="2xx"} 1',
+        'sc_http_requests_total{method="GET",route="/api/v1/billing/plans",status="2xx"} 1',
       );
       expect(text).toContain('sc_mongo_up 1');
       expect(text).toContain('sc_socket_connections 0');

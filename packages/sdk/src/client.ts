@@ -12,9 +12,10 @@ import type {
   WidgetSession,
 } from '@sampledge/contracts';
 import { signPayload } from './signature.js';
+import { apiBaseFor } from '@sampledge/contracts';
 
 export interface ConnectClientOptions {
-  /** Connect API base URL, e.g. https://connect.example.com */
+  /** Your SampConnect address, e.g. https://connect.example.com (its API is at /api). */
   baseUrl: string;
   /** The Connect API key for your module (Integrations → Sampledge modules → Keys). */
   apiKey: string;
@@ -52,7 +53,7 @@ export class ConnectClient {
   private readonly f: typeof fetch;
 
   constructor(private readonly opts: ConnectClientOptions) {
-    this.base = opts.baseUrl.replace(/\/+$/, '');
+    this.base = apiBaseFor(opts.baseUrl);
     this.f = opts.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
