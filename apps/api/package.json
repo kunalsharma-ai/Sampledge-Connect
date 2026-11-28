@@ -17,18 +17,18 @@
     "test:integration": "vitest run --dir test"
   },
   "dependencies": {
-    "@nestjs/common": "^12.6.0",
-    "@nestjs/core": "^12.6.0",
-    "@nestjs/platform-express": "^12.6.0",
-    "@nestjs/platform-socket.io": "^12.6.0",
-    "@nestjs/websockets": "^12.6.0",
+    "@nestjs/common": "^12.6.1",
+    "@nestjs/core": "^12.6.1",
+    "@nestjs/platform-express": "^12.6.1",
+    "@nestjs/platform-socket.io": "^12.6.1",
+    "@nestjs/websockets": "^12.6.1",
     "@sampledge/contracts": "workspace:*",
     "@socket.io/redis-adapter": "^8.3.0",
     "argon2": "^0.45.2",
     "docx": "9.16.0",
     "fontkit": "3.0.0",
     "helmet": "^8.3.0",
-    "ioredis": "^6.0.0",
+    "ioredis": "^6.1.0",
     "jose": "^6.2.18",
     "mongodb": "^7.9.1",
     "nodemailer": "^10.6.0",
@@ -43,7 +43,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@nestjs/testing": "^12.6.0",
+    "@nestjs/testing": "^12.6.1",
     "@sampledge/chat-widget": "workspace:*",
     "@sampledge/connect-sdk": "workspace:*",
     "@sampledge/offline": "workspace:*",
